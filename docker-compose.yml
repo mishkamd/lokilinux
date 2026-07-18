@@ -1,0 +1,335 @@
+# LokiLinux — Production Docker Compose
+# TimescaleDB chunk_time_interval = '1 day' (configured in init SQL)
+# pgBouncer sits in front of Postgres on port 6432 for connection pooling
+
+services:
+
+  # ============================================================================
+  # DATABASE — TimescaleDB (PostgreSQL 17 + TimescaleDB extension)
+  # ============================================================================
+
+  postgres:
+    image: timescale/timescaledb:2.28.1-pg17
+    container_name: lokilinux-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-lokilinux}
+      POSTGRES_USER: ${POSTGRES_USER:-lokilinux}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - lokilinux-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-lokilinux}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 4G
+        reservations:
+          cpus: "0.5"
+          memory: 1G
+
+  # ============================================================================
+  # CONNECTION POOLER — pgBouncer (port 6432)
+  # ============================================================================
+
+  pgbouncer:
+    image: edoburu/pgbouncer:v1.25.2-p0
+    container_name: lokilinux-pgbouncer
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DB_USER: ${POSTGRES_USER:-lokilinux}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${POSTGRES_DB:-lokilinux}
+      POOL_MODE: transaction
+      MAX_CLIENT_CONN: 200
+      DEFAULT_POOL_SIZE: 20
+      AUTH_TYPE: scram-sha-256
+    ports:
+      - "6432:5432"
+    networks:
+      - lokilinux-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h localhost -p 5432 -U ${POSTGRES_USER:-lokilinux}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 256M
+
+  # ============================================================================
+  # MESSAGE BUS — NATS 2.10 with JetStream
+  # ============================================================================
+
+  nats:
+    image: nats:2.10.29-alpine
+    container_name: lokilinux-nats
+    restart: unless-stopped
+    command:
+      - "--js"
+      - "--sd=/data/jetstream"
+      - "--m=8222"
+    ports:
+      - "4222:4222"   # client
+      - "8222:8222"   # monitoring
+    volumes:
+      - nats_data:/data/jetstream
+    networks:
+      - lokilinux-network
+    healthcheck:
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:8222/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 1G
+
+  # ============================================================================
+  # CACHE — Redis 7
+  # ============================================================================
+
+  redis:
+    image: redis:7.4.9-alpine
+    container_name: lokilinux-redis
+    restart: unless-stopped
+    command:
+      - redis-server
+      - --requirepass
+      - ${REDIS_PASSWORD}
+      - --maxmemory
+      - ${REDIS_MAXMEMORY:-2gb}
+      - --maxmemory-policy
+      - allkeys-lru
+      - --appendonly
+      - "yes"
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - lokilinux-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    deploy:
+      resources:
+        limits:
+          cpus: "1"
+          memory: 2G
+
+  # ============================================================================
+  # MIGRATION — rulează alembic upgrade head la fiecare deploy
+  # ============================================================================
+
+  lokilinux-migrate:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: lokilinux-migrate
+    restart: "no"
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pgbouncer:5432/${POSTGRES_DB}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3000}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+    command: ["alembic", "upgrade", "head"]
+    networks:
+      - lokilinux-network
+
+  # ============================================================================
+  # API — FastAPI REST (port 8000) + Prometheus metrics (port 9090)
+  # ============================================================================
+
+  lokilinux-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: lokilinux/api:${LOKILINUX_VERSION:-latest}
+    container_name: lokilinux-api
+    restart: unless-stopped
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      lokilinux-migrate:
+        condition: service_completed_successfully
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pgbouncer:5432/${POSTGRES_DB}
+      NATS_URL: nats://nats:4222
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      BETTER_AUTH_URL: http://lokilinux-frontend:3000
+      API_HOST: 0.0.0.0
+      API_PORT: 8000
+      CA_CERT_PATH: /etc/lokilinux/certs/ca.crt
+      CA_KEY_PATH: /etc/lokilinux/certs/ca.key
+      PLUGIN_DIR: /opt/lokilinux/plugins
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Single public entry point — agent install URLs + CORS origin both derive from it.
+      PLATFORM_URL: ${PUBLIC_URL:-http://localhost:3000}
+      FRONTEND_URL: ${PUBLIC_URL:-http://localhost:3000}
+      AGENT_DOWNLOAD_BASE: ${AGENT_DOWNLOAD_BASE:-}
+      AGENT_VERSION: ${AGENT_VERSION:-0.1.0}
+    ports:
+      - "8000:8000"
+      - "9090:9090"
+    volumes:
+      - certs_dir:/etc/lokilinux/certs:ro
+      - plugins_dir:/opt/lokilinux/plugins
+      - ./logs/api:/var/log/lokilinux
+      - ./agent/bin:/opt/lokilinux/packages:ro
+    networks:
+      - lokilinux-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+
+  # ============================================================================
+  # gRPC SERVER — FastAPI + grpcio (port 50051, mTLS)
+  # ============================================================================
+
+  lokilinux-grpc:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: lokilinux/api:${LOKILINUX_VERSION:-latest}
+    container_name: lokilinux-grpc
+    restart: unless-stopped
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT:-production}
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pgbouncer:5432/${POSTGRES_DB}
+      NATS_URL: nats://nats:4222
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      GRPC_PORT: ${GRPC_PORT:-50051}
+      CA_CERT_PATH: /etc/lokilinux/certs/ca.crt
+      CA_KEY_PATH: /etc/lokilinux/certs/ca.key
+      SERVER_CERT_PATH: /etc/lokilinux/certs/server.crt
+      SERVER_KEY_PATH: /etc/lokilinux/certs/server.key
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    command: ["python", "-m", "lokilinux.grpc_server"]
+    ports:
+      - "50051:50051"
+    volumes:
+      - certs_dir:/etc/lokilinux/certs:ro
+    networks:
+      - lokilinux-network
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import socket; s=socket.socket(); s.settimeout(3); s.connect(('127.0.0.1',50051)); s.close()\""]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+
+  # ============================================================================
+  # FRONTEND — Nuxt 4 (port 3000)
+  # ============================================================================
+
+  lokilinux-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NUXT_PUBLIC_API_BASE: /api/v1
+    image: lokilinux/frontend:${LOKILINUX_VERSION:-latest}
+    container_name: lokilinux-frontend
+    restart: unless-stopped
+    depends_on:
+      lokilinux-api:
+        condition: service_healthy
+    environment:
+      # Client apiBase = relative (same-origin proxy); SSR uses API_INTERNAL_URL.
+      NUXT_PUBLIC_API_BASE: /api/v1
+      API_INTERNAL_URL: http://lokilinux-api:8000
+      BETTER_AUTH_URL: ${PUBLIC_URL:-http://localhost:3000}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      POSTGRES_HOST: pgbouncer
+      POSTGRES_PORT: "5432"
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "3000:3000"
+    networks:
+      - lokilinux-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+
+# ============================================================================
+# NETWORK
+# ============================================================================
+
+networks:
+  lokilinux-network:
+    name: lokilinux-network
+    driver: bridge
+
+# ============================================================================
+# VOLUMES
+# ============================================================================
+
+volumes:
+  postgres_data:
+    name: lokilinux-postgres-data
+  nats_data:
+    name: lokilinux-nats-data
+  redis_data:
+    name: lokilinux-redis-data
+  plugins_dir:
+    name: lokilinux-plugins
+  certs_dir:
+    name: lokilinux-certs

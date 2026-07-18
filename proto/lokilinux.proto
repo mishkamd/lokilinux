@@ -1,0 +1,288 @@
+// LokiLinux gRPC Protocol Definitions
+// Max message size: 16MB (set on both client and server via MaxCallRecvMsgSize / MaxRecvMsgSize)
+syntax = "proto3";
+
+package lokilinux;
+
+option go_package = "github.com/lokilinux/agent/gen/lokilinux";
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+
+// ============================================================================
+// HEARTBEAT — Agent → Server
+// ============================================================================
+
+message AgentHeartbeatRequest {
+  string agent_id        = 1;
+  google.protobuf.Timestamp timestamp = 2;
+
+  SystemStatus system_status   = 3;
+  repeated Package packages    = 4;
+  repeated Service services    = 5;
+  repeated Repository repositories = 6;
+  google.protobuf.Struct custom_facts = 7;
+  repeated Vulnerability vulnerabilities = 8;
+  AgentHealth health           = 9;
+  int32 pending_jobs           = 10;
+  string config_version        = 11;
+
+  // fields 12-19 reserved for future use
+
+  // SHA-256 of the serialised packages list — used for delta-sync optimisation
+  string packages_checksum = 20;
+
+  string agent_version      = 21;
+  repeated string recent_logs = 22; // last N lines from the agent's own logger
+  int32 log_connections     = 23; // successful heartbeats within the log window
+  int32 log_informative     = 24; // info/warn-level entries within the log window
+  int32 log_critical        = 25; // error-level entries within the log window
+
+  repeated JobResult job_results = 26; // results of jobs completed since the last heartbeat
+}
+
+message AgentHeartbeatResponse {
+  oneof command {
+    JobRequest    execute_job    = 1;
+    PolicyConfig  update_policy  = 2;
+    string        reboot_request = 3;
+    string        plugin_action  = 4;
+  }
+}
+
+// ============================================================================
+// SYSTEM INFO
+// ============================================================================
+
+message SystemStatus {
+  string hostname        = 1;
+  string os_family       = 2;   // linux
+  string os_distro       = 3;   // debian, ubuntu, rhel, rocky
+  string os_version      = 4;   // 20.04, 8.5
+  string kernel_version  = 5;
+  string arch            = 6;   // x86_64, arm64
+  int32  cpu_count       = 7;
+  uint64 total_memory    = 8;
+  uint64 free_memory     = 9;
+  repeated Disk disks    = 10;
+  google.protobuf.Timestamp boot_time = 11;
+  string fqdn            = 12;
+  repeated string system_users = 13; // local OS accounts, UID >= 1000
+  repeated NetworkInterface network_interfaces = 14;
+  repeated BlockDevice block_devices = 15;
+  repeated ListeningPort listening_ports = 16;
+}
+
+message Disk {
+  string mount_point = 1;
+  string filesystem  = 2;
+  uint64 total_size  = 3;
+  uint64 used_size   = 4;
+  uint64 free_size   = 5;
+}
+
+message NetworkInterface {
+  string name              = 1;
+  string mac_address       = 2;
+  repeated string ip_addresses = 3;
+  bool   is_up              = 4;
+  uint64 rx_bytes            = 5;
+  uint64 tx_bytes            = 6;
+}
+
+// BlockDevice mirrors `lsblk` output — flat list, parent_name links a
+// partition/lvm-mapper entry back to its parent disk (empty for top-level disks).
+message BlockDevice {
+  string name        = 1;
+  string type        = 2;   // disk, part, lvm, rom
+  uint64 size         = 3;
+  string mount_point  = 4;
+  string parent_name  = 5;
+}
+
+// ListeningPort mirrors one `ss -tulpn` row — sockets in LISTEN state only.
+message ListeningPort {
+  string protocol      = 1;   // tcp, udp
+  string local_address  = 2;
+  int32  local_port      = 3;
+  int32  pid              = 4;
+  string process_name    = 5;
+}
+
+message Package {
+  string name          = 1;
+  string version       = 2;
+  string architecture  = 3;
+  string source        = 4;   // repository name
+  string maintainer    = 5;
+  google.protobuf.Timestamp installed_date = 6;
+  bool   update_available   = 7;
+  string latest_version     = 8;
+  bool   is_security_update = 9;
+  string security_advisory  = 10;
+}
+
+message Repository {
+  string name           = 1;
+  string type           = 2;   // apt, dnf, yum, zypper
+  string url            = 3;
+  string distribution   = 4;   // focal, jammy, 8, 9
+  repeated string components = 5;
+  bool   enabled        = 6;
+  google.protobuf.Timestamp last_update = 7;
+  int32  package_count  = 8;
+}
+
+message Service {
+  string name           = 1;
+  bool   is_running     = 2;
+  string status         = 3;
+  google.protobuf.Timestamp last_started = 4;
+  int32  restart_count  = 5;
+  bool   is_enabled     = 6;
+}
+
+message Vulnerability {
+  string cve_id              = 1;
+  string package_name        = 2;
+  string installed_version   = 3;
+  string fixed_version       = 4;
+  float  cvss_score          = 5;
+  string severity            = 6;   // low, medium, high, critical
+  string description         = 7;
+  repeated string affected_components = 8;
+}
+
+message AgentHealth {
+  enum Status {
+    UNKNOWN   = 0;
+    HEALTHY   = 1;
+    DEGRADED  = 2;
+    UNHEALTHY = 3;
+  }
+  Status status             = 1;
+  float  cpu_usage          = 2;   // 0-100
+  float  memory_usage       = 3;   // 0-100
+  float  disk_usage         = 4;   // 0-100
+  int32  network_latency_ms = 5;
+  int32  connection_failures = 6;
+  string last_error         = 7;
+  int32  cpu_count          = 8;
+  uint64 memory_total_bytes = 9;
+  uint64 memory_used_bytes  = 10;
+  uint64 disk_total_bytes   = 11;
+  uint64 disk_used_bytes    = 12;
+  float  swap_usage         = 13;  // 0-100
+  uint64 swap_total_bytes   = 14;
+  uint64 swap_used_bytes    = 15;
+}
+
+// ============================================================================
+// JOBS
+// ============================================================================
+
+message JobRequest {
+  string job_id    = 1;
+  string job_type  = 2;   // PACKAGE_UPDATE, SECURITY_PATCH, REPO_ADD, …
+  reserved 3;
+  repeated string target_packages = 4;
+  google.protobuf.Struct parameters = 5;
+  google.protobuf.Timestamp scheduled_time = 6;
+  int32  timeout_seconds    = 7;
+  bool   requires_approval  = 8;
+  bool   allow_rollback     = 9;
+  string maintenance_window = 10;
+}
+
+message JobResult {
+  enum State {
+    PENDING     = 0;
+    RUNNING     = 1;
+    COMPLETED   = 2;
+    FAILED      = 3;
+    TIMEOUT     = 4;
+    CANCELLED   = 5;
+    ROLLED_BACK = 6;
+  }
+  string job_id          = 1;
+  State  state           = 2;
+  float  progress_percent = 3;
+  string output          = 4;
+  int32  exit_code       = 5;
+  string error_message   = 6;
+  google.protobuf.Timestamp updated_at = 7;
+}
+
+// ============================================================================
+// POLICY / CONFIG SYNC
+// ============================================================================
+
+message PolicyConfig {
+  string version                   = 1;
+  google.protobuf.Struct policies  = 2;
+  repeated string command_whitelist = 3;
+  int32  heartbeat_interval        = 4;   // seconds
+}
+
+message PolicySyncRequest {
+  string agent_id        = 1;
+  string current_version = 2;
+}
+
+// ============================================================================
+// METRICS
+// ============================================================================
+
+message MetricsData {
+  string agent_id    = 1;
+  google.protobuf.Timestamp timestamp = 2;
+  string metric_name = 3;
+  double value       = 4;
+  map<string, string> tags = 5;
+}
+
+message MetricsAck {
+  bool success = 1;
+}
+
+// ============================================================================
+// PLUGIN
+// ============================================================================
+
+message PluginInstallRequest {
+  string agent_id      = 1;
+  string plugin_name   = 2;
+  string plugin_version = 3;
+  string download_url  = 4;
+  string checksum_sha256 = 5;
+}
+
+message PluginInstallResult {
+  bool   success       = 1;
+  string error_message = 2;
+}
+
+// ============================================================================
+// SERVICES
+// ============================================================================
+
+// AgentService — called by agents (client = agent, server = control plane)
+service AgentService {
+  // Bidirectional stream: agent sends heartbeats, server sends back commands
+  rpc HeartbeatStream(stream AgentHeartbeatRequest) returns (stream AgentHeartbeatResponse);
+
+  // Agent streams metrics in bulk; server acknowledges
+  rpc ReportMetrics(stream MetricsData) returns (MetricsAck);
+
+  // Agent pulls latest policy configuration
+  rpc SyncPolicy(PolicySyncRequest) returns (PolicyConfig);
+}
+
+// PlatformService — called by control-plane components (internal service-to-service)
+service PlatformService {
+  // Server pushes a job; agent streams back status updates
+  rpc ExecuteJobStream(JobRequest) returns (stream JobResult);
+
+  // Server instructs agent to install a plugin
+  rpc InstallPlugin(PluginInstallRequest) returns (PluginInstallResult);
+}

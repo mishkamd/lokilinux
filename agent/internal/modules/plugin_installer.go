@@ -1,0 +1,95 @@
+package modules
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"time"
+)
+
+// PluginDir is where agent-side plugin artifacts land.
+// ponytail: constant matching agent packaging docs — wire into agent.yaml
+// only when a deployment actually needs a different path.
+var PluginDir = "/opt/lokilinux/plugins"
+
+// InstallPlugin downloads a plugin artifact, verifies its SHA-256 checksum
+// and places it at PluginDir/<name>/<name>-<version>. Returns a JobResult
+// shaped like a shell job so the existing heartbeat result path reports it
+// back to the control plane unchanged.
+func InstallPlugin(ctx context.Context, jobID string, params map[string]interface{}, timeoutSec int) JobResult {
+	start := time.Now()
+	fail := func(format string, a ...interface{}) JobResult {
+		return JobResult{JobID: jobID, ExitCode: 1, Error: fmt.Sprintf(format, a...), DurationMs: msSince(start)}
+	}
+
+	name, _ := params["plugin_name"].(string)
+	version, _ := params["plugin_version"].(string)
+	url, _ := params["download_url"].(string)
+	wantSum, _ := params["checksum_sha256"].(string)
+	if name == "" || url == "" {
+		return fail("plugin install missing plugin_name or download_url")
+	}
+
+	if timeoutSec > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
+		defer cancel()
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return fail("bad download_url %q: %v", url, err)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return fail("download failed: %v", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+	if resp.StatusCode != http.StatusOK {
+		return fail("download failed: HTTP %d", resp.StatusCode)
+	}
+
+	dir := filepath.Join(PluginDir, name)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fail("mkdir %s: %v", dir, err)
+	}
+
+	// Download to a temp file in the target dir (same filesystem → atomic
+	// rename), hashing as we stream so the artifact is never read twice.
+	tmp, err := os.CreateTemp(dir, ".download-*")
+	if err != nil {
+		return fail("temp file: %v", err)
+	}
+	defer os.Remove(tmp.Name()) //nolint:errcheck
+
+	h := sha256.New()
+	if _, err := io.Copy(io.MultiWriter(tmp, h), resp.Body); err != nil {
+		tmp.Close() //nolint:errcheck
+		return fail("download interrupted: %v", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fail("write failed: %v", err)
+	}
+
+	gotSum := hex.EncodeToString(h.Sum(nil))
+	if wantSum != "" && gotSum != wantSum {
+		return fail("checksum mismatch: want %s got %s", wantSum, gotSum)
+	}
+
+	dest := filepath.Join(dir, fmt.Sprintf("%s-%s", name, version))
+	if err := os.Rename(tmp.Name(), dest); err != nil {
+		return fail("install failed: %v", err)
+	}
+
+	return JobResult{
+		JobID:      jobID,
+		ExitCode:   0,
+		Stdout:     fmt.Sprintf("plugin %s v%s installed to %s (sha256 %s)", name, version, dest, gotSum),
+		DurationMs: msSince(start),
+	}
+}

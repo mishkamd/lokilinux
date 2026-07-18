@@ -1,0 +1,67 @@
+<script setup lang="ts">
+definePageMeta({ layout: 'auth' })
+
+const { signIn } = useAuth()
+const router = useRouter()
+const toast = useToast()
+
+const form = reactive({ username: '', password: '', code: '' })
+const pending = ref(false)
+const requires2FA = ref(false)
+
+async function onSubmit() {
+  pending.value = true
+  try {
+    await signIn.username({ username: form.username, password: form.password })
+    await refreshAuthToken()
+    await router.push('/')
+  } catch (error: unknown) {
+    const err = error as { code?: string; message?: string }
+    if (err?.code === '2FA_REQUIRED') {
+      requires2FA.value = true
+    } else {
+      toast.add({ title: 'Autentificare eșuată', description: err?.message, color: 'red' })
+    }
+  } finally {
+    pending.value = false
+  }
+}
+</script>
+
+<template>
+  <div class="p-6 space-y-6">
+    <div class="text-center">
+      <h2 class="text-lg font-semibold tracking-tight">Autentificare</h2>
+      <p class="text-sm text-muted-foreground mt-1">Fleet Management Platform</p>
+    </div>
+
+    <form class="space-y-4" @submit.prevent="onSubmit">
+      <FormField label="Utilizator" name="username">
+        <Input
+          id="username"
+          v-model="form.username"
+          placeholder="username"
+          autocomplete="username"
+        />
+      </FormField>
+
+      <FormField label="Parolă" name="password">
+        <Input
+          id="password"
+          v-model="form.password"
+          type="password"
+          placeholder="••••••••"
+          autocomplete="current-password"
+        />
+      </FormField>
+
+      <FormField v-if="requires2FA" label="Cod 2FA" name="code">
+        <Input id="code" v-model="form.code" placeholder="000000" maxlength="6" />
+      </FormField>
+
+      <Button type="submit" :loading="pending" class="w-full" size="lg">
+        Autentificare
+      </Button>
+    </form>
+  </div>
+</template>

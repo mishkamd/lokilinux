@@ -1,0 +1,80 @@
+version: "3.9"
+
+# LokiLinux — Development Override
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+
+services:
+
+  postgres:
+    ports:
+      - "5432:5432"   # expose locally for DB tools
+    environment:
+      POSTGRES_INITDB_ARGS: "-c log_statement=all"
+
+  pgbouncer:
+    ports:
+      - "6432:5432"
+
+  nats:
+    ports:
+      - "4222:4222"
+      - "8222:8222"
+      - "6222:6222"   # cluster port (useful for local NATS testing)
+
+  redis:
+    ports:
+      - "6379:6379"
+
+  lokilinux-api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    environment:
+      ENVIRONMENT: development
+      DEBUG: "true"
+      RELOAD_ON_CHANGE: "true"
+    command: ["uvicorn", "lokilinux.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"]
+    volumes:
+      - ./backend:/app
+      - /app/.venv          # exclude venv from bind mount
+      - certs_dir:/etc/lokilinux/certs:ro
+      - plugins_dir:/opt/lokilinux/plugins
+    # prod caps this tighter (512M-2G); dev tooling (Vite/uvicorn --reload) needs headroom
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 4G
+
+  lokilinux-grpc:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    environment:
+      ENVIRONMENT: development
+      DEBUG: "true"
+    volumes:
+      - ./backend:/app
+      - /app/.venv
+      - certs_dir:/etc/lokilinux/certs:ro
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 4G
+
+  lokilinux-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev
+    environment:
+      ENVIRONMENT: development
+    command: ["npm", "run", "dev"]
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules   # exclude node_modules from bind mount
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 4G

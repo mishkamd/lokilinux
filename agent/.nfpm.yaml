@@ -1,0 +1,30 @@
+name: lokilinux-agent
+arch: ${ARCH}
+platform: linux
+version: ${VERSION}
+maintainer: LokiLinux Team <ops@lokilinux.io>
+description: LokiLinux enterprise Linux fleet management agent
+vendor: LokiLinux
+homepage: https://lokilinux.io
+license: Apache-2.0
+
+contents:
+  - src: bin/lokilinux-agent
+    dst: /usr/local/bin/lokilinux-agent
+    file_info:
+      mode: 0755
+
+  - src: /dev/null
+    dst: /etc/lokilinux/
+    type: dir
+    file_info:
+      mode: 0750
+
+  - src: /dev/null
+    dst: /var/lib/lokilinux/
+    type: dir
+    file_info:
+      mode: 0750
+
+scripts:
+  postinstall: scripts/agent-postinstall.sh

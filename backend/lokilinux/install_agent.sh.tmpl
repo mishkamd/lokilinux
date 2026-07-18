@@ -1,0 +1,161 @@
+#!/bin/bash
+# LokiLinux Agent — Installation & Enrollment Script (served by the control plane).
+# Usage: curl -fsSL <platform>/api/v1/agent/install.sh | bash -s -- --token=TOKEN [--url=URL] [--name=NAME]
+set -euo pipefail
+
+PLATFORM_URL="__PLATFORM_URL__"
+ENROLLMENT_TOKEN=""
+AGENT_NAME=""
+
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --token=*) ENROLLMENT_TOKEN="${1#*=}"; shift ;;
+    --token)   ENROLLMENT_TOKEN="$2";      shift 2 ;;
+    --name=*)  AGENT_NAME="${1#*=}";       shift ;;
+    --name)    AGENT_NAME="$2";            shift 2 ;;
+    --url=*)   PLATFORM_URL="${1#*=}";     shift ;;
+    --url)     PLATFORM_URL="$2";          shift 2 ;;
+    *) echo "Unknown option: $1"; exit 1 ;;
+  esac
+done
+
+if [ -z "$ENROLLMENT_TOKEN" ]; then
+  echo "Error: --token=ENROLLMENT_TOKEN required"; exit 1
+fi
+if [ "$(id -u)" -ne 0 ]; then
+  echo "Error: run as root (sudo)"; exit 1
+fi
+
+# ── OS / arch detection ───────────────────────────────────────────────────────
+[ -f /etc/os-release ] || { echo "Error: /etc/os-release not found"; exit 1; }
+# shellcheck disable=SC1091
+. /etc/os-release
+OS="$ID"; OS_VERSION="${VERSION_ID:-unknown}"
+ARCH="$(uname -m)"
+[ "$ARCH" = "aarch64" ] && ARCH="arm64"
+[ "$ARCH" = "x86_64" ]  && ARCH="amd64"
+
+# Only tar.gz is currently built on the control plane — universal, extract manually.
+PKG_FMT="tar.gz"
+
+echo "[*] LokiLinux Agent Installation"
+echo "    Platform : $PLATFORM_URL"
+echo "    OS       : $OS $OS_VERSION ($ARCH)"
+
+# ── Download + extract binary ─────────────────────────────────────────────────
+echo "[*] Downloading agent package ($PKG_FMT/$ARCH)..."
+TMPDIR_DL="$(mktemp -d)"
+trap 'rm -rf "$TMPDIR_DL"' EXIT
+curl -fsSL -H "Authorization: Bearer $ENROLLMENT_TOKEN" \
+  "$PLATFORM_URL/api/v1/agent/download?os=$PKG_FMT&arch=$ARCH" \
+  -o "$TMPDIR_DL/agent.tar.gz"
+tar -xzf "$TMPDIR_DL/agent.tar.gz" -C "$TMPDIR_DL"
+AGENT_BIN="$(find "$TMPDIR_DL" -type f -name 'lokilinux-agent*' | head -1)"
+[ -n "$AGENT_BIN" ] || { echo "Error: binary not found in package"; exit 1; }
+chmod +x "$AGENT_BIN"
+LOKI_CLI="$(find "$TMPDIR_DL" -type f -name 'loki' | head -1)"
+[ -n "$LOKI_CLI" ] && chmod +x "$LOKI_CLI"
+echo "[+] Binary extracted"
+
+# ── Register with control plane ───────────────────────────────────────────────
+echo "[*] Registering agent..."
+REG=$(curl -fsSL -X POST "$PLATFORM_URL/api/v1/agents/register" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $ENROLLMENT_TOKEN" \
+  -d "{\"hostname\":\"$(hostname -f 2>/dev/null || hostname)\",\"os_distro\":\"$OS\",\"os_version\":\"$OS_VERSION\",\"arch\":\"$ARCH\",\"kernel_version\":\"$(uname -r)\"}")
+
+get_field() { echo "$REG" | python3 -c "import sys,json;print(json.load(sys.stdin).get('$1',''))"; }
+AGENT_ID="$(get_field agent_id)"
+AGENT_CERT="$(get_field agent_cert)"
+AGENT_KEY="$(get_field agent_key)"
+CA_CERT="$(get_field ca_cert)"
+[ -n "$AGENT_ID" ] || { echo "Error: registration failed: $REG"; exit 1; }
+echo "[+] Registered — Agent ID: $AGENT_ID"
+
+# ── Directories + certs ───────────────────────────────────────────────────────
+install -d -m 750 /etc/lokilinux/certs
+install -d -m 755 /var/lib/lokilinux /var/log/lokilinux /opt/lokilinux/plugins
+printf '%s\n' "$AGENT_CERT" > /etc/lokilinux/certs/agent.crt
+printf '%s\n' "$CA_CERT"    > /etc/lokilinux/certs/ca.crt
+printf '%s\n' "$AGENT_KEY"  > /etc/lokilinux/certs/agent.key
+chmod 600 /etc/lokilinux/certs/agent.key
+chmod 644 /etc/lokilinux/certs/agent.crt /etc/lokilinux/certs/ca.crt
+
+# ── agent.yaml — schema MUST match agent/internal/config/config.go ─────────────
+# gRPC is a separate mTLS port (50051); derive host from the platform URL
+# (strip scheme + any http port), keep the standard gRPC port.
+GRPC_HOST="$(echo "$PLATFORM_URL" | sed -E 's#^https?://##; s#[:/].*$##')"
+cat > /etc/lokilinux/agent.yaml <<EOF
+platform:
+  url: $PLATFORM_URL
+  grpc_endpoint: $GRPC_HOST:50051
+identity:
+  agent_id: $AGENT_ID
+  cert_path: /etc/lokilinux/certs/agent.crt
+  key_path: /etc/lokilinux/certs/agent.key
+  ca_path: /etc/lokilinux/certs/ca.crt
+heartbeat:
+  interval_sec: 60
+  timeout_sec: 30
+  retry_backoff_max: 300
+cache:
+  enabled: true
+  path: /var/lib/lokilinux
+  sqlite_db: /var/lib/lokilinux/agent.db
+  retention_days: 30
+job_execution:
+  max_parallel_jobs: 4
+  timeout_seconds: 3600
+  sandbox_enabled: false
+logging:
+  level: info
+  output: /var/log/lokilinux/agent.log
+EOF
+chmod 640 /etc/lokilinux/agent.yaml
+
+# ── Install binary + CLI + systemd unit ───────────────────────────────────────
+install -m 755 "$AGENT_BIN" /usr/local/bin/lokilinux-agent
+if [ -n "$LOKI_CLI" ]; then
+  install -m 755 "$LOKI_CLI" /usr/local/bin/loki
+  # /usr/local/bin isn't guaranteed to be on PATH (some hosts override root's
+  # PATH via .bashrc/profile.d, dropping it) — symlink into /usr/bin too,
+  # which every observed PATH includes.
+  ln -sf /usr/local/bin/loki /usr/bin/loki
+fi
+cat > /etc/systemd/system/lokilinux-agent.service <<'EOF'
+[Unit]
+Description=LokiLinux Agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/lokilinux-agent --config /etc/lokilinux/agent.yaml
+Restart=always
+RestartSec=10
+TimeoutStopSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=lokilinux-agent
+ProtectSystem=strict
+ReadWritePaths=/var/lib/lokilinux /var/log/lokilinux
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable lokilinux-agent >/dev/null 2>&1 || true
+systemctl restart lokilinux-agent
+
+sleep 2
+if systemctl is-active --quiet lokilinux-agent; then
+  echo "[+] lokilinux-agent running — ID: $AGENT_ID"
+  [ -x /usr/local/bin/loki ] && echo "[+] loki CLI installed — try: loki status"
+else
+  echo "[-] Service failed to start:"; journalctl -u lokilinux-agent -n 20 --no-pager; exit 1
+fi
