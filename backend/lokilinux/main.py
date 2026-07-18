@@ -73,6 +73,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from lokilinux.workers.policy_worker import PolicyWorker
     from lokilinux.workers.plugin_worker import PluginWorker
     from lokilinux.workers.heartbeat_monitor import HeartbeatMonitorWorker
+    from lokilinux.workers.job_timeout import JobTimeoutWorker
     from lokilinux.workers.retention_cleanup import RetentionCleanupWorker
     from lokilinux.workers.notification_worker import NotificationWorker
 
@@ -88,13 +89,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await plugin_worker.start()
     heartbeat_worker = HeartbeatMonitorWorker(nc, session_factory, cache)
     await heartbeat_worker.start()
+    job_timeout_worker = JobTimeoutWorker(session_factory, cache)
+    await job_timeout_worker.start()
     retention_worker = RetentionCleanupWorker(session_factory)
     await retention_worker.start()
     notification_worker = NotificationWorker(nc, session_factory)
     await notification_worker.start()
     app.state.workers = [
         job_worker, cve_worker, alert_worker, policy_worker, plugin_worker,
-        heartbeat_worker, retention_worker, notification_worker,
+        heartbeat_worker, job_timeout_worker, retention_worker, notification_worker,
     ]
     logger.info("workers.ready")
 
@@ -103,6 +106,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Shutdown — reverse order
     logger.info("lokilinux.shutdown")
     await heartbeat_worker.stop()
+    await job_timeout_worker.stop()
     await retention_worker.stop()
     await nc.drain()
     await cache.disconnect()

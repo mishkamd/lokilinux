@@ -14,7 +14,7 @@ interface AllSettings {
     smtp_host: string; smtp_port: number; smtp_user: string; smtp_password: string
     smtp_from: string; slack_webhook_url: string
   }
-  fleet: { heartbeat_timeout_minutes: number }
+  fleet: { heartbeat_timeout_minutes: number; job_stale_timeout_minutes: number }
   retention: { metrics_days: number }
   cve: { feed_source_url: string; sync_interval_hours: number }
   branding: { company_name: string; logo_url: string }
@@ -35,7 +35,7 @@ const form = reactive<AllSettings>({
     audit_log_retention_days: 365,
   },
   notifications: { smtp_host: '', smtp_port: 587, smtp_user: '', smtp_password: '', smtp_from: '', slack_webhook_url: '' },
-  fleet: { heartbeat_timeout_minutes: 5 },
+  fleet: { heartbeat_timeout_minutes: 5, job_stale_timeout_minutes: 60 },
   retention: { metrics_days: 365 },
   cve: { feed_source_url: '', sync_interval_hours: 24 },
   branding: { company_name: 'LokiLinux', logo_url: '/logo.svg' },
@@ -253,6 +253,9 @@ async function saveGroups(...groups: (keyof AllSettings)[]) {
             <div class="grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
               <FormField label="Heartbeat timeout (minute)" help="Agent INACTIVE după atâtea minute fără heartbeat">
                 <Input v-model.number="form.fleet.heartbeat_timeout_minutes" type="number" />
+              </FormField>
+              <FormField label="Job stale timeout (minute)" help="Job blocat (agent nu răspunde) marcat TIMEOUT după atâtea minute">
+                <Input v-model.number="form.fleet.job_stale_timeout_minutes" type="number" />
               </FormField>
             </div>
             <div class="flex justify-end pt-1">

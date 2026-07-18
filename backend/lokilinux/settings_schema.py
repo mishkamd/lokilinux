@@ -47,6 +47,7 @@ SETTINGS_SCHEMA: dict[str, dict[str, tuple[str, Any]]] = {
     },
     "fleet": {
         "heartbeat_timeout_minutes": ("integer", 5),
+        "job_stale_timeout_minutes": ("integer", 60),
     },
     "retention": {
         "metrics_days": ("integer", 365),
