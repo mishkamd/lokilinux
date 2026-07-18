@@ -32,9 +32,9 @@ Enterprise Linux fleet management platform — centralized patch management, vul
 
 | Layer | Tech | Role |
 |-------|------|------|
-| **Control Plane** | FastAPI (Python 3.11) | REST API, gRPC server, job orchestration, CVE processing |
-| **Linux Agent** | Go (static binary, CGO_ENABLED=0) | Heartbeat, package inventory, vulnerability scan, job execution |
-| **Frontend** | Nuxt 4 + Vue 3 + TypeScript | Dashboard, fleet management, user admin, real-time updates |
+| **Control Plane** | FastAPI (Python 3.11) | REST API, gRPC server, job orchestration, CVE processing, Ansible automation |
+| **Linux Agent** | Go (static binary, CGO_ENABLED=0) | Heartbeat, package inventory, vulnerability scan, job + playbook execution |
+| **Frontend** | Nuxt 4 + Vue 3 + TypeScript | Dashboard, fleet management, Ansible automation UI, plugin marketplace, user admin |
 
 **Data flow:** Agent dials out via mTLS gRPC → heartbeat every 60s carries system info + packages + vulnerabilities → receives pending jobs + policy delta in response → Frontend gets real-time updates via WebSocket.
 
@@ -42,13 +42,13 @@ Enterprise Linux fleet management platform — centralized patch management, vul
 
 | Service | Technology | Port | Purpose |
 |---------|-----------|------|---------|
-| `lokilinux-frontend` | Nuxt 4 (Node 20) | 3000 | Web UI + Better Auth |
-| `lokilinux-api` | FastAPI + uvicorn | 8000 | REST API |
+| `lokilinux-frontend` | Nuxt 4 (Node 22) | 3000 | Web UI + Better Auth |
+| `lokilinux-api` | FastAPI + uvicorn + grpcio | 8000, 9090 | REST API + Prometheus metrics |
 | `lokilinux-grpc` | grpcio + mTLS | 50051 | Agent communication |
-| `postgres` | TimescaleDB PG15 | — | Primary DB + time-series |
-| `pgbouncer` | pgBouncer | 6432 | Connection pooling |
-| `redis` | Redis 7 | — | Cache + session store |
-| `nats` | NATS 2.10 + JetStream | 4222, 8222 | Event bus |
+| `postgres` | TimescaleDB 2.28.1 (PG17) | 5432 | Primary DB + time-series |
+| `pgbouncer` | pgBouncer (transaction mode) | 6432 | Connection pooling |
+| `redis` | Redis 7.4.9 | 6379 | Cache (AOF, allkeys-lru) |
+| `nats` | NATS 2.10.29 + JetStream | 4222, 8222 | Event bus |
 | `lokilinux-migrate` | Alembic | — | One-shot DB migrations |
 
 ## Quick Start
@@ -102,6 +102,23 @@ ADMIN_PASSWORD=your-secure-password
 
 Auth is handled by **Better Auth** (embedded in the Nuxt frontend). The backend validates Bearer tokens against Better Auth's session endpoint. Roles: `ADMIN`, `MANAGER`, `OPERATOR`, `VIEWER`, `AUDITOR`.
 
+## Ansible Automation
+
+An AWX-like automation layer runs alongside patch management, built on 4 entities:
+
+| Entity | Purpose |
+|--------|---------|
+| **Projects** (`ansible_projects`) | Group playbooks; `default_agent_ids` acts as the project's inventory (the live fleet is the inventory — no static hosts files) |
+| **Roles** (`ansible_roles`) | Reusable file sets stored as a JSONB path→content map, materialized under `<tmpdir>/roles/<name>/` at execution time |
+| **Playbooks** (`playbooks`) | Raw YAML, versioned on every edit, optionally scoped to a project and linked to `role_ids` |
+| **Job Templates** (`playbook_templates`) | Saved (playbook + default agents + default extra_vars) combo — the AWX "Job Template" equivalent, launchable repeatedly |
+
+Execution runs locally on each target agent (`ansible-playbook --connection=local`) as a normal `Job`, gated behind the `ansible-automation` plugin being enabled. Full details: [docs/ANSIBLE_AUTOMATION.md](docs/ANSIBLE_AUTOMATION.md).
+
+## Plugin System
+
+`plugins.py` + the `plugins` table track a marketplace-style install lifecycle: `PENDING_INSTALL → INSTALLING → INSTALLED → ENABLED` (or `INSTALLING_FAILED` / `DISABLED` / `ERROR`). Plugin types: control-plane, agent, ui, notification. Agent-side plugins are dropped into `/opt/lokilinux/plugins/` on the managed host. UI lives at `/plugins`.
+
 ## Makefile Targets
 
 ### Stack
@@ -144,25 +161,25 @@ Service dependencies: `postgres` → `pgbouncer` → `lokilinux-migrate` → `lo
 lokilinux/
 ├── backend/              # FastAPI application
 │   ├── lokilinux/
-│   │   ├── api/v1/       # REST routers (agents, jobs, cves, policies, etc.)
+│   │   ├── api/v1/       # 15 REST routers (servers, jobs, cves, policies, playbooks, ansible-projects, ansible-roles, playbook-templates, plugins, alerts, admin, agent-install, dashboard, categories)
 │   │   ├── api/grpc/     # gRPC service handlers
 │   │   ├── auth/         # JWT validation, role dependencies
 │   │   ├── models/       # SQLAlchemy ORM models
 │   │   ├── schemas/      # Pydantic API schemas
 │   │   ├── services/     # Business logic
 │   │   └── workers/      # NATS async consumers
-│   ├── migrations/       # Alembic migrations
+│   ├── alembic/          # Alembic migrations
 │   └── Dockerfile
 ├── agent/                # Go agent
 │   ├── cmd/agent/        # Entry point
 │   ├── internal/
 │   │   ├── agent/        # Manager loop
 │   │   ├── communication/# gRPC client (mTLS)
-│   │   ├── modules/      # system_info, packages, vuln, metrics, jobs
+│   │   ├── modules/      # system_info, packages, vuln, metrics, jobs, ansible_executor, plugin_installer
 │   │   └── storage/      # SQLite cache
 │   └── .nfpm.yaml        # Package config (.deb/.rpm)
 ├── frontend/             # Nuxt 4 application
-│   ├── pages/            # File-based routing
+│   ├── pages/            # File-based routing (servers, jobs, alerts, policies, vulnerabilities, plugins, automation/ansible/{projects,roles,playbooks,templates}, admin/*)
 │   ├── stores/           # Pinia stores
 │   ├── composables/      # useAuth, useServers, useJobs, etc.
 │   ├── server/           # Better Auth API handler + middleware
@@ -170,7 +187,7 @@ lokilinux/
 ├── proto/                # Protobuf definitions
 │   └── lokilinux.proto
 ├── scripts/              # docker-init.sh, init-certificates.sh, install-agent.sh
-├── docs/                 # Architecture specifications
+├── docs/                 # Architecture specifications + plugin-sdk (Go, Python)
 ├── kubernetes/           # K8s manifests (planned)
 ├── docker-compose.yml
 └── Makefile
@@ -190,4 +207,7 @@ lokilinux/
 | `PLATFORM_HOSTNAME` | Server hostname (for certs) |
 | `AGENT_VERSION` | Agent binary version (default: `0.1.0`) |
 | `LOG_LEVEL` | Logging level (default: `info`) |
-# lokilinux
+| `DATABASE_URL` | Async SQLAlchemy connection string |
+| `NATS_URL` | NATS event bus connection string |
+| `REDIS_URL` | Redis connection string |
+| `ENVIRONMENT` | `development` \| `production` |
