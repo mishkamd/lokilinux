@@ -119,8 +119,14 @@ async function submitPackageUpdate(names?: string[]) {
     })
     selectedPackageIds.value = []
     toast.add({ title: 'Job de update creat', color: 'green' })
-  } catch {
-    toast.add({ title: 'Nu s-a putut crea job-ul de update', color: 'red' })
+  } catch (err) {
+    const status = (err as { response?: { status?: number }; statusCode?: number })?.response?.status
+      ?? (err as { statusCode?: number })?.statusCode
+    toast.add(
+      status === 409
+        ? { title: 'Există deja un job identic în coadă pentru acest server', color: 'orange' }
+        : { title: 'Nu s-a putut crea job-ul de update', color: 'red' },
+    )
   } finally {
     updatingPackages.value = false
   }
