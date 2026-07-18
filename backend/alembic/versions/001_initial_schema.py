@@ -13,12 +13,10 @@ down_revision = None
 branch_labels = None
 depends_on = None
 
-
 def upgrade() -> None:
     # ── Extensions ────────────────────────────────────────────────────────────
     op.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
     op.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
-
 
     # ── policies (no FK deps — created first so agents can reference it) ──────
     op.create_table(
@@ -471,7 +469,6 @@ def upgrade() -> None:
     )
     op.create_index("ix_settings_key", "settings", ["key"])
 
-
 def downgrade() -> None:
     # Drop in reverse dependency order
     op.drop_table("settings")
@@ -491,7 +488,6 @@ def downgrade() -> None:
     op.drop_table("package_vulnerabilities")
     op.drop_table("cves")
     op.drop_table("packages")
-    # Remove deferred FKs before dropping agents
     op.drop_constraint("fk_agent_current_policy", "agents", type_="foreignkey")
     op.drop_constraint("fk_agent_plugin_policy", "agents", type_="foreignkey")
     op.drop_table("agents")

@@ -13,7 +13,6 @@ from sqlalchemy.ext.asyncio import create_async_engine
 
 from lokilinux.config import Settings
 from lokilinux.db import Base
-import lokilinux.models  # noqa: F401 — registers all ORM models with Base.metadata
 
 # Alembic Config object (access to alembic.ini values)
 config = context.config

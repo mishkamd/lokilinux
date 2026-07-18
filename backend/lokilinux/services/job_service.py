@@ -13,7 +13,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lokilinux.cache import RedisCache, TTL_JOB_STATUS
+from lokilinux.cache import RedisCache
 from lokilinux.models.job import Job, JobResult, JobStatus
 from lokilinux.models.plugin import Plugin, PluginInstallation, PluginStatus
 from lokilinux.nats_topics import JOB_CREATED

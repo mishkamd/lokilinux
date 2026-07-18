@@ -16,7 +16,6 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from lokilinux.db import Base
 
-
 class CVE(Base):
     __tablename__ = "cves"
 
@@ -47,7 +46,6 @@ class CVE(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
 
-
 class Package(Base):
     __tablename__ = "packages"
     __table_args__ = (UniqueConstraint("agent_id", "name", "version", name="uq_packages_agent_name_version"),)
@@ -62,7 +60,6 @@ class Package(Base):
     repository: Mapped[str | None] = mapped_column(String(255))
     source_type: Mapped[str | None] = mapped_column(String(50))  # manual / distro / ppa
 
-    # Update status
     is_update_available: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_security_update_available: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     latest_version: Mapped[str | None] = mapped_column(String(100))
@@ -70,7 +67,6 @@ class Package(Base):
     installed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_update_check: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
-
 
 class PackageVulnerability(Base):
     """CVE ↔ package mapping (distro-specific, not per-agent)."""
@@ -88,7 +84,6 @@ class PackageVulnerability(Base):
     fix_available_date: Mapped[date | None] = mapped_column(Date)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
-
 
 class AgentVulnerability(Base):
     """Vulnerability detected on a specific agent — per VulnerabilityResponse schema."""

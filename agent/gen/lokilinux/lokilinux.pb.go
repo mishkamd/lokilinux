@@ -7,8 +7,6 @@ package lokilinux
 
 import "time"
 
-// ─── Heartbeat ───────────────────────────────────────────────────────────────
-
 type AgentHeartbeatRequest struct {
 	AgentId          string           `json:"agent_id"`
 	Timestamp        time.Time        `json:"timestamp"`
@@ -37,8 +35,6 @@ type AgentHeartbeatResponse struct {
 	RebootRequest string        `json:"reboot_request,omitempty"`
 	PluginAction  string        `json:"plugin_action,omitempty"`
 }
-
-// ─── System ───────────────────────────────────────────────────────────────────
 
 type SystemStatus struct {
 	Hostname          string              `json:"hostname"`
@@ -166,19 +162,17 @@ const (
 	AgentHealthUnhealthy AgentHealthStatus = 3
 )
 
-// ─── Jobs ─────────────────────────────────────────────────────────────────────
-
 type JobRequest struct {
-	JobId             string            `json:"job_id"`
-	JobType           string            `json:"job_type"`
-	Scope             string            `json:"scope,omitempty"`
-	TargetPackages    []string          `json:"target_packages,omitempty"`
-	Parameters        map[string]string `json:"parameters,omitempty"`
-	ScheduledTime     time.Time         `json:"scheduled_time,omitempty"`
-	TimeoutSeconds    int32             `json:"timeout_seconds,omitempty"`
-	RequiresApproval  bool              `json:"requires_approval,omitempty"`
-	AllowRollback     bool              `json:"allow_rollback,omitempty"`
-	MaintenanceWindow string            `json:"maintenance_window,omitempty"`
+	JobId             string                 `json:"job_id"`
+	JobType           string                 `json:"job_type"`
+	Scope             string                 `json:"scope,omitempty"`
+	TargetPackages    []string               `json:"target_packages,omitempty"`
+	Parameters        map[string]interface{} `json:"parameters,omitempty"`
+	ScheduledTime     time.Time              `json:"scheduled_time,omitempty"`
+	TimeoutSeconds    int32                  `json:"timeout_seconds,omitempty"`
+	RequiresApproval  bool                   `json:"requires_approval,omitempty"`
+	AllowRollback     bool                   `json:"allow_rollback,omitempty"`
+	MaintenanceWindow string                 `json:"maintenance_window,omitempty"`
 }
 
 type JobResult struct {
@@ -203,8 +197,6 @@ const (
 	JobRolledBack JobState = 6
 )
 
-// ─── Policy ───────────────────────────────────────────────────────────────────
-
 type PolicyConfig struct {
 	Version           string            `json:"version"`
 	Policies          map[string]string `json:"policies,omitempty"`
@@ -217,8 +209,6 @@ type PolicySyncRequest struct {
 	CurrentVersion string `json:"current_version"`
 }
 
-// ─── Metrics ──────────────────────────────────────────────────────────────────
-
 type MetricsData struct {
 	AgentId    string            `json:"agent_id"`
 	Timestamp  time.Time         `json:"timestamp"`
@@ -230,8 +220,6 @@ type MetricsData struct {
 type MetricsAck struct {
 	Success bool `json:"success"`
 }
-
-// ─── Plugins ──────────────────────────────────────────────────────────────────
 
 type PluginInstallRequest struct {
 	AgentId        string `json:"agent_id"`

@@ -9,7 +9,6 @@ TTL constants (O6 — standardized):
 """
 
 import json
-from datetime import timedelta
 from typing import Any, Optional
 
 import redis.asyncio as aioredis

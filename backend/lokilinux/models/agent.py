@@ -15,7 +15,6 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from lokilinux.db import Base
 
-
 class AgentStatus(enum.Enum):
     PENDING = "PENDING"
     REGISTERED = "REGISTERED"
@@ -23,7 +22,6 @@ class AgentStatus(enum.Enum):
     INACTIVE = "INACTIVE"
     UNHEALTHY = "UNHEALTHY"
     MAINTENANCE = "MAINTENANCE"
-
 
 class Agent(Base):
     __tablename__ = "agents"
@@ -104,7 +102,6 @@ class Agent(Base):
     def last_seen_at(self) -> datetime | None:
         return self.last_heartbeat
 
-
 class AgentHealth(Base):
     """Periodic health snapshots — regular table (not a hypertable)."""
 
@@ -130,7 +127,6 @@ class AgentHealth(Base):
     connection_failures: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 
     recorded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"), nullable=False, index=True)
-
 
 class AgentMetrics(Base):
     """Time-series metrics — TimescaleDB hypertable on 'time'."""
@@ -163,7 +159,6 @@ class AgentMetrics(Base):
     network_packets_in: Mapped[int | None] = mapped_column(Integer)
     network_packets_out: Mapped[int | None] = mapped_column(Integer)
 
-    # Processes
     process_count: Mapped[int | None] = mapped_column(Integer)
     thread_count: Mapped[int | None] = mapped_column(Integer)
 

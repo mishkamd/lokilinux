@@ -70,8 +70,6 @@ func Open(path string) (*Store, error) {
 // Close releases the database handle.
 func (s *Store) Close() error { return s.db.Close() }
 
-// ---- Job queue ---------------------------------------------------------------
-
 // Job holds a locally queued job entry.
 type Job struct {
 	ID         string
@@ -133,8 +131,6 @@ func (s *Store) PurgeExpiredJobs(ctx context.Context) error {
 	return err
 }
 
-// ---- Config store ------------------------------------------------------------
-
 // SetConfig stores a key-value pair.
 func (s *Store) SetConfig(ctx context.Context, key, value string) error {
 	_, err := s.db.ExecContext(ctx,
@@ -155,8 +151,6 @@ func (s *Store) GetConfig(ctx context.Context, key string) (string, error) {
 	}
 	return value, err
 }
-
-// ---- Packages cache ----------------------------------------------------------
 
 // CachedPackage is one row in packages_cache.
 type CachedPackage struct {

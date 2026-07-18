@@ -65,7 +65,6 @@ func (e *JobExecutor) Execute(ctx context.Context, jobID, command string, timeou
 		code = cmd.ProcessState.ExitCode()
 	}
 	if runErr != nil && code == 0 {
-		// process never started or context cancelled
 		errMsg = runErr.Error()
 		code = 1
 	}

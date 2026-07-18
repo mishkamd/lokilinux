@@ -6,7 +6,7 @@ Until then this is a standalone class wiring AgentService into the gRPC layer.
 
 Heartbeat flow:
   agent → HeartbeatRequest(agent_id, ip_address, system_info)
-  server → HeartbeatResponse(pending_jobs, policy_delta)
+  server → HeartbeatResponse(execute_job, policy_delta)
 """
 
 import logging
@@ -76,15 +76,14 @@ class AgentServicer:
                     )
                     pending_jobs = await svc.get_pending_jobs(agent.id)
 
-                yield {
-                    "pending_jobs": [
-                        {
-                            "job_id": str(j.id),
-                            "job_type": j.job_type,
-                            "parameters": j.parameters or {},
-                        }
-                        for j in pending_jobs
-                    ]
-                }
+                response: dict = {}
+                if pending_jobs:
+                    j = pending_jobs[0]
+                    response["execute_job"] = {
+                        "job_id": str(j.id),
+                        "job_type": j.job_type,
+                        "parameters": j.parameters or {},
+                    }
+                yield response
             except Exception:
                 logger.error("HeartbeatStream error", exc_info=True)

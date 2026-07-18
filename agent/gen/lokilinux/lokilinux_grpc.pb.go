@@ -8,8 +8,6 @@ import (
 	"google.golang.org/grpc"
 )
 
-// ─── AgentService client ──────────────────────────────────────────────────────
-
 // AgentServiceClient is the client API for AgentService (agent → control plane).
 type AgentServiceClient interface {
 	// Bidirectional stream: agent sends heartbeats, server sends back commands.

@@ -160,7 +160,14 @@ SyslogIdentifier=lokilinux-agent
 
 # Harden service
 ProtectSystem=strict
-ReadWritePaths=/var/lib/lokilinux /var/log/lokilinux
+# Package manager state (apt/dnf/yum/zypper) needs write access for
+# PACKAGE_UPDATE jobs — '-' prefix skips paths absent on this distro.
+# /var/log stays fully writable since package managers log to varying,
+# distro-specific filenames there (dnf.log, dnf.librepo.log, apt/term.log, ...).
+ReadWritePaths=/var/lib/lokilinux /var/log \
+  -/var/cache/dnf -/var/cache/yum -/var/lib/rpm -/var/lib/dnf \
+  -/var/cache/apt -/var/lib/apt -/var/lib/dpkg \
+  -/var/cache/zypp -/var/lib/zypp
 ProtectHome=true
 PrivateTmp=true
 NoNewPrivileges=true
