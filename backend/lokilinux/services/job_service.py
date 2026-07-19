@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.cache import RedisCache, TTL_JOB_STATUS
@@ -177,7 +178,14 @@ class JobService:
                 for aid in agent_uuids
             ])
 
-        await self.db.commit()
+        try:
+            await self.db.commit()
+        except IntegrityError as exc:
+            # TOCTOU: another request won the same dedup_key between our
+            # check above and this commit — same outcome as the check
+            # catching it, just a race instead of a stale read.
+            await self.db.rollback()
+            raise ValueError("Duplicate job already active") from exc
 
         # A job requiring approval must not reach agents until approved —
         # get_pending_jobs() filters these out until approved_by is set.
