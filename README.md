@@ -1,3 +1,4 @@
+<!-- generated-by: gsd-doc-writer -->
 # LokiLinux
 
 Enterprise Linux fleet management platform — centralized patch management, vulnerability scanning, compliance automation, and remediation for 10K–100K+ Linux servers.
@@ -9,7 +10,7 @@ Enterprise Linux fleet management platform — centralized patch management, vul
                   │         Frontend (Nuxt 4)            │
                   │         http://localhost:3000         │
                   └──────────────┬───────────────────────┘
-                                 │ REST + WebSocket
+                                 │ REST
                   ┌──────────────▼───────────────────────┐
                   │       Control Plane (FastAPI)         │
                   │    REST :8000  │  gRPC :50051 (mTLS) │
@@ -32,11 +33,11 @@ Enterprise Linux fleet management platform — centralized patch management, vul
 
 | Layer | Tech | Role |
 |-------|------|------|
-| **Control Plane** | FastAPI (Python 3.11) | REST API, gRPC server, job orchestration, CVE processing, Ansible automation |
+| **Control Plane** | FastAPI 0.138.1 (Python 3.11) | REST API, gRPC server, job orchestration, CVE processing, Ansible automation |
 | **Linux Agent** | Go (static binary, CGO_ENABLED=0) | Heartbeat, package inventory, vulnerability scan, job + playbook execution |
-| **Frontend** | Nuxt 4 + Vue 3 + TypeScript | Dashboard, fleet management, Ansible automation UI, plugin marketplace, user admin |
+| **Frontend** | Nuxt 4.4.8 + Vue 3 + TypeScript | Dashboard, fleet management, Ansible automation UI, plugin marketplace, user admin |
 
-**Data flow:** Agent dials out via mTLS gRPC → heartbeat every 60s carries system info + packages + vulnerabilities → receives pending jobs + policy delta in response → Frontend gets real-time updates via WebSocket.
+**Data flow:** Agent dials out via mTLS gRPC → heartbeat every 60s carries system info + packages + vulnerabilities → receives pending jobs + policy delta in response → Frontend polls REST for updates.
 
 ## Infrastructure Components
 
@@ -75,6 +76,8 @@ make up       # Start the stack
 ```
 
 After `make init` completes, the admin credentials are printed to the terminal.
+
+For local development with hot-reload, use `make dev` instead of `make up` (uses `docker-compose.dev.yml` to expose Postgres/pgBouncer/NATS ports locally).
 
 ### Access points
 
@@ -155,6 +158,8 @@ make certs    # Generate CA + server certificates
 
 Service dependencies: `postgres` → `pgbouncer` → `lokilinux-migrate` → `lokilinux-api` / `lokilinux-grpc` → `lokilinux-frontend`
 
+`docker-compose.dev.yml` is a dev override (used by `make dev`) that exposes Postgres, pgBouncer, and NATS ports locally and enables verbose Postgres query logging.
+
 ## Directory Structure
 
 ```
@@ -186,10 +191,10 @@ lokilinux/
 │   └── Dockerfile
 ├── proto/                # Protobuf definitions
 │   └── lokilinux.proto
-├── scripts/              # docker-init.sh, init-certificates.sh, install-agent.sh
+├── scripts/              # docker-init.sh, init-certificates.sh, install-agent.sh, loki-cli.sh, rebuild.sh
 ├── docs/                 # Architecture specifications + plugin-sdk (Go, Python)
-├── kubernetes/           # K8s manifests (planned)
 ├── docker-compose.yml
+├── docker-compose.dev.yml
 └── Makefile
 ```
 

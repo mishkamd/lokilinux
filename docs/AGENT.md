@@ -250,9 +250,10 @@ plus `backend/tests/unit/test_agent_service.py::test_update_heartbeat_persists_f
   TimescaleDB pentru network/procese/etc.) — doar snapshot-uri cpu/mem/disk
   via `AgentHealth` la fiecare heartbeat (§5). Upgrade la metrici complete ar
   necesita colectare suplimentară (network I/O, procese) neimplementată încă.
-- Nu are un sistem de plugin-uri implementat în Go — `/opt/lokilinux/plugins/`
-  și modelele `Plugin`/`PluginInstallation` există pe backend, dar agentul nu
-  are încă un loader corespunzător.
+- (Corectare: agentul ARE un loader de plugin-uri în Go —
+  `agent/internal/modules/plugin_installer.go` implementează `InstallPlugin()`
+  — download + verificare checksum SHA-256 + instalare — dispatch-uit din
+  job dispatcher via `job_type` în `agent/internal/agent/manager.go:272`.)
 - Nu are rotație/reînnoire automată a certificatului mTLS — la expirare,
   agentul pică silențios (fără alertă vizibilă în dashboard). Necesită
   reenrollment manual.

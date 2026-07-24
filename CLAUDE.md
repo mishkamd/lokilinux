@@ -16,7 +16,6 @@ lokilinux/
 ├── proto/            # Single protobuf file (lokilinux.proto)
 ├── certs/            # Pre-generated mTLS certs (CA, server, agent template)
 ├── scripts/          # init-certificates.sh, docker-init.sh, install-agent.sh
-├── kubernetes/       # Empty (planned, not implemented)
 └── docs/             # Architecture specs (some outdated)
 ```
 
@@ -113,7 +112,7 @@ make certs          # runs scripts/init-certificates.sh
 - `lokilinux.alert.created` — consumed by `NotificationWorker` (SMTP/Slack delivery)
 
 ### Database
-- TimescaleDB hypertable: `agent_metrics` (compression at 30 days, retention 365 days, rollup 1min→5min→hourly)
+- TimescaleDB hypertable: `agent_metrics` (compression policy at 30 days only; no retention policy or continuous-aggregate rollups configured)
 - Core tables: agents, agent_health, jobs, job_results, cves, packages, package_vulnerabilities, agent_vulnerabilities, policies, policy_audit, alert_rules, alerts, audit_logs, user_profiles, role_assignments, settings, plugins, plugin_installations
   (no `repositories` table yet — `repo.default_mirror_url` setting is a placeholder for a future repo-mirror feature)
 - All backend DB access via SQLAlchemy async (`async_sessionmaker` + `AsyncSession`)
@@ -122,7 +121,7 @@ make certs          # runs scripts/init-certificates.sh
 - `lokilinux/db.py` — `build_engine()` + `build_session_factory()`, shared by FastAPI, gRPC server, and NATS workers
 - `lokilinux/dependencies.py` — FastAPI `Depends(get_db)`, `Depends(get_cache)`, `Depends(get_nats)`
 - `lokilinux/cache.py` — `RedisCache` class with cache-aside pattern, TTL constants
-- `lokilinux/api/v1/__init__.py` — mounts 9 routers under `/api/v1/`
+- `lokilinux/api/v1/__init__.py` — mounts 15 routers under `/api/v1/`
 - gRPC server (`grpc_server.py`) uses `GenericRpcHandler` + manual JSON serialization, not generated gRPC stubs
 - `lokilinux/nats_topics.py` — central constants for all NATS topic strings; import instead of writing raw strings
 - 8 NATS workers wired into `main.py` lifespan: JobExecutor, CVEProcessor, AlertProcessor, Policy, Plugin, HeartbeatMonitor, RetentionCleanup, Notification
