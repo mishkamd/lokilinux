@@ -267,6 +267,50 @@ services:
           memory: 2G
 
   # ============================================================================
+  # COMPLIANCE — Go microservice (drift/policy/scoring engine), no public port
+  # ============================================================================
+
+  lokilinux-compliance:
+    build:
+      context: ./services/compliance
+      dockerfile: Dockerfile
+    image: lokilinux/compliance:${LOKILINUX_VERSION:-latest}
+    container_name: lokilinux-compliance
+    restart: unless-stopped
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      lokilinux-migrate:
+        condition: service_completed_successfully
+    environment:
+      # DSN keyword=value form, not a postgresql:// URI: POSTGRES_PASSWORD is
+      # a generated secret that can contain characters (/, =, +) a URI parser
+      # treats as delimiters, which would need percent-encoding to use safely
+      # in the postgresql:// form pgxpool.New() also accepts. Confirmed by a
+      # real hang (context deadline exceeded on Ping) against this exact
+      # POSTGRES_PASSWORD when this was still the URI form.
+      DATABASE_URL: "host=pgbouncer port=5432 user=${POSTGRES_USER} password=${POSTGRES_PASSWORD} dbname=${POSTGRES_DB}"
+      NATS_URL: nats://nats:4222
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - certs_dir:/etc/lokilinux/certs:ro
+    networks:
+      - lokilinux-network
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+
+  # ============================================================================
   # FRONTEND — Nuxt 4 (port 3000)
   # ============================================================================
 

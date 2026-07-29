@@ -29,10 +29,12 @@ type AgentHeartbeatRequest struct {
 	JobResults       []*JobResult     `json:"job_results,omitempty"`
 }
 
-// AgentHeartbeatResponse carries one of four server commands.
-// Mirrors the proto oneof: only one field will be non-nil / non-empty.
+// AgentHeartbeatResponse carries the server's reply to one heartbeat.
+// PendingJobs replaces the proto's single-job oneof (ExecuteJob) — the
+// server can return up to 10 pending jobs per heartbeat (see
+// AgentService.get_pending_jobs), which a oneof cannot represent.
 type AgentHeartbeatResponse struct {
-	ExecuteJob    *JobRequest   `json:"execute_job,omitempty"`
+	PendingJobs   []*JobRequest `json:"pending_jobs,omitempty"`
 	UpdatePolicy  *PolicyConfig `json:"update_policy,omitempty"`
 	RebootRequest string        `json:"reboot_request,omitempty"`
 	PluginAction  string        `json:"plugin_action,omitempty"`
@@ -169,16 +171,20 @@ const (
 // ─── Jobs ─────────────────────────────────────────────────────────────────────
 
 type JobRequest struct {
-	JobId             string            `json:"job_id"`
-	JobType           string            `json:"job_type"`
-	Scope             string            `json:"scope,omitempty"`
-	TargetPackages    []string          `json:"target_packages,omitempty"`
-	Parameters        map[string]string `json:"parameters,omitempty"`
-	ScheduledTime     time.Time         `json:"scheduled_time,omitempty"`
-	TimeoutSeconds    int32             `json:"timeout_seconds,omitempty"`
-	RequiresApproval  bool              `json:"requires_approval,omitempty"`
-	AllowRollback     bool              `json:"allow_rollback,omitempty"`
-	MaintenanceWindow string            `json:"maintenance_window,omitempty"`
+	JobId          string   `json:"job_id"`
+	JobType        string   `json:"job_type"`
+	Scope          string   `json:"scope,omitempty"`
+	TargetPackages []string `json:"target_packages,omitempty"`
+	// Parameters is map[string]interface{}, not map[string]string: the
+	// control plane sends nested JSON here (playbook_content, extra_vars,
+	// roles are all objects/arrays, not flat strings) — a flat string map
+	// silently dropped every non-trivial job parameter.
+	Parameters        map[string]interface{} `json:"parameters,omitempty"`
+	ScheduledTime     time.Time              `json:"scheduled_time,omitempty"`
+	TimeoutSeconds    int32                  `json:"timeout_seconds,omitempty"`
+	RequiresApproval  bool                   `json:"requires_approval,omitempty"`
+	AllowRollback     bool                   `json:"allow_rollback,omitempty"`
+	MaintenanceWindow string                 `json:"maintenance_window,omitempty"`
 }
 
 type JobResult struct {

@@ -6,6 +6,7 @@ main.py mounts this at prefix="/api/v1" — no prefix set here.
 
 from fastapi import APIRouter
 
+from .routers.compliance import router as compliance_router
 from .routers.servers import router as servers_router
 from .routers.jobs import router as jobs_router
 from .routers.cves import router as cves_router
@@ -26,6 +27,7 @@ router = APIRouter()
 
 router.include_router(dashboard_router, prefix="/dashboard", tags=["dashboard"])
 router.include_router(categories_router, tags=["categories"])
+router.include_router(compliance_router, prefix="/compliance", tags=["compliance"])
 router.include_router(servers_router, prefix="/servers", tags=["servers"])
 router.include_router(jobs_router, prefix="/jobs", tags=["jobs"])
 router.include_router(cves_router, prefix="/vulnerabilities", tags=["vulnerabilities"])

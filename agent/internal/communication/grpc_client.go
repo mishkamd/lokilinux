@@ -313,13 +313,22 @@ func responseToMap(resp *gen.AgentHeartbeatResponse) map[string]interface{} {
 		return nil
 	}
 	result := map[string]interface{}{}
-	if resp.ExecuteJob != nil {
-		result["pending_jobs"] = []interface{}{map[string]interface{}{
-			"job_id":          resp.ExecuteJob.JobId,
-			"job_type":        resp.ExecuteJob.JobType,
-			"parameters":      resp.ExecuteJob.Parameters,
-			"timeout_seconds": resp.ExecuteJob.TimeoutSeconds,
-		}}
+	if len(resp.PendingJobs) > 0 {
+		jobs := make([]interface{}, 0, len(resp.PendingJobs))
+		for _, j := range resp.PendingJobs {
+			if j == nil {
+				continue
+			}
+			jobs = append(jobs, map[string]interface{}{
+				"job_id":          j.JobId,
+				"job_type":        j.JobType,
+				"parameters":      j.Parameters,
+				"timeout_seconds": j.TimeoutSeconds,
+			})
+		}
+		if len(jobs) > 0 {
+			result["pending_jobs"] = jobs
+		}
 	}
 	if resp.UpdatePolicy != nil {
 		result["policy"] = resp.UpdatePolicy

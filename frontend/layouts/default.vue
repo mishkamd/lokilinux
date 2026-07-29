@@ -236,7 +236,7 @@
 import {
   LayoutDashboard, Server, Cpu, ClipboardList, ShieldAlert,
   FileText, Puzzle, BellDot, Bell, Users, Settings, UserCircle, LogOut, Search, Menu, X,
-  PanelLeft, PanelLeftClose, Bot, Layers, FolderKanban,
+  PanelLeft, PanelLeftClose, Bot, Layers, FolderKanban, ShieldCheck,
 } from 'lucide-vue-next'
 import { Toaster } from 'vue-sonner'
 
@@ -318,6 +318,13 @@ const navSections = computed((): { title: string; links: NavLink[] }[] => [
     ],
   },
   {
+    title: 'Compliance',
+    links: [
+      { to: '/compliance', label: 'Overview', icon: ShieldCheck },
+      { to: '/compliance/baselines', label: 'Baselines', icon: FileText },
+    ],
+  },
+  {
     title: 'Observability',
     links: [
       { to: '/alerts', label: 'Alerts', icon: BellDot },
@@ -332,7 +339,11 @@ const adminLinks: NavLink[] = [
 ]
 
 function isActive(to: string): boolean {
-  return to === '/' ? route.path === '/' : route.path.startsWith(to)
+  // Exact match for index-style links that are themselves a path-prefix of a
+  // sibling nav entry (e.g. "/compliance" vs "/compliance/baselines") —
+  // otherwise both would show active at once, same reasoning as "/".
+  if (to === '/' || to === '/compliance') return route.path === to
+  return route.path.startsWith(to)
 }
 
 const currentPageTitle = computed((): string => {
