@@ -156,6 +156,23 @@ export interface FileChange {
   change_kind: FileChangeKind
 }
 
+export type ReportType = 'FLEET_SUMMARY' | 'POLICY_SET' | 'DATACENTER' | 'CUSTOM'
+export type ReportFormat = 'JSON' | 'CSV' | 'XLSX' | 'PDF'
+export type ReportStatus = 'PENDING' | 'GENERATING' | 'COMPLETED' | 'FAILED'
+
+export interface ComplianceReport {
+  id: string
+  report_type: ReportType
+  format: ReportFormat
+  params: Record<string, unknown>
+  status: ReportStatus
+  artifact_uri: string | null
+  error_message: string | null
+  generated_by: string | null
+  created_at: string
+  completed_at: string | null
+}
+
 export const useComplianceStore = defineStore('compliance', () => {
   const api = useApi()
 
@@ -468,6 +485,33 @@ export const useComplianceStore = defineStore('compliance', () => {
     }
   }
 
+  // ── Reporting Engine ─────────────────────────────────────────────────────
+
+  const reports = ref<ComplianceReport[]>([])
+  const reportsTotal = ref(0)
+  const reportsLoading = ref(false)
+
+  async function fetchReports(cursor?: string) {
+    reportsLoading.value = true
+    try {
+      const params = new URLSearchParams()
+      if (cursor) params.set('cursor', cursor)
+      const data = await api.get<{ items: ComplianceReport[]; next_cursor: string | null; total: number }>(
+        `/compliance/reports?${params}`,
+      )
+      reports.value = data.items
+      reportsTotal.value = data.total ?? 0
+    } finally {
+      reportsLoading.value = false
+    }
+  }
+
+  async function createReport(body: { report_type: ReportType; format: ReportFormat; params?: Record<string, unknown> }) {
+    const report = await api.post<ComplianceReport>('/compliance/reports', body)
+    reports.value = [report, ...reports.value]
+    return report
+  }
+
   return {
     baselines, baselinesTotal, baselinesLoading, baselinesNextCursor, baselineFilters,
     selectedBaseline, versions, versionsLoading,
@@ -487,5 +531,6 @@ export const useComplianceStore = defineStore('compliance', () => {
     submitRemediationPlan, approveRemediationPlan,
     fileHashes, fileHashesLoading, fileHashPathPrefix, fetchFileHashes,
     fileChanges, fileChangesTotal, fileChangesLoading, fileChangeFilters, fetchFileChanges,
+    reports, reportsTotal, reportsLoading, fetchReports, createReport,
   }
 })

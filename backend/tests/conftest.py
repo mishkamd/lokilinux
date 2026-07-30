@@ -9,6 +9,7 @@ DATABASE_URL is overridden via env var *before* any `lokilinux.*` import, since
 `lokilinux.config.Settings()` is instantiated at several modules' import time.
 """
 
+import contextlib
 import os
 import uuid
 from typing import Any, AsyncIterator
@@ -19,7 +20,6 @@ import pytest_asyncio
 # ── Point Settings at the test container before importing lokilinux.* ─────────
 # Real values still required for other Settings fields (validated at import
 # time) — backend/.env supplies them; only DATABASE_URL is swapped below.
-
 from testcontainers.core.container import DockerContainer
 from testcontainers.postgres import PostgresContainer
 
@@ -34,8 +34,9 @@ os.environ["DATABASE_URL"] = _pg.get_connection_url()
 
 
 def _run_migrations() -> None:
-    from alembic import command
     from alembic.config import Config as AlembicConfig
+
+    from alembic import command
 
     cfg = AlembicConfig(os.path.join(os.path.dirname(__file__), "..", "alembic.ini"))
     command.upgrade(cfg, "head")
@@ -143,6 +144,18 @@ async def client(db_session, fake_cache, fake_nats, current_user) -> AsyncIterat
 
     async def _get_db():
         yield db_session
+
+    @contextlib.asynccontextmanager
+    async def _session_factory():
+        # Mirrors production's app.state.session_factory (set in main.py's
+        # lifespan) — background tasks that reach into it directly (e.g.
+        # policy_engine.py's ComplianceAsCode import, reports.py's report
+        # generation) need it to exist here too, not just Depends(get_db).
+        # Reuses the same per-test db_session so background-task writes land
+        # in the same rollback-safe SAVEPOINT as everything else in the test.
+        yield db_session
+
+    app.state.session_factory = _session_factory
 
     app.dependency_overrides[get_db] = _get_db
     app.dependency_overrides[get_cache] = lambda: fake_cache

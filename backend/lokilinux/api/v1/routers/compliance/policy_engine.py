@@ -248,7 +248,7 @@ async def import_policy_set(
             "datastream_url": body.datastream_url,
         },
         status=JobStatus.QUEUED,
-        created_by=safe_user_uuid(current_user.get("id")),
+        created_by=safe_user_uuid(current_user),
     )
     db.add(job)
     await db.commit()

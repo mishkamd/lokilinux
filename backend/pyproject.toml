@@ -39,6 +39,9 @@ dependencies = [
 
     # Static file serving (agent packages)
     "aiofiles==25.1.0",
+
+    # Compliance Reporting Engine — XLSX export
+    "openpyxl==3.1.5",
 ]
 
 [project.optional-dependencies]

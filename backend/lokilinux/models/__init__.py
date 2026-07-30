@@ -8,6 +8,7 @@ from .alert import Alert, AlertRule
 from .audit import AuditLog, RoleAssignment, Setting, UserProfile, UserRole
 from .baseline import Baseline, BaselineApproval, BaselineEffective, BaselineVersion
 from .category import Category, Project
+from .compliance_report import ComplianceReport
 from .compliance_rule import (
     ComplianceRule,
     PolicyAssignment,
@@ -54,6 +55,8 @@ __all__ = [
     "PolicySet",
     "PolicySetRule",
     "RemediationTemplate",
+    # compliance_report (compliance module)
+    "ComplianceReport",
     # cve
     "AgentVulnerability",
     "CVE",

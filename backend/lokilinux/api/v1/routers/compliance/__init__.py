@@ -16,6 +16,7 @@ from .file_integrity import router as file_integrity_router
 from .inventory import router as inventory_router
 from .policy_engine import router as policy_engine_router
 from .remediation import router as remediation_router
+from .reports import router as reports_router
 
 router = APIRouter()
 router.include_router(baselines_router)
@@ -24,3 +25,4 @@ router.include_router(file_integrity_router)
 router.include_router(inventory_router)
 router.include_router(policy_engine_router)
 router.include_router(remediation_router)
+router.include_router(reports_router)

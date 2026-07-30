@@ -114,7 +114,7 @@ async def acknowledge_drift_event(
     if row is None:
         raise HTTPException(status_code=404, detail="Drift event not found")
 
-    row.acknowledged_by = safe_user_uuid(current_user.get("id"))
+    row.acknowledged_by = safe_user_uuid(current_user)
     row.acknowledged_at = datetime.utcnow()
     await db.commit()
 
