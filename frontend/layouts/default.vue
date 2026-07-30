@@ -237,6 +237,7 @@ import {
   LayoutDashboard, Server, Cpu, ClipboardList, ShieldAlert,
   FileText, Puzzle, BellDot, Bell, Users, Settings, UserCircle, LogOut, Search, Menu, X,
   PanelLeft, PanelLeftClose, Bot, Layers, FolderKanban, ShieldCheck,
+  BookCheck, ListChecks, GitCompare, Wrench,
 } from 'lucide-vue-next'
 import { Toaster } from 'vue-sonner'
 
@@ -322,6 +323,10 @@ const navSections = computed((): { title: string; links: NavLink[] }[] => [
     links: [
       { to: '/compliance', label: 'Overview', icon: ShieldCheck },
       { to: '/compliance/baselines', label: 'Baselines', icon: FileText },
+      { to: '/compliance/policies', label: 'Policy Sets', icon: BookCheck },
+      { to: '/compliance/rules', label: 'Rule Catalog', icon: ListChecks },
+      { to: '/compliance/drift', label: 'Drift', icon: GitCompare },
+      { to: '/compliance/remediation', label: 'Remediation', icon: Wrench },
     ],
   },
   {
