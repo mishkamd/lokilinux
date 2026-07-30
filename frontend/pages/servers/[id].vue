@@ -103,6 +103,42 @@ const packageColumns = [
   { key: 'update_status', label: 'Update' },
 ]
 
+const selectedPackageIds = ref<(string | number)[]>([])
+const updatingPackages = ref(false)
+const toast = useToast()
+
+async function submitPackageUpdate(names?: string[]) {
+  updatingPackages.value = true
+  try {
+    await useJobsStore().createJob({
+      name: names ? `Update pachete (${names.length})` : 'Update all packages',
+      job_type: 'PACKAGE_UPDATE',
+      target_servers: { agent_ids: [route.params.id as string] },
+      priority: 50,
+      parameters: names ? { package_names: names } : null,
+    })
+    selectedPackageIds.value = []
+    toast.add({ title: 'Job de update creat', color: 'green' })
+  } catch (err) {
+    const status = (err as { response?: { status?: number }; statusCode?: number })?.response?.status
+      ?? (err as { statusCode?: number })?.statusCode
+    toast.add(
+      status === 409
+        ? { title: 'Există deja un job identic în coadă pentru acest server', color: 'orange' }
+        : { title: 'Nu s-a putut crea job-ul de update', color: 'red' },
+    )
+  } finally {
+    updatingPackages.value = false
+  }
+}
+
+function updateSelectedPackages() {
+  const names = store.packages
+    .filter((p) => selectedPackageIds.value.includes(p.id))
+    .map((p) => p.name)
+  submitPackageUpdate(names)
+}
+
 const { statusColor: jobStatusColor } = useJobs()
 
 const vulnerabilityColumns = [
@@ -231,7 +267,22 @@ const SEVERITY_COLORS: Record<string, string> = {
 
       <template #packages>
         <div class="mt-4">
-          <DataTable :rows="store.packages" :columns="packageColumns" :loading="store.packagesLoading">
+          <div class="flex items-center gap-2 mb-3">
+            <Badge v-if="selectedPackageIds.length" color="green">{{ selectedPackageIds.length }} selectate</Badge>
+            <Button size="xs" :disabled="!selectedPackageIds.length || updatingPackages" @click="updateSelectedPackages">
+              Actualizează selectate
+            </Button>
+            <Button variant="outline" size="xs" :disabled="updatingPackages" @click="submitPackageUpdate()">
+              Actualizează tot
+            </Button>
+          </div>
+          <DataTable
+            :rows="store.packages"
+            :columns="packageColumns"
+            :loading="store.packagesLoading"
+            selectable
+            v-model:selected="selectedPackageIds"
+          >
             <template #update_status-data="{ row }">
               <Badge v-if="row.is_security_update_available" color="red" size="xs">security update</Badge>
               <Badge v-else-if="row.is_update_available" color="gray" size="xs">update</Badge>

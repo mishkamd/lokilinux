@@ -316,6 +316,8 @@ func (m *Manager) handleResponse(ctx context.Context, resp map[string]interface{
 
 		if jobType == "PLUGIN_INSTALL" {
 			result = modules.InstallPlugin(ctx, jobID, params, timeoutSec)
+		} else if jobType == "PACKAGE_UPDATE" {
+			result = modules.UpdatePackages(ctx, jobID, params, timeoutSec)
 		} else if jobType == "ANSIBLE_PLAYBOOK" {
 			playbookContent, _ := params["playbook_content"].(string)
 			extraVars, _ := params["extra_vars"].(map[string]interface{})
