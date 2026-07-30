@@ -12,6 +12,11 @@ Heartbeat flow:
 import logging
 
 from lokilinux.services.agent_service import AgentService
+from lokilinux.services.compliance_ingest_service import (
+    diff_domain_hashes,
+    publish_domain_hashes,
+    publish_domain_snapshots,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +81,24 @@ class AgentServicer:
                     )
                     pending_jobs = await svc.get_pending_jobs(agent.id)
 
+                    # Compliance delta sync (docs/compliance/04-PROTOCOL.md §3) —
+                    # domain_hashes/domain_full arrive as SimpleNamespace via the
+                    # JSON codec's object_hook, same as system_status above.
+                    # _as_dict's return type is broad (dict | list, recursively,
+                    # same as system_status/packages above) — isinstance guards
+                    # against malformed input rather than trusting the wire shape.
+                    domain_hashes_raw = _as_dict(getattr(request, "domain_hashes", None))
+                    domain_hashes: dict = domain_hashes_raw if isinstance(domain_hashes_raw, dict) else {}
+                    domain_full_raw = _as_dict(getattr(request, "domain_full", None))
+                    domain_full: dict = domain_full_raw if isinstance(domain_full_raw, dict) else {}
+
+                    resync_domains: list[str] = []
+                    if domain_hashes:
+                        resync_domains = await diff_domain_hashes(db, agent.id, domain_hashes)
+                        await publish_domain_hashes(self.nats, agent.id, domain_hashes)
+                    if domain_full:
+                        await publish_domain_snapshots(self.nats, agent.id, domain_full, domain_hashes)
+
                 yield {
                     "pending_jobs": [
                         {
@@ -84,7 +107,8 @@ class AgentServicer:
                             "parameters": j.parameters or {},
                         }
                         for j in pending_jobs
-                    ]
+                    ],
+                    "resync_domains": resync_domains,
                 }
             except Exception:
                 logger.error("HeartbeatStream error", exc_info=True)

@@ -1,19 +1,21 @@
 """
 LokiLinux — Compliance: Policy Engine router.
 
-Rule catalog is read-only here (import from ComplianceAsCode is a separate
-background-job endpoint, docs/compliance/07-POLICY-ENGINE.md, not yet built —
-these endpoints serve whatever has been imported so far). Policy sets and
-assignments are full CRUD, matching the simple create/list pattern in
-routers/policies.py rather than the multi-stage approval workflow baselines
-use — a policy set is a lower-stakes, easily-reversible grouping, not a
-signed, fleet-wide contract.
+Rule catalog is read-only except for /policy-sets/import, which pulls
+content from ComplianceAsCode (docs/compliance/07-POLICY-ENGINE.md) — see
+services/complianceascode_importer.py for why that means "fetch an XCCDF
+datastream", not "clone the git repo". Policy sets and assignments are full
+CRUD, matching the simple create/list pattern in routers/policies.py rather
+than the multi-stage approval workflow baselines use — a policy set is a
+lower-stakes, easily-reversible grouping, not a signed, fleet-wide contract.
 """
 
+import logging
 from datetime import datetime
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+import httpx
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -26,6 +28,7 @@ from lokilinux.models.compliance_rule import (
     PolicySetRule,
     RemediationTemplate,
 )
+from lokilinux.models.job import Job, JobStatus
 from lokilinux.models.rule_evaluation import RuleEvaluation
 from lokilinux.schemas.common import CursorPage, decode_cursor, encode_cursor
 from lokilinux.schemas.compliance_rule import (
@@ -34,12 +37,17 @@ from lokilinux.schemas.compliance_rule import (
     PolicyAssignmentResponse,
     PolicySetCoverageResponse,
     PolicySetCreate,
+    PolicySetImportRequest,
+    PolicySetImportResponse,
     PolicySetResponse,
     PolicySetRuleAdd,
     RemediationTemplateResponse,
     RuleCoverageResponse,
 )
 from lokilinux.services.audit_service import AuditService
+from lokilinux.services.complianceascode_importer import ComplianceAsCodeImporter
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -181,6 +189,98 @@ async def create_policy_set(
         changes={"name": body.name, "slug": body.slug, "framework": body.framework},
     )
     return PolicySetResponse.model_validate(policy_set)
+
+
+@router.post("/policy-sets/import", response_model=PolicySetImportResponse, status_code=202)
+async def import_policy_set(
+    body: PolicySetImportRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(require_role("ADMIN")),
+) -> PolicySetImportResponse:
+    """Fetches body.datastream_url, parses it as an XCCDF 1.2 datastream,
+    and upserts compliance_rules/policy_sets/policy_set_rules — see
+    services/complianceascode_importer.py. Runs as a background task (a
+    real content import is thousands of rules, too slow for a synchronous
+    request) tracked via a Job row so it shows up in job history like any
+    other long-running operation; it never dispatches to an agent
+    (target_servers stays empty) since this work runs on the control plane.
+    """
+    job = Job(
+        name=f"Import {body.source} content {body.content_version}",
+        job_type="COMPLIANCE_IMPORT_CONTENT",
+        parameters={
+            "source": body.source,
+            "profile_id": body.profile_id,
+            "content_version": body.content_version,
+            "datastream_url": body.datastream_url,
+        },
+        status=JobStatus.QUEUED,
+        created_by=safe_user_uuid(current_user.get("id")),
+    )
+    db.add(job)
+    await db.commit()
+    await db.refresh(job)
+
+    session_factory = request.app.state.session_factory
+    selected_profile_ids = [body.profile_id] if body.profile_id else None
+    background_tasks.add_task(
+        _run_compliance_import,
+        session_factory,
+        job.id,
+        body.datastream_url,
+        body.content_version,
+        selected_profile_ids,
+    )
+
+    return PolicySetImportResponse(job_id=job.id, status=JobStatus.QUEUED.value)
+
+
+async def _run_compliance_import(
+    session_factory,
+    job_id: UUID,
+    datastream_url: str,
+    content_version: str,
+    selected_profile_ids: list[str] | None,
+) -> None:
+    async with session_factory() as db:
+        job = (await db.execute(select(Job).where(Job.id == job_id))).scalar_one_or_none()
+        if job is None:
+            logger.error("compliance import job %s vanished before it could run", job_id)
+            return
+
+        job.status = JobStatus.RUNNING
+        job.started_at = datetime.utcnow()
+        await db.commit()
+
+        try:
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                resp = await client.get(datastream_url)
+                resp.raise_for_status()
+                xml_bytes = resp.content
+
+            result = await ComplianceAsCodeImporter(db).import_datastream(
+                xml_bytes, content_version, selected_profile_ids
+            )
+
+            job.status = JobStatus.COMPLETED
+            job.completed_at = datetime.utcnow()
+            job.parameters = {
+                **(job.parameters or {}),
+                "result": {
+                    "rules_imported": result.rules_imported,
+                    "rules_updated": result.rules_updated,
+                    "policy_sets_imported": result.policy_sets_imported,
+                },
+            }
+            await db.commit()
+        except Exception as exc:
+            logger.error("compliance content import failed", exc_info=True)
+            job.status = JobStatus.FAILED
+            job.completed_at = datetime.utcnow()
+            job.parameters = {**(job.parameters or {}), "error": str(exc)}
+            await db.commit()
 
 
 @router.get("/policy-sets/{policy_set_id}", response_model=PolicySetResponse)

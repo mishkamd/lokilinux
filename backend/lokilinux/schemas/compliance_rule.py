@@ -102,6 +102,18 @@ class PolicySetRuleAdd(BaseModel):
     severity_override: str | None = None
 
 
+class PolicySetImportRequest(BaseModel):
+    source: str = "complianceascode"
+    profile_id: str | None = None
+    content_version: str
+    datastream_url: str
+
+
+class PolicySetImportResponse(BaseModel):
+    job_id: UUID
+    status: str
+
+
 class PolicyAssignmentCreate(BaseModel):
     policy_set_id: UUID
     scope_type: str
