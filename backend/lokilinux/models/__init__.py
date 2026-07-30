@@ -8,8 +8,15 @@ from .alert import Alert, AlertRule
 from .audit import AuditLog, RoleAssignment, Setting, UserProfile, UserRole
 from .baseline import Baseline, BaselineApproval, BaselineEffective, BaselineVersion
 from .category import Category, Project
-from .compliance_rule import ComplianceRule, PolicyAssignment, PolicySet, PolicySetRule, RemediationTemplate
-from .cve import AgentVulnerability, CVE, Package, PackageVulnerability
+from .compliance_rule import (
+    ComplianceRule,
+    PolicyAssignment,
+    PolicySet,
+    PolicySetRule,
+    RemediationTemplate,
+)
+from .cve import CVE, AgentVulnerability, Package, PackageVulnerability
+from .drift import DriftDetail, DriftEvent
 from .inventory import InventoryBlob, InventoryDelta, InventorySnapshot
 from .job import Job, JobResult, JobStatus
 from .plugin import Plugin, PluginInstallation, PluginStatus
@@ -19,29 +26,62 @@ from .rule_evaluation import ComplianceScore, RuleEvaluation
 
 __all__ = [
     # agent
-    "Agent", "AgentHealth", "AgentMetrics", "AgentStatus",
+    "Agent",
+    "AgentHealth",
+    "AgentMetrics",
+    "AgentStatus",
     # alert
-    "Alert", "AlertRule",
+    "Alert",
+    "AlertRule",
     # audit
-    "AuditLog", "RoleAssignment", "Setting", "UserProfile", "UserRole",
+    "AuditLog",
+    "RoleAssignment",
+    "Setting",
+    "UserProfile",
+    "UserRole",
     # baseline (compliance module)
-    "Baseline", "BaselineApproval", "BaselineEffective", "BaselineVersion",
+    "Baseline",
+    "BaselineApproval",
+    "BaselineEffective",
+    "BaselineVersion",
     # category
-    "Category", "Project",
+    "Category",
+    "Project",
     # compliance_rule (compliance module)
-    "ComplianceRule", "PolicyAssignment", "PolicySet", "PolicySetRule", "RemediationTemplate",
+    "ComplianceRule",
+    "PolicyAssignment",
+    "PolicySet",
+    "PolicySetRule",
+    "RemediationTemplate",
     # cve
-    "AgentVulnerability", "CVE", "Package", "PackageVulnerability",
+    "AgentVulnerability",
+    "CVE",
+    "Package",
+    "PackageVulnerability",
+    # drift (compliance module)
+    "DriftDetail",
+    "DriftEvent",
     # inventory (compliance module)
-    "InventoryBlob", "InventoryDelta", "InventorySnapshot",
+    "InventoryBlob",
+    "InventoryDelta",
+    "InventorySnapshot",
     # job
-    "Job", "JobResult", "JobStatus",
+    "Job",
+    "JobResult",
+    "JobStatus",
     # plugin
-    "Plugin", "PluginInstallation", "PluginStatus",
+    "Plugin",
+    "PluginInstallation",
+    "PluginStatus",
     # policy
-    "Policy", "PolicyAudit",
+    "Policy",
+    "PolicyAudit",
     # remediation (compliance module)
-    "MaintenanceWindow", "RemediationAction", "RemediationJob", "RemediationPlan",
+    "MaintenanceWindow",
+    "RemediationAction",
+    "RemediationJob",
+    "RemediationPlan",
     # rule_evaluation (compliance module)
-    "ComplianceScore", "RuleEvaluation",
+    "ComplianceScore",
+    "RuleEvaluation",
 ]

@@ -39,9 +39,13 @@ async def diff_domain_hashes(db: AsyncSession, agent_id: UUID, domain_hashes: di
         .distinct(InventorySnapshot.domain)
         .order_by(InventorySnapshot.domain, InventorySnapshot.taken_at.desc())
     )
-    known = dict(result.all())
+    known: dict[str, str] = dict(result.all())  # type: ignore[arg-type]  # SQLAlchemy Row unpacks fine at runtime
 
-    return [domain for domain, claimed_hash in domain_hashes.items() if known.get(domain) != claimed_hash]
+    return [
+        domain
+        for domain, claimed_hash in domain_hashes.items()
+        if known.get(domain) != claimed_hash
+    ]
 
 
 async def publish_domain_hashes(nats, agent_id: UUID, domain_hashes: dict) -> None:

@@ -54,7 +54,9 @@ class AgentServicer:
                 ip_address = getattr(request, "ip_address", None)
                 if not ip_address and context is not None:
                     peer = getattr(context, "peer", lambda: "")() or ""
-                    ip_address = peer.rsplit(":", 1)[0].removeprefix("ipv4:").removeprefix("ipv6:") or None
+                    ip_address = (
+                        peer.rsplit(":", 1)[0].removeprefix("ipv4:").removeprefix("ipv6:") or None
+                    )
 
                 system_status = getattr(request, "system_status", None)
                 packages = getattr(request, "packages", None)
@@ -88,7 +90,9 @@ class AgentServicer:
                     # same as system_status/packages above) — isinstance guards
                     # against malformed input rather than trusting the wire shape.
                     domain_hashes_raw = _as_dict(getattr(request, "domain_hashes", None))
-                    domain_hashes: dict = domain_hashes_raw if isinstance(domain_hashes_raw, dict) else {}
+                    domain_hashes: dict = (
+                        domain_hashes_raw if isinstance(domain_hashes_raw, dict) else {}
+                    )
                     domain_full_raw = _as_dict(getattr(request, "domain_full", None))
                     domain_full: dict = domain_full_raw if isinstance(domain_full_raw, dict) else {}
 
@@ -97,7 +101,9 @@ class AgentServicer:
                         resync_domains = await diff_domain_hashes(db, agent.id, domain_hashes)
                         await publish_domain_hashes(self.nats, agent.id, domain_hashes)
                     if domain_full:
-                        await publish_domain_snapshots(self.nats, agent.id, domain_full, domain_hashes)
+                        await publish_domain_snapshots(
+                            self.nats, agent.id, domain_full, domain_hashes
+                        )
 
                 yield {
                     "pending_jobs": [

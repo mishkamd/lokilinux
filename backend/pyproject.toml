@@ -31,7 +31,8 @@ dependencies = [
 
     # Auth (JWKS validation against Better Auth)
     "httpx==0.28.1",
-    "PyJWT[cryptography]==2.13.0",
+    "PyJWT==2.13.0",
+    "cryptography==46.0.3",  # direct dependency — api/v1/routers/agent_install.py imports cryptography.x509 itself
 
     # Observability
     "structlog==26.1.0",
@@ -54,7 +55,7 @@ dev = [
 
 [build-system]
 requires = ["setuptools>=80"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]

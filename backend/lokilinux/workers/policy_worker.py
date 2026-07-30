@@ -56,7 +56,10 @@ class PolicyWorker:
             try:
                 policy_id = uuid.UUID(raw_policy_id)
             except (TypeError, ValueError):
-                logger.error("policy.apply message has an invalid policy_id", extra={"policy_id": raw_policy_id})
+                logger.error(
+                    "policy.apply message has an invalid policy_id",
+                    extra={"policy_id": raw_policy_id},
+                )
                 return
             scope = data.get("scope") or {}
 

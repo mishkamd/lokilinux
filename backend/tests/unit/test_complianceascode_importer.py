@@ -65,7 +65,7 @@ def test_parse_xccdf_rules_extracts_content_and_refs():
     assert rule.description == "The root user should never log in directly."
     assert rule.rationale == "Individual accountability requires named-user login."
     assert rule.severity == "MEDIUM"
-    assert rule.standard_refs["mitre"] == "CCE-80901-2"
+    assert rule.standard_refs["cce"] == "CCE-80901-2"
     assert rule.standard_refs["https://www.cisecurity.org"] == "CIS 5.2.10"
 
 

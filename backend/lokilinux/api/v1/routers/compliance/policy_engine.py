@@ -54,6 +54,7 @@ router = APIRouter()
 
 # ── Rule catalog (read-only) ──────────────────────────────────────────────────
 
+
 @router.get("/rules", response_model=CursorPage[ComplianceRuleResponse])
 async def list_rules(
     cursor: str | None = Query(None),
@@ -61,7 +62,9 @@ async def list_rules(
     search: str | None = Query(None),
     severity: str | None = Query(None),
     domain: str | None = Query(None),
-    framework: str | None = Query(None, description="Filters via standard_refs JSONB key presence, e.g. 'cis'"),
+    framework: str | None = Query(
+        None, description="Filters via standard_refs JSONB key presence, e.g. 'cis'"
+    ),
     db: AsyncSession = Depends(get_db),
     _: dict = Depends(get_current_user),
 ) -> CursorPage[ComplianceRuleResponse]:
@@ -79,7 +82,10 @@ async def list_rules(
         raw = decode_cursor(cursor)
         ts_str, rid = raw.rsplit(":", 1)
         ts = datetime.fromisoformat(ts_str)
-        q = q.where((ComplianceRule.imported_at < ts) | ((ComplianceRule.imported_at == ts) & (ComplianceRule.id < UUID(rid))))
+        q = q.where(
+            (ComplianceRule.imported_at < ts)
+            | ((ComplianceRule.imported_at == ts) & (ComplianceRule.id < UUID(rid)))
+        )
 
     q = q.limit(limit + 1)
     rows = (await db.execute(q)).scalars().all()
@@ -102,38 +108,55 @@ async def get_rule_coverage(
     db: AsyncSession = Depends(get_db),
     _: dict = Depends(get_current_user),
 ) -> RuleCoverageResponse:
-    rule = (await db.execute(select(ComplianceRule).where(ComplianceRule.id == rule_id))).scalar_one_or_none()
+    rule = (
+        await db.execute(select(ComplianceRule).where(ComplianceRule.id == rule_id))
+    ).scalar_one_or_none()
     if rule is None:
         raise HTTPException(status_code=404, detail="Rule not found")
 
     evaluated_count = (
         await db.execute(
-            select(func.count(func.distinct(RuleEvaluation.agent_id))).where(RuleEvaluation.rule_id == rule_id)
+            select(func.count(func.distinct(RuleEvaluation.agent_id))).where(
+                RuleEvaluation.rule_id == rule_id
+            )
         )
     ).scalar_one()
 
     return RuleCoverageResponse(
-        rule_id=rule.id, rule_key=rule.rule_key, check_source=rule.check_source,
+        rule_id=rule.id,
+        rule_key=rule.rule_key,
+        check_source=rule.check_source,
         evaluated_agent_count=evaluated_count,
     )
 
 
-@router.get("/rules/{rule_id}/remediation-templates", response_model=list[RemediationTemplateResponse])
+@router.get(
+    "/rules/{rule_id}/remediation-templates", response_model=list[RemediationTemplateResponse]
+)
 async def list_remediation_templates(
     rule_id: UUID,
     db: AsyncSession = Depends(get_db),
     _: dict = Depends(get_current_user),
 ) -> list[RemediationTemplateResponse]:
-    rule = (await db.execute(select(ComplianceRule).where(ComplianceRule.id == rule_id))).scalar_one_or_none()
+    rule = (
+        await db.execute(select(ComplianceRule).where(ComplianceRule.id == rule_id))
+    ).scalar_one_or_none()
     if rule is None:
         raise HTTPException(status_code=404, detail="Rule not found")
     rows = (
-        await db.execute(select(RemediationTemplate).where(RemediationTemplate.rule_key == rule.rule_key))
-    ).scalars().all()
+        (
+            await db.execute(
+                select(RemediationTemplate).where(RemediationTemplate.rule_key == rule.rule_key)
+            )
+        )
+        .scalars()
+        .all()
+    )
     return [RemediationTemplateResponse.model_validate(t) for t in rows]
 
 
 # ── Policy sets ────────────────────────────────────────────────────────────────
+
 
 @router.get("/policy-sets", response_model=CursorPage[PolicySetResponse])
 async def list_policy_sets(
@@ -150,7 +173,10 @@ async def list_policy_sets(
         raw = decode_cursor(cursor)
         ts_str, pid = raw.rsplit(":", 1)
         ts = datetime.fromisoformat(ts_str)
-        q = q.where((PolicySet.created_at < ts) | ((PolicySet.created_at == ts) & (PolicySet.id < UUID(pid))))
+        q = q.where(
+            (PolicySet.created_at < ts)
+            | ((PolicySet.created_at == ts) & (PolicySet.id < UUID(pid)))
+        )
     q = q.limit(limit + 1)
     rows = (await db.execute(q)).scalars().all()
     has_more = len(rows) > limit
@@ -171,12 +197,17 @@ async def create_policy_set(
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(require_role("ADMIN", "OPERATOR")),
 ) -> PolicySetResponse:
-    existing = (await db.execute(select(PolicySet).where(PolicySet.slug == body.slug))).scalar_one_or_none()
+    existing = (
+        await db.execute(select(PolicySet).where(PolicySet.slug == body.slug))
+    ).scalar_one_or_none()
     if existing is not None:
         raise HTTPException(status_code=409, detail=f"Policy set slug '{body.slug}' already exists")
     policy_set = PolicySet(
-        name=body.name, slug=body.slug, framework=body.framework,
-        version=body.version, description=body.description,
+        name=body.name,
+        slug=body.slug,
+        framework=body.framework,
+        version=body.version,
+        description=body.description,
     )
     db.add(policy_set)
     await db.commit()
@@ -289,7 +320,9 @@ async def get_policy_set(
     db: AsyncSession = Depends(get_db),
     _: dict = Depends(get_current_user),
 ) -> PolicySetResponse:
-    row = (await db.execute(select(PolicySet).where(PolicySet.id == policy_set_id))).scalar_one_or_none()
+    row = (
+        await db.execute(select(PolicySet).where(PolicySet.id == policy_set_id))
+    ).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Policy set not found")
     return PolicySetResponse.model_validate(row)
@@ -302,12 +335,16 @@ async def list_policy_set_rules(
     _: dict = Depends(get_current_user),
 ) -> list[ComplianceRuleResponse]:
     rows = (
-        await db.execute(
-            select(ComplianceRule)
-            .join(PolicySetRule, PolicySetRule.rule_id == ComplianceRule.id)
-            .where(PolicySetRule.policy_set_id == policy_set_id)
+        (
+            await db.execute(
+                select(ComplianceRule)
+                .join(PolicySetRule, PolicySetRule.rule_id == ComplianceRule.id)
+                .where(PolicySetRule.policy_set_id == policy_set_id)
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     return [ComplianceRuleResponse.model_validate(r) for r in rows]
 
 
@@ -318,10 +355,14 @@ async def add_policy_set_rule(
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(require_role("ADMIN", "OPERATOR")),
 ) -> dict:
-    policy_set = (await db.execute(select(PolicySet).where(PolicySet.id == policy_set_id))).scalar_one_or_none()
+    policy_set = (
+        await db.execute(select(PolicySet).where(PolicySet.id == policy_set_id))
+    ).scalar_one_or_none()
     if policy_set is None:
         raise HTTPException(status_code=404, detail="Policy set not found")
-    rule = (await db.execute(select(ComplianceRule).where(ComplianceRule.id == body.rule_id))).scalar_one_or_none()
+    rule = (
+        await db.execute(select(ComplianceRule).where(ComplianceRule.id == body.rule_id))
+    ).scalar_one_or_none()
     if rule is None:
         raise HTTPException(status_code=404, detail="Rule not found")
 
@@ -333,7 +374,13 @@ async def add_policy_set_rule(
         )
     ).scalar_one_or_none()
     if existing is None:
-        db.add(PolicySetRule(policy_set_id=policy_set_id, rule_id=body.rule_id, severity_override=body.severity_override))
+        db.add(
+            PolicySetRule(
+                policy_set_id=policy_set_id,
+                rule_id=body.rule_id,
+                severity_override=body.severity_override,
+            )
+        )
         await db.commit()
         await AuditService(db).log(
             action="compliance.policy_set_rule_added",
@@ -341,7 +388,11 @@ async def add_policy_set_rule(
             actor_name=current_user.get("username") or current_user.get("email"),
             resource_type="policy_set",
             resource_id=str(policy_set_id),
-            changes={"rule_id": str(body.rule_id), "rule_key": rule.rule_key, "severity_override": body.severity_override},
+            changes={
+                "rule_id": str(body.rule_id),
+                "rule_key": rule.rule_key,
+                "severity_override": body.severity_override,
+            },
         )
     return {"policy_set_id": str(policy_set_id), "rule_id": str(body.rule_id), "status": "added"}
 
@@ -352,7 +403,9 @@ async def get_policy_set_coverage(
     db: AsyncSession = Depends(get_db),
     _: dict = Depends(get_current_user),
 ) -> PolicySetCoverageResponse:
-    policy_set = (await db.execute(select(PolicySet).where(PolicySet.id == policy_set_id))).scalar_one_or_none()
+    policy_set = (
+        await db.execute(select(PolicySet).where(PolicySet.id == policy_set_id))
+    ).scalar_one_or_none()
     if policy_set is None:
         raise HTTPException(status_code=404, detail="Policy set not found")
 
@@ -361,23 +414,31 @@ async def get_policy_set_coverage(
             select(func.count())
             .select_from(PolicySetRule)
             .join(ComplianceRule, ComplianceRule.id == PolicySetRule.rule_id)
-            .where(PolicySetRule.policy_set_id == policy_set_id, ComplianceRule.check_source == "CEL")
+            .where(
+                PolicySetRule.policy_set_id == policy_set_id, ComplianceRule.check_source == "CEL"
+            )
         )
     ).scalar_one()
     total = (
         await db.execute(
-            select(func.count()).select_from(PolicySetRule).where(PolicySetRule.policy_set_id == policy_set_id)
+            select(func.count())
+            .select_from(PolicySetRule)
+            .where(PolicySetRule.policy_set_id == policy_set_id)
         )
     ).scalar_one()
     unmapped = total - mapped
     coverage_pct = round(100.0 * mapped / total, 1) if total else 0.0
 
     return PolicySetCoverageResponse(
-        policy_set_id=policy_set_id, mapped=mapped, unmapped=unmapped, coverage_pct=coverage_pct,
+        policy_set_id=policy_set_id,
+        mapped=mapped,
+        unmapped=unmapped,
+        coverage_pct=coverage_pct,
     )
 
 
 # ── Policy assignments ─────────────────────────────────────────────────────────
+
 
 @router.get("/policy-assignments", response_model=list[PolicyAssignmentResponse])
 async def list_policy_assignments(
@@ -398,12 +459,16 @@ async def create_policy_assignment(
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(require_role("ADMIN", "OPERATOR")),
 ) -> PolicyAssignmentResponse:
-    policy_set = (await db.execute(select(PolicySet).where(PolicySet.id == body.policy_set_id))).scalar_one_or_none()
+    policy_set = (
+        await db.execute(select(PolicySet).where(PolicySet.id == body.policy_set_id))
+    ).scalar_one_or_none()
     if policy_set is None:
         raise HTTPException(status_code=404, detail="Policy set not found")
     assignment = PolicyAssignment(
-        policy_set_id=body.policy_set_id, scope_type=body.scope_type,
-        scope_selector=body.scope_selector, created_by=safe_user_uuid(current_user),
+        policy_set_id=body.policy_set_id,
+        scope_type=body.scope_type,
+        scope_selector=body.scope_selector,
+        created_by=safe_user_uuid(current_user),
     )
     db.add(assignment)
     await db.commit()
@@ -413,6 +478,10 @@ async def create_policy_assignment(
         actor_name=current_user.get("username") or current_user.get("email"),
         resource_type="policy_assignment",
         resource_id=str(assignment.id),
-        changes={"policy_set_id": str(body.policy_set_id), "scope_type": body.scope_type, "scope_selector": body.scope_selector},
+        changes={
+            "policy_set_id": str(body.policy_set_id),
+            "scope_type": body.scope_type,
+            "scope_selector": body.scope_selector,
+        },
     )
     return PolicyAssignmentResponse.model_validate(assignment)

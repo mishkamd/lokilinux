@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from urllib.parse import urlparse
 from xml.etree import ElementTree
 
 from sqlalchemy import delete, select
@@ -110,8 +111,10 @@ def parse_xccdf_rules(xml_bytes: bytes) -> list[RuleData]:
         standard_refs: dict[str, str] = {}
         for ident in rule_elem.findall(_qname("ident")):
             system = ident.get("system") or "ident"
-            # "http://cce.mitre.org" -> "cce" — short, stable key
-            key = system.rstrip("/").rsplit("/", 1)[-1].rsplit(".", 1)[0] or system
+            # "http://cce.mitre.org" -> "cce" (first label of the hostname) —
+            # short, stable key.
+            hostname = urlparse(system).netloc or system
+            key = hostname.split(".")[0] or system
             if ident.text:
                 standard_refs[key] = ident.text.strip()
         for i, ref in enumerate(rule_elem.findall(_qname("reference"))):
@@ -151,11 +154,19 @@ def parse_xccdf_profiles(xml_bytes: bytes) -> list[ProfileData]:
         title = _text(profile_elem.find(_qname("title"))) or profile_id
         haystack = f"{profile_id} {title}".lower()
         framework = next(
-            (hint.upper().replace("ISO27001", "ISO27001") for hint in _FRAMEWORK_HINTS if re.search(hint, haystack)),
+            (
+                hint.upper().replace("ISO27001", "ISO27001")
+                for hint in _FRAMEWORK_HINTS
+                if re.search(hint, haystack)
+            ),
             "INTERNAL",
         )
 
-        profiles.append(ProfileData(profile_id=profile_id, title=title, framework=framework, rule_keys=rule_keys))
+        profiles.append(
+            ProfileData(
+                profile_id=profile_id, title=title, framework=framework, rule_keys=rule_keys
+            )
+        )
     return profiles
 
 
@@ -192,7 +203,9 @@ class ComplianceAsCodeImporter:
 
         for r in rules:
             existing = (
-                await self.db.execute(select(ComplianceRule).where(ComplianceRule.rule_key == r.rule_key))
+                await self.db.execute(
+                    select(ComplianceRule).where(ComplianceRule.rule_key == r.rule_key)
+                )
             ).scalar_one_or_none()
 
             if existing is None:
@@ -243,11 +256,13 @@ class ComplianceAsCodeImporter:
             # Replace membership wholesale — "this policy set now reflects
             # the imported profile's rule list" is simpler and more
             # predictable than diffing add/remove.
-            await self.db.execute(delete(PolicySetRule).where(PolicySetRule.policy_set_id == policy_set.id))
+            await self.db.execute(
+                delete(PolicySetRule).where(PolicySetRule.policy_set_id == policy_set.id)
+            )
             for rule_key in p.rule_keys:
                 rule_id = rule_key_to_id.get(rule_key)
                 if rule_id is None:
-                    continue  # profile selects a rule this datastream didn't define — skip, don't fail
+                    continue  # profile selects a rule not in this datastream — skip, don't fail
                 self.db.add(PolicySetRule(policy_set_id=policy_set.id, rule_id=rule_id))
             result.policy_sets_imported += 1
 
