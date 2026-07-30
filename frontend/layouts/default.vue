@@ -322,13 +322,18 @@ const navSections = computed((): { title: string; links: NavLink[] }[] => [
     title: 'Compliance',
     links: [
       { to: '/compliance', label: 'Overview', icon: ShieldCheck },
-      { to: '/compliance/baselines', label: 'Baselines', icon: FileText },
-      { to: '/compliance/policies', label: 'Policy Sets', icon: BookCheck },
-      { to: '/compliance/rules', label: 'Rule Catalog', icon: ListChecks },
-      { to: '/compliance/drift', label: 'Drift', icon: GitCompare },
-      { to: '/compliance/file-integrity', label: 'File Integrity', icon: FileSearch },
-      { to: '/compliance/remediation', label: 'Remediation', icon: Wrench },
-      { to: '/compliance/reports', label: 'Reports', icon: FileChartColumn },
+      {
+        to: '/compliance/baselines', label: 'Modules', icon: Layers,
+        children: [
+          { to: '/compliance/baselines',      label: 'Baselines',     icon: FileText },
+          { to: '/compliance/policies',       label: 'Policy Sets',   icon: BookCheck },
+          { to: '/compliance/rules',          label: 'Rule Catalog',  icon: ListChecks },
+          { to: '/compliance/drift',          label: 'Drift',         icon: GitCompare },
+          { to: '/compliance/file-integrity', label: 'File Integrity', icon: FileSearch },
+          { to: '/compliance/remediation',    label: 'Remediation',   icon: Wrench },
+          { to: '/compliance/reports',        label: 'Reports',       icon: FileChartColumn },
+        ],
+      },
     ],
   },
   {
