@@ -299,7 +299,13 @@ services:
     networks:
       - lokilinux-network
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8080/healthz"]
+      # gcr.io/distroless/static-debian12 has no shell, no wget/curl — the
+      # binary checks itself instead (cmd/compliance/main.go -healthcheck).
+      # Confirmed by a real crash-loop otherwise: "wget: executable file
+      # not found in $PATH" on the first-ever docker-compose deploy of this
+      # service, while the app itself was fully up (connected to NATS/DB,
+      # consumer+scheduler running) the whole time.
+      test: ["CMD", "/lokilinux-compliance", "-healthcheck"]
       interval: 30s
       timeout: 10s
       retries: 3

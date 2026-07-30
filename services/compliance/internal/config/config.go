@@ -55,13 +55,22 @@ type LoggingConfig struct {
 // Load reads and parses the YAML config file, applying defaults for any
 // zero-valued field. Unknown YAML keys are silently ignored, matching the
 // agent's config loader — forward-compatible with older binaries.
+//
+// A missing file is not an error: every field this struct holds is either
+// defaulted by applyDefaults or overridden by an env var in cmd/compliance's
+// main() (DATABASE_URL, NATS_URL) — the docker-compose deployment never
+// mounts a compliance.yaml at all, running on env vars + defaults alone, so
+// requiring the file to exist would make that deployment unstartable. A
+// malformed file that does exist is still a hard error — that's a real
+// misconfiguration, not an absent optional file.
 func Load(path string) (*Config, error) {
+	var cfg Config
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
-	}
-	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		if !os.IsNotExist(err) {
+			return nil, err
+		}
+	} else if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, err
 	}
 	applyDefaults(&cfg)

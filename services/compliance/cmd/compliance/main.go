@@ -12,6 +12,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -38,11 +39,17 @@ var Version = "dev"
 func main() {
 	configPath := flag.String("config", "/etc/lokilinux/compliance.yaml", "path to compliance service config file")
 	showVersion := flag.Bool("version", false, "print version and exit")
+	healthcheck := flag.Bool("healthcheck", false, "GET /healthz on this instance and exit 0/1 — for Docker's HEALTHCHECK, since the final image is distroless (no shell, no wget/curl to run as a separate CMD)")
+	healthcheckPort := flag.Int("healthcheck-port", 8080, "port to hit when -healthcheck is set")
 	flag.Parse()
 
 	if *showVersion {
 		os.Stdout.WriteString(Version + "\n")
 		return
+	}
+
+	if *healthcheck {
+		os.Exit(runHealthcheck(*healthcheckPort))
 	}
 
 	cfg, err := config.Load(*configPath)
@@ -190,6 +197,23 @@ func newLogger(level string) *slog.Logger {
 		lvl = slog.LevelError
 	}
 	return slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: lvl}))
+}
+
+// runHealthcheck GETs /healthz on the given port and returns a process exit
+// code (0 healthy, 1 otherwise) — invoked as `lokilinux-compliance
+// -healthcheck` from Docker's HEALTHCHECK CMD, the only way to probe an
+// HTTP endpoint from inside a distroless container that has no wget/curl.
+func runHealthcheck(port int) int {
+	client := http.Client{Timeout: 3 * time.Second}
+	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/healthz", port))
+	if err != nil {
+		return 1
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return 1
+	}
+	return 0
 }
 
 func envOr(key, fallback string) string {

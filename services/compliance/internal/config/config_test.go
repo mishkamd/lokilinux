@@ -45,11 +45,35 @@ func TestLoad_AppliesDefaults(t *testing.T) {
 	}
 }
 
-// TestLoad_MissingFile ensures a missing config path surfaces as an error,
-// not a zero-value Config silently used with wrong defaults.
-func TestLoad_MissingFile(t *testing.T) {
-	_, err := Load("/nonexistent/compliance.yaml")
-	if err == nil {
-		t.Fatal("expected an error for a missing config file")
+// TestLoad_MissingFileFallsBackToDefaults — the docker-compose deployment
+// never mounts a compliance.yaml at all (env vars + defaults only, see
+// docker-compose.yml's lokilinux-compliance service), so a missing file
+// must not be fatal. Confirmed against the real deployment: this exact gap
+// crash-looped the container on first-ever docker-compose up.
+func TestLoad_MissingFileFallsBackToDefaults(t *testing.T) {
+	cfg, err := Load("/nonexistent/compliance.yaml")
+	if err != nil {
+		t.Fatalf("Load with a missing file returned an error, want defaults: %v", err)
+	}
+	if cfg.NATS.URL != "nats://nats:4222" {
+		t.Errorf("NATS.URL = %q, want default", cfg.NATS.URL)
+	}
+	if cfg.Telemetry.HealthPort != 8080 {
+		t.Errorf("Telemetry.HealthPort = %d, want default 8080", cfg.Telemetry.HealthPort)
+	}
+}
+
+// TestLoad_MalformedFileStillErrors — a file that exists but fails to parse
+// is a real misconfiguration, unlike an absent optional file, and must
+// still fail loudly.
+func TestLoad_MalformedFileStillErrors(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "compliance.yaml")
+	if err := os.WriteFile(path, []byte("not: valid: yaml: [structure"), 0o600); err != nil {
+		t.Fatalf("failed to write test config: %v", err)
+	}
+
+	if _, err := Load(path); err == nil {
+		t.Fatal("expected an error for a malformed config file")
 	}
 }
