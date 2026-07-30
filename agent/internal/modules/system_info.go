@@ -453,6 +453,11 @@ func blockDevices() []BlockDeviceInfo {
 	return flatten(parsed.BlockDevices, "")
 }
 
+// ListeningPorts exports listeningPorts for reuse by the compliance
+// package's open_ports collector — same scan, same data, so a compliance
+// rule and the fleet dashboard never see diverging results.
+func ListeningPorts() []ListeningPortInfo { return listeningPorts() }
+
 // listeningPorts parses /proc/net/{tcp,tcp6,udp,udp6} for sockets in LISTEN
 // state (TCP: st==0A; UDP is connectionless so any bound socket counts —
 // mirrors `ss -tulpn`'s UNCONN rows), then resolves each socket inode to its

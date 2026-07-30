@@ -8,24 +8,32 @@ import (
 	"time"
 
 	"github.com/lokilinux/agent/internal/communication"
+	"github.com/lokilinux/agent/internal/compliance"
 	"github.com/lokilinux/agent/internal/config"
 	"github.com/lokilinux/agent/internal/modules"
 	"github.com/lokilinux/agent/internal/storage"
 )
 
+// complianceTickInterval is the base cadence compliance.Runner ticks at —
+// finer-grained than any single collector needs (Collector.Interval()
+// governs actual cadence per domain), just frequent enough that a 0-
+// interval ("every heartbeat") collector stays fresh between heartbeats.
+const complianceTickInterval = time.Minute
+
 // Manager orchestrates all agent subsystems and drives the heartbeat cycle.
 type Manager struct {
-	cfg     *config.Config
-	log     *slog.Logger
-	version string
-	logBuf  *LogRingBuffer
-	client  *communication.GRPCClient
-	store   *storage.Store
-	sysMod      *modules.SystemInfoModule
-	pkgMod      *modules.PackageManagerModule
-	jobExec     *modules.JobExecutor
-	ansibleExec *modules.AnsibleExecutor
-	stop        chan struct{}
+	cfg              *config.Config
+	log              *slog.Logger
+	version          string
+	logBuf           *LogRingBuffer
+	client           *communication.GRPCClient
+	store            *storage.Store
+	sysMod           *modules.SystemInfoModule
+	pkgMod           *modules.PackageManagerModule
+	jobExec          *modules.JobExecutor
+	ansibleExec      *modules.AnsibleExecutor
+	complianceRunner *compliance.Runner
+	stop             chan struct{}
 
 	failCount int // consecutive heartbeat failures, drives backoff
 
@@ -35,6 +43,12 @@ type Manager struct {
 	// main loop) and drained into the next outgoing heartbeat.
 	resultsMu      sync.Mutex
 	pendingResults []modules.JobResult
+
+	// resyncMu guards resyncDomains: set by handleResponse from the
+	// server's resync_domains, drained by sendHeartbeat into the *next*
+	// outgoing heartbeat's domain_full (docs/compliance/04-PROTOCOL.md §3).
+	resyncMu      sync.Mutex
+	resyncDomains []string
 }
 
 const (
@@ -62,17 +76,18 @@ func NewManager(cfg *config.Config, log *slog.Logger, version string, logBuf *Lo
 	)
 
 	return &Manager{
-		cfg:     cfg,
-		log:     log,
-		version: version,
-		logBuf:  logBuf,
-		client:  client,
-		store:   store,
-		sysMod:      modules.NewSystemInfoModule(),
-		pkgMod:      modules.NewPackageManagerModule(),
-		jobExec:     modules.NewJobExecutor(),
-		ansibleExec: modules.NewAnsibleExecutor(),
-		stop:        make(chan struct{}),
+		cfg:              cfg,
+		log:              log,
+		version:          version,
+		logBuf:           logBuf,
+		client:           client,
+		store:            store,
+		sysMod:           modules.NewSystemInfoModule(),
+		pkgMod:           modules.NewPackageManagerModule(),
+		jobExec:          modules.NewJobExecutor(),
+		ansibleExec:      modules.NewAnsibleExecutor(),
+		complianceRunner: compliance.NewRunner(compliance.Registry, store, log),
+		stop:             make(chan struct{}),
 	}, nil
 }
 
@@ -83,6 +98,11 @@ func (m *Manager) Run(ctx context.Context) {
 	interval := time.Duration(m.cfg.Heartbeat.IntervalSec) * time.Second
 
 	go m.runPurge(ctx)
+
+	if err := m.complianceRunner.LoadState(ctx); err != nil {
+		m.log.Warn("loading persisted compliance state failed", "error", err)
+	}
+	go m.complianceRunner.Run(ctx, complianceTickInterval)
 
 	// fire immediately on start, then on each computed delay
 	m.sendHeartbeat(ctx)
@@ -171,7 +191,23 @@ func (m *Manager) sendHeartbeat(ctx context.Context) {
 	results := append([]modules.JobResult(nil), m.pendingResults...)
 	m.resultsMu.Unlock()
 
-	payload := buildPayload(m.cfg.Identity.AgentID, sysInfo, pkgs, checksum, m.version, recentLogs, connCount, infoCount, critCount, health, results)
+	domainHashes := m.complianceRunner.Hashes()
+
+	m.resyncMu.Lock()
+	toResync := m.resyncDomains
+	m.resyncDomains = nil
+	m.resyncMu.Unlock()
+	var domainFull map[string]map[string]interface{}
+	if len(toResync) > 0 {
+		domainFull = make(map[string]map[string]interface{}, len(toResync))
+		for _, domain := range toResync {
+			if result, ok := m.complianceRunner.FullBody(domain); ok {
+				domainFull[domain] = map[string]interface{}(result.Facts)
+			}
+		}
+	}
+
+	payload := buildPayload(m.cfg.Identity.AgentID, sysInfo, pkgs, checksum, m.version, recentLogs, connCount, infoCount, critCount, health, results, domainHashes, domainFull)
 
 	resp, err := m.client.SendHeartbeat(ctx, payload)
 	if err != nil {
@@ -222,6 +258,8 @@ func buildPayload(
 	logCritical int,
 	health modules.Health,
 	jobResults []modules.JobResult,
+	domainHashes map[string]string,
+	domainFull map[string]map[string]interface{},
 ) map[string]interface{} {
 	return map[string]interface{}{
 		"agent_id":          agentID,
@@ -236,11 +274,19 @@ func buildPayload(
 		"log_critical":      logCritical,
 		"health":            health,
 		"job_results":       jobResults,
+		"domain_hashes":     domainHashes,
+		"domain_full":       domainFull,
 	}
 }
 
 // handleResponse processes jobs and policy deltas from the server response.
 func (m *Manager) handleResponse(ctx context.Context, resp map[string]interface{}) {
+	if domains, ok := resp["resync_domains"].([]string); ok && len(domains) > 0 {
+		m.resyncMu.Lock()
+		m.resyncDomains = domains
+		m.resyncMu.Unlock()
+	}
+
 	jobs, ok := resp["pending_jobs"]
 	if !ok {
 		return

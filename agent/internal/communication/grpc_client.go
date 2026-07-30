@@ -201,6 +201,12 @@ func payloadToRequest(m map[string]interface{}) *gen.AgentHeartbeatRequest {
 	if v, ok := m["log_critical"].(int); ok {
 		req.LogCritical = int32(v)
 	}
+	if v, ok := m["domain_hashes"].(map[string]string); ok {
+		req.DomainHashes = v
+	}
+	if v, ok := m["domain_full"].(map[string]map[string]interface{}); ok {
+		req.DomainFull = v
+	}
 	if sys, ok := m["system"].(*modules.SystemInfo); ok {
 		var disks []*gen.Disk
 		for _, d := range sys.Disks {
@@ -338,6 +344,9 @@ func responseToMap(resp *gen.AgentHeartbeatResponse) map[string]interface{} {
 	}
 	if resp.PluginAction != "" {
 		result["plugin_action"] = resp.PluginAction
+	}
+	if len(resp.ResyncDomains) > 0 {
+		result["resync_domains"] = resp.ResyncDomains
 	}
 	if len(result) == 0 {
 		return nil

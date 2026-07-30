@@ -27,6 +27,13 @@ type AgentHeartbeatRequest struct {
 	LogInformative   int32            `json:"log_informative,omitempty"`
 	LogCritical      int32            `json:"log_critical,omitempty"`
 	JobResults       []*JobResult     `json:"job_results,omitempty"`
+
+	// DomainHashes/DomainFull carry the compliance module's per-domain delta
+	// sync (docs/compliance/04-PROTOCOL.md §3) — DomainHashes goes out every
+	// heartbeat (cheap), DomainFull only for domains the previous response's
+	// ResyncDomains flagged.
+	DomainHashes map[string]string                 `json:"domain_hashes,omitempty"`
+	DomainFull   map[string]map[string]interface{} `json:"domain_full,omitempty"`
 }
 
 // AgentHeartbeatResponse carries the server's reply to one heartbeat.
@@ -38,6 +45,11 @@ type AgentHeartbeatResponse struct {
 	UpdatePolicy  *PolicyConfig `json:"update_policy,omitempty"`
 	RebootRequest string        `json:"reboot_request,omitempty"`
 	PluginAction  string        `json:"plugin_action,omitempty"`
+
+	// ResyncDomains lists compliance domains whose last-reported hash didn't
+	// match the server's latest snapshot — the agent sends a full body for
+	// each of these in DomainFull on its *next* heartbeat (04-PROTOCOL.md §3).
+	ResyncDomains []string `json:"resync_domains,omitempty"`
 }
 
 // ─── System ───────────────────────────────────────────────────────────────────
