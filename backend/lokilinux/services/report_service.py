@@ -24,11 +24,15 @@ from datetime import datetime
 from uuid import UUID
 
 import openpyxl
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
+from reportlab.lib.styles import getSampleStyleSheet
+from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.models.compliance_report import ComplianceReport
-from lokilinux.models.compliance_rule import ComplianceRule
+from lokilinux.models.compliance_rule import ComplianceRule, PolicySetRule
 from lokilinux.models.rule_evaluation import RuleEvaluation
 
 CATEGORY_BY_DOMAIN = {
@@ -53,10 +57,14 @@ CATEGORY_BY_DOMAIN = {
 }
 
 
-async def _latest_evaluations(db: AsyncSession, agent_id: UUID | None = None):
+async def _latest_evaluations(
+    db: AsyncSession, agent_id: UUID | None = None, policy_set_id: UUID | None = None
+):
     """One row per (agent_id, rule_id) — the most recent verdict, since
     rule_evaluations is an append-only hypertable that can carry many
-    historical rows for the same rule.
+    historical rows for the same rule. policy_set_id restricts to only the
+    rules that belong to that one policy set (via policy_set_rules) — the
+    join a POLICY_SET-scoped report needs instead of fleet-wide data.
     """
     q = (
         select(RuleEvaluation, ComplianceRule.domain, ComplianceRule.severity, ComplianceRule.title)
@@ -66,11 +74,17 @@ async def _latest_evaluations(db: AsyncSession, agent_id: UUID | None = None):
     )
     if agent_id:
         q = q.where(RuleEvaluation.agent_id == agent_id)
+    if policy_set_id:
+        q = q.join(PolicySetRule, PolicySetRule.rule_id == ComplianceRule.id).where(
+            PolicySetRule.policy_set_id == policy_set_id
+        )
     return (await db.execute(q)).all()
 
 
-async def build_fleet_summary_data(db: AsyncSession, agent_id: UUID | None = None) -> dict:
-    rows = await _latest_evaluations(db, agent_id)
+async def build_fleet_summary_data(
+    db: AsyncSession, agent_id: UUID | None = None, policy_set_id: UUID | None = None
+) -> dict:
+    rows = await _latest_evaluations(db, agent_id, policy_set_id)
 
     category_counts: dict[str, dict[str, int]] = {}
     violations: list[dict] = []
@@ -185,13 +199,61 @@ def to_xlsx(data: dict) -> bytes:
     return buf.getvalue()
 
 
+_TABLE_STYLE = TableStyle(
+    [
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1f2937")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+    ]
+)
+
+
+def to_pdf(data: dict) -> bytes:
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=letter)
+    styles = getSampleStyleSheet()
+    overall = data["overall_score"] if data["overall_score"] is not None else "N/A"
+    story = [
+        Paragraph("Compliance Report", styles["Title"]),
+        Paragraph(f"Generated: {data['generated_at']}", styles["Normal"]),
+        Paragraph(f"Overall score: {overall}", styles["Heading2"]),
+        Spacer(1, 12),
+    ]
+
+    category_rows = [["Category", "Score", "Passed", "Failed"]]
+    for name, c in data["categories"].items():
+        category_rows.append(
+            [name, c["score"] if c["score"] is not None else "N/A", c["passed"], c["failed"]]
+        )
+    category_table = Table(category_rows, hAlign="LEFT")
+    category_table.setStyle(_TABLE_STYLE)
+    story += [category_table, Spacer(1, 20), Paragraph("Top Violations", styles["Heading2"])]
+
+    violations = data["top_violations"]
+    if violations:
+        violation_rows = [["Severity", "Domain", "Title", "Agent"]]
+        violation_rows += [
+            [v["severity"], v["domain"], v["title"], v["agent_id"]] for v in violations
+        ]
+        violation_table = Table(violation_rows, hAlign="LEFT")
+        violation_table.setStyle(_TABLE_STYLE)
+        story.append(violation_table)
+    else:
+        story.append(Paragraph("No violations.", styles["Normal"]))
+
+    doc.build(story)
+    return buf.getvalue()
+
+
 FORMAT_CONTENT_TYPES = {
     "JSON": "application/json",
     "CSV": "text/csv",
     "XLSX": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "PDF": "application/pdf",
 }
 
-_SERIALIZERS = {"JSON": to_json, "CSV": to_csv, "XLSX": to_xlsx}
+_SERIALIZERS = {"JSON": to_json, "CSV": to_csv, "XLSX": to_xlsx, "PDF": to_pdf}
 
 
 async def generate_report(db: AsyncSession, report: ComplianceReport) -> None:
@@ -203,22 +265,15 @@ async def generate_report(db: AsyncSession, report: ComplianceReport) -> None:
     await db.commit()
 
     try:
-        if report.format == "PDF":
-            raise NotImplementedError(
-                "PDF export isn't implemented yet — JSON/CSV/XLSX are real, "
-                "PDF needs a rendering dependency not yet added (openpyxl "
-                "covers XLSX; PDF needs reportlab or similar)."
-            )
-
         agent_id = UUID(report.params["agent_id"]) if report.params.get("agent_id") else None
-        if report.report_type in ("FLEET_SUMMARY", "DATACENTER", "CUSTOM"):
-            data = await build_fleet_summary_data(db, agent_id=agent_id)
-        elif report.report_type == "POLICY_SET":
-            # ponytail: policy-set-scoped filtering (only rules belonging to
-            # one policy_set_id) isn't built — this returns the same
-            # fleet-wide data as FLEET_SUMMARY today. Add a policy_set_id
-            # join filter here once a report specifically for one policy
-            # set is needed.
+        if report.report_type == "POLICY_SET":
+            if not report.params.get("policy_set_id"):
+                raise ValueError("POLICY_SET reports require params.policy_set_id")
+            policy_set_id = UUID(report.params["policy_set_id"])
+            data = await build_fleet_summary_data(
+                db, agent_id=agent_id, policy_set_id=policy_set_id
+            )
+        elif report.report_type in ("FLEET_SUMMARY", "DATACENTER", "CUSTOM"):
             data = await build_fleet_summary_data(db, agent_id=agent_id)
         else:
             raise ValueError(f"unknown report_type {report.report_type!r}")

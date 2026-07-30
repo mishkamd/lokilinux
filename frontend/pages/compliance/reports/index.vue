@@ -105,7 +105,7 @@ async function downloadReport(id: string, format: ReportFormat) {
           <FormField label="Report type" required>
             <Select v-model="form.report_type" :options="REPORT_TYPES" />
           </FormField>
-          <FormField label="Format" required help="PDF isn't implemented yet — the job will fail with a clear error">
+          <FormField label="Format" required>
             <Select v-model="form.format" :options="REPORT_FORMATS" />
           </FormField>
         </div>
