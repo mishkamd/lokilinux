@@ -272,6 +272,61 @@ func (s *Store) InsertFileChange(ctx context.Context, agentID uuid.UUID, path, o
 	return nil
 }
 
+// EvaluationSummary is one agent's latest verdict for one rule, joined with
+// the rule's domain — the input to per-category score computation.
+type EvaluationSummary struct {
+	Domain string
+	Result string
+}
+
+// LatestEvaluationsForAgent returns the most recent verdict per rule for
+// one agent (DISTINCT ON rule_id), across every domain — compliance_scores
+// (migration 016) had no writer before this; this is the full input set a
+// rescore needs after any domain's rule_evaluations change.
+func (s *Store) LatestEvaluationsForAgent(ctx context.Context, agentID uuid.UUID) ([]EvaluationSummary, error) {
+	rowsResult, err := s.pool.Query(ctx, `
+		SELECT DISTINCT ON (re.rule_id) cr.domain, re.result
+		FROM rule_evaluations re
+		JOIN compliance_rules cr ON cr.id = re.rule_id
+		WHERE re.agent_id = $1
+		ORDER BY re.rule_id, re.time DESC
+	`, agentID)
+	if err != nil {
+		return nil, fmt.Errorf("querying latest evaluations for agent %s: %w", agentID, err)
+	}
+	defer rowsResult.Close()
+
+	var out []EvaluationSummary
+	for rowsResult.Next() {
+		var e EvaluationSummary
+		if err := rowsResult.Scan(&e.Domain, &e.Result); err != nil {
+			return nil, fmt.Errorf("scanning evaluation summary row: %w", err)
+		}
+		out = append(out, e)
+	}
+	return out, rowsResult.Err()
+}
+
+// InsertComplianceScore records one category's score sample for an agent —
+// an append-only hypertable row (migration 016), the raw input
+// compliance_scores_daily aggregates for the fleet trend chart.
+func (s *Store) InsertComplianceScore(
+	ctx context.Context,
+	agentID uuid.UUID,
+	category string,
+	score float64,
+	passedCount, failedCount, notApplicableCount int,
+) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO compliance_scores (time, agent_id, category, score, passed_count, failed_count, not_applicable_count)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+	`, time.Now().UTC(), agentID, category, score, passedCount, failedCount, notApplicableCount)
+	if err != nil {
+		return fmt.Errorf("inserting compliance score (agent=%s category=%s): %w", agentID, category, err)
+	}
+	return nil
+}
+
 // DispatchScheduledJobs transitions every 'SCHEDULED' job whose
 // scheduled_time has arrived to 'QUEUED', making it visible to
 // AgentService.get_pending_jobs on the target agents' next heartbeat —

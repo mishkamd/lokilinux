@@ -17,6 +17,7 @@ import (
 
 	"github.com/lokilinux/compliance/internal/drift"
 	"github.com/lokilinux/compliance/internal/rules"
+	"github.com/lokilinux/compliance/internal/scoring"
 	"github.com/lokilinux/compliance/internal/storage"
 )
 
@@ -114,6 +115,11 @@ func (in *Ingester) Ingest(ctx context.Context, snap Snapshot) (Result, error) {
 	evaluated, err := in.evaluateRules(ctx, snap)
 	if err != nil {
 		return Result{}, err
+	}
+	if evaluated > 0 {
+		if err := in.updateComplianceScores(ctx, snap.AgentID); err != nil {
+			return Result{}, err
+		}
 	}
 
 	if snap.Domain == "file_integrity" && !unchanged {
@@ -227,4 +233,81 @@ func (in *Ingester) evaluateRules(ctx context.Context, snap Snapshot) (int, erro
 	}
 
 	return len(activeRules), nil
+}
+
+// categoryScore is one category's computed score sample, ready for
+// storage.InsertComplianceScore.
+type categoryScore struct {
+	category                      string
+	score                         float64
+	passed, failed, notApplicable int
+}
+
+// computeCategoryScores is the pure half of updateComplianceScores — given
+// an agent's latest evaluation set, returns one categoryScore per category
+// present plus a synthetic "overall" entry (the unweighted mean of the
+// categories that had at least one scoreable PASS/FAIL rule, matching the
+// brief's dashboard example in docs/compliance/07-POLICY-ENGINE.md §4).
+// Split out from the DB-writing method so this is testable without a real
+// Postgres.
+func computeCategoryScores(evaluations []storage.EvaluationSummary) []categoryScore {
+	type bucket struct{ passed, failed, notApplicable int }
+	buckets := map[string]*bucket{}
+	var order []string
+	for _, e := range evaluations {
+		category := scoring.Classify(e.Domain)
+		b, ok := buckets[category]
+		if !ok {
+			b = &bucket{}
+			buckets[category] = b
+			order = append(order, category)
+		}
+		switch rules.Result(e.Result) {
+		case rules.ResultPass:
+			b.passed++
+		case rules.ResultFail:
+			b.failed++
+		case rules.ResultNotApplicable:
+			b.notApplicable++
+		}
+	}
+
+	var out []categoryScore
+	var scoredSum float64
+	var scoredCount int
+	for _, category := range order {
+		b := buckets[category]
+		total := b.passed + b.failed
+		var score float64
+		if total > 0 {
+			score = 100.0 * float64(b.passed) / float64(total)
+			scoredSum += score
+			scoredCount++
+		}
+		out = append(out, categoryScore{category: category, score: score, passed: b.passed, failed: b.failed, notApplicable: b.notApplicable})
+	}
+
+	if scoredCount > 0 {
+		out = append(out, categoryScore{category: "overall", score: scoredSum / float64(scoredCount)})
+	}
+
+	return out
+}
+
+// updateComplianceScores recomputes every category score for one agent from
+// its full current rule_evaluations set (all domains, not just the one that
+// just changed) and appends one compliance_scores row per category —
+// migration 016 declared this table but nothing wrote to it until this.
+func (in *Ingester) updateComplianceScores(ctx context.Context, agentID uuid.UUID) error {
+	evaluations, err := in.store.LatestEvaluationsForAgent(ctx, agentID)
+	if err != nil {
+		return fmt.Errorf("loading latest evaluations for scoring: %w", err)
+	}
+
+	for _, cs := range computeCategoryScores(evaluations) {
+		if err := in.store.InsertComplianceScore(ctx, agentID, cs.category, cs.score, cs.passed, cs.failed, cs.notApplicable); err != nil {
+			return err
+		}
+	}
+	return nil
 }

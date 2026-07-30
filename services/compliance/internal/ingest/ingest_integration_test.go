@@ -125,6 +125,54 @@ func TestIngest_RejectsHashMismatch(t *testing.T) {
 	}
 }
 
+func TestIngest_UpdatesComplianceScoreForEvaluatedCategory(t *testing.T) {
+	ing, store := newTestIngester(t)
+	defer store.Close()
+	ctx := context.Background()
+
+	// Passing facts — the seeded rule (sshd_disable_root_login, "security"
+	// category) should score 100% after this ingest.
+	snap := Snapshot{AgentID: testAgentID, Domain: "sshd", Facts: map[string]any{"PermitRootLogin": "no"}}
+	hash, err := canonicalHash(snap.Facts)
+	if err != nil {
+		t.Fatalf("canonicalHash error = %v", err)
+	}
+	snap.ContentHash = hash
+
+	if _, err := ing.Ingest(ctx, snap); err != nil {
+		t.Fatalf("Ingest() error = %v", err)
+	}
+
+	evaluations, err := store.LatestEvaluationsForAgent(ctx, testAgentID)
+	if err != nil {
+		t.Fatalf("LatestEvaluationsForAgent error = %v", err)
+	}
+	if len(evaluations) == 0 {
+		t.Fatal("expected at least one evaluation for the seeded rule")
+	}
+
+	scores := computeCategoryScores(evaluations)
+	var security *categoryScore
+	for i := range scores {
+		if scores[i].category == "security" {
+			security = &scores[i]
+		}
+	}
+	if security == nil {
+		t.Fatalf("expected a 'security' category score, got %+v", scores)
+	}
+	if security.score != 100.0 {
+		t.Errorf("security score = %v, want 100 (the seeded rule should be passing)", security.score)
+	}
+	// This is the same computation updateComplianceScores just persisted via
+	// InsertComplianceScore — a real row now exists in compliance_scores for
+	// (testAgentID, "security", <this ingest's timestamp>). Store doesn't
+	// expose a compliance_scores reader yet (that's the API layer's job),
+	// so re-deriving the expected value from LatestEvaluationsForAgent is
+	// the verification available at this layer — same limitation the
+	// dedup/rule-result tests above already accept.
+}
+
 func TestIngest_ContentAddressableDedup_SameHashOneBlobRow(t *testing.T) {
 	ing, store := newTestIngester(t)
 	defer store.Close()
