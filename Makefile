@@ -74,12 +74,15 @@ agent-package: agent-build agent-build-arm64
 	tar -czf $(AGENT_DIR)/bin/lokilinux-agent_$(VERSION)_linux_arm64.tar.gz \
 		-C $(AGENT_DIR)/bin lokilinux-agent-arm64 loki
 	@if command -v nfpm >/dev/null 2>&1; then \
-		cd $(AGENT_DIR) && ARCH=amd64 VERSION=$(VERSION) nfpm package --packager deb --target bin/ && \
-		cd $(AGENT_DIR) && ARCH=amd64 VERSION=$(VERSION) nfpm package --packager rpm --target bin/ && \
-		cd $(AGENT_DIR) && ARCH=arm64 VERSION=$(VERSION) nfpm package --packager deb --target bin/ && \
-		cd $(AGENT_DIR) && ARCH=arm64 VERSION=$(VERSION) nfpm package --packager rpm --target bin/; \
+		cp $(AGENT_DIR)/bin/lokilinux-agent $(AGENT_DIR)/bin/lokilinux-agent-nfpm-src && \
+		cd $(AGENT_DIR) && ARCH=amd64 VERSION=$(VERSION) nfpm package -f .nfpm.yaml --packager deb --target bin/ && \
+		cd $(AGENT_DIR) && ARCH=amd64 VERSION=$(VERSION) nfpm package -f .nfpm.yaml --packager rpm --target bin/ && \
+		cp $(AGENT_DIR)/bin/lokilinux-agent-arm64 $(AGENT_DIR)/bin/lokilinux-agent-nfpm-src && \
+		cd $(AGENT_DIR) && ARCH=arm64 VERSION=$(VERSION) nfpm package -f .nfpm.yaml --packager deb --target bin/ && \
+		cd $(AGENT_DIR) && ARCH=arm64 VERSION=$(VERSION) nfpm package -f .nfpm.yaml --packager rpm --target bin/ && \
+		rm -f $(AGENT_DIR)/bin/lokilinux-agent-nfpm-src; \
 	else \
-		echo "nfpm not installed — skipping .deb/.rpm (install: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest)"; \
+		echo "nfpm not installed — skipping .deb/.rpm (install: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.40.0)"; \
 	fi
 
 ## Run agent tests with race detector
