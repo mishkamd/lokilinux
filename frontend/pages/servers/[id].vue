@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ArrowLeft } from 'lucide-vue-next'
+import type { JobResult } from '~/stores/jobs'
 
 const route = useRoute()
 const store = useServersStore()
@@ -95,6 +96,33 @@ const jobColumns = [
   { key: 'created_at', label: 'Created' },
   { key: 'completed_at', label: 'Completed' },
 ]
+
+const selectedJob = ref<(typeof jobs.value)[0] | null>(null)
+const showJobDetail = computed({
+  get: () => !!selectedJob.value,
+  set: (v: boolean) => { if (!v) selectedJob.value = null },
+})
+
+const jobResults = ref<JobResult[]>([])
+const jobResultsLoading = ref(false)
+
+watch(selectedJob, async (job) => {
+  jobResults.value = []
+  if (!job) return
+  jobResultsLoading.value = true
+  try {
+    jobResults.value = await useJobsStore().fetchJobResults(String(job.id))
+  } finally {
+    jobResultsLoading.value = false
+  }
+})
+
+const jobResultSummary = computed(() =>
+  jobResults.value.reduce((acc, r) => {
+    acc[r.status] = (acc[r.status] ?? 0) + 1
+    return acc
+  }, {} as Record<string, number>),
+)
 
 const packageColumns = [
   { key: 'name', label: 'Nume' },
@@ -318,7 +346,7 @@ const SEVERITY_COLORS: Record<string, string> = {
 
       <template #jobs>
         <div class="mt-4">
-          <DataTable :rows="jobs" :columns="jobColumns" :loading="jobsLoading">
+          <DataTable :rows="jobs" :columns="jobColumns" :loading="jobsLoading" rows-clickable @row-click="selectedJob = $event">
             <template #status-data="{ row }">
               <Badge :color="jobStatusColor(String(row.status))" size="xs">{{ row.status }}</Badge>
             </template>
@@ -329,6 +357,7 @@ const SEVERITY_COLORS: Record<string, string> = {
               {{ row.completed_at ? new Date(String(row.completed_at)).toLocaleString() : '—' }}
             </template>
           </DataTable>
+          <p class="text-xs text-muted-foreground mt-2">Click pe un job pentru output-ul complet (stdout/stderr).</p>
         </div>
       </template>
 
@@ -406,4 +435,38 @@ const SEVERITY_COLORS: Record<string, string> = {
   <div v-else class="flex items-center justify-center h-64 text-muted-foreground">
     Server not found.
   </div>
+
+  <Sheet v-model="showJobDetail">
+    <div v-if="selectedJob" class="p-6 space-y-4 pt-12">
+      <div class="flex items-center gap-3">
+        <h2 class="text-lg font-bold flex-1">{{ selectedJob.name }}</h2>
+        <Badge :color="jobStatusColor(String(selectedJob.status))">{{ selectedJob.status }}</Badge>
+      </div>
+      <dl class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+        <div><dt class="text-muted-foreground">Type</dt><dd>{{ selectedJob.job_type }}</dd></div>
+        <div><dt class="text-muted-foreground">Created</dt><dd>{{ new Date(String(selectedJob.created_at)).toLocaleString() }}</dd></div>
+      </dl>
+      <template v-if="jobResults.length">
+        <Separator />
+        <div class="flex flex-wrap gap-2">
+          <Badge v-for="(count, status) in jobResultSummary" :key="status" :color="jobStatusColor(status)" size="xs">
+            {{ count }} {{ status.toLowerCase() }}
+          </Badge>
+        </div>
+        <div class="space-y-1">
+          <details v-for="r in jobResults" :key="r.agent_id" class="rounded border border-border p-2 text-sm">
+            <summary class="cursor-pointer flex items-center gap-2">
+              <Badge :color="jobStatusColor(r.status)" size="xs">{{ r.status }}</Badge>
+              <span class="font-mono flex-1">{{ r.hostname || r.agent_id }}</span>
+              <span class="text-xs text-muted-foreground">exit {{ r.exit_code ?? '—' }}</span>
+              <span class="text-xs text-muted-foreground">{{ r.duration_seconds != null ? r.duration_seconds + 's' : '—' }}</span>
+            </summary>
+            <pre class="text-xs bg-muted rounded p-2 mt-2 overflow-auto max-h-40">{{ r.stdout || '(empty)' }}</pre>
+            <pre v-if="r.stderr" class="text-xs bg-muted rounded p-2 mt-1 overflow-auto max-h-40 text-red-500">{{ r.stderr }}</pre>
+          </details>
+        </div>
+      </template>
+      <p v-else-if="jobResultsLoading" class="text-sm text-muted-foreground">Se încarcă rezultatele…</p>
+    </div>
+  </Sheet>
 </template>

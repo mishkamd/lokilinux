@@ -217,7 +217,7 @@ class AgentService:
         approved_by can be NULL on a genuinely-approved job. approved_at is
         always set by JobService.approve_job regardless of that.
         """
-        from lokilinux.models.job import Job, JobResult
+        from lokilinux.models.job import Job, JobResult, JobStatus
 
         result = await self.db.execute(
             select(Job)
@@ -234,7 +234,34 @@ class AgentService:
             )
             .limit(10)
         )
-        return result.scalars().all()
+        jobs = result.scalars().all()
+
+        # Mark as dispatched so the same job isn't re-selected (and re-sent
+        # to the agent) on every subsequent heartbeat until a result comes
+        # back — this SELECT used to be side-effect free, which meant a job
+        # stayed QUEUED/PENDING for its entire run and got re-executed each
+        # heartbeat. A job left RUNNING because the agent died is swept to
+        # TIMEOUT by JobTimeoutWorker.
+        if jobs:
+            job_ids = [j.id for j in jobs]
+            now = datetime.now(timezone.utc)
+            await self.db.execute(
+                update(JobResult)
+                .where(
+                    JobResult.job_id.in_(job_ids),
+                    JobResult.agent_id == agent_id,
+                    JobResult.status == "PENDING",
+                )
+                .values(status="RUNNING", started_at=now)
+            )
+            await self.db.execute(
+                update(Job)
+                .where(Job.id.in_(job_ids), Job.status.in_((JobStatus.QUEUED, JobStatus.SCHEDULED)))
+                .values(status=JobStatus.RUNNING, started_at=now)
+            )
+            await self.db.commit()
+
+        return jobs
 
     async def mark_inactive(self, agent_id: UUID) -> None:
         """Mark agent INACTIVE (called by a background stale-check task)."""

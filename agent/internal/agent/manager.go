@@ -49,6 +49,17 @@ type Manager struct {
 	// outgoing heartbeat's domain_full (docs/compliance/04-PROTOCOL.md §3).
 	resyncMu      sync.Mutex
 	resyncDomains []string
+
+	// inFlightMu guards inFlight: jobs now run in their own goroutine (a
+	// long PACKAGE_UPDATE/ANSIBLE_PLAYBOOK must not block the heartbeat
+	// loop, or HeartbeatMonitorWorker marks the agent INACTIVE mid-job).
+	// The server already avoids re-dispatching a job once its JobResult
+	// leaves PENDING, but that's one heartbeat's worth of latency away —
+	// this guard is the hard local backstop so the same job_id can never
+	// run twice concurrently (two overlapping package-manager runs would
+	// just deadlock each other on its lock file).
+	inFlightMu sync.Mutex
+	inFlight   map[string]struct{}
 }
 
 const (
@@ -88,6 +99,7 @@ func NewManager(cfg *config.Config, log *slog.Logger, version string, logBuf *Lo
 		ansibleExec:      modules.NewAnsibleExecutor(),
 		complianceRunner: compliance.NewRunner(compliance.Registry, store, log),
 		stop:             make(chan struct{}),
+		inFlight:         make(map[string]struct{}),
 	}, nil
 }
 
@@ -304,7 +316,6 @@ func (m *Manager) handleResponse(ctx context.Context, resp map[string]interface{
 		}
 		jobID, _ := job["job_id"].(string)
 		jobType, _ := job["job_type"].(string)
-
 		params, _ := job["parameters"].(map[string]interface{})
 
 		timeoutSec := m.cfg.JobExecution.TimeoutSeconds // config default (3600s)
@@ -312,39 +323,69 @@ func (m *Manager) handleResponse(ctx context.Context, resp map[string]interface{
 			timeoutSec = int(t)
 		}
 
-		var result modules.JobResult
-
-		if jobType == "PLUGIN_INSTALL" {
-			result = modules.InstallPlugin(ctx, jobID, params, timeoutSec)
-		} else if jobType == "PACKAGE_UPDATE" {
-			result = modules.UpdatePackages(ctx, jobID, params, timeoutSec)
-		} else if jobType == "ANSIBLE_PLAYBOOK" {
-			playbookContent, _ := params["playbook_content"].(string)
-			extraVars, _ := params["extra_vars"].(map[string]interface{})
-			roles, _ := params["roles"].(map[string]interface{})
-			if playbookContent == "" {
-				m.log.Warn("ansible job has no playbook_content, skipping", "job_id", jobID)
-				continue
-			}
-			result = m.ansibleExec.Execute(ctx, jobID, playbookContent, extraVars, roles, timeoutSec)
-		} else {
-			command, _ := params["command"].(string)
-			if command == "" {
-				m.log.Warn("job has no command parameter, skipping", "job_id", jobID)
-				continue
-			}
-			result = m.jobExec.Execute(ctx, jobID, command, timeoutSec)
+		m.inFlightMu.Lock()
+		if _, running := m.inFlight[jobID]; running {
+			m.inFlightMu.Unlock()
+			m.log.Warn("job already in flight, skipping duplicate dispatch", "job_id", jobID)
+			continue
 		}
+		m.inFlight[jobID] = struct{}{}
+		m.inFlightMu.Unlock()
 
-		m.log.Info("job executed",
-			"job_id", jobID,
-			"job_type", jobType,
-			"exit_code", result.ExitCode,
-			"duration_ms", result.DurationMs,
-		)
+		// Runs off the heartbeat goroutine — a long PACKAGE_UPDATE/
+		// ANSIBLE_PLAYBOOK must not block the next heartbeat send.
+		go func(jobID, jobType string, params map[string]interface{}, timeoutSec int) {
+			defer func() {
+				m.inFlightMu.Lock()
+				delete(m.inFlight, jobID)
+				m.inFlightMu.Unlock()
+			}()
 
-		m.resultsMu.Lock()
-		m.pendingResults = append(m.pendingResults, result)
-		m.resultsMu.Unlock()
+			result, ok := m.runJob(ctx, jobID, jobType, params, timeoutSec)
+			if !ok {
+				return
+			}
+
+			m.log.Info("job executed",
+				"job_id", jobID,
+				"job_type", jobType,
+				"exit_code", result.ExitCode,
+				"duration_ms", result.DurationMs,
+			)
+
+			m.resultsMu.Lock()
+			m.pendingResults = append(m.pendingResults, result)
+			m.resultsMu.Unlock()
+		}(jobID, jobType, params, timeoutSec)
+	}
+}
+
+// runJob dispatches a single job to the executor matching its job_type. The
+// bool return is false when the job was malformed (a required parameter was
+// missing) and got skipped instead of run — same cases the old inline loop
+// handled with `continue`, just surfaced as a value now that dispatch runs
+// in its own goroutine instead of the loop body.
+func (m *Manager) runJob(ctx context.Context, jobID, jobType string, params map[string]interface{}, timeoutSec int) (modules.JobResult, bool) {
+	switch jobType {
+	case "PLUGIN_INSTALL":
+		return modules.InstallPlugin(ctx, jobID, params, timeoutSec), true
+	case "PACKAGE_UPDATE":
+		return modules.UpdatePackages(ctx, jobID, params, timeoutSec), true
+	case "ANSIBLE_PLAYBOOK":
+		playbookContent, _ := params["playbook_content"].(string)
+		extraVars, _ := params["extra_vars"].(map[string]interface{})
+		roles, _ := params["roles"].(map[string]interface{})
+		if playbookContent == "" {
+			m.log.Warn("ansible job has no playbook_content, skipping", "job_id", jobID)
+			return modules.JobResult{}, false
+		}
+		return m.ansibleExec.Execute(ctx, jobID, playbookContent, extraVars, roles, timeoutSec), true
+	default:
+		command, _ := params["command"].(string)
+		if command == "" {
+			m.log.Warn("job has no command parameter, skipping", "job_id", jobID)
+			return modules.JobResult{}, false
+		}
+		return m.jobExec.Execute(ctx, jobID, command, timeoutSec), true
 	}
 }
