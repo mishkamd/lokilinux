@@ -116,7 +116,46 @@ func (in *Ingester) Ingest(ctx context.Context, snap Snapshot) (Result, error) {
 		return Result{}, err
 	}
 
+	if snap.Domain == "file_integrity" && !unchanged {
+		if err := in.ingestFileIntegrity(ctx, snap); err != nil {
+			return Result{}, err
+		}
+	}
+
 	return Result{SnapshotID: snapshotID, Unchanged: unchanged, RulesEvaluated: evaluated, DriftDetected: driftDetected}, nil
+}
+
+// ingestFileIntegrity is the per-file breakdown that rides alongside the
+// generic snapshot/drift path above (never instead of it — the generic path
+// still gives file_integrity an audit-trail blob and a domain-level drift
+// event like every other domain). This is what actually populates
+// file_hashes/file_changes (migration 017), which nothing wrote to before
+// this — the generic inventory_snapshots pipeline has no concept of "one
+// row per file," only "one blob per domain."
+func (in *Ingester) ingestFileIntegrity(ctx context.Context, snap Snapshot) error {
+	existing, err := in.store.ExistingFileHashes(ctx, snap.AgentID)
+	if err != nil {
+		return fmt.Errorf("loading existing file hashes: %w", err)
+	}
+
+	current := parseAgentFileHashes(snap.Facts)
+	changes := diffFileIntegrity(existing, current)
+
+	for _, c := range changes {
+		if err := in.store.InsertFileChange(ctx, snap.AgentID, c.Path, c.OldHash, c.NewHash, c.ChangeKind); err != nil {
+			return err
+		}
+		if c.ChangeKind == "DELETED" {
+			if err := in.store.DeleteFileHash(ctx, snap.AgentID, c.Path); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := in.store.UpsertFileHash(ctx, snap.AgentID, c.Path, "blake3", c.NewHash, c.NewSize); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // detectDrift compares the new facts against the previous snapshot's

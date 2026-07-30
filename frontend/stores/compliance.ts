@@ -132,6 +132,30 @@ export interface RemediationAction {
   sequence: number
 }
 
+export interface FileHash {
+  agent_id: string
+  path: string
+  algo: string
+  hash: string
+  mode: number | null
+  uid: number | null
+  gid: number | null
+  size_bytes: number | null
+  mtime: string | null
+  updated_at: string
+}
+
+export type FileChangeKind = 'CREATED' | 'MODIFIED' | 'DELETED' | 'PERMISSION_CHANGED'
+
+export interface FileChange {
+  time: string
+  agent_id: string
+  path: string
+  old_hash: string | null
+  new_hash: string | null
+  change_kind: FileChangeKind
+}
+
 export const useComplianceStore = defineStore('compliance', () => {
   const api = useApi()
 
@@ -405,6 +429,45 @@ export const useComplianceStore = defineStore('compliance', () => {
     return updated
   }
 
+  // ── File Integrity ───────────────────────────────────────────────────────
+
+  const fileHashes = ref<FileHash[]>([])
+  const fileHashesLoading = ref(false)
+  const fileHashPathPrefix = ref('')
+
+  const fileChanges = ref<FileChange[]>([])
+  const fileChangesTotal = ref(0)
+  const fileChangesLoading = ref(false)
+  const fileChangeFilters = ref({ agent_id: '', change_kind: '' })
+
+  async function fetchFileHashes(agentId: string) {
+    fileHashesLoading.value = true
+    try {
+      const params = new URLSearchParams()
+      if (fileHashPathPrefix.value) params.set('path_prefix', fileHashPathPrefix.value)
+      fileHashes.value = await api.get<FileHash[]>(`/compliance/agents/${agentId}/file-hashes?${params}`)
+    } finally {
+      fileHashesLoading.value = false
+    }
+  }
+
+  async function fetchFileChanges(cursor?: string) {
+    fileChangesLoading.value = true
+    try {
+      const params = new URLSearchParams()
+      if (cursor) params.set('cursor', cursor)
+      if (fileChangeFilters.value.agent_id) params.set('agent_id', fileChangeFilters.value.agent_id)
+      if (fileChangeFilters.value.change_kind) params.set('change_kind', fileChangeFilters.value.change_kind)
+      const data = await api.get<{ items: FileChange[]; next_cursor: string | null; total: number }>(
+        `/compliance/file-changes?${params}`,
+      )
+      fileChanges.value = data.items
+      fileChangesTotal.value = data.total ?? 0
+    } finally {
+      fileChangesLoading.value = false
+    }
+  }
+
   return {
     baselines, baselinesTotal, baselinesLoading, baselinesNextCursor, baselineFilters,
     selectedBaseline, versions, versionsLoading,
@@ -422,5 +485,7 @@ export const useComplianceStore = defineStore('compliance', () => {
     selectedRemediationPlan, remediationActions,
     fetchRemediationPlans, fetchRemediationPlan, fetchRemediationActions,
     submitRemediationPlan, approveRemediationPlan,
+    fileHashes, fileHashesLoading, fileHashPathPrefix, fetchFileHashes,
+    fileChanges, fileChangesTotal, fileChangesLoading, fileChangeFilters, fetchFileChanges,
   }
 })

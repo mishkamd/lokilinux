@@ -210,6 +210,68 @@ func (s *Store) InsertRuleEvaluation(
 	return nil
 }
 
+// ExistingFileHashes returns every currently-tracked file_hashes row for an
+// agent, keyed by path — the comparison set diffFileIntegrity needs
+// (docs/compliance/08-DRIFT-FIM.md §per-file drift, migration 017).
+func (s *Store) ExistingFileHashes(ctx context.Context, agentID uuid.UUID) (map[string]string, error) {
+	rowsResult, err := s.pool.Query(ctx, `SELECT path, hash FROM file_hashes WHERE agent_id = $1`, agentID)
+	if err != nil {
+		return nil, fmt.Errorf("querying existing file hashes for agent %s: %w", agentID, err)
+	}
+	defer rowsResult.Close()
+
+	out := map[string]string{}
+	for rowsResult.Next() {
+		var path, hash string
+		if err := rowsResult.Scan(&path, &hash); err != nil {
+			return nil, fmt.Errorf("scanning file hash row: %w", err)
+		}
+		out[path] = hash
+	}
+	return out, rowsResult.Err()
+}
+
+// UpsertFileHash records the current hash for one watched file — file_hashes
+// is current-state-only (migration 017), overwritten in place, unlike
+// file_changes which is an append-only history.
+func (s *Store) UpsertFileHash(ctx context.Context, agentID uuid.UUID, path, algo, hash string, sizeBytes int64) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO file_hashes (agent_id, path, algo, hash, size_bytes, updated_at)
+		VALUES ($1, $2, $3, $4, $5, now())
+		ON CONFLICT (agent_id, path) DO UPDATE
+		SET algo = EXCLUDED.algo, hash = EXCLUDED.hash, size_bytes = EXCLUDED.size_bytes, updated_at = now()
+	`, agentID, path, algo, hash, sizeBytes)
+	if err != nil {
+		return fmt.Errorf("upserting file hash (agent=%s path=%s): %w", agentID, path, err)
+	}
+	return nil
+}
+
+// DeleteFileHash removes a file_hashes row once its DELETED file_changes
+// event has been recorded — file_hashes only ever tracks files that
+// currently exist on the agent.
+func (s *Store) DeleteFileHash(ctx context.Context, agentID uuid.UUID, path string) error {
+	_, err := s.pool.Exec(ctx, `DELETE FROM file_hashes WHERE agent_id = $1 AND path = $2`, agentID, path)
+	if err != nil {
+		return fmt.Errorf("deleting file hash (agent=%s path=%s): %w", agentID, path, err)
+	}
+	return nil
+}
+
+// InsertFileChange records one file_changes event — a hypertable (migration
+// 017), append-only, one row per detected change. Empty oldHash/newHash
+// (CREATED has no old, DELETED has no new) are stored as SQL NULL.
+func (s *Store) InsertFileChange(ctx context.Context, agentID uuid.UUID, path, oldHash, newHash, changeKind string) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO file_changes (time, agent_id, path, old_hash, new_hash, change_kind)
+		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), $6)
+	`, time.Now().UTC(), agentID, path, oldHash, newHash, changeKind)
+	if err != nil {
+		return fmt.Errorf("inserting file change (agent=%s path=%s): %w", agentID, path, err)
+	}
+	return nil
+}
+
 // DispatchScheduledJobs transitions every 'SCHEDULED' job whose
 // scheduled_time has arrived to 'QUEUED', making it visible to
 // AgentService.get_pending_jobs on the target agents' next heartbeat —

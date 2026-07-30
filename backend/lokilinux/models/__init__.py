@@ -17,6 +17,7 @@ from .compliance_rule import (
 )
 from .cve import CVE, AgentVulnerability, Package, PackageVulnerability
 from .drift import DriftDetail, DriftEvent
+from .file_integrity import FileChange, FileHash
 from .inventory import InventoryBlob, InventoryDelta, InventorySnapshot
 from .job import Job, JobResult, JobStatus
 from .plugin import Plugin, PluginInstallation, PluginStatus
@@ -61,6 +62,9 @@ __all__ = [
     # drift (compliance module)
     "DriftDetail",
     "DriftEvent",
+    # file_integrity (compliance module)
+    "FileChange",
+    "FileHash",
     # inventory (compliance module)
     "InventoryBlob",
     "InventoryDelta",
