@@ -210,7 +210,7 @@ lokilinux/
 | `ADMIN_EMAIL` | Default admin email |
 | `ADMIN_PASSWORD` | Default admin password |
 | `PLATFORM_HOSTNAME` | Server hostname (for certs) |
-| `AGENT_VERSION` | Agent binary version (default: `0.6.1`) |
+| `AGENT_VERSION` | Agent binary version (default: `0.6.2`) |
 | `LOG_LEVEL` | Logging level (default: `info`) |
 | `DATABASE_URL` | Async SQLAlchemy connection string |
 | `NATS_URL` | NATS event bus connection string |
