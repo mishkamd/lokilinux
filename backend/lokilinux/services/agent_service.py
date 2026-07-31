@@ -199,8 +199,17 @@ class AgentService:
         ]
 
         if rows:
+            # One CVE routinely affects several packages in the same heartbeat
+            # (e.g. one kernel advisory across kernel/kernel-core/kernel-
+            # modules/...) — the cves upsert's conflict target is cve_id
+            # alone, so duplicate cve_ids in the same INSERT..VALUES trip
+            # Postgres's "ON CONFLICT DO UPDATE command cannot affect row a
+            # second time" (confirmed live). Dedupe by cve_id first; severity
+            # is advisory-level, not package-level, so any one occurrence is
+            # the same value.
+            unique_cves = {r["cve_id"]: r["severity"] for r in rows}
             cve_stmt = pg_insert(CVE).values([
-                {"cve_id": r["cve_id"], "cvss_v3_severity": r["severity"]} for r in rows
+                {"cve_id": cve_id, "cvss_v3_severity": severity} for cve_id, severity in unique_cves.items()
             ])
             cve_stmt = cve_stmt.on_conflict_do_update(
                 index_elements=["cve_id"],
@@ -208,6 +217,10 @@ class AgentService:
             )
             await self.db.execute(cve_stmt)
 
+            # agent_vulnerabilities' conflict target is (agent_id, cve_id,
+            # package_name) — dedupe the same way in case a source ever lists
+            # the same CVE/package pair twice in one report.
+            unique_vulns = {(r["cve_id"], r["package_name"]): r for r in rows}
             vuln_stmt = pg_insert(AgentVulnerability).values([
                 {
                     "agent_id": agent_pk,
@@ -217,7 +230,7 @@ class AgentService:
                     "severity": r["severity"],
                     "fix_available": True,
                 }
-                for r in rows
+                for r in unique_vulns.values()
             ])
             vuln_stmt = vuln_stmt.on_conflict_do_update(
                 constraint="uq_agent_vuln_agent_cve_package",

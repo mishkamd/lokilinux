@@ -410,7 +410,14 @@ var dnfSeverityToBackend = map[string]string{
 // with a "bugfix" (or similar) 2nd column instead of "<Word>/Sec." — those
 // are skipped, they carry no CVSS-style severity to map and aren't a
 // vulnerability record in this schema's sense (confirmed live: real output
-// mixes both). NEVRA->package name uses the same prefix-match technique as
+// mixes both). It ALSO prints two separate lines for the same package/issue
+// — one keyed by the actual CVE id, one keyed by the vendor's own advisory
+// id (RLSA-/RHSA-/ALSA-/...), both "/Sec." — confirmed live (e.g. one
+// "CVE-2026-6893 ..." line and one "RLSA-2026:26533 ..." line for the same
+// dracut NEVRA). Only the CVE-prefixed line is kept: the schema's cve_id
+// column means an actual CVE identifier, and keeping both would silently
+// duplicate the same vulnerability under two different "cve_id" values.
+// NEVRA->package name uses the same prefix-match technique as
 // markSecurityUpdates, against updates' keys — a CVE is only ever listed
 // here for a package that also has a pending update to fix it, so the two
 // always share the same name set. Unlike markSecurityUpdates (a single
@@ -426,6 +433,9 @@ func parseDnfCVEs(output string, updates map[string]updateInfo) map[string][]cve
 			continue
 		}
 		cveID, sevType, nevra := fields[0], fields[1], fields[len(fields)-1]
+		if !strings.HasPrefix(cveID, "CVE-") {
+			continue
+		}
 		sevWord, ok := strings.CutSuffix(sevType, "/Sec.")
 		if !ok {
 			continue

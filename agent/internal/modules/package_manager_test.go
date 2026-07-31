@@ -145,6 +145,7 @@ func TestParseDnfCVEs(t *testing.T) {
 	// association — confirmed live on a real Rocky 9 host. Only the "/Sec."
 	// rows are real vulnerability records with a mappable severity.
 	output := `CVE-2026-6893   Important/Sec. dracut-057-115.git20260527.el9_8.x86_64
+RLSA-2026:26533 Important/Sec. dracut-057-115.git20260527.el9_8.x86_64
 CVE-2026-64600  bugfix         kernel-5.14.0-687.26.1.el9_8.x86_64
 CVE-2026-15308  Important/Sec. python3-3.9.25-7.el9_8.2.x86_64
 CVE-2026-15308  Important/Sec. python3-libs-3.9.25-7.el9_8.2.x86_64
@@ -164,7 +165,7 @@ CVE-2026-9999   Moderate/Sec.  openssl-1:3.2.2-6.el9_5.x86_64
 		t.Error("a 'bugfix'-type advisory should not produce a vulnerability entry")
 	}
 	if len(got["dracut"]) != 1 || got["dracut"][0].cveID != "CVE-2026-6893" || got["dracut"][0].severity != "HIGH" {
-		t.Errorf("dracut = %#v, want one CVE-2026-6893/HIGH", got["dracut"])
+		t.Errorf("dracut = %#v, want exactly one CVE-2026-6893/HIGH — the RLSA advisory line for the same package must be dropped, not duplicated", got["dracut"])
 	}
 	if len(got["openssl"]) != 1 || got["openssl"][0].severity != "MEDIUM" {
 		t.Errorf("openssl = %#v, want one Moderate->MEDIUM entry", got["openssl"])

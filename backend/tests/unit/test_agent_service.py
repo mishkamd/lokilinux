@@ -169,6 +169,36 @@ async def test_update_heartbeat_upserts_vulnerabilities(db_session, fake_cache):
 
 
 @pytest.mark.asyncio
+async def test_update_heartbeat_upserts_vulnerabilities_shared_cve(db_session, fake_cache):
+    """Regression: one CVE affecting multiple packages in the same heartbeat
+    (e.g. a kernel advisory across kernel/kernel-core/kernel-modules) used to
+    crash the whole heartbeat with Postgres's "ON CONFLICT DO UPDATE command
+    cannot affect row a second time" — the cves upsert's conflict target is
+    cve_id alone, and the duplicate cve_id rows tripped it. Confirmed live
+    against a real Rocky 9 host's dnf updateinfo list cves output."""
+    agent = await _make_agent(db_session, agent_id="agent-shared-cve")
+    svc = AgentService(db_session, fake_cache)
+
+    await svc.update_heartbeat(
+        "agent-shared-cve",
+        {"vulnerabilities": [
+            {"cve_id": "CVE-2026-9", "package_name": "kernel", "installed_version": "5.14", "severity": "HIGH"},
+            {"cve_id": "CVE-2026-9", "package_name": "kernel-core", "installed_version": "5.14", "severity": "HIGH"},
+            {"cve_id": "CVE-2026-9", "package_name": "kernel-modules", "installed_version": "5.14", "severity": "HIGH"},
+        ]},
+    )
+
+    cves = (await db_session.execute(select(CVE).where(CVE.cve_id == "CVE-2026-9"))).scalars().all()
+    assert len(cves) == 1
+
+    rows = (
+        await db_session.execute(select(AgentVulnerability).where(AgentVulnerability.agent_id == agent.id))
+    ).scalars().all()
+    assert len(rows) == 3
+    assert {r.package_name for r in rows} == {"kernel", "kernel-core", "kernel-modules"}
+
+
+@pytest.mark.asyncio
 async def test_update_heartbeat_invalidates_cache(db_session, fake_cache):
     """Regression: GET /servers/{pk} caches under agent:{PK}:detail, but
     update_heartbeat used to invalidate agent:{agent_id string}:* — a
