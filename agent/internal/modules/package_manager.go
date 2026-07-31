@@ -85,16 +85,30 @@ func (m *PackageManagerModule) ListPackages() ([]Package, string, error) {
 	}
 
 	updates := m.refreshUpdates(pm)
-	for i := range pkgs {
-		if info, ok := updates[pkgs[i].Name]; ok {
-			pkgs[i].LatestVersion = info.latestVersion
-			pkgs[i].UpdateAvailable = true
-			pkgs[i].IsSecurityUpdate = info.security
-		}
-	}
+	applyUpdateInfo(pkgs, updates)
 
 	checksum := packageChecksum(pkgs)
 	return pkgs, checksum, nil
+}
+
+// applyUpdateInfo merges cached update-check results into pkgs in place.
+// Guards against stale cache: the check-update cache lives for up to
+// updateCheckInterval, so a package updated moments ago (installed version
+// collection is never cached, unlike this map) can still show up here with
+// its pre-update advisory — installed version now equals the cached
+// "latest", yet the stale entry would still flag it as needing a security
+// update. Comparing versions before setting the flags fixes that
+// contradiction regardless of why the cache is stale.
+func applyUpdateInfo(pkgs []Package, updates map[string]updateInfo) {
+	for i := range pkgs {
+		info, ok := updates[pkgs[i].Name]
+		if !ok || info.latestVersion == pkgs[i].Version {
+			continue
+		}
+		pkgs[i].LatestVersion = info.latestVersion
+		pkgs[i].UpdateAvailable = true
+		pkgs[i].IsSecurityUpdate = info.security
+	}
 }
 
 // refreshUpdates returns the cached name->updateInfo map, refreshing it via

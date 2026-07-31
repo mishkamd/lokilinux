@@ -288,7 +288,7 @@ const SEVERITY_COLORS: Record<string, string> = {
           >
             <template #latest_version-data="{ row }">
               <span v-if="row.latest_version" class="text-[13px] font-medium">{{ row.latest_version }}</span>
-              <span v-else class="text-muted-foreground text-xs">—</span>
+              <span v-else class="text-[13px] text-muted-foreground">{{ row.version }}</span>
             </template>
             <template #update_status-data="{ row }">
               <Badge v-if="row.is_security_update_available" color="red" size="xs">security update</Badge>

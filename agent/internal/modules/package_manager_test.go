@@ -103,6 +103,42 @@ v | Main Repository     | vim  | 8.0-1            | 8.2-1              | x86_64
 	}
 }
 
+func TestApplyUpdateInfo_StaleCacheAfterUpdate(t *testing.T) {
+	// A package that was updated after the last check-update cache refresh:
+	// installed version now matches the cached "latest", so the stale entry
+	// must not still flag it as needing a (security) update.
+	pkgs := []Package{{Name: "acl", Version: "2.4.0-1.el9_8"}}
+	updates := map[string]updateInfo{
+		"acl": {latestVersion: "2.4.0-1.el9_8", security: true},
+	}
+	applyUpdateInfo(pkgs, updates)
+
+	if pkgs[0].UpdateAvailable {
+		t.Error("UpdateAvailable should be false when installed version already equals cached latest version")
+	}
+	if pkgs[0].IsSecurityUpdate {
+		t.Error("IsSecurityUpdate should be false when installed version already equals cached latest version")
+	}
+	if pkgs[0].LatestVersion != "" {
+		t.Errorf("LatestVersion = %q, want empty", pkgs[0].LatestVersion)
+	}
+}
+
+func TestApplyUpdateInfo_RealUpdatePending(t *testing.T) {
+	pkgs := []Package{{Name: "acl", Version: "2.3.1-4.el9"}}
+	updates := map[string]updateInfo{
+		"acl": {latestVersion: "2.4.0-1.el9_8", security: true},
+	}
+	applyUpdateInfo(pkgs, updates)
+
+	if !pkgs[0].UpdateAvailable || !pkgs[0].IsSecurityUpdate {
+		t.Error("a real pending update (different versions) should still be flagged")
+	}
+	if pkgs[0].LatestVersion != "2.4.0-1.el9_8" {
+		t.Errorf("LatestVersion = %q, want 2.4.0-1.el9_8", pkgs[0].LatestVersion)
+	}
+}
+
 func TestPackageChecksum_ChangesWithLatestVersion(t *testing.T) {
 	base := []Package{{Name: "openssl", Version: "1.0"}}
 	updated := []Package{{Name: "openssl", Version: "1.0", LatestVersion: "1.1"}}
