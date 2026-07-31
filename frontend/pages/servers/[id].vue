@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ArrowLeft } from 'lucide-vue-next'
-import type { JobResult } from '~/stores/jobs'
 
 const route = useRoute()
 const store = useServersStore()
@@ -98,35 +97,11 @@ const jobColumns = [
 ]
 
 const selectedJob = ref<(typeof jobs.value)[0] | null>(null)
-const showJobDetail = computed({
-  get: () => !!selectedJob.value,
-  set: (v: boolean) => { if (!v) selectedJob.value = null },
-})
-
-const jobResults = ref<JobResult[]>([])
-const jobResultsLoading = ref(false)
-
-watch(selectedJob, async (job) => {
-  jobResults.value = []
-  if (!job) return
-  jobResultsLoading.value = true
-  try {
-    jobResults.value = await useJobsStore().fetchJobResults(String(job.id))
-  } finally {
-    jobResultsLoading.value = false
-  }
-})
-
-const jobResultSummary = computed(() =>
-  jobResults.value.reduce((acc, r) => {
-    acc[r.status] = (acc[r.status] ?? 0) + 1
-    return acc
-  }, {} as Record<string, number>),
-)
 
 const packageColumns = [
   { key: 'name', label: 'Nume' },
-  { key: 'version', label: 'Versiune' },
+  { key: 'version', label: 'Versiune instalată' },
+  { key: 'latest_version', label: 'Disponibilă' },
   { key: 'architecture', label: 'Arhitectură' },
   { key: 'update_status', label: 'Update' },
 ]
@@ -311,6 +286,10 @@ const SEVERITY_COLORS: Record<string, string> = {
             selectable
             v-model:selected="selectedPackageIds"
           >
+            <template #latest_version-data="{ row }">
+              <span v-if="row.latest_version" class="text-[13px] font-medium">{{ row.latest_version }}</span>
+              <span v-else class="text-muted-foreground text-xs">—</span>
+            </template>
             <template #update_status-data="{ row }">
               <Badge v-if="row.is_security_update_available" color="red" size="xs">security update</Badge>
               <Badge v-else-if="row.is_update_available" color="gray" size="xs">update</Badge>
@@ -436,37 +415,5 @@ const SEVERITY_COLORS: Record<string, string> = {
     Server not found.
   </div>
 
-  <Sheet v-model="showJobDetail">
-    <div v-if="selectedJob" class="p-6 space-y-4 pt-12">
-      <div class="flex items-center gap-3">
-        <h2 class="text-lg font-bold flex-1">{{ selectedJob.name }}</h2>
-        <Badge :color="jobStatusColor(String(selectedJob.status))">{{ selectedJob.status }}</Badge>
-      </div>
-      <dl class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
-        <div><dt class="text-muted-foreground">Type</dt><dd>{{ selectedJob.job_type }}</dd></div>
-        <div><dt class="text-muted-foreground">Created</dt><dd>{{ new Date(String(selectedJob.created_at)).toLocaleString() }}</dd></div>
-      </dl>
-      <template v-if="jobResults.length">
-        <Separator />
-        <div class="flex flex-wrap gap-2">
-          <Badge v-for="(count, status) in jobResultSummary" :key="status" :color="jobStatusColor(status)" size="xs">
-            {{ count }} {{ status.toLowerCase() }}
-          </Badge>
-        </div>
-        <div class="space-y-1">
-          <details v-for="r in jobResults" :key="r.agent_id" class="rounded border border-border p-2 text-sm">
-            <summary class="cursor-pointer flex items-center gap-2">
-              <Badge :color="jobStatusColor(r.status)" size="xs">{{ r.status }}</Badge>
-              <span class="font-mono flex-1">{{ r.hostname || r.agent_id }}</span>
-              <span class="text-xs text-muted-foreground">exit {{ r.exit_code ?? '—' }}</span>
-              <span class="text-xs text-muted-foreground">{{ r.duration_seconds != null ? r.duration_seconds + 's' : '—' }}</span>
-            </summary>
-            <pre class="text-xs bg-muted rounded p-2 mt-2 overflow-auto max-h-40">{{ r.stdout || '(empty)' }}</pre>
-            <pre v-if="r.stderr" class="text-xs bg-muted rounded p-2 mt-1 overflow-auto max-h-40 text-red-500">{{ r.stderr }}</pre>
-          </details>
-        </div>
-      </template>
-      <p v-else-if="jobResultsLoading" class="text-sm text-muted-foreground">Se încarcă rezultatele…</p>
-    </div>
-  </Sheet>
+  <JobDetail :job="selectedJob" @close="selectedJob = null" />
 </template>

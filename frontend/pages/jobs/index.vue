@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { RefreshCw, Plus, Eye, Trash2, Check } from 'lucide-vue-next'
-import type { JobResult } from '~/stores/jobs'
 
 const store = useJobsStore()
 const serversStore = useServersStore()
@@ -21,7 +20,7 @@ const columns = [
 ]
 
 const showNewJob = ref(false)
-const newJobForm = ref({ name: '', job_type: 'PACKAGE_UPDATE', agent_ids: [], priority: 50 })
+const newJobForm = ref({ name: '', job_type: 'PACKAGE_UPDATE', agent_ids: [] as string[] })
 const agentOptions = ref<Array<{ label: string; value: string }>>([])
 const submitting = ref(false)
 
@@ -42,7 +41,6 @@ async function submitJob() {
     const payload = {
       name: newJobForm.value.name,
       job_type: newJobForm.value.job_type,
-      priority: newJobForm.value.priority,
       target_servers: {
         agent_ids: newJobForm.value.agent_ids,
       },
@@ -50,7 +48,7 @@ async function submitJob() {
     }
     await store.createJob(payload)
     showNewJob.value = false
-    newJobForm.value = { name: '', job_type: 'PACKAGE_UPDATE', agent_ids: [], priority: 50 }
+    newJobForm.value = { name: '', job_type: 'PACKAGE_UPDATE', agent_ids: [] }
     toast.add({ title: 'Job created', color: 'green' })
   } catch {
     toast.add({ title: 'Failed to create job', color: 'red' })
@@ -60,31 +58,6 @@ async function submitJob() {
 }
 
 const selectedJob = ref<(typeof jobs.value)[0] | null>(null)
-const showJobDetail = computed({
-  get: () => !!selectedJob.value,
-  set: (v) => { if (!v) selectedJob.value = null },
-})
-
-const jobResults = ref<JobResult[]>([])
-const jobResultsLoading = ref(false)
-
-watch(selectedJob, async (job) => {
-  jobResults.value = []
-  if (!job) return
-  jobResultsLoading.value = true
-  try {
-    jobResults.value = await store.fetchJobResults(String(job.id))
-  } finally {
-    jobResultsLoading.value = false
-  }
-})
-
-const resultSummary = computed(() =>
-  jobResults.value.reduce((acc, r) => {
-    acc[r.status] = (acc[r.status] ?? 0) + 1
-    return acc
-  }, {} as Record<string, number>),
-)
 
 const cancellingJob = ref<(typeof jobs.value)[0] | null>(null)
 const cancelling = ref(false)
@@ -214,9 +187,6 @@ onMounted(async () => {
               placeholder="Select agents to target..."
             />
           </FormField>
-          <FormField label="Priority (1–100)">
-            <Input v-model.number="newJobForm.priority" type="number" :min="1" :max="100" />
-          </FormField>
         </div>
       </template>
       <template #footer>
@@ -225,42 +195,7 @@ onMounted(async () => {
       </template>
     </Dialog>
 
-    <!-- Job Detail Sheet -->
-    <Sheet v-model="showJobDetail">
-      <div v-if="selectedJob" class="p-6 space-y-4 pt-12">
-        <div class="flex items-center gap-3">
-          <h2 class="text-lg font-bold flex-1">{{ selectedJob.name }}</h2>
-          <Badge :color="statusColor(String(selectedJob.status))">{{ selectedJob.status }}</Badge>
-        </div>
-        <dl class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
-          <div><dt class="text-muted-foreground">Type</dt><dd>{{ selectedJob.job_type }}</dd></div>
-          <div><dt class="text-muted-foreground">Priority</dt><dd>{{ selectedJob.priority }}</dd></div>
-          <div><dt class="text-muted-foreground">Agents</dt><dd class="font-mono text-xs">{{ selectedJob.target_servers?.agent_ids?.join(', ') || '—' }}</dd></div>
-          <div><dt class="text-muted-foreground">Created</dt><dd>{{ new Date(String(selectedJob.created_at)).toLocaleString() }}</dd></div>
-        </dl>
-        <template v-if="jobResults.length">
-          <Separator />
-          <div class="flex flex-wrap gap-2">
-            <Badge v-for="(count, status) in resultSummary" :key="status" :color="statusColor(status)" size="xs">
-              {{ count }} {{ status.toLowerCase() }}
-            </Badge>
-          </div>
-          <div class="space-y-1">
-            <details v-for="r in jobResults" :key="r.agent_id" class="rounded border border-border p-2 text-sm">
-              <summary class="cursor-pointer flex items-center gap-2">
-                <Badge :color="statusColor(r.status)" size="xs">{{ r.status }}</Badge>
-                <span class="font-mono flex-1">{{ r.hostname || r.agent_id }}</span>
-                <span class="text-xs text-muted-foreground">exit {{ r.exit_code ?? '—' }}</span>
-                <span class="text-xs text-muted-foreground">{{ r.duration_seconds != null ? r.duration_seconds + 's' : '—' }}</span>
-              </summary>
-              <pre class="text-xs bg-muted rounded p-2 mt-2 overflow-auto max-h-40">{{ r.stdout || '(empty)' }}</pre>
-              <pre v-if="r.stderr" class="text-xs bg-muted rounded p-2 mt-1 overflow-auto max-h-40 text-red-500">{{ r.stderr }}</pre>
-            </details>
-          </div>
-        </template>
-        <p v-else-if="jobResultsLoading" class="text-sm text-muted-foreground">Loading results…</p>
-      </div>
-    </Sheet>
+    <JobDetail :job="selectedJob" @close="selectedJob = null" />
 
     <Dialog :model-value="!!cancellingJob" title="Cancel Job" @update:model-value="cancellingJob = null">
       <template #body>

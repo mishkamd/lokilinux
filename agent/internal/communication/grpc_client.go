@@ -305,9 +305,12 @@ func payloadToRequest(m map[string]interface{}) *gen.AgentHeartbeatRequest {
 	if pkgs, ok := m["packages"].([]modules.Package); ok {
 		for _, p := range pkgs {
 			req.Packages = append(req.Packages, &gen.Package{
-				Name:         p.Name,
-				Version:      p.Version,
-				Architecture: p.Architecture,
+				Name:             p.Name,
+				Version:          p.Version,
+				Architecture:     p.Architecture,
+				LatestVersion:    p.LatestVersion,
+				UpdateAvailable:  p.UpdateAvailable,
+				IsSecurityUpdate: p.IsSecurityUpdate,
 			})
 		}
 	}

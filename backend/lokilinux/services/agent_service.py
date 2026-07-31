@@ -5,7 +5,7 @@ LokiLinux — AgentService: heartbeat updates, pending-job dispatch, inactivity 
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import and_, or_, select, update
+from sqlalchemy import and_, delete, or_, select, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -112,11 +112,18 @@ class AgentService:
         return agent
 
     async def _sync_packages(self, agent_pk: UUID, packages: list[dict]) -> None:
-        """Upsert the agent's reported package list.
+        """Upsert the agent's reported package list, then reconcile: drop any
+        stored (name, version) row for this agent that the report no longer
+        contains.
 
-        ponytail: only upserts what's reported — doesn't remove packages the
-        agent no longer lists (would need a full-diff pass). Fine for v1;
-        revisit if stale/uninstalled packages become a visible problem.
+        The unique constraint is (agent_id, name, version) — an upgrade from
+        1.0 to 1.1 inserts a *new* row for 1.1 and, without this reconcile
+        step, leaves the 1.0 row behind forever (there's no "uninstalled"
+        signal otherwise). Confirmed live: kernel/gpg-pubkey each had 3-4
+        stale rows after enough upgrades. Packages genuinely installed
+        multiple times at once (e.g. several kernel versions) are unaffected
+        — they're all in the current report, so none of their rows match the
+        delete condition.
         """
         rows = [
             {
@@ -146,6 +153,14 @@ class AgentService:
             },
         )
         await self.db.execute(stmt)
+
+        reported = [(r["name"], r["version"]) for r in rows]
+        await self.db.execute(
+            delete(Package).where(
+                Package.agent_id == agent_pk,
+                tuple_(Package.name, Package.version).not_in(reported),
+            )
+        )
         await self.db.commit()
 
     async def _record_health(self, agent_pk: UUID, health: dict) -> None:
