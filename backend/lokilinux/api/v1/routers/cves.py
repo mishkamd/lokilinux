@@ -82,11 +82,15 @@ async def list_vulnerabilities(
     next_cursor = encode_cursor(str(items[-1].id)) if has_more and items else None
 
     # affected_count per CVE in this page — a single GROUP BY, not N+1.
+    # Distinct agent_id, not row count: the same CVE routinely hits more
+    # than one package on the same host (confirmed live: CVE-2026-59858 via
+    # both vim-minimal and vim-filesystem on one agent) — "servers affected"
+    # means hosts, not (CVE, package) rows.
     cve_ids = [c.cve_id for c in items]
     affected_by_cve: dict[str, int] = {}
     if cve_ids:
         affected_rows = (await db.execute(
-            select(AgentVulnerability.cve_id, func.count())
+            select(AgentVulnerability.cve_id, func.count(func.distinct(AgentVulnerability.agent_id)))
             .where(AgentVulnerability.cve_id.in_(cve_ids), AgentVulnerability.is_remediated.is_(False))
             .group_by(AgentVulnerability.cve_id)
         )).all()

@@ -90,12 +90,19 @@ async def test_list_vulnerabilities_exploited_only(client: AsyncClient, db_sessi
 
 @pytest.mark.asyncio
 async def test_list_vulnerabilities_affected_count(client: AsyncClient, db_session):
+    """Regression: the same CVE hitting two packages on one host (real,
+    confirmed live: CVE-2026-59858 via both vim-minimal and vim-filesystem
+    on one agent) must count as 1 server affected, not 2 — affected_count
+    means distinct agents, not (cve, package) rows."""
     db_session.add(CVE(cve_id="CVE-2026-7000", cvss_v3_severity="HIGH"))
     agent = Agent(agent_id="agent-affected", status=AgentStatus.ACTIVE, hostname="h1")
     db_session.add(agent)
     await db_session.flush()
     db_session.add(AgentVulnerability(
         agent_id=agent.id, cve_id="CVE-2026-7000", package_name="openssl", package_version="1.0",
+    ))
+    db_session.add(AgentVulnerability(
+        agent_id=agent.id, cve_id="CVE-2026-7000", package_name="openssl-libs", package_version="1.0",
     ))
     await db_session.commit()
 

@@ -254,6 +254,16 @@ class AgentService:
         )
         await self.db.commit()
 
+        # invalidate_agent (called unconditionally at the end of
+        # update_heartbeat) only clears this agent's own vulnerability:*
+        # cache — the *global* /vulnerabilities list is cached under cve:*
+        # and would otherwise keep serving a stale (e.g. pre-existing empty)
+        # response for up to TTL_CVE_DATA after this agent's first real
+        # report. Confirmed live: a cve:list:... key cached empty before any
+        # agent had reported CVEs kept the global page blank for an hour
+        # after real data landed.
+        await self.cache.invalidate_cve_database()
+
     async def _record_health(self, agent_pk: UUID, health: dict) -> None:
         """Insert one AgentHealth snapshot per heartbeat (cpu/mem/disk %)."""
         memory_usage = health.get("memory_usage") or 0.0

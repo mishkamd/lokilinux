@@ -199,6 +199,27 @@ async def test_update_heartbeat_upserts_vulnerabilities_shared_cve(db_session, f
 
 
 @pytest.mark.asyncio
+async def test_update_heartbeat_invalidates_global_cve_cache(db_session, fake_cache):
+    """Regression: invalidate_agent (called unconditionally every heartbeat)
+    only clears this agent's own vulnerability:{id}:* cache — the *global*
+    /vulnerabilities list is cached under cve:* and kept serving a stale
+    (empty, from before any agent had reported) response for up to
+    TTL_CVE_DATA otherwise. Confirmed live against the real Redis cache."""
+    await _make_agent(db_session, agent_id="agent-cve-cache")
+    fake_cache._store["cve:list:None:None:None:False:None:20"] = {"items": [], "total": 0}
+    svc = AgentService(db_session, fake_cache)
+
+    await svc.update_heartbeat(
+        "agent-cve-cache",
+        {"vulnerabilities": [
+            {"cve_id": "CVE-2026-8", "package_name": "openssl", "installed_version": "1.0", "severity": "HIGH"},
+        ]},
+    )
+
+    assert "cve:list:None:None:None:False:None:20" not in fake_cache._store
+
+
+@pytest.mark.asyncio
 async def test_update_heartbeat_invalidates_cache(db_session, fake_cache):
     """Regression: GET /servers/{pk} caches under agent:{PK}:detail, but
     update_heartbeat used to invalidate agent:{agent_id string}:* — a
