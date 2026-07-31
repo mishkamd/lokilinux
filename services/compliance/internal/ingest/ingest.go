@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -20,6 +21,29 @@ import (
 	"github.com/lokilinux/compliance/internal/scoring"
 	"github.com/lokilinux/compliance/internal/storage"
 )
+
+// permanentError marks a failure that can never succeed on retry — a bad
+// content_hash, malformed JSON, an invalid agent_id. consumer.go Terms
+// these instead of Nak-ing them: retrying is pure waste, and without a
+// bound it's an infinite redelivery loop. Confirmed live — this exact class
+// of error (struct-shaped domains hashing differently server-side, see
+// agent/internal/compliance/canonical.go's Normalize) pinned a CPU core for
+// four days across ~30k permanently-failing messages, none of which could
+// ever have succeeded no matter how many times they were redelivered.
+type permanentError struct{ err error }
+
+func (e *permanentError) Error() string { return e.err.Error() }
+func (e *permanentError) Unwrap() error { return e.err }
+
+func newPermanentError(format string, a ...any) error {
+	return &permanentError{err: fmt.Errorf(format, a...)}
+}
+
+// isPermanent reports whether err (or anything it wraps) is a permanentError.
+func isPermanent(err error) bool {
+	var pe *permanentError
+	return errors.As(err, &pe)
+}
 
 // Snapshot is the deserialized payload of one
 // lokilinux.compliance.snapshot.{domain} message.
@@ -80,7 +104,7 @@ func (in *Ingester) Ingest(ctx context.Context, snap Snapshot) (Result, error) {
 		return Result{}, err
 	}
 	if computedHash != snap.ContentHash {
-		return Result{}, fmt.Errorf(
+		return Result{}, newPermanentError(
 			"content_hash mismatch for agent=%s domain=%s: agent claimed %s, computed %s — rejecting",
 			snap.AgentID, snap.Domain, snap.ContentHash, computedHash,
 		)

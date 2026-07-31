@@ -105,6 +105,19 @@ func (r *Runner) tick(ctx context.Context) {
 			continue // one collector's failure never blocks the others
 		}
 
+		// Collapses any nested structs into map[string]any (see Normalize's
+		// doc comment) so what gets hashed below is the same shape the
+		// server reconstructs after its own JSON decode — hashing the raw
+		// collector result made every struct-shaped domain fail the
+		// server's verification, deterministically, forever.
+		facts, err = Normalize(facts)
+		if err != nil {
+			if r.log != nil {
+				r.log.Warn("compliance facts normalize failed", "domain", domain, "error", err)
+			}
+			continue
+		}
+
 		hash, err := Hash(facts)
 		if err != nil {
 			if r.log != nil {

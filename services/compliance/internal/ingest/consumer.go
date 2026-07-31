@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/nats-io/nats.go/jetstream"
@@ -33,11 +34,17 @@ func NewConsumer(ingester *Ingester, log *slog.Logger) *Consumer {
 
 // EnsureStream creates the JetStream stream if it doesn't already exist —
 // safe to call on every startup (CreateOrUpdateStream is idempotent).
+//
+// MaxAge is a hard ceiling on how long ANY message (poisoned or not) can sit
+// in this stream — WorkQueuePolicy only removes a message on Ack/Term, so
+// without an age limit a class of permanently-failing message (there has
+// already been one) grows the stream without bound forever.
 func EnsureStream(ctx context.Context, js jetstream.JetStream, streamName string) (jetstream.Stream, error) {
 	return js.CreateOrUpdateStream(ctx, jetstream.StreamConfig{
 		Name:      streamName,
 		Subjects:  []string{"lokilinux.compliance.>"},
 		Retention: jetstream.WorkQueuePolicy, // each message consumed exactly once by the ingest pool
+		MaxAge:    24 * time.Hour,
 	})
 }
 
@@ -50,6 +57,14 @@ func (c *Consumer) Start(ctx context.Context, stream jetstream.Stream, durableNa
 		FilterSubject: "lokilinux.compliance.snapshot.>",
 		AckPolicy:     jetstream.AckExplicitPolicy,
 		MaxAckPending: maxAckPending,
+		// Belt-and-suspenders alongside Term() below: if some future
+		// error ever gets misclassified as transient, this still bounds
+		// the damage instead of redelivering forever. BackOff spaces
+		// retries out instead of NAK-ing straight back into a hot loop
+		// with zero delay (what "MaxDeliver unset = -1, AckWait default,
+		// no BackOff" actually did — confirmed live, ~35k log lines/min).
+		MaxDeliver: 5,
+		BackOff:    []time.Duration{1 * time.Second, 5 * time.Second, 30 * time.Second},
 	})
 	if err != nil {
 		return fmt.Errorf("creating durable consumer %s: %w", durableName, err)
@@ -58,9 +73,17 @@ func (c *Consumer) Start(ctx context.Context, stream jetstream.Stream, durableNa
 	consumeCtx, err := consumer.Consume(func(msg jetstream.Msg) {
 		if err := c.handle(ctx, msg); err != nil {
 			c.log.Error("failed to ingest snapshot message", "subject", msg.Subject(), "error", err)
-			// NAK rather than Ack: JetStream redelivers on a bad/transient
-			// failure (DB hiccup) instead of silently dropping a snapshot.
-			_ = msg.Nak()
+			if isPermanent(err) {
+				// Never going to succeed on retry — Term so it's dropped
+				// from this WorkQueue stream immediately instead of
+				// redelivering (with BackOff still capped at MaxDeliver=5
+				// as a fallback for anything that reaches here misclassified).
+				_ = msg.Term()
+			} else {
+				// Transient (DB hiccup, etc.) — retry, but with a real
+				// delay instead of an immediate NAK-triggered redelivery.
+				_ = msg.NakWithDelay(5 * time.Second)
+			}
 			return
 		}
 		_ = msg.Ack()
@@ -97,12 +120,12 @@ func (c *Consumer) handle(ctx context.Context, msg jetstream.Msg) error {
 func parseSnapshotMessage(data []byte) (Snapshot, error) {
 	var payload snapshotMessage
 	if err := json.Unmarshal(data, &payload); err != nil {
-		return Snapshot{}, fmt.Errorf("decoding snapshot message: %w", err)
+		return Snapshot{}, newPermanentError("decoding snapshot message: %v", err)
 	}
 
 	agentID, err := uuid.Parse(payload.AgentID)
 	if err != nil {
-		return Snapshot{}, fmt.Errorf("snapshot message has invalid agent_id %q: %w", payload.AgentID, err)
+		return Snapshot{}, newPermanentError("snapshot message has invalid agent_id %q: %v", payload.AgentID, err)
 	}
 
 	return Snapshot{
