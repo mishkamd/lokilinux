@@ -78,6 +78,40 @@ cmd_update() {
     ln -sf /usr/local/bin/loki /usr/bin/loki
   fi
 
+  # Refresh the unit too, not just the binary — install_agent.sh.tmpl/
+  # install-agent.sh only ever run once, at enrollment, so without this a
+  # unit-level fix (like the one that shipped alongside this very check)
+  # could never reach an already-enrolled host except by hand. Keep this
+  # [Service] section identical to the canonical one in
+  # backend/lokilinux/install_agent.sh.tmpl.
+  cat > /etc/systemd/system/lokilinux-agent.service <<'UNITEOF'
+[Unit]
+Description=LokiLinux Agent
+Documentation=https://docs.lokilinux.io/agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/lokilinux-agent --config /etc/lokilinux/agent.yaml
+Restart=always
+RestartSec=10
+TimeoutStopSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=lokilinux-agent
+ProtectSystem=strict
+ReadWritePaths=/var/lib/lokilinux /var/log/lokilinux
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
+UNITEOF
+  systemctl daemon-reload
+
   systemctl restart "$SERVICE"
   sleep 2
   new_version="$("$BIN" --version)"

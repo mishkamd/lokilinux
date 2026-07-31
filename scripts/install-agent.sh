@@ -139,6 +139,15 @@ install -m 755 "$AGENT_TMP" /usr/local/bin/lokilinux-agent
 rm -f "$AGENT_TMP"
 
 # ── Create systemd unit ───────────────────────────────────────────────────────
+# NOTE: keep the [Service] section identical to backend/lokilinux/install_agent.sh.tmpl
+# (the template actually served by /api/v1/agent/install.sh — this file is a
+# secondary/offline install path). A prior divergence between the two shipped
+# a widened ReadWritePaths here that the served template never got, and was
+# insufficient anyway: ProtectSystem=strict still blocks writing into /usr,
+# where package installs actually land. Host-mutating jobs (package updates,
+# ansible, arbitrary shell) escape this sandbox per-job via systemd-run
+# instead (see agent/internal/modules/systemd_run.go) — ReadWritePaths does
+# not need widening for that.
 echo "[*] Creating systemd service..."
 cat > /etc/systemd/system/lokilinux-agent.service <<'EOF'
 [Unit]
@@ -160,14 +169,7 @@ SyslogIdentifier=lokilinux-agent
 
 # Harden service
 ProtectSystem=strict
-# Package manager state (apt/dnf/yum/zypper) needs write access for
-# PACKAGE_UPDATE jobs — '-' prefix skips paths absent on this distro.
-# /var/log stays fully writable since package managers log to varying,
-# distro-specific filenames there (dnf.log, dnf.librepo.log, apt/term.log, ...).
-ReadWritePaths=/var/lib/lokilinux /var/log \
-  -/var/cache/dnf -/var/cache/yum -/var/lib/rpm -/var/lib/dnf \
-  -/var/cache/apt -/var/lib/apt -/var/lib/dpkg \
-  -/var/cache/zypp -/var/lib/zypp
+ReadWritePaths=/var/lib/lokilinux /var/log/lokilinux
 ProtectHome=true
 PrivateTmp=true
 NoNewPrivileges=true

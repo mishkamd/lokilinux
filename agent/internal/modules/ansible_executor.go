@@ -1,7 +1,6 @@
 package modules
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -9,7 +8,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -28,6 +26,14 @@ type AnsibleExecutor struct {
 func NewAnsibleExecutor() *AnsibleExecutor {
 	return &AnsibleExecutor{maxOutputBytes: 4 * 1024 * 1024, binary: "ansible-playbook"}
 }
+
+// ansibleTmpBase is a real (non-PrivateTmp) directory: the playbook actually
+// runs via systemd-run in a transient unit outside the agent's namespace
+// (see systemd_run.go), so staging it under the default os.TempDir() (/tmp,
+// virtualized per-service by PrivateTmp=true) would write it somewhere that
+// transient unit can never see. /var/lib/lokilinux is already writable by
+// the agent's own sandbox and is a real host path.
+const ansibleTmpBase = "/var/lib/lokilinux/ansible-tmp"
 
 // writeRoles materializes roles under dir/roles/<name>/<relpath>.
 // roles maps role name → {relative path → file content}. Paths are
@@ -82,7 +88,10 @@ func (e *AnsibleExecutor) Execute(ctx context.Context, jobID, playbookContent st
 		}
 	}
 
-	dir, err := os.MkdirTemp("", "lokilinux-ansible-"+jobID)
+	if err := os.MkdirAll(ansibleTmpBase, 0700); err != nil {
+		return JobResult{JobID: jobID, ExitCode: 1, Error: err.Error(), DurationMs: msSince(start)}
+	}
+	dir, err := os.MkdirTemp(ansibleTmpBase, "job-"+jobID+"-")
 	if err != nil {
 		return JobResult{JobID: jobID, ExitCode: 1, Error: err.Error(), DurationMs: msSince(start)}
 	}
@@ -108,50 +117,19 @@ func (e *AnsibleExecutor) Execute(ctx context.Context, jobID, playbookContent st
 		return JobResult{JobID: jobID, ExitCode: 1, Error: err.Error(), DurationMs: msSince(start)}
 	}
 
-	if timeoutSec > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
-		defer cancel()
-	}
-
-	var stdout, stderr bytes.Buffer
 	// argv array — no shell, so playbook/extra_vars content can't break out
-	// of a command string regardless of what it contains.
-	cmd := exec.CommandContext(ctx, e.binary,
+	// of a command string regardless of what it contains. Escapes the
+	// agent's own sandbox via systemd-run (see systemd_run.go): the
+	// playbook's whole point is mutating the host, which ProtectSystem=strict
+	// forbids from inside the agent's own namespace. WorkingDirectory=dir
+	// keeps roles/ resolving next to the playbook, same as cmd.Dir did.
+	argv := []string{e.binary,
 		"-i", "localhost,",
 		"-c", "local",
-		"-e", "@"+extraVarsPath,
+		"-e", "@" + extraVarsPath,
 		playbookPath,
-	)
-	cmd.Dir = dir // roles/ resolves relative to the playbook dir
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error {
-		if cmd.Process != nil {
-			return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		}
-		return nil
 	}
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	runErr := cmd.Run()
-
-	code := 0
-	errMsg := ""
-	if cmd.ProcessState != nil {
-		code = cmd.ProcessState.ExitCode()
-	}
-	if runErr != nil && code == 0 {
-		errMsg = runErr.Error()
-		code = 1
-	}
-
-	return JobResult{
-		JobID:      jobID,
-		ExitCode:   code,
-		Stdout:     truncateOutput(stdout.String(), e.maxOutputBytes),
-		Stderr:     truncateOutput(stderr.String(), e.maxOutputBytes),
-		DurationMs: msSince(start),
-		Error:      errMsg,
-	}
+	result := runViaSystemdRunArgv(ctx, jobID, argv, dir, timeoutSec, e.maxOutputBytes)
+	result.DurationMs = msSince(start)
+	return result
 }

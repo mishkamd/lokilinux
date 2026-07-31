@@ -3,7 +3,6 @@ package modules
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"strings"
 	"time"
 )
@@ -32,32 +31,11 @@ func UpdatePackages(ctx context.Context, jobID string, params map[string]interfa
 		return fail("%v", err)
 	}
 
-	if timeoutSec > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
-		defer cancel()
-	}
-
-	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", command)
-	out, runErr := cmd.CombinedOutput()
-
-	code := 0
-	errMsg := ""
-	if cmd.ProcessState != nil {
-		code = cmd.ProcessState.ExitCode()
-	}
-	if runErr != nil && code == 0 {
-		errMsg = runErr.Error()
-		code = 1
-	}
-
-	return JobResult{
-		JobID:      jobID,
-		ExitCode:   code,
-		Stdout:     truncateOutput(string(out), 4*1024*1024),
-		DurationMs: msSince(start),
-		Error:      errMsg,
-	}
+	// Escapes the agent's own sandbox (ProtectSystem=strict) — see
+	// systemd_run.go. Installing packages means writing into /usr, which
+	// the agent's own mount namespace can never do regardless of
+	// ReadWritePaths.
+	return runViaSystemdRun(ctx, jobID, command, timeoutSec, 4*1024*1024)
 }
 
 // packageUpdateCommand builds the shell command for the detected package
