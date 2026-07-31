@@ -190,6 +190,7 @@ func (m *Manager) sendHeartbeat(ctx context.Context) {
 		// non-fatal — log and continue with empty list
 		m.log.Warn("package list failed", "error", err)
 	}
+	vulns := m.pkgMod.Vulnerabilities(pkgs)
 
 	var recentLogs []string
 	var connCount, infoCount, critCount int
@@ -219,7 +220,7 @@ func (m *Manager) sendHeartbeat(ctx context.Context) {
 		}
 	}
 
-	payload := buildPayload(m.cfg.Identity.AgentID, sysInfo, pkgs, checksum, m.version, recentLogs, connCount, infoCount, critCount, health, results, domainHashes, domainFull)
+	payload := buildPayload(m.cfg.Identity.AgentID, sysInfo, pkgs, checksum, m.version, recentLogs, connCount, infoCount, critCount, health, results, domainHashes, domainFull, vulns)
 
 	resp, err := m.client.SendHeartbeat(ctx, payload)
 	if err != nil {
@@ -272,6 +273,7 @@ func buildPayload(
 	jobResults []modules.JobResult,
 	domainHashes map[string]string,
 	domainFull map[string]map[string]interface{},
+	vulns []modules.Vulnerability,
 ) map[string]interface{} {
 	return map[string]interface{}{
 		"agent_id":          agentID,
@@ -288,6 +290,7 @@ func buildPayload(
 		"job_results":       jobResults,
 		"domain_hashes":     domainHashes,
 		"domain_full":       domainFull,
+		"vulnerabilities":   vulns,
 	}
 }
 

@@ -139,6 +139,78 @@ func TestApplyUpdateInfo_RealUpdatePending(t *testing.T) {
 	}
 }
 
+func TestParseDnfCVEs(t *testing.T) {
+	// Real `dnf updateinfo list cves` output mixes actual CVE/security
+	// advisories with plain "bugfix" advisories that happen to have a CVE
+	// association — confirmed live on a real Rocky 9 host. Only the "/Sec."
+	// rows are real vulnerability records with a mappable severity.
+	output := `CVE-2026-6893   Important/Sec. dracut-057-115.git20260527.el9_8.x86_64
+CVE-2026-64600  bugfix         kernel-5.14.0-687.26.1.el9_8.x86_64
+CVE-2026-15308  Important/Sec. python3-3.9.25-7.el9_8.2.x86_64
+CVE-2026-15308  Important/Sec. python3-libs-3.9.25-7.el9_8.2.x86_64
+CVE-2026-9999   Moderate/Sec.  openssl-1:3.2.2-6.el9_5.x86_64
+`
+	updates := map[string]updateInfo{
+		"dracut":       {latestVersion: "057-115.git20260527.el9_8"},
+		"kernel":       {latestVersion: "5.14.0-687.26.1.el9_8"},
+		"python3":      {latestVersion: "3.9.25-7.el9_8.2"},
+		"python3-libs": {latestVersion: "3.9.25-7.el9_8.2"},
+		"openssl":      {latestVersion: "1:3.2.2-6.el9_5"},
+	}
+
+	got := parseDnfCVEs(output, updates)
+
+	if _, ok := got["kernel"]; ok {
+		t.Error("a 'bugfix'-type advisory should not produce a vulnerability entry")
+	}
+	if len(got["dracut"]) != 1 || got["dracut"][0].cveID != "CVE-2026-6893" || got["dracut"][0].severity != "HIGH" {
+		t.Errorf("dracut = %#v, want one CVE-2026-6893/HIGH", got["dracut"])
+	}
+	if len(got["openssl"]) != 1 || got["openssl"][0].severity != "MEDIUM" {
+		t.Errorf("openssl = %#v, want one Moderate->MEDIUM entry", got["openssl"])
+	}
+	// python3 and python3-libs share a dash-containing prefix relationship —
+	// each must get its own entry, not have "python3" swallow "python3-libs".
+	if len(got["python3"]) != 1 || len(got["python3-libs"]) != 1 {
+		t.Errorf("python3=%#v python3-libs=%#v, want exactly one CVE each", got["python3"], got["python3-libs"])
+	}
+}
+
+func TestVulnerabilities_CrossReference(t *testing.T) {
+	m := &PackageManagerModule{
+		updates: map[string]updateInfo{
+			"openssl": {latestVersion: "1:3.2.2-6.el9_5"},
+		},
+		cves: map[string][]cveRef{
+			"openssl": {{cveID: "CVE-2026-9999", severity: "MEDIUM"}},
+		},
+	}
+	pkgs := []Package{{Name: "openssl", Version: "1:3.2.2-5.el9_5"}}
+
+	got := m.Vulnerabilities(pkgs)
+
+	if len(got) != 1 {
+		t.Fatalf("got %d vulnerabilities, want 1: %#v", len(got), got)
+	}
+	v := got[0]
+	if v.CVEId != "CVE-2026-9999" || v.PackageName != "openssl" {
+		t.Errorf("v = %#v, want CVE-2026-9999/openssl", v)
+	}
+	if v.InstalledVer != "1:3.2.2-5.el9_5" {
+		t.Errorf("InstalledVer = %q, want installed version from pkgs", v.InstalledVer)
+	}
+	if v.FixedVer != "1:3.2.2-6.el9_5" {
+		t.Errorf("FixedVer = %q, want latestVersion from updates cache", v.FixedVer)
+	}
+}
+
+func TestVulnerabilities_NilCVECache(t *testing.T) {
+	m := &PackageManagerModule{} // apt/zypper: refreshUpdates never sets m.cves
+	if got := m.Vulnerabilities([]Package{{Name: "x", Version: "1"}}); got != nil {
+		t.Errorf("got %#v, want nil when no CVE source is wired", got)
+	}
+}
+
 func TestPackageChecksum_ChangesWithLatestVersion(t *testing.T) {
 	base := []Package{{Name: "openssl", Version: "1.0"}}
 	updated := []Package{{Name: "openssl", Version: "1.0", LatestVersion: "1.1"}}

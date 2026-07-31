@@ -12,7 +12,7 @@ import pytest
 from sqlalchemy import select
 
 from lokilinux.models.agent import Agent, AgentHealth, AgentStatus
-from lokilinux.models.cve import Package
+from lokilinux.models.cve import CVE, AgentVulnerability, Package
 from lokilinux.models.job import Job, JobResult, JobStatus
 from lokilinux.services.agent_service import AgentService
 
@@ -130,6 +130,42 @@ async def test_update_heartbeat_upserts_packages(db_session, fake_cache):
     assert len(rows) == 1
     assert rows[0].is_update_available is True
     assert rows[0].latest_version == "8.2.0"
+
+
+@pytest.mark.asyncio
+async def test_update_heartbeat_upserts_vulnerabilities(db_session, fake_cache):
+    agent = await _make_agent(db_session, agent_id="agent-vuln")
+    svc = AgentService(db_session, fake_cache)
+
+    await svc.update_heartbeat(
+        "agent-vuln",
+        {"vulnerabilities": [
+            {"cve_id": "CVE-2026-1", "package_name": "openssl", "installed_version": "1.0", "severity": "HIGH"},
+        ]},
+    )
+
+    cve = (await db_session.execute(select(CVE).where(CVE.cve_id == "CVE-2026-1"))).scalar_one()
+    assert cve.cvss_v3_severity == "HIGH"
+
+    rows = (
+        await db_session.execute(select(AgentVulnerability).where(AgentVulnerability.agent_id == agent.id))
+    ).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].package_name == "openssl" and rows[0].is_remediated is False
+
+    # Fixed now (no longer reported) — reconcile marks it remediated, doesn't delete it.
+    await svc.update_heartbeat("agent-vuln", {"vulnerabilities": []})
+
+    rows = (
+        await db_session.execute(
+            select(AgentVulnerability)
+            .where(AgentVulnerability.agent_id == agent.id)
+            .execution_options(populate_existing=True)
+        )
+    ).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].is_remediated is True
+    assert rows[0].remediation_date is not None
 
 
 @pytest.mark.asyncio

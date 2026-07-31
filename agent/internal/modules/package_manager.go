@@ -41,6 +41,17 @@ type updateInfo struct {
 	security      bool
 }
 
+// cveRef is one CVE advisory affecting a package, from `dnf updateinfo list
+// cves` (see checkDnfCVEs). Severity is already mapped to the backend's
+// CRITICAL/HIGH/MEDIUM/LOW vocabulary (schemas/cve.py CVESeverity), not the
+// proto comment's lowercase suggestion — there was no other severity string
+// on the wire yet to conflict with, and this is what the backend/frontend
+// actually expect and render.
+type cveRef struct {
+	cveID    string
+	severity string
+}
+
 // updateCheckInterval bounds how often ListPackages actually queries repo
 // metadata for available updates. Unlike listing installed packages (pure
 // local state, cheap), a real check-for-updates hits the configured repos —
@@ -55,6 +66,7 @@ type PackageManagerModule struct {
 	mu        sync.Mutex
 	lastCheck time.Time
 	updates   map[string]updateInfo
+	cves      map[string][]cveRef // package name -> CVEs it's vulnerable to (dnf/yum only)
 }
 
 func NewPackageManagerModule() *PackageManagerModule { return &PackageManagerModule{} }
@@ -150,7 +162,55 @@ func (m *PackageManagerModule) refreshUpdates(pm string) map[string]updateInfo {
 
 	m.updates = updates
 	m.lastCheck = time.Now()
+
+	// CVE lookup only exists for dnf/yum (see checkDnfCVEs) — apt/zypper
+	// leave m.cves nil, same honest-gap precedent as zypper's missing
+	// security classification below.
+	if pm == "dnf" || pm == "yum" {
+		m.cves = checkDnfCVEs(pm, updates)
+	} else {
+		m.cves = nil
+	}
+
 	return updates
+}
+
+// Vulnerabilities cross-references the cached CVE lookup (dnf/yum only, see
+// refreshUpdates) against pkgs to produce one Vulnerability per (package,
+// CVE) pair: installed version comes from pkgs (authoritative, collected
+// fresh every call), fixed version comes from the same updates cache the
+// CVE was matched against (a CVE is only ever listed for a package that has
+// a pending update to fix it, so the two caches always agree on which
+// packages are in scope). Returns nil for apt/zypper — no CVE source wired
+// for them yet, not a fake "scanned, found none".
+func (m *PackageManagerModule) Vulnerabilities(pkgs []Package) []Vulnerability {
+	m.mu.Lock()
+	cves := m.cves
+	updates := m.updates
+	m.mu.Unlock()
+
+	if len(cves) == 0 {
+		return nil
+	}
+
+	installed := make(map[string]string, len(pkgs))
+	for _, p := range pkgs {
+		installed[p.Name] = p.Version
+	}
+
+	var vulns []Vulnerability
+	for name, refs := range cves {
+		for _, ref := range refs {
+			vulns = append(vulns, Vulnerability{
+				CVEId:        ref.cveID,
+				PackageName:  name,
+				InstalledVer: installed[name],
+				FixedVer:     updates[name].latestVersion,
+				Severity:     ref.severity,
+			})
+		}
+	}
+	return vulns
 }
 
 // detectPackageManager returns "apt", "dnf", "yum", or "zypper".
@@ -313,6 +373,78 @@ func markSecurityUpdates(output string, updates map[string]updateInfo) {
 			}
 		}
 	}
+}
+
+// checkDnfCVEs runs `<bin> updateinfo list cves` and parses its output via
+// parseDnfCVEs. Best-effort like the security-advisory lookup next to it in
+// checkDnfUpdates: a failed CVE lookup doesn't invalidate the update list,
+// packages just won't have CVE detail attached. Needs the same
+// systemd-run escape hatch as every other dnf invocation here.
+func checkDnfCVEs(bin string, updates map[string]updateInfo) map[string][]cveRef {
+	ctx, cancel := context.WithTimeout(context.Background(), updateCheckTimeoutSec*time.Second)
+	defer cancel()
+
+	result := runViaSystemdRunArgv(ctx, "pkg-check-update-cves", []string{bin, "updateinfo", "list", "cves"}, "", updateCheckTimeoutSec, 2*1024*1024)
+	if result.Error != "" || result.ExitCode != 0 {
+		slog.Default().Warn("dnf updateinfo list cves failed", "error", result.Error, "exit_code", result.ExitCode)
+		return nil
+	}
+	return parseDnfCVEs(result.Stdout, updates)
+}
+
+// dnfSeverityToBackend maps Red Hat's advisory severity words (as printed by
+// `updateinfo list cves`) to the CRITICAL/HIGH/MEDIUM/LOW vocabulary already
+// used by schemas/cve.py's CVESeverity — the standard CVSS-range mapping
+// Red Hat itself documents (Critical 9.0-10, Important≈High 7.0-8.9,
+// Moderate≈Medium 4.0-6.9, Low 0.1-3.9).
+var dnfSeverityToBackend = map[string]string{
+	"Critical":  "CRITICAL",
+	"Important": "HIGH",
+	"Moderate":  "MEDIUM",
+	"Low":       "LOW",
+}
+
+// parseDnfCVEs parses `dnf/yum updateinfo list cves` stdout: 3 whitespace
+// columns "advisory-id severity/Sec. NEVRA" — except `updateinfo list cves`
+// also includes non-security advisories with a CVE association, printed
+// with a "bugfix" (or similar) 2nd column instead of "<Word>/Sec." — those
+// are skipped, they carry no CVSS-style severity to map and aren't a
+// vulnerability record in this schema's sense (confirmed live: real output
+// mixes both). NEVRA->package name uses the same prefix-match technique as
+// markSecurityUpdates, against updates' keys — a CVE is only ever listed
+// here for a package that also has a pending update to fix it, so the two
+// always share the same name set. Unlike markSecurityUpdates (a single
+// bool, a false positive there is harmless), picking the *longest* matching
+// name matters here: a NEVRA for "python3-libs-..." also starts with
+// "python3-", so taking every prefix match would mis-attribute that CVE to
+// "python3" too — longest-prefix-match picks the one real owner.
+func parseDnfCVEs(output string, updates map[string]updateInfo) map[string][]cveRef {
+	result := map[string][]cveRef{}
+	for _, line := range strings.Split(output, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		cveID, sevType, nevra := fields[0], fields[1], fields[len(fields)-1]
+		sevWord, ok := strings.CutSuffix(sevType, "/Sec.")
+		if !ok {
+			continue
+		}
+		severity, ok := dnfSeverityToBackend[sevWord]
+		if !ok {
+			continue
+		}
+		best := ""
+		for name := range updates {
+			if strings.HasPrefix(nevra, name+"-") && len(name) > len(best) {
+				best = name
+			}
+		}
+		if best != "" {
+			result[best] = append(result[best], cveRef{cveID: cveID, severity: severity})
+		}
+	}
+	return result
 }
 
 // checkAptUpdates runs `apt list --upgradable` and parses its output via

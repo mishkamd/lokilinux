@@ -62,6 +62,7 @@ class AgentServicer:
                 packages = getattr(request, "packages", None)
                 health = getattr(request, "health", None)
                 job_results = getattr(request, "job_results", None)
+                vulnerabilities = getattr(request, "vulnerabilities", None)
 
                 async with self.db_factory() as db:
                     svc = AgentService(db, self.cache)
@@ -74,6 +75,7 @@ class AgentServicer:
                             "packages_checksum": getattr(request, "packages_checksum", None),
                             "health": _as_dict(health),
                             "job_results": [_as_dict(r) for r in (job_results or [])],
+                            "vulnerabilities": [_as_dict(v) for v in (vulnerabilities or [])],
                             "agent_version": getattr(request, "agent_version", None),
                             "recent_logs": getattr(request, "recent_logs", None),
                             "log_connections": getattr(request, "log_connections", None),

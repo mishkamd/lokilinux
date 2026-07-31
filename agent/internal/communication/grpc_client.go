@@ -314,6 +314,17 @@ func payloadToRequest(m map[string]interface{}) *gen.AgentHeartbeatRequest {
 			})
 		}
 	}
+	if vulns, ok := m["vulnerabilities"].([]modules.Vulnerability); ok {
+		for _, v := range vulns {
+			req.Vulnerabilities = append(req.Vulnerabilities, &gen.Vulnerability{
+				CveId:            v.CVEId,
+				PackageName:      v.PackageName,
+				InstalledVersion: v.InstalledVer,
+				FixedVersion:     v.FixedVer,
+				Severity:         v.Severity,
+			})
+		}
+	}
 	return req
 }
 
