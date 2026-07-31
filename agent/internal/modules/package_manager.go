@@ -1,8 +1,10 @@
 package modules
 
 import (
+	"context"
 	"crypto/sha256"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/exec"
 	"sort"
@@ -10,6 +12,12 @@ import (
 	"sync"
 	"time"
 )
+
+// updateCheckTimeoutSec bounds a single check-for-updates command (dnf/apt/
+// zypper hitting real repo metadata, via the systemd-run escape hatch below
+// — see its own doc comment for why a plain exec.Command from inside the
+// agent's own sandbox can't do this at all).
+const updateCheckTimeoutSec = 120
 
 // Package represents a single installed system package.
 type Package struct {
@@ -116,6 +124,10 @@ func (m *PackageManagerModule) refreshUpdates(pm string) map[string]updateInfo {
 		// Non-fatal: installed-package inventory is still useful without
 		// update info (e.g. a transient network blip hitting the repo).
 		// Keep serving whatever's cached rather than wiping it to empty.
+		// Logged (not just swallowed) — a silent failure here previously
+		// looked identical to "system fully up to date" in the DB, which
+		// cost real debugging time to tell apart.
+		slog.Default().Warn("package update check failed", "package_manager", pm, "error", err)
 		if m.updates != nil {
 			return m.updates
 		}
@@ -199,23 +211,36 @@ func listRPM() ([]Package, error) {
 // checkDnfUpdates runs `<bin> check-update` (bin is "dnf" or "yum") and
 // parses its output via parseDnfCheckUpdate.
 //
+// Routed through runViaSystemdRunArgv, not a plain exec.Command — confirmed
+// live: dnf (any subcommand, including a read-mostly check-update) needs to
+// write its own cache/log state (/var/cache/dnf, /var/log/dnf.log), which
+// fails with "Read-only file system" from inside the agent's own
+// ProtectSystem=strict sandbox. Same constraint that PACKAGE_UPDATE jobs
+// hit (see systemd_run.go) — it isn't specific to package installation, dnf
+// can't run at all here without escaping the sandbox first.
+//
 // check-update's exit code is significant, not incidental: 0 = no updates,
 // 100 = updates ARE available (still valid stdout, not an error), anything
 // else = a real failure. Treating 100 as an error would silently discard
 // every result on the (common) case where updates exist.
 func checkDnfUpdates(bin string) (map[string]updateInfo, error) {
-	out, runErr := exec.Command(bin, "check-update").Output()
-	if runErr != nil {
-		if exitErr, ok := runErr.(*exec.ExitError); !ok || exitErr.ExitCode() != 100 {
-			return nil, fmt.Errorf("%s check-update: %w", bin, runErr)
-		}
+	ctx, cancel := context.WithTimeout(context.Background(), updateCheckTimeoutSec*time.Second)
+	defer cancel()
+
+	result := runViaSystemdRunArgv(ctx, "pkg-check-update", []string{bin, "check-update"}, "", updateCheckTimeoutSec, 2*1024*1024)
+	if result.Error != "" {
+		return nil, fmt.Errorf("%s check-update: %s", bin, result.Error)
 	}
-	updates := parseDnfCheckUpdate(string(out))
+	if result.ExitCode != 0 && result.ExitCode != 100 {
+		return nil, fmt.Errorf("%s check-update: exit %d: %s", bin, result.ExitCode, result.Stderr)
+	}
+	updates := parseDnfCheckUpdate(result.Stdout)
 
 	// Best-effort: a failed security lookup doesn't invalidate the update
 	// list, the packages just won't be flagged as security updates.
-	if secOut, err := exec.Command(bin, "updateinfo", "list", "security").Output(); err == nil {
-		markSecurityUpdates(string(secOut), updates)
+	secResult := runViaSystemdRunArgv(ctx, "pkg-check-update-security", []string{bin, "updateinfo", "list", "security"}, "", updateCheckTimeoutSec, 2*1024*1024)
+	if secResult.Error == "" && secResult.ExitCode == 0 {
+		markSecurityUpdates(secResult.Stdout, updates)
 	}
 
 	return updates, nil
@@ -277,13 +302,21 @@ func markSecurityUpdates(output string, updates map[string]updateInfo) {
 }
 
 // checkAptUpdates runs `apt list --upgradable` and parses its output via
-// parseAptUpgradable.
+// parseAptUpgradable. Routed through runViaSystemdRunArgv — same reasoning
+// as checkDnfUpdates: apt needs to write its own state even for a read
+// query, which the agent's own sandbox blocks.
 func checkAptUpdates() (map[string]updateInfo, error) {
-	out, err := exec.Command("apt", "list", "--upgradable").Output()
-	if err != nil {
-		return nil, fmt.Errorf("apt list --upgradable: %w", err)
+	ctx, cancel := context.WithTimeout(context.Background(), updateCheckTimeoutSec*time.Second)
+	defer cancel()
+
+	result := runViaSystemdRunArgv(ctx, "pkg-check-update", []string{"apt", "list", "--upgradable"}, "", updateCheckTimeoutSec, 2*1024*1024)
+	if result.Error != "" {
+		return nil, fmt.Errorf("apt list --upgradable: %s", result.Error)
 	}
-	return parseAptUpgradable(string(out)), nil
+	if result.ExitCode != 0 {
+		return nil, fmt.Errorf("apt list --upgradable: exit %d: %s", result.ExitCode, result.Stderr)
+	}
+	return parseAptUpgradable(result.Stdout), nil
 }
 
 // parseAptUpgradable parses `apt list --upgradable` stdout: lines shaped
@@ -316,13 +349,20 @@ func parseAptUpgradable(output string) map[string]updateInfo {
 }
 
 // checkZypperUpdates runs `zypper -q -n list-updates` and parses its output
-// via parseZypperListUpdates.
+// via parseZypperListUpdates. Routed through runViaSystemdRunArgv — same
+// reasoning as checkDnfUpdates.
 func checkZypperUpdates() (map[string]updateInfo, error) {
-	out, err := exec.Command("zypper", "-q", "-n", "list-updates").Output()
-	if err != nil {
-		return nil, fmt.Errorf("zypper list-updates: %w", err)
+	ctx, cancel := context.WithTimeout(context.Background(), updateCheckTimeoutSec*time.Second)
+	defer cancel()
+
+	result := runViaSystemdRunArgv(ctx, "pkg-check-update", []string{"zypper", "-q", "-n", "list-updates"}, "", updateCheckTimeoutSec, 2*1024*1024)
+	if result.Error != "" {
+		return nil, fmt.Errorf("zypper list-updates: %s", result.Error)
 	}
-	return parseZypperListUpdates(string(out)), nil
+	if result.ExitCode != 0 {
+		return nil, fmt.Errorf("zypper list-updates: exit %d: %s", result.ExitCode, result.Stderr)
+	}
+	return parseZypperListUpdates(result.Stdout), nil
 }
 
 // parseZypperListUpdates parses zypper's pipe-delimited table:
