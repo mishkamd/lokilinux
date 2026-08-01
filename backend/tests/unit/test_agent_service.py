@@ -12,6 +12,7 @@ import pytest
 from sqlalchemy import select
 
 from lokilinux.models.agent import Agent, AgentHealth, AgentStatus
+from lokilinux.models.alert import Alert
 from lokilinux.models.cve import CVE, AgentVulnerability, Package
 from lokilinux.models.job import Job, JobResult, JobStatus
 from lokilinux.services.agent_service import AgentService
@@ -196,6 +197,50 @@ async def test_update_heartbeat_upserts_vulnerabilities_shared_cve(db_session, f
     ).scalars().all()
     assert len(rows) == 3
     assert {r.package_name for r in rows} == {"kernel", "kernel-core", "kernel-modules"}
+
+
+@pytest.mark.asyncio
+async def test_update_heartbeat_auto_resolves_agent_offline_alert_on_recovery(db_session, fake_cache):
+    """Regression: nothing ever closed an AGENT_OFFLINE alert when the agent
+    came back — confirmed live, both fleet agents were healthy/heartbeating
+    but still carried 68 ACTIVE alerts between them."""
+    agent = await _make_agent(db_session, agent_id="agent-recovers", status=AgentStatus.INACTIVE)
+    db_session.add(Alert(
+        title="Agent agent-recovers UNHEALTHY", severity="HIGH", alert_type="AGENT_OFFLINE",
+        status="ACTIVE", agent_id=agent.id,
+    ))
+    await db_session.commit()
+
+    svc = AgentService(db_session, fake_cache)
+    await svc.update_heartbeat("agent-recovers", {})
+
+    rows = (
+        await db_session.execute(select(Alert).where(Alert.agent_id == agent.id))
+    ).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].status == "RESOLVED"
+    assert rows[0].resolved_at is not None
+
+
+@pytest.mark.asyncio
+async def test_update_heartbeat_does_not_touch_alerts_when_already_active(db_session, fake_cache):
+    """The recovery hook only fires on the INACTIVE/UNHEALTHY -> ACTIVE
+    transition — a routine heartbeat from an already-ACTIVE agent must not
+    resolve an alert that's ACTIVE for an unrelated, still-real reason."""
+    agent = await _make_agent(db_session, agent_id="agent-steady", status=AgentStatus.ACTIVE)
+    db_session.add(Alert(
+        title="still offline", severity="HIGH", alert_type="AGENT_OFFLINE",
+        status="ACTIVE", agent_id=agent.id,
+    ))
+    await db_session.commit()
+
+    svc = AgentService(db_session, fake_cache)
+    await svc.update_heartbeat("agent-steady", {})
+
+    rows = (
+        await db_session.execute(select(Alert).where(Alert.agent_id == agent.id))
+    ).scalars().all()
+    assert rows[0].status == "ACTIVE"
 
 
 @pytest.mark.asyncio

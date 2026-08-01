@@ -13,6 +13,7 @@ from lokilinux.cache import RedisCache
 from lokilinux.models.agent import Agent, AgentHealth as AgentHealthRow, AgentStatus
 from lokilinux.models.cve import CVE, AgentVulnerability, Package
 from lokilinux.models.job import JobResult
+from lokilinux.services.alert_service import AlertService
 from lokilinux.services.job_service import recompute_job_status
 
 # health % thresholds above which the dashboard should flag the resource as critical
@@ -56,8 +57,16 @@ class AgentService:
         ).scalar_one_or_none()
         if not agent:
             raise ValueError(f"Agent {agent_id} not found")
+        was_active = agent.status == AgentStatus.ACTIVE
         agent.last_heartbeat = datetime.now(timezone.utc)
         agent.status = AgentStatus.ACTIVE
+        if not was_active:
+            # Recovery transition only — checking this on every heartbeat
+            # would mean a query per agent per 60s in steady state for
+            # nothing. Without this, nothing ever closes an AGENT_OFFLINE
+            # alert: confirmed live, both fleet agents were healthy and
+            # heartbeating but still carried 68 ACTIVE alerts between them.
+            await AlertService(self.db).resolve_agent_offline_alerts(agent.id)
         if "ip_address" in data:
             agent.last_heartbeat_ip = data["ip_address"]
 
