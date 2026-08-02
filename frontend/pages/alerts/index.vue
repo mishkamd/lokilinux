@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { Check, CheckCheck } from 'lucide-vue-next'
+
 interface Alert {
   id: string
   title: string
@@ -12,9 +14,17 @@ interface Alert {
 const api = useApi()
 const { canEdit } = useCurrentUser()
 
-const { data: alerts, refresh } = await useAsyncData('alerts', () =>
+const { data: alerts, refresh, status: fetchStatus } = await useAsyncData('alerts', () =>
   api.get<{ items: Alert[] }>('/alerts?limit=100').then((r) => r.items),
 )
+
+const columns = [
+  { key: 'severity', label: 'Severity' },
+  { key: 'title', label: 'Alert' },
+  { key: 'status', label: 'Status' },
+  { key: 'created_at', label: 'Triggered' },
+  { key: 'actions', label: '' },
+]
 
 const severityColor = (s: string) =>
   ({ CRITICAL: 'red', HIGH: 'red', MEDIUM: 'gray', LOW: 'gray', INFO: 'gray' } as Record<string, string>)[s] ?? 'gray'
@@ -25,62 +35,77 @@ const statusColor = (s: string) =>
 const openCount = computed(() => alerts.value?.filter((a) => a.status === 'ACTIVE').length ?? 0)
 
 const toast = useToast()
+const acting = ref<string | null>(null)
 
 async function acknowledge(id: string) {
+  acting.value = id
   try {
     await api.post(`/alerts/${id}/acknowledge`, {})
     await refresh()
   } catch {
     toast.add({ title: 'Error', description: 'Failed to acknowledge alert', color: 'red' })
+  } finally {
+    acting.value = null
   }
 }
 
 async function resolve(id: string) {
+  acting.value = id
   try {
     await api.post(`/alerts/${id}/resolve`, {})
     await refresh()
   } catch {
     toast.add({ title: 'Error', description: 'Failed to resolve alert', color: 'red' })
+  } finally {
+    acting.value = null
   }
 }
 </script>
 
 <template>
   <div>
-    <div class="flex items-center justify-end mb-4">
+    <div class="flex items-center justify-end mb-3">
       <Badge color="red">{{ openCount }} active</Badge>
     </div>
 
-    <div class="space-y-3">
-      <Card v-for="alert in alerts" :key="alert.id">
-        <div class="flex items-start justify-between gap-4">
-          <div class="flex items-start gap-3 min-w-0">
-            <Badge :color="severityColor(alert.severity)" class="shrink-0">{{ alert.severity }}</Badge>
-            <div class="min-w-0">
-              <p class="font-medium truncate">{{ alert.title }}</p>
-              <p v-if="alert.description" class="text-sm text-muted-foreground truncate">{{ alert.description }}</p>
-              <p class="text-xs text-muted-foreground mt-1">{{ new Date(alert.created_at).toLocaleString() }}</p>
-            </div>
-          </div>
-          <div class="flex items-center gap-2 shrink-0">
-            <Badge :color="statusColor(alert.status)">{{ alert.status }}</Badge>
-            <Button
-              v-if="alert.status === 'ACTIVE' && canEdit"
-              size="xs"
-              variant="outline"
-              @click="acknowledge(alert.id)"
-            >Acknowledge</Button>
-            <Button
-              v-if="alert.status !== 'RESOLVED' && alert.status !== 'EXPIRED' && canEdit"
-              size="xs"
-              variant="outline"
-              @click="resolve(alert.id)"
-            >Resolve</Button>
-          </div>
+    <DataTable :rows="alerts ?? []" :columns="columns" :loading="fetchStatus === 'pending'">
+      <template #severity-data="{ row }">
+        <Badge :color="severityColor(String(row.severity))" size="xs">{{ row.severity }}</Badge>
+      </template>
+      <template #title-data="{ row }">
+        <p class="font-medium leading-tight">{{ row.title }}</p>
+        <p v-if="row.description" class="text-xs text-muted-foreground truncate max-w-md">{{ row.description }}</p>
+      </template>
+      <template #status-data="{ row }">
+        <Badge :color="statusColor(String(row.status))" size="xs">{{ row.status }}</Badge>
+      </template>
+      <template #created_at-data="{ row }">
+        <span class="font-mono text-xs text-muted-foreground">{{ new Date(String(row.created_at)).toLocaleString() }}</span>
+      </template>
+      <template #actions-data="{ row }">
+        <div v-if="canEdit" class="flex items-center justify-end gap-1">
+          <Button
+            v-if="row.status === 'ACTIVE'"
+            size="xs"
+            variant="ghost"
+            class="text-muted-foreground"
+            :loading="acting === row.id"
+            @click="acknowledge(String(row.id))"
+          >
+            <Check class="size-3.5" />
+          </Button>
+          <Button
+            v-if="row.status !== 'RESOLVED' && row.status !== 'EXPIRED'"
+            size="xs"
+            variant="ghost"
+            class="text-muted-foreground"
+            :loading="acting === row.id"
+            @click="resolve(String(row.id))"
+          >
+            <CheckCheck class="size-3.5" />
+          </Button>
         </div>
-      </Card>
-
-      <p v-if="!alerts?.length" class="text-center text-muted-foreground py-12">No alerts</p>
-    </div>
+      </template>
+    </DataTable>
   </div>
 </template>
