@@ -39,6 +39,16 @@ Enterprise Linux fleet management platform — centralized patch management, vul
 
 **Data flow:** Agent dials out via mTLS gRPC → heartbeat every 60s carries system info + packages + vulnerabilities → receives pending jobs + policy delta in response → Frontend polls REST for updates.
 
+## Screenshots
+
+| Dashboard | Servers |
+|-----------|---------|
+| ![Dashboard](img/dashbord.png) | ![Servers](img/server.png) |
+
+| Jobs | Policies | Audit |
+|------|----------|-------|
+| ![Jobs](img/job.png) | ![Policies](img/politic.png) | ![Audit](img/audit.png) |
+
 ## Infrastructure Components
 
 | Service | Technology | Port | Purpose |
