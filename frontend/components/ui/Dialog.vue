@@ -31,7 +31,7 @@ const SIZE_CLASSES: Record<string, string> = {
 </script>
 
 <template>
-  <DialogRoot :open="modelValue" @update:open="emit('update:modelValue', $event)">
+  <DialogRoot :open="modelValue" @update:open="(v) => emit('update:modelValue', v)">
     <DialogPortal>
       <DialogOverlay
         class="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0"
@@ -49,7 +49,7 @@ const SIZE_CLASSES: Record<string, string> = {
           <slot />
         </div>
         <template v-else>
-          <div class="px-6 py-4 overflow-y-auto">
+          <div class="min-h-0 flex-1 px-6 py-4 overflow-y-auto">
             <slot name="body" />
           </div>
           <div v-if="$slots.footer" class="flex items-center justify-end gap-2 px-6 py-4 border-t border-border shrink-0">
