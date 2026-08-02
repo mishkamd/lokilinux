@@ -31,13 +31,21 @@ dependencies = [
 
     # Auth (JWKS validation against Better Auth)
     "httpx==0.28.1",
-    "PyJWT[cryptography]==2.13.0",
+    "PyJWT==2.13.0",
+    "cryptography==46.0.3",  # direct dependency — api/v1/routers/agent_install.py imports cryptography.x509 itself
 
     # Observability
     "structlog==26.1.0",
 
     # Static file serving (agent packages)
     "aiofiles==25.1.0",
+
+    # Compliance Reporting Engine — XLSX/PDF export
+    "openpyxl==3.1.5",
+    "reportlab==5.0.0",
+
+    # Policy Engine — cron trigger scheduling
+    "croniter==6.2.4",
 ]
 
 [project.optional-dependencies]
@@ -54,7 +62,7 @@ dev = [
 
 [build-system]
 requires = ["setuptools>=80"]
-build-backend = "setuptools.backends.legacy:build"
+build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["."]

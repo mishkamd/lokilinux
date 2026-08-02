@@ -1,12 +1,14 @@
 export interface Job {
   id: string
   name: string
+  description: string | null
   target_servers: { agent_ids: string[] }
   job_type: string
   status: 'QUEUED' | 'SCHEDULED' | 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'TIMEOUT' | 'CANCELLED'
-  priority: number
+  dedup_key: string | null
   created_by: string | null
   created_at: string
+  scheduled_time: string | null
   started_at: string | null
   completed_at: string | null
   parameters: Record<string, unknown> | null
@@ -64,7 +66,10 @@ export const useJobsStore = defineStore('jobs', () => {
   }
 
   async function cancelJob(id: string) {
-    await api.patch(`/jobs/${id}/cancel`)
+    // Backend only ever exposed DELETE /jobs/{id} (routers/jobs.py) — this
+    // called a PATCH .../cancel route that never existed, so cancel 404'd
+    // on every attempt.
+    await api.del(`/jobs/${id}`)
     const idx = jobs.value.findIndex((j) => j.id === id)
     if (idx !== -1) jobs.value[idx]!.status = 'CANCELLED'
   }

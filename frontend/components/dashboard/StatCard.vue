@@ -25,14 +25,14 @@ const hasBadges = computed(() => !!props.badges?.length)
 <template>
   <NuxtLink
     :to="props.to"
-    class="group relative flex min-h-[104px] flex-col gap-2 rounded-xl border border-white/[0.06] bg-card p-3 transition-all duration-200 ease-out hover:-translate-y-0.5 hover:border-primary-active/40"
+    class="group relative flex min-h-[104px] flex-col gap-2 overflow-hidden rounded-xl border border-white/[0.06] bg-card p-4 transition-all duration-200 ease-out hover:-translate-y-0.5 hover:border-primary-active/40"
   >
     <div class="relative flex items-center justify-between gap-2">
-      <div class="flex min-w-0 items-center gap-1.5 text-muted-foreground">
-        <span class="flex size-5 shrink-0 items-center justify-center rounded-md bg-[color-mix(in_oklch,var(--primary-active)_15%,transparent)] text-primary-active transition-transform duration-200 ease-out group-hover:scale-110 group-hover:rotate-6">
-          <component :is="props.icon" class="size-3" />
+      <div class="flex min-w-0 items-center gap-2 text-muted-foreground">
+        <span class="flex size-6 shrink-0 items-center justify-center rounded-md bg-[color-mix(in_oklch,var(--primary-active)_15%,transparent)] text-primary-active transition-transform duration-200 ease-out group-hover:scale-110 group-hover:rotate-6">
+          <component :is="props.icon" class="size-3.5" />
         </span>
-        <span class="label-caps truncate text-[11px]">{{ props.label }}</span>
+        <span class="label-caps truncate text-[12px]">{{ props.label }}</span>
       </div>
       <span class="flex shrink-0 items-center gap-1 text-[12px] font-medium text-primary">
         {{ props.viewAllLabel }}
@@ -40,12 +40,18 @@ const hasBadges = computed(() => !!props.badges?.length)
       </span>
     </div>
 
-    <div class="relative flex flex-1 items-end justify-between gap-3">
-      <div class="font-mono text-xl font-bold leading-none tabular-nums transition-colors duration-200 group-hover:text-primary-active">
+    <div class="relative flex flex-1 flex-wrap items-end justify-between gap-x-2 gap-y-1">
+      <div class="font-mono text-3xl font-bold leading-none tabular-nums transition-colors duration-200 group-hover:text-primary-active">
         {{ props.value }}
       </div>
-      <div v-if="hasBadges" class="flex flex-wrap justify-end gap-1 shrink-0">
-        <Badge v-for="badge in props.badges" :key="badge.label" size="xs" :color="badge.color ?? 'gray'">
+      <div v-if="hasBadges" class="flex min-w-0 flex-wrap justify-end gap-1">
+        <Badge
+          v-for="badge in props.badges"
+          :key="badge.label"
+          size="sm"
+          :color="badge.color ?? 'gray'"
+          class="px-1.5 py-px text-[10px] leading-[1.4] whitespace-nowrap"
+        >
           {{ badge.label }}
         </Badge>
       </div>

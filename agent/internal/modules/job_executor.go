@@ -1,12 +1,9 @@
 package modules
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"os/exec"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -29,55 +26,11 @@ func NewJobExecutor() *JobExecutor {
 	return &JobExecutor{maxOutputBytes: 4 * 1024 * 1024} // 4 MB output cap per stream
 }
 
-// Execute runs command under /bin/sh with optional timeout.
-// timeoutSec ≤ 0 means the caller's ctx deadline applies.
+// Execute runs command via systemd-run (escaping the agent's own sandbox —
+// see systemd_run.go) with optional timeout.
+// timeoutSec ≤ 0 means the config default (3600s) applies.
 func (e *JobExecutor) Execute(ctx context.Context, jobID, command string, timeoutSec int) JobResult {
-	start := time.Now()
-
-	if err := validateCommand(command); err != nil {
-		return JobResult{JobID: jobID, ExitCode: 1, Error: err.Error(), DurationMs: msSince(start)}
-	}
-
-	if timeoutSec > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
-		defer cancel()
-	}
-
-	var stdout, stderr bytes.Buffer
-	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", command)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error {
-		if cmd.Process != nil {
-			// kill the entire process group so shell children don't outlive their parent
-			return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		}
-		return nil
-	}
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
-
-	runErr := cmd.Run()
-
-	code := 0
-	errMsg := ""
-	if cmd.ProcessState != nil {
-		code = cmd.ProcessState.ExitCode()
-	}
-	if runErr != nil && code == 0 {
-		// process never started or context cancelled
-		errMsg = runErr.Error()
-		code = 1
-	}
-
-	return JobResult{
-		JobID:      jobID,
-		ExitCode:   code,
-		Stdout:     truncateOutput(stdout.String(), e.maxOutputBytes),
-		Stderr:     truncateOutput(stderr.String(), e.maxOutputBytes),
-		DurationMs: msSince(start),
-		Error:      errMsg,
-	}
+	return runViaSystemdRun(ctx, jobID, command, timeoutSec, e.maxOutputBytes)
 }
 
 func validateCommand(command string) error {

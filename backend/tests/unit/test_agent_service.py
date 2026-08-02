@@ -12,7 +12,8 @@ import pytest
 from sqlalchemy import select
 
 from lokilinux.models.agent import Agent, AgentHealth, AgentStatus
-from lokilinux.models.cve import Package
+from lokilinux.models.alert import Alert
+from lokilinux.models.cve import CVE, AgentVulnerability, Package
 from lokilinux.models.job import Job, JobResult, JobStatus
 from lokilinux.services.agent_service import AgentService
 
@@ -130,6 +131,137 @@ async def test_update_heartbeat_upserts_packages(db_session, fake_cache):
     assert len(rows) == 1
     assert rows[0].is_update_available is True
     assert rows[0].latest_version == "8.2.0"
+
+
+@pytest.mark.asyncio
+async def test_update_heartbeat_upserts_vulnerabilities(db_session, fake_cache):
+    agent = await _make_agent(db_session, agent_id="agent-vuln")
+    svc = AgentService(db_session, fake_cache)
+
+    await svc.update_heartbeat(
+        "agent-vuln",
+        {"vulnerabilities": [
+            {"cve_id": "CVE-2026-1", "package_name": "openssl", "installed_version": "1.0", "severity": "HIGH"},
+        ]},
+    )
+
+    cve = (await db_session.execute(select(CVE).where(CVE.cve_id == "CVE-2026-1"))).scalar_one()
+    assert cve.cvss_v3_severity == "HIGH"
+
+    rows = (
+        await db_session.execute(select(AgentVulnerability).where(AgentVulnerability.agent_id == agent.id))
+    ).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].package_name == "openssl" and rows[0].is_remediated is False
+
+    # Fixed now (no longer reported) — reconcile marks it remediated, doesn't delete it.
+    await svc.update_heartbeat("agent-vuln", {"vulnerabilities": []})
+
+    rows = (
+        await db_session.execute(
+            select(AgentVulnerability)
+            .where(AgentVulnerability.agent_id == agent.id)
+            .execution_options(populate_existing=True)
+        )
+    ).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].is_remediated is True
+    assert rows[0].remediation_date is not None
+
+
+@pytest.mark.asyncio
+async def test_update_heartbeat_upserts_vulnerabilities_shared_cve(db_session, fake_cache):
+    """Regression: one CVE affecting multiple packages in the same heartbeat
+    (e.g. a kernel advisory across kernel/kernel-core/kernel-modules) used to
+    crash the whole heartbeat with Postgres's "ON CONFLICT DO UPDATE command
+    cannot affect row a second time" — the cves upsert's conflict target is
+    cve_id alone, and the duplicate cve_id rows tripped it. Confirmed live
+    against a real Rocky 9 host's dnf updateinfo list cves output."""
+    agent = await _make_agent(db_session, agent_id="agent-shared-cve")
+    svc = AgentService(db_session, fake_cache)
+
+    await svc.update_heartbeat(
+        "agent-shared-cve",
+        {"vulnerabilities": [
+            {"cve_id": "CVE-2026-9", "package_name": "kernel", "installed_version": "5.14", "severity": "HIGH"},
+            {"cve_id": "CVE-2026-9", "package_name": "kernel-core", "installed_version": "5.14", "severity": "HIGH"},
+            {"cve_id": "CVE-2026-9", "package_name": "kernel-modules", "installed_version": "5.14", "severity": "HIGH"},
+        ]},
+    )
+
+    cves = (await db_session.execute(select(CVE).where(CVE.cve_id == "CVE-2026-9"))).scalars().all()
+    assert len(cves) == 1
+
+    rows = (
+        await db_session.execute(select(AgentVulnerability).where(AgentVulnerability.agent_id == agent.id))
+    ).scalars().all()
+    assert len(rows) == 3
+    assert {r.package_name for r in rows} == {"kernel", "kernel-core", "kernel-modules"}
+
+
+@pytest.mark.asyncio
+async def test_update_heartbeat_auto_resolves_agent_offline_alert_on_recovery(db_session, fake_cache):
+    """Regression: nothing ever closed an AGENT_OFFLINE alert when the agent
+    came back — confirmed live, both fleet agents were healthy/heartbeating
+    but still carried 68 ACTIVE alerts between them."""
+    agent = await _make_agent(db_session, agent_id="agent-recovers", status=AgentStatus.INACTIVE)
+    db_session.add(Alert(
+        title="Agent agent-recovers UNHEALTHY", severity="HIGH", alert_type="AGENT_OFFLINE",
+        status="ACTIVE", agent_id=agent.id,
+    ))
+    await db_session.commit()
+
+    svc = AgentService(db_session, fake_cache)
+    await svc.update_heartbeat("agent-recovers", {})
+
+    rows = (
+        await db_session.execute(select(Alert).where(Alert.agent_id == agent.id))
+    ).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].status == "RESOLVED"
+    assert rows[0].resolved_at is not None
+
+
+@pytest.mark.asyncio
+async def test_update_heartbeat_does_not_touch_alerts_when_already_active(db_session, fake_cache):
+    """The recovery hook only fires on the INACTIVE/UNHEALTHY -> ACTIVE
+    transition — a routine heartbeat from an already-ACTIVE agent must not
+    resolve an alert that's ACTIVE for an unrelated, still-real reason."""
+    agent = await _make_agent(db_session, agent_id="agent-steady", status=AgentStatus.ACTIVE)
+    db_session.add(Alert(
+        title="still offline", severity="HIGH", alert_type="AGENT_OFFLINE",
+        status="ACTIVE", agent_id=agent.id,
+    ))
+    await db_session.commit()
+
+    svc = AgentService(db_session, fake_cache)
+    await svc.update_heartbeat("agent-steady", {})
+
+    rows = (
+        await db_session.execute(select(Alert).where(Alert.agent_id == agent.id))
+    ).scalars().all()
+    assert rows[0].status == "ACTIVE"
+
+
+@pytest.mark.asyncio
+async def test_update_heartbeat_invalidates_global_cve_cache(db_session, fake_cache):
+    """Regression: invalidate_agent (called unconditionally every heartbeat)
+    only clears this agent's own vulnerability:{id}:* cache — the *global*
+    /vulnerabilities list is cached under cve:* and kept serving a stale
+    (empty, from before any agent had reported) response for up to
+    TTL_CVE_DATA otherwise. Confirmed live against the real Redis cache."""
+    await _make_agent(db_session, agent_id="agent-cve-cache")
+    fake_cache._store["cve:list:None:None:None:False:None:20"] = {"items": [], "total": 0}
+    svc = AgentService(db_session, fake_cache)
+
+    await svc.update_heartbeat(
+        "agent-cve-cache",
+        {"vulnerabilities": [
+            {"cve_id": "CVE-2026-8", "package_name": "openssl", "installed_version": "1.0", "severity": "HIGH"},
+        ]},
+    )
+
+    assert "cve:list:None:None:None:False:None:20" not in fake_cache._store
 
 
 @pytest.mark.asyncio

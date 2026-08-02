@@ -1,0 +1,49 @@
+"""
+LokiLinux — File Integrity Monitoring ORM models (Compliance module).
+
+file_hashes is current-state-only (overwritten in place); file_changes is a
+TimescaleDB hypertable, append-only history. Both created directly in
+migration 017 — SQLAlchemy only needs to know the columns/PK to match what's
+actually on disk, same convention as models/inventory.py and models/drift.py.
+Written by lokilinux-compliance's Ingester
+(services/compliance/internal/ingest/file_integrity.go), read here.
+"""
+
+import uuid
+from datetime import datetime
+
+from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String
+from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.orm import Mapped, mapped_column
+
+from lokilinux.db import Base
+
+
+class FileHash(Base):
+    __tablename__ = "file_hashes"
+
+    agent_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), primary_key=True
+    )
+    path: Mapped[str] = mapped_column(String(1000), primary_key=True)
+    algo: Mapped[str] = mapped_column(String(10), nullable=False, default="sha256")
+    hash: Mapped[str] = mapped_column(String(128), nullable=False)
+    mode: Mapped[int | None] = mapped_column(Integer)
+    uid: Mapped[int | None] = mapped_column(Integer)
+    gid: Mapped[int | None] = mapped_column(Integer)
+    size_bytes: Mapped[int | None] = mapped_column(BigInteger)
+    mtime: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class FileChange(Base):
+    __tablename__ = "file_changes"
+
+    time: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    agent_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    path: Mapped[str] = mapped_column(String(1000), primary_key=True)
+    old_hash: Mapped[str | None] = mapped_column(String(128))
+    new_hash: Mapped[str | None] = mapped_column(String(128))
+    change_kind: Mapped[str] = mapped_column(
+        String(20), nullable=False
+    )  # CREATED/MODIFIED/DELETED/PERMISSION_CHANGED

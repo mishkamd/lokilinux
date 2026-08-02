@@ -3,29 +3,38 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
 	"github.com/lokilinux/agent/internal/communication"
+	"github.com/lokilinux/agent/internal/compliance"
 	"github.com/lokilinux/agent/internal/config"
 	"github.com/lokilinux/agent/internal/modules"
 	"github.com/lokilinux/agent/internal/storage"
 )
 
+// complianceTickInterval is the base cadence compliance.Runner ticks at —
+// finer-grained than any single collector needs (Collector.Interval()
+// governs actual cadence per domain), just frequent enough that a 0-
+// interval ("every heartbeat") collector stays fresh between heartbeats.
+const complianceTickInterval = time.Minute
+
 // Manager orchestrates all agent subsystems and drives the heartbeat cycle.
 type Manager struct {
-	cfg     *config.Config
-	log     *slog.Logger
-	version string
-	logBuf  *LogRingBuffer
-	client  *communication.GRPCClient
-	store   *storage.Store
-	sysMod      *modules.SystemInfoModule
-	pkgMod      *modules.PackageManagerModule
-	jobExec     *modules.JobExecutor
-	ansibleExec *modules.AnsibleExecutor
-	stop        chan struct{}
+	cfg              *config.Config
+	log              *slog.Logger
+	version          string
+	logBuf           *LogRingBuffer
+	client           *communication.GRPCClient
+	store            *storage.Store
+	sysMod           *modules.SystemInfoModule
+	pkgMod           *modules.PackageManagerModule
+	jobExec          *modules.JobExecutor
+	ansibleExec      *modules.AnsibleExecutor
+	complianceRunner *compliance.Runner
+	stop             chan struct{}
 
 	failCount int // consecutive heartbeat failures, drives backoff
 
@@ -35,6 +44,23 @@ type Manager struct {
 	// main loop) and drained into the next outgoing heartbeat.
 	resultsMu      sync.Mutex
 	pendingResults []modules.JobResult
+
+	// resyncMu guards resyncDomains: set by handleResponse from the
+	// server's resync_domains, drained by sendHeartbeat into the *next*
+	// outgoing heartbeat's domain_full (docs/compliance/04-PROTOCOL.md §3).
+	resyncMu      sync.Mutex
+	resyncDomains []string
+
+	// inFlightMu guards inFlight: jobs now run in their own goroutine (a
+	// long PACKAGE_UPDATE/ANSIBLE_PLAYBOOK must not block the heartbeat
+	// loop, or HeartbeatMonitorWorker marks the agent INACTIVE mid-job).
+	// The server already avoids re-dispatching a job once its JobResult
+	// leaves PENDING, but that's one heartbeat's worth of latency away —
+	// this guard is the hard local backstop so the same job_id can never
+	// run twice concurrently (two overlapping package-manager runs would
+	// just deadlock each other on its lock file).
+	inFlightMu sync.Mutex
+	inFlight   map[string]struct{}
 }
 
 const (
@@ -62,17 +88,19 @@ func NewManager(cfg *config.Config, log *slog.Logger, version string, logBuf *Lo
 	)
 
 	return &Manager{
-		cfg:     cfg,
-		log:     log,
-		version: version,
-		logBuf:  logBuf,
-		client:  client,
-		store:   store,
-		sysMod:      modules.NewSystemInfoModule(),
-		pkgMod:      modules.NewPackageManagerModule(),
-		jobExec:     modules.NewJobExecutor(),
-		ansibleExec: modules.NewAnsibleExecutor(),
-		stop:        make(chan struct{}),
+		cfg:              cfg,
+		log:              log,
+		version:          version,
+		logBuf:           logBuf,
+		client:           client,
+		store:            store,
+		sysMod:           modules.NewSystemInfoModule(),
+		pkgMod:           modules.NewPackageManagerModule(),
+		jobExec:          modules.NewJobExecutor(),
+		ansibleExec:      modules.NewAnsibleExecutor(),
+		complianceRunner: compliance.NewRunner(compliance.Registry, store, log),
+		stop:             make(chan struct{}),
+		inFlight:         make(map[string]struct{}),
 	}, nil
 }
 
@@ -83,6 +111,11 @@ func (m *Manager) Run(ctx context.Context) {
 	interval := time.Duration(m.cfg.Heartbeat.IntervalSec) * time.Second
 
 	go m.runPurge(ctx)
+
+	if err := m.complianceRunner.LoadState(ctx); err != nil {
+		m.log.Warn("loading persisted compliance state failed", "error", err)
+	}
+	go m.complianceRunner.Run(ctx, complianceTickInterval)
 
 	// fire immediately on start, then on each computed delay
 	m.sendHeartbeat(ctx)
@@ -158,6 +191,7 @@ func (m *Manager) sendHeartbeat(ctx context.Context) {
 		// non-fatal — log and continue with empty list
 		m.log.Warn("package list failed", "error", err)
 	}
+	vulns := m.pkgMod.Vulnerabilities(pkgs)
 
 	var recentLogs []string
 	var connCount, infoCount, critCount int
@@ -171,7 +205,23 @@ func (m *Manager) sendHeartbeat(ctx context.Context) {
 	results := append([]modules.JobResult(nil), m.pendingResults...)
 	m.resultsMu.Unlock()
 
-	payload := buildPayload(m.cfg.Identity.AgentID, sysInfo, pkgs, checksum, m.version, recentLogs, connCount, infoCount, critCount, health, results)
+	domainHashes := m.complianceRunner.Hashes()
+
+	m.resyncMu.Lock()
+	toResync := m.resyncDomains
+	m.resyncDomains = nil
+	m.resyncMu.Unlock()
+	var domainFull map[string]map[string]interface{}
+	if len(toResync) > 0 {
+		domainFull = make(map[string]map[string]interface{}, len(toResync))
+		for _, domain := range toResync {
+			if result, ok := m.complianceRunner.FullBody(domain); ok {
+				domainFull[domain] = map[string]interface{}(result.Facts)
+			}
+		}
+	}
+
+	payload := buildPayload(m.cfg.Identity.AgentID, sysInfo, pkgs, checksum, m.version, recentLogs, connCount, infoCount, critCount, health, results, domainHashes, domainFull, vulns)
 
 	resp, err := m.client.SendHeartbeat(ctx, payload)
 	if err != nil {
@@ -222,6 +272,9 @@ func buildPayload(
 	logCritical int,
 	health modules.Health,
 	jobResults []modules.JobResult,
+	domainHashes map[string]string,
+	domainFull map[string]map[string]interface{},
+	vulns []modules.Vulnerability,
 ) map[string]interface{} {
 	return map[string]interface{}{
 		"agent_id":          agentID,
@@ -236,11 +289,20 @@ func buildPayload(
 		"log_critical":      logCritical,
 		"health":            health,
 		"job_results":       jobResults,
+		"domain_hashes":     domainHashes,
+		"domain_full":       domainFull,
+		"vulnerabilities":   vulns,
 	}
 }
 
 // handleResponse processes jobs and policy deltas from the server response.
 func (m *Manager) handleResponse(ctx context.Context, resp map[string]interface{}) {
+	if domains, ok := resp["resync_domains"].([]string); ok && len(domains) > 0 {
+		m.resyncMu.Lock()
+		m.resyncDomains = domains
+		m.resyncMu.Unlock()
+	}
+
 	jobs, ok := resp["pending_jobs"]
 	if !ok {
 		return
@@ -258,7 +320,6 @@ func (m *Manager) handleResponse(ctx context.Context, resp map[string]interface{
 		}
 		jobID, _ := job["job_id"].(string)
 		jobType, _ := job["job_type"].(string)
-
 		params, _ := job["parameters"].(map[string]interface{})
 
 		timeoutSec := m.cfg.JobExecution.TimeoutSeconds // config default (3600s)
@@ -266,37 +327,74 @@ func (m *Manager) handleResponse(ctx context.Context, resp map[string]interface{
 			timeoutSec = int(t)
 		}
 
-		var result modules.JobResult
-
-		if jobType == "PLUGIN_INSTALL" {
-			result = modules.InstallPlugin(ctx, jobID, params, timeoutSec)
-		} else if jobType == "ANSIBLE_PLAYBOOK" {
-			playbookContent, _ := params["playbook_content"].(string)
-			extraVars, _ := params["extra_vars"].(map[string]interface{})
-			roles, _ := params["roles"].(map[string]interface{})
-			if playbookContent == "" {
-				m.log.Warn("ansible job has no playbook_content, skipping", "job_id", jobID)
-				continue
-			}
-			result = m.ansibleExec.Execute(ctx, jobID, playbookContent, extraVars, roles, timeoutSec)
-		} else {
-			command, _ := params["command"].(string)
-			if command == "" {
-				m.log.Warn("job has no command parameter, skipping", "job_id", jobID)
-				continue
-			}
-			result = m.jobExec.Execute(ctx, jobID, command, timeoutSec)
+		m.inFlightMu.Lock()
+		if _, running := m.inFlight[jobID]; running {
+			m.inFlightMu.Unlock()
+			m.log.Warn("job already in flight, skipping duplicate dispatch", "job_id", jobID)
+			continue
 		}
+		m.inFlight[jobID] = struct{}{}
+		m.inFlightMu.Unlock()
 
-		m.log.Info("job executed",
-			"job_id", jobID,
-			"job_type", jobType,
-			"exit_code", result.ExitCode,
-			"duration_ms", result.DurationMs,
-		)
+		// Runs off the heartbeat goroutine — a long PACKAGE_UPDATE/
+		// ANSIBLE_PLAYBOOK must not block the next heartbeat send.
+		go func(jobID, jobType string, params map[string]interface{}, timeoutSec int) {
+			defer func() {
+				m.inFlightMu.Lock()
+				delete(m.inFlight, jobID)
+				m.inFlightMu.Unlock()
+			}()
 
-		m.resultsMu.Lock()
-		m.pendingResults = append(m.pendingResults, result)
-		m.resultsMu.Unlock()
+			result, ok := m.runJob(ctx, jobID, jobType, params, timeoutSec)
+			if !ok {
+				return
+			}
+
+			m.log.Info("job executed",
+				"job_id", jobID,
+				"job_type", jobType,
+				"exit_code", result.ExitCode,
+				"duration_ms", result.DurationMs,
+			)
+
+			m.resultsMu.Lock()
+			m.pendingResults = append(m.pendingResults, result)
+			m.resultsMu.Unlock()
+		}(jobID, jobType, params, timeoutSec)
+	}
+}
+
+// runJob dispatches a single job to the executor matching its job_type. The
+// bool return is always true now — every path reports back, even malformed
+// or unrecognized jobs. It used to be false for those (skip, report
+// nothing), which left the job RUNNING until JobTimeoutWorker swept it to
+// TIMEOUT up to an hour later with zero explanation. A policy engine that
+// generates jobs automatically needs failures to surface in ~1 heartbeat,
+// not look like a hang.
+func (m *Manager) runJob(ctx context.Context, jobID, jobType string, params map[string]interface{}, timeoutSec int) (modules.JobResult, bool) {
+	switch jobType {
+	case "PLUGIN_INSTALL":
+		return modules.InstallPlugin(ctx, jobID, params, timeoutSec), true
+	case "PACKAGE_UPDATE":
+		return modules.UpdatePackages(ctx, jobID, params, timeoutSec), true
+	case "ANSIBLE_PLAYBOOK":
+		playbookContent, _ := params["playbook_content"].(string)
+		extraVars, _ := params["extra_vars"].(map[string]interface{})
+		roles, _ := params["roles"].(map[string]interface{})
+		if playbookContent == "" {
+			m.log.Warn("ansible job has no playbook_content, skipping", "job_id", jobID)
+			return modules.JobResult{JobID: jobID, ExitCode: 1, Error: "missing required parameter: playbook_content"}, true
+		}
+		return m.ansibleExec.Execute(ctx, jobID, playbookContent, extraVars, roles, timeoutSec), true
+	default:
+		// Any job_type not matched above (including CUSTOM_COMMAND) falls
+		// here — a bare `command` param is enough regardless of job_type,
+		// same as before this fix, just no longer silent on failure.
+		command, _ := params["command"].(string)
+		if command == "" {
+			m.log.Warn("unsupported job_type, skipping", "job_id", jobID, "job_type", jobType)
+			return modules.JobResult{JobID: jobID, ExitCode: 1, Error: fmt.Sprintf("unsupported job_type %q: no command parameter", jobType)}, true
+		}
+		return m.jobExec.Execute(ctx, jobID, command, timeoutSec), true
 	}
 }

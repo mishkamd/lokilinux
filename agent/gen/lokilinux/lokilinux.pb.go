@@ -27,15 +27,29 @@ type AgentHeartbeatRequest struct {
 	LogInformative   int32            `json:"log_informative,omitempty"`
 	LogCritical      int32            `json:"log_critical,omitempty"`
 	JobResults       []*JobResult     `json:"job_results,omitempty"`
+
+	// DomainHashes/DomainFull carry the compliance module's per-domain delta
+	// sync (docs/compliance/04-PROTOCOL.md §3) — DomainHashes goes out every
+	// heartbeat (cheap), DomainFull only for domains the previous response's
+	// ResyncDomains flagged.
+	DomainHashes map[string]string                 `json:"domain_hashes,omitempty"`
+	DomainFull   map[string]map[string]interface{} `json:"domain_full,omitempty"`
 }
 
-// AgentHeartbeatResponse carries one of four server commands.
-// Mirrors the proto oneof: only one field will be non-nil / non-empty.
+// AgentHeartbeatResponse carries the server's reply to one heartbeat.
+// PendingJobs replaces the proto's single-job oneof (ExecuteJob) — the
+// server can return up to 10 pending jobs per heartbeat (see
+// AgentService.get_pending_jobs), which a oneof cannot represent.
 type AgentHeartbeatResponse struct {
-	ExecuteJob    *JobRequest   `json:"execute_job,omitempty"`
+	PendingJobs   []*JobRequest `json:"pending_jobs,omitempty"`
 	UpdatePolicy  *PolicyConfig `json:"update_policy,omitempty"`
 	RebootRequest string        `json:"reboot_request,omitempty"`
 	PluginAction  string        `json:"plugin_action,omitempty"`
+
+	// ResyncDomains lists compliance domains whose last-reported hash didn't
+	// match the server's latest snapshot — the agent sends a full body for
+	// each of these in DomainFull on its *next* heartbeat (04-PROTOCOL.md §3).
+	ResyncDomains []string `json:"resync_domains,omitempty"`
 }
 
 // ─── System ───────────────────────────────────────────────────────────────────
@@ -169,16 +183,20 @@ const (
 // ─── Jobs ─────────────────────────────────────────────────────────────────────
 
 type JobRequest struct {
-	JobId             string            `json:"job_id"`
-	JobType           string            `json:"job_type"`
-	Scope             string            `json:"scope,omitempty"`
-	TargetPackages    []string          `json:"target_packages,omitempty"`
-	Parameters        map[string]string `json:"parameters,omitempty"`
-	ScheduledTime     time.Time         `json:"scheduled_time,omitempty"`
-	TimeoutSeconds    int32             `json:"timeout_seconds,omitempty"`
-	RequiresApproval  bool              `json:"requires_approval,omitempty"`
-	AllowRollback     bool              `json:"allow_rollback,omitempty"`
-	MaintenanceWindow string            `json:"maintenance_window,omitempty"`
+	JobId          string   `json:"job_id"`
+	JobType        string   `json:"job_type"`
+	Scope          string   `json:"scope,omitempty"`
+	TargetPackages []string `json:"target_packages,omitempty"`
+	// Parameters is map[string]interface{}, not map[string]string: the
+	// control plane sends nested JSON here (playbook_content, extra_vars,
+	// roles are all objects/arrays, not flat strings) — a flat string map
+	// silently dropped every non-trivial job parameter.
+	Parameters        map[string]interface{} `json:"parameters,omitempty"`
+	ScheduledTime     time.Time              `json:"scheduled_time,omitempty"`
+	TimeoutSeconds    int32                  `json:"timeout_seconds,omitempty"`
+	RequiresApproval  bool                   `json:"requires_approval,omitempty"`
+	AllowRollback     bool                   `json:"allow_rollback,omitempty"`
+	MaintenanceWindow string                 `json:"maintenance_window,omitempty"`
 }
 
 type JobResult struct {

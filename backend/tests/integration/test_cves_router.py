@@ -3,7 +3,8 @@
 import pytest
 from httpx import AsyncClient
 
-from lokilinux.models.cve import CVE
+from lokilinux.models.agent import Agent, AgentStatus
+from lokilinux.models.cve import CVE, AgentVulnerability
 
 
 @pytest.mark.asyncio
@@ -44,3 +45,68 @@ async def test_get_cve_detail(client: AsyncClient, db_session):
 async def test_get_cve_detail_404(client: AsyncClient):
     resp = await client.get("/api/v1/vulnerabilities/CVE-9999-9999")
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_list_vulnerabilities_summary_and_total(client: AsyncClient, db_session):
+    db_session.add(CVE(cve_id="CVE-2026-4000", cvss_v3_severity="CRITICAL"))
+    db_session.add(CVE(cve_id="CVE-2026-4001", cvss_v3_severity="CRITICAL"))
+    db_session.add(CVE(cve_id="CVE-2026-4002", cvss_v3_severity="LOW"))
+    await db_session.commit()
+
+    resp = await client.get("/api/v1/vulnerabilities", params={"limit": 1})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 3
+    assert body["summary"]["CRITICAL"] == 2
+    assert body["summary"]["LOW"] == 1
+
+
+@pytest.mark.asyncio
+async def test_list_vulnerabilities_search(client: AsyncClient, db_session):
+    db_session.add(CVE(cve_id="CVE-2026-5000", title="Buffer overflow in libfoo", cvss_v3_severity="HIGH"))
+    db_session.add(CVE(cve_id="CVE-2026-5001", title="Unrelated issue", cvss_v3_severity="HIGH"))
+    await db_session.commit()
+
+    resp = await client.get("/api/v1/vulnerabilities", params={"search": "buffer overflow"})
+    assert resp.status_code == 200
+    items = resp.json()["items"]
+    assert len(items) == 1
+    assert items[0]["cve_id"] == "CVE-2026-5000"
+
+
+@pytest.mark.asyncio
+async def test_list_vulnerabilities_exploited_only(client: AsyncClient, db_session):
+    db_session.add(CVE(cve_id="CVE-2026-6000", cvss_v3_severity="HIGH", is_actively_exploited=True))
+    db_session.add(CVE(cve_id="CVE-2026-6001", cvss_v3_severity="HIGH", is_actively_exploited=False))
+    await db_session.commit()
+
+    resp = await client.get("/api/v1/vulnerabilities", params={"exploited_only": True})
+    assert resp.status_code == 200
+    items = resp.json()["items"]
+    assert len(items) == 1
+    assert items[0]["cve_id"] == "CVE-2026-6000"
+
+
+@pytest.mark.asyncio
+async def test_list_vulnerabilities_affected_count(client: AsyncClient, db_session):
+    """Regression: the same CVE hitting two packages on one host (real,
+    confirmed live: CVE-2026-59858 via both vim-minimal and vim-filesystem
+    on one agent) must count as 1 server affected, not 2 — affected_count
+    means distinct agents, not (cve, package) rows."""
+    db_session.add(CVE(cve_id="CVE-2026-7000", cvss_v3_severity="HIGH"))
+    agent = Agent(agent_id="agent-affected", status=AgentStatus.ACTIVE, hostname="h1")
+    db_session.add(agent)
+    await db_session.flush()
+    db_session.add(AgentVulnerability(
+        agent_id=agent.id, cve_id="CVE-2026-7000", package_name="openssl", package_version="1.0",
+    ))
+    db_session.add(AgentVulnerability(
+        agent_id=agent.id, cve_id="CVE-2026-7000", package_name="openssl-libs", package_version="1.0",
+    ))
+    await db_session.commit()
+
+    resp = await client.get("/api/v1/vulnerabilities")
+    assert resp.status_code == 200
+    item = next(i for i in resp.json()["items"] if i["cve_id"] == "CVE-2026-7000")
+    assert item["affected_count"] == 1

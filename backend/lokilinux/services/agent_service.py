@@ -5,14 +5,15 @@ LokiLinux — AgentService: heartbeat updates, pending-job dispatch, inactivity 
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import and_, or_, select, update
+from sqlalchemy import and_, delete, or_, select, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.cache import RedisCache
 from lokilinux.models.agent import Agent, AgentHealth as AgentHealthRow, AgentStatus
-from lokilinux.models.cve import Package
+from lokilinux.models.cve import CVE, AgentVulnerability, Package
 from lokilinux.models.job import JobResult
+from lokilinux.services.alert_service import AlertService
 from lokilinux.services.job_service import recompute_job_status
 
 # health % thresholds above which the dashboard should flag the resource as critical
@@ -56,8 +57,16 @@ class AgentService:
         ).scalar_one_or_none()
         if not agent:
             raise ValueError(f"Agent {agent_id} not found")
+        was_active = agent.status == AgentStatus.ACTIVE
         agent.last_heartbeat = datetime.now(timezone.utc)
         agent.status = AgentStatus.ACTIVE
+        if not was_active:
+            # Recovery transition only — checking this on every heartbeat
+            # would mean a query per agent per 60s in steady state for
+            # nothing. Without this, nothing ever closes an AGENT_OFFLINE
+            # alert: confirmed live, both fleet agents were healthy and
+            # heartbeating but still carried 68 ACTIVE alerts between them.
+            await AlertService(self.db).resolve_agent_offline_alerts(agent.id)
         if "ip_address" in data:
             agent.last_heartbeat_ip = data["ip_address"]
 
@@ -97,6 +106,10 @@ class AgentService:
                 agent.last_packages_checksum = checksum
                 await self.db.commit()
 
+        vulnerabilities = data.get("vulnerabilities")
+        if vulnerabilities is not None:
+            await self._sync_vulnerabilities(agent.id, vulnerabilities)
+
         health = data.get("health")
         if health:
             await self._record_health(agent.id, health)
@@ -112,11 +125,18 @@ class AgentService:
         return agent
 
     async def _sync_packages(self, agent_pk: UUID, packages: list[dict]) -> None:
-        """Upsert the agent's reported package list.
+        """Upsert the agent's reported package list, then reconcile: drop any
+        stored (name, version) row for this agent that the report no longer
+        contains.
 
-        ponytail: only upserts what's reported — doesn't remove packages the
-        agent no longer lists (would need a full-diff pass). Fine for v1;
-        revisit if stale/uninstalled packages become a visible problem.
+        The unique constraint is (agent_id, name, version) — an upgrade from
+        1.0 to 1.1 inserts a *new* row for 1.1 and, without this reconcile
+        step, leaves the 1.0 row behind forever (there's no "uninstalled"
+        signal otherwise). Confirmed live: kernel/gpg-pubkey each had 3-4
+        stale rows after enough upgrades. Packages genuinely installed
+        multiple times at once (e.g. several kernel versions) are unaffected
+        — they're all in the current report, so none of their rows match the
+        delete condition.
         """
         rows = [
             {
@@ -146,7 +166,112 @@ class AgentService:
             },
         )
         await self.db.execute(stmt)
+
+        reported = [(r["name"], r["version"]) for r in rows]
+        await self.db.execute(
+            delete(Package).where(
+                Package.agent_id == agent_pk,
+                tuple_(Package.name, Package.version).not_in(reported),
+            )
+        )
         await self.db.commit()
+
+    async def _sync_vulnerabilities(self, agent_pk: UUID, vulnerabilities: list[dict]) -> None:
+        """Upsert the agent's reported CVEs, then reconcile: any previously
+        non-remediated (cve_id, package_name) for this agent that the new
+        report no longer contains gets marked remediated (not deleted — the
+        whole point of is_remediated/remediation_date is to keep a record of
+        what got fixed and when, same reasoning as _sync_packages next to it
+        but with history preserved instead of the row dropped).
+
+        cves is upserted first: agent_vulnerabilities.cve_id has an FK to
+        cves.cve_id, so a row must exist there before it can be referenced.
+        Distro advisory metadata only gives us cve_id + severity — title,
+        description, cvss_v3_score, published_date stay NULL rather than
+        being invented.
+
+        An empty `vulnerabilities` list is the normal steady state once
+        everything's patched — it must still run the reconcile step below
+        (mark everything remediated), not bail out early the way
+        _sync_packages does (a package list is never legitimately empty for
+        a real host, so that early-return doesn't apply here).
+        """
+        rows = [
+            {
+                "cve_id": v["cve_id"],
+                "package_name": v["package_name"],
+                "package_version": v.get("installed_version") or "",
+                "severity": v.get("severity") or None,
+            }
+            for v in vulnerabilities
+            if v.get("cve_id") and v.get("package_name")
+        ]
+
+        if rows:
+            # One CVE routinely affects several packages in the same heartbeat
+            # (e.g. one kernel advisory across kernel/kernel-core/kernel-
+            # modules/...) — the cves upsert's conflict target is cve_id
+            # alone, so duplicate cve_ids in the same INSERT..VALUES trip
+            # Postgres's "ON CONFLICT DO UPDATE command cannot affect row a
+            # second time" (confirmed live). Dedupe by cve_id first; severity
+            # is advisory-level, not package-level, so any one occurrence is
+            # the same value.
+            unique_cves = {r["cve_id"]: r["severity"] for r in rows}
+            cve_stmt = pg_insert(CVE).values([
+                {"cve_id": cve_id, "cvss_v3_severity": severity} for cve_id, severity in unique_cves.items()
+            ])
+            cve_stmt = cve_stmt.on_conflict_do_update(
+                index_elements=["cve_id"],
+                set_={"cvss_v3_severity": cve_stmt.excluded.cvss_v3_severity, "updated_at": datetime.now(timezone.utc)},
+            )
+            await self.db.execute(cve_stmt)
+
+            # agent_vulnerabilities' conflict target is (agent_id, cve_id,
+            # package_name) — dedupe the same way in case a source ever lists
+            # the same CVE/package pair twice in one report.
+            unique_vulns = {(r["cve_id"], r["package_name"]): r for r in rows}
+            vuln_stmt = pg_insert(AgentVulnerability).values([
+                {
+                    "agent_id": agent_pk,
+                    "cve_id": r["cve_id"],
+                    "package_name": r["package_name"],
+                    "package_version": r["package_version"],
+                    "severity": r["severity"],
+                    "fix_available": True,
+                }
+                for r in unique_vulns.values()
+            ])
+            vuln_stmt = vuln_stmt.on_conflict_do_update(
+                constraint="uq_agent_vuln_agent_cve_package",
+                set_={
+                    "package_version": vuln_stmt.excluded.package_version,
+                    "severity": vuln_stmt.excluded.severity,
+                    "last_check": datetime.now(timezone.utc),
+                },
+            )
+            await self.db.execute(vuln_stmt)
+
+        reported = [(r["cve_id"], r["package_name"]) for r in rows]
+        await self.db.execute(
+            update(AgentVulnerability)
+            .where(
+                AgentVulnerability.agent_id == agent_pk,
+                AgentVulnerability.is_remediated.is_(False),
+                tuple_(AgentVulnerability.cve_id, AgentVulnerability.package_name).not_in(reported),
+            )
+            .values(is_remediated=True, remediation_date=datetime.now(timezone.utc))
+        )
+        await self.db.commit()
+
+        # invalidate_agent (called unconditionally at the end of
+        # update_heartbeat) only clears this agent's own vulnerability:*
+        # cache — the *global* /vulnerabilities list is cached under cve:*
+        # and would otherwise keep serving a stale (e.g. pre-existing empty)
+        # response for up to TTL_CVE_DATA after this agent's first real
+        # report. Confirmed live: a cve:list:... key cached empty before any
+        # agent had reported CVEs kept the global page blank for an hour
+        # after real data landed.
+        await self.cache.invalidate_cve_database()
 
     async def _record_health(self, agent_pk: UUID, health: dict) -> None:
         """Insert one AgentHealth snapshot per heartbeat (cpu/mem/disk %)."""
@@ -217,7 +342,7 @@ class AgentService:
         approved_by can be NULL on a genuinely-approved job. approved_at is
         always set by JobService.approve_job regardless of that.
         """
-        from lokilinux.models.job import Job, JobResult
+        from lokilinux.models.job import Job, JobResult, JobStatus
 
         result = await self.db.execute(
             select(Job)
@@ -234,7 +359,34 @@ class AgentService:
             )
             .limit(10)
         )
-        return result.scalars().all()
+        jobs = result.scalars().all()
+
+        # Mark as dispatched so the same job isn't re-selected (and re-sent
+        # to the agent) on every subsequent heartbeat until a result comes
+        # back — this SELECT used to be side-effect free, which meant a job
+        # stayed QUEUED/PENDING for its entire run and got re-executed each
+        # heartbeat. A job left RUNNING because the agent died is swept to
+        # TIMEOUT by JobTimeoutWorker.
+        if jobs:
+            job_ids = [j.id for j in jobs]
+            now = datetime.now(timezone.utc)
+            await self.db.execute(
+                update(JobResult)
+                .where(
+                    JobResult.job_id.in_(job_ids),
+                    JobResult.agent_id == agent_id,
+                    JobResult.status == "PENDING",
+                )
+                .values(status="RUNNING", started_at=now)
+            )
+            await self.db.execute(
+                update(Job)
+                .where(Job.id.in_(job_ids), Job.status.in_((JobStatus.QUEUED, JobStatus.SCHEDULED)))
+                .values(status=JobStatus.RUNNING, started_at=now)
+            )
+            await self.db.commit()
+
+        return jobs
 
     async def mark_inactive(self, agent_id: UUID) -> None:
         """Mark agent INACTIVE (called by a background stale-check task)."""

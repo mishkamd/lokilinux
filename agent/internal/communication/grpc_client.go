@@ -201,6 +201,12 @@ func payloadToRequest(m map[string]interface{}) *gen.AgentHeartbeatRequest {
 	if v, ok := m["log_critical"].(int); ok {
 		req.LogCritical = int32(v)
 	}
+	if v, ok := m["domain_hashes"].(map[string]string); ok {
+		req.DomainHashes = v
+	}
+	if v, ok := m["domain_full"].(map[string]map[string]interface{}); ok {
+		req.DomainFull = v
+	}
 	if sys, ok := m["system"].(*modules.SystemInfo); ok {
 		var disks []*gen.Disk
 		for _, d := range sys.Disks {
@@ -299,9 +305,23 @@ func payloadToRequest(m map[string]interface{}) *gen.AgentHeartbeatRequest {
 	if pkgs, ok := m["packages"].([]modules.Package); ok {
 		for _, p := range pkgs {
 			req.Packages = append(req.Packages, &gen.Package{
-				Name:         p.Name,
-				Version:      p.Version,
-				Architecture: p.Architecture,
+				Name:             p.Name,
+				Version:          p.Version,
+				Architecture:     p.Architecture,
+				LatestVersion:    p.LatestVersion,
+				UpdateAvailable:  p.UpdateAvailable,
+				IsSecurityUpdate: p.IsSecurityUpdate,
+			})
+		}
+	}
+	if vulns, ok := m["vulnerabilities"].([]modules.Vulnerability); ok {
+		for _, v := range vulns {
+			req.Vulnerabilities = append(req.Vulnerabilities, &gen.Vulnerability{
+				CveId:            v.CVEId,
+				PackageName:      v.PackageName,
+				InstalledVersion: v.InstalledVer,
+				FixedVersion:     v.FixedVer,
+				Severity:         v.Severity,
 			})
 		}
 	}
@@ -313,13 +333,22 @@ func responseToMap(resp *gen.AgentHeartbeatResponse) map[string]interface{} {
 		return nil
 	}
 	result := map[string]interface{}{}
-	if resp.ExecuteJob != nil {
-		result["pending_jobs"] = []interface{}{map[string]interface{}{
-			"job_id":          resp.ExecuteJob.JobId,
-			"job_type":        resp.ExecuteJob.JobType,
-			"parameters":      resp.ExecuteJob.Parameters,
-			"timeout_seconds": resp.ExecuteJob.TimeoutSeconds,
-		}}
+	if len(resp.PendingJobs) > 0 {
+		jobs := make([]interface{}, 0, len(resp.PendingJobs))
+		for _, j := range resp.PendingJobs {
+			if j == nil {
+				continue
+			}
+			jobs = append(jobs, map[string]interface{}{
+				"job_id":          j.JobId,
+				"job_type":        j.JobType,
+				"parameters":      j.Parameters,
+				"timeout_seconds": j.TimeoutSeconds,
+			})
+		}
+		if len(jobs) > 0 {
+			result["pending_jobs"] = jobs
+		}
 	}
 	if resp.UpdatePolicy != nil {
 		result["policy"] = resp.UpdatePolicy
@@ -329,6 +358,9 @@ func responseToMap(resp *gen.AgentHeartbeatResponse) map[string]interface{} {
 	}
 	if resp.PluginAction != "" {
 		result["plugin_action"] = resp.PluginAction
+	}
+	if len(resp.ResyncDomains) > 0 {
+		result["resync_domains"] = resp.ResyncDomains
 	}
 	if len(result) == 0 {
 		return nil

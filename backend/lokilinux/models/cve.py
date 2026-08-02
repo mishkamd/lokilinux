@@ -94,6 +94,9 @@ class AgentVulnerability(Base):
     """Vulnerability detected on a specific agent — per VulnerabilityResponse schema."""
 
     __tablename__ = "agent_vulnerabilities"
+    __table_args__ = (
+        UniqueConstraint("agent_id", "cve_id", "package_name", name="uq_agent_vuln_agent_cve_package"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     agent_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=False, index=True)

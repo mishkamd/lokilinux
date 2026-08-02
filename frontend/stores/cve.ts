@@ -37,7 +37,7 @@ export const useCveStore = defineStore('cve', () => {
       if (filters.value.exploited_only) params.set('exploited_only', 'true')
 
       const data = await api.get<{ items: Cve[]; next_cursor: string | null; total: number; summary: CveSummary }>(
-        `/cves?${params}`,
+        `/vulnerabilities?${params}`,
       )
       cves.value = data.items
       total.value = data.total ?? 0

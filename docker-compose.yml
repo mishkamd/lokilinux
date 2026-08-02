@@ -195,7 +195,7 @@ services:
       PLATFORM_URL: ${PUBLIC_URL:-http://localhost:3000}
       FRONTEND_URL: ${PUBLIC_URL:-http://localhost:3000}
       AGENT_DOWNLOAD_BASE: ${AGENT_DOWNLOAD_BASE:-}
-      AGENT_VERSION: ${AGENT_VERSION:-0.1.0}
+      AGENT_VERSION: ${AGENT_VERSION:-0.7.2}
     ports:
       - "8000:8000"
       - "9090:9090"
@@ -260,6 +260,56 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+
+  # ============================================================================
+  # COMPLIANCE — Go microservice (drift/policy/scoring engine), no public port
+  # ============================================================================
+
+  lokilinux-compliance:
+    build:
+      context: ./services/compliance
+      dockerfile: Dockerfile
+    image: lokilinux/compliance:${LOKILINUX_VERSION:-latest}
+    container_name: lokilinux-compliance
+    restart: unless-stopped
+    depends_on:
+      pgbouncer:
+        condition: service_healthy
+      nats:
+        condition: service_healthy
+      lokilinux-migrate:
+        condition: service_completed_successfully
+    environment:
+      # DSN keyword=value form, not a postgresql:// URI: POSTGRES_PASSWORD is
+      # a generated secret that can contain characters (/, =, +) a URI parser
+      # treats as delimiters, which would need percent-encoding to use safely
+      # in the postgresql:// form pgxpool.New() also accepts. Confirmed by a
+      # real hang (context deadline exceeded on Ping) against this exact
+      # POSTGRES_PASSWORD when this was still the URI form.
+      DATABASE_URL: "host=pgbouncer port=5432 user=${POSTGRES_USER} password=${POSTGRES_PASSWORD} dbname=${POSTGRES_DB}"
+      NATS_URL: nats://nats:4222
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+    volumes:
+      - certs_dir:/etc/lokilinux/certs:ro
+    networks:
+      - lokilinux-network
+    healthcheck:
+      # gcr.io/distroless/static-debian12 has no shell, no wget/curl — the
+      # binary checks itself instead (cmd/compliance/main.go -healthcheck).
+      # Confirmed by a real crash-loop otherwise: "wget: executable file
+      # not found in $PATH" on the first-ever docker-compose deploy of this
+      # service, while the app itself was fully up (connected to NATS/DB,
+      # consumer+scheduler running) the whole time.
+      test: ["CMD", "/lokilinux-compliance", "-healthcheck"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
     deploy:
       resources:
         limits:

@@ -61,7 +61,10 @@ cmd_update() {
   old_version="$([ -x "$BIN" ] && "$BIN" --version || echo unknown)"
 
   tmpdir="$(mktemp -d)"
-  trap 'rm -rf "$tmpdir"' EXIT
+  # ${tmpdir:-} not $tmpdir: EXIT traps run at the whole script's exit, by
+  # which point this function (and its `local tmpdir`) has long returned —
+  # under `set -u` the bare form is an unbound-variable error every run.
+  trap 'rm -rf "${tmpdir:-}"' EXIT
   echo "[*] Downloading latest agent (tar.gz/$arch)..."
   curl -fsSL "$platform_url/api/v1/agent/download-latest?os=tar.gz&arch=$arch" -o "$tmpdir/agent.tar.gz"
   tar -xzf "$tmpdir/agent.tar.gz" -C "$tmpdir"
@@ -77,6 +80,46 @@ cmd_update() {
     install -m 755 "$loki_path" /usr/local/bin/loki
     ln -sf /usr/local/bin/loki /usr/bin/loki
   fi
+
+  # Nothing more needed from tmpdir — clean up now rather than relying on
+  # the EXIT trap, which by the time this function returns normally can no
+  # longer see this local (the trap stays only as a safety net for an
+  # early exit/error partway through this function).
+  rm -rf "$tmpdir"
+
+  # Refresh the unit too, not just the binary — install_agent.sh.tmpl/
+  # install-agent.sh only ever run once, at enrollment, so without this a
+  # unit-level fix (like the one that shipped alongside this very check)
+  # could never reach an already-enrolled host except by hand. Keep this
+  # [Service] section identical to the canonical one in
+  # backend/lokilinux/install_agent.sh.tmpl.
+  cat > /etc/systemd/system/lokilinux-agent.service <<'UNITEOF'
+[Unit]
+Description=LokiLinux Agent
+Documentation=https://docs.lokilinux.io/agent
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/lokilinux-agent --config /etc/lokilinux/agent.yaml
+Restart=always
+RestartSec=10
+TimeoutStopSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=lokilinux-agent
+ProtectSystem=strict
+ReadWritePaths=/var/lib/lokilinux /var/log/lokilinux
+ProtectHome=true
+PrivateTmp=true
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target
+UNITEOF
+  systemctl daemon-reload
 
   systemctl restart "$SERVICE"
   sleep 2

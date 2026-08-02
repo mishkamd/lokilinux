@@ -1,4 +1,4 @@
-.PHONY: up down build dev proto agent-build agent-build-arm64 agent-package agent-test certs init logs ps help
+.PHONY: up down build dev proto agent-build agent-build-arm64 agent-package agent-test compliance-build compliance-test certs init logs ps help
 
 COMPOSE        = docker compose
 COMPOSE_DEV    = $(COMPOSE) -f docker-compose.yml -f docker-compose.dev.yml
@@ -74,17 +74,34 @@ agent-package: agent-build agent-build-arm64
 	tar -czf $(AGENT_DIR)/bin/lokilinux-agent_$(VERSION)_linux_arm64.tar.gz \
 		-C $(AGENT_DIR)/bin lokilinux-agent-arm64 loki
 	@if command -v nfpm >/dev/null 2>&1; then \
-		cd $(AGENT_DIR) && ARCH=amd64 VERSION=$(VERSION) nfpm package --packager deb --target bin/ && \
-		cd $(AGENT_DIR) && ARCH=amd64 VERSION=$(VERSION) nfpm package --packager rpm --target bin/ && \
-		cd $(AGENT_DIR) && ARCH=arm64 VERSION=$(VERSION) nfpm package --packager deb --target bin/ && \
-		cd $(AGENT_DIR) && ARCH=arm64 VERSION=$(VERSION) nfpm package --packager rpm --target bin/; \
+		cp $(AGENT_DIR)/bin/lokilinux-agent $(AGENT_DIR)/bin/lokilinux-agent-nfpm-src && \
+		cd $(AGENT_DIR) && ARCH=amd64 VERSION=$(VERSION) nfpm package -f .nfpm.yaml --packager deb --target bin/ && \
+		cd $(AGENT_DIR) && ARCH=amd64 VERSION=$(VERSION) nfpm package -f .nfpm.yaml --packager rpm --target bin/ && \
+		cp $(AGENT_DIR)/bin/lokilinux-agent-arm64 $(AGENT_DIR)/bin/lokilinux-agent-nfpm-src && \
+		cd $(AGENT_DIR) && ARCH=arm64 VERSION=$(VERSION) nfpm package -f .nfpm.yaml --packager deb --target bin/ && \
+		cd $(AGENT_DIR) && ARCH=arm64 VERSION=$(VERSION) nfpm package -f .nfpm.yaml --packager rpm --target bin/ && \
+		rm -f $(AGENT_DIR)/bin/lokilinux-agent-nfpm-src; \
 	else \
-		echo "nfpm not installed — skipping .deb/.rpm (install: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@latest)"; \
+		echo "nfpm not installed — skipping .deb/.rpm (install: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.40.0)"; \
 	fi
 
 ## Run agent tests with race detector
 agent-test:
 	cd $(AGENT_DIR) && go test ./... -v -race -cover
+
+# ── Compliance service ─────────────────────────────────────────────────────────
+
+COMPLIANCE_DIR = services/compliance
+COMPLIANCE_BIN = $(COMPLIANCE_DIR)/bin/lokilinux-compliance
+
+## Build the lokilinux-compliance static binary for linux/amd64
+compliance-build:
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+		go build -ldflags "-s -w -X main.Version=$(VERSION)" -o $(COMPLIANCE_BIN) ./$(COMPLIANCE_DIR)/cmd/compliance
+
+## Run compliance service tests with race detector
+compliance-test:
+	cd $(COMPLIANCE_DIR) && go test ./... -v -race -cover
 
 # ── Certificates ─────────────────────────────────────────────────────────────
 

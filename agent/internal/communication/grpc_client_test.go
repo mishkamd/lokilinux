@@ -90,6 +90,57 @@ func TestPayloadToRequest_HealthAndJobResults(t *testing.T) {
 	}
 }
 
+// Regression for the broken job-dispatch wire: the server can return up to
+// 10 pending jobs per heartbeat (AgentService.get_pending_jobs limits to 10),
+// and each job's parameters carry nested JSON (playbook_content, extra_vars,
+// roles), not flat strings. Before this fix, AgentHeartbeatResponse modeled a
+// single ExecuteJob and JobRequest.Parameters was map[string]string — both
+// silently dropped every job manager.go's dispatch loop tried to run.
+func TestResponseToMap_PendingJobsCarriesNestedParameters(t *testing.T) {
+	resp := &gen.AgentHeartbeatResponse{
+		PendingJobs: []*gen.JobRequest{
+			{
+				JobId:   "job-1",
+				JobType: "ANSIBLE_PLAYBOOK",
+				Parameters: map[string]interface{}{
+					"playbook_content": "- hosts: localhost\n  tasks: []\n",
+					"extra_vars":       map[string]interface{}{"foo": "bar"},
+				},
+				TimeoutSeconds: 120,
+			},
+			{
+				JobId:      "job-2",
+				JobType:    "SHELL",
+				Parameters: map[string]interface{}{"command": "true"},
+			},
+		},
+	}
+
+	result := responseToMap(resp)
+	jobs, ok := result["pending_jobs"].([]interface{})
+	if !ok || len(jobs) != 2 {
+		t.Fatalf("pending_jobs = %#v, want 2 jobs", result["pending_jobs"])
+	}
+
+	job1, ok := jobs[0].(map[string]interface{})
+	if !ok {
+		t.Fatalf("jobs[0] is not a map: %#v", jobs[0])
+	}
+	// This is the exact assertion manager.go's dispatch loop performs — it
+	// must succeed, not silently produce a nil params map.
+	params, ok := job1["parameters"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("jobs[0][\"parameters\"] type = %T, want map[string]interface{}", job1["parameters"])
+	}
+	if params["playbook_content"] != "- hosts: localhost\n  tasks: []\n" {
+		t.Errorf("playbook_content = %v, want the playbook source", params["playbook_content"])
+	}
+	extraVars, ok := params["extra_vars"].(map[string]interface{})
+	if !ok || extraVars["foo"] != "bar" {
+		t.Errorf("extra_vars = %#v, want {foo: bar}", params["extra_vars"])
+	}
+}
+
 // Regression: after grpc-go leaves a ClientConn in a permanently broken
 // state, Reconnect must discard it rather than reuse the same dead
 // transport — this is the fix for an agent that sat in a heartbeat failure

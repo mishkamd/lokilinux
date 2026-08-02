@@ -139,6 +139,15 @@ install -m 755 "$AGENT_TMP" /usr/local/bin/lokilinux-agent
 rm -f "$AGENT_TMP"
 
 # ── Create systemd unit ───────────────────────────────────────────────────────
+# NOTE: keep the [Service] section identical to backend/lokilinux/install_agent.sh.tmpl
+# (the template actually served by /api/v1/agent/install.sh — this file is a
+# secondary/offline install path). A prior divergence between the two shipped
+# a widened ReadWritePaths here that the served template never got, and was
+# insufficient anyway: ProtectSystem=strict still blocks writing into /usr,
+# where package installs actually land. Host-mutating jobs (package updates,
+# ansible, arbitrary shell) escape this sandbox per-job via systemd-run
+# instead (see agent/internal/modules/systemd_run.go) — ReadWritePaths does
+# not need widening for that.
 echo "[*] Creating systemd service..."
 cat > /etc/systemd/system/lokilinux-agent.service <<'EOF'
 [Unit]

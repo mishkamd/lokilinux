@@ -96,12 +96,51 @@ const jobColumns = [
   { key: 'completed_at', label: 'Completed' },
 ]
 
+const selectedJob = ref<(typeof jobs.value)[0] | null>(null)
+
 const packageColumns = [
   { key: 'name', label: 'Nume' },
-  { key: 'version', label: 'Versiune' },
+  { key: 'version', label: 'Versiune instalată' },
+  { key: 'latest_version', label: 'Disponibilă' },
   { key: 'architecture', label: 'Arhitectură' },
   { key: 'update_status', label: 'Update' },
 ]
+
+const selectedPackageIds = ref<(string | number)[]>([])
+const updatingPackages = ref(false)
+const toast = useToast()
+
+async function submitPackageUpdate(names?: string[]) {
+  updatingPackages.value = true
+  try {
+    await useJobsStore().createJob({
+      name: names ? `Update pachete (${names.length})` : 'Update all packages',
+      job_type: 'PACKAGE_UPDATE',
+      target_servers: { agent_ids: [route.params.id as string] },
+      priority: 50,
+      parameters: names ? { package_names: names } : null,
+    })
+    selectedPackageIds.value = []
+    toast.add({ title: 'Job de update creat', color: 'green' })
+  } catch (err) {
+    const status = (err as { response?: { status?: number }; statusCode?: number })?.response?.status
+      ?? (err as { statusCode?: number })?.statusCode
+    toast.add(
+      status === 409
+        ? { title: 'Există deja un job identic în coadă pentru acest server', color: 'orange' }
+        : { title: 'Nu s-a putut crea job-ul de update', color: 'red' },
+    )
+  } finally {
+    updatingPackages.value = false
+  }
+}
+
+function updateSelectedPackages() {
+  const names = store.packages
+    .filter((p) => selectedPackageIds.value.includes(p.id))
+    .map((p) => p.name)
+  submitPackageUpdate(names)
+}
 
 const { statusColor: jobStatusColor } = useJobs()
 
@@ -231,7 +270,26 @@ const SEVERITY_COLORS: Record<string, string> = {
 
       <template #packages>
         <div class="mt-4">
-          <DataTable :rows="store.packages" :columns="packageColumns" :loading="store.packagesLoading">
+          <div class="flex items-center gap-2 mb-3">
+            <Badge v-if="selectedPackageIds.length" color="green">{{ selectedPackageIds.length }} selectate</Badge>
+            <Button size="xs" :disabled="!selectedPackageIds.length || updatingPackages" @click="updateSelectedPackages">
+              Actualizează selectate
+            </Button>
+            <Button variant="outline" size="xs" :disabled="updatingPackages" @click="submitPackageUpdate()">
+              Actualizează tot
+            </Button>
+          </div>
+          <DataTable
+            :rows="store.packages"
+            :columns="packageColumns"
+            :loading="store.packagesLoading"
+            selectable
+            v-model:selected="selectedPackageIds"
+          >
+            <template #latest_version-data="{ row }">
+              <span v-if="row.latest_version" class="text-[13px] font-medium">{{ row.latest_version }}</span>
+              <span v-else class="text-[13px] text-muted-foreground">{{ row.version }}</span>
+            </template>
             <template #update_status-data="{ row }">
               <Badge v-if="row.is_security_update_available" color="red" size="xs">security update</Badge>
               <Badge v-else-if="row.is_update_available" color="gray" size="xs">update</Badge>
@@ -267,7 +325,7 @@ const SEVERITY_COLORS: Record<string, string> = {
 
       <template #jobs>
         <div class="mt-4">
-          <DataTable :rows="jobs" :columns="jobColumns" :loading="jobsLoading">
+          <DataTable :rows="jobs" :columns="jobColumns" :loading="jobsLoading" rows-clickable @row-click="selectedJob = $event">
             <template #status-data="{ row }">
               <Badge :color="jobStatusColor(String(row.status))" size="xs">{{ row.status }}</Badge>
             </template>
@@ -278,6 +336,7 @@ const SEVERITY_COLORS: Record<string, string> = {
               {{ row.completed_at ? new Date(String(row.completed_at)).toLocaleString() : '—' }}
             </template>
           </DataTable>
+          <p class="text-xs text-muted-foreground mt-2">Click pe un job pentru output-ul complet (stdout/stderr).</p>
         </div>
       </template>
 
@@ -355,4 +414,6 @@ const SEVERITY_COLORS: Record<string, string> = {
   <div v-else class="flex items-center justify-center h-64 text-muted-foreground">
     Server not found.
   </div>
+
+  <JobDetail :job="selectedJob" @close="selectedJob = null" />
 </template>

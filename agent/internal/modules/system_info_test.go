@@ -29,7 +29,7 @@ func TestCollectHealth_ComputesMemoryAndDiskPercent(t *testing.T) {
 		TotalMemoryKB: 1000,
 		FreeMemoryKB:  250, // 75% used
 		Disks: []DiskInfo{
-			{TotalBytes: 200, UsedBytes: 100}, // 50% used
+			{MountPoint: "/", TotalBytes: 200, UsedBytes: 100}, // 50% used
 		},
 	}
 

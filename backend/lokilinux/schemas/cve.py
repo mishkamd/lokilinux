@@ -29,11 +29,20 @@ class CVEResponse(BaseModel):
     is_zero_day: bool = False
     is_actively_exploited: bool = False
     affected_packages: dict | None = None
+    affected_count: int = 0  # not a DB column — set by the router from a GROUP BY
 
     model_config = {"from_attributes": True}
 
 
-CVEListResponse = CursorPage[CVEResponse]
+class CVESummary(BaseModel):
+    CRITICAL: int = 0
+    HIGH: int = 0
+    MEDIUM: int = 0
+    LOW: int = 0
+
+
+class CVEListResponse(CursorPage[CVEResponse]):
+    summary: CVESummary
 
 
 class PackageResponse(BaseModel):

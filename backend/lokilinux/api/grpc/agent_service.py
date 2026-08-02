@@ -12,6 +12,12 @@ Heartbeat flow:
 import logging
 
 from lokilinux.services.agent_service import AgentService
+from lokilinux.services.compliance_ingest_service import (
+    diff_domain_hashes,
+    publish_domain_hashes,
+    publish_domain_snapshots,
+)
+from lokilinux.services.policy_service import get_job_timeout_seconds
 
 logger = logging.getLogger(__name__)
 
@@ -49,12 +55,15 @@ class AgentServicer:
                 ip_address = getattr(request, "ip_address", None)
                 if not ip_address and context is not None:
                     peer = getattr(context, "peer", lambda: "")() or ""
-                    ip_address = peer.rsplit(":", 1)[0].removeprefix("ipv4:").removeprefix("ipv6:") or None
+                    ip_address = (
+                        peer.rsplit(":", 1)[0].removeprefix("ipv4:").removeprefix("ipv6:") or None
+                    )
 
                 system_status = getattr(request, "system_status", None)
                 packages = getattr(request, "packages", None)
                 health = getattr(request, "health", None)
                 job_results = getattr(request, "job_results", None)
+                vulnerabilities = getattr(request, "vulnerabilities", None)
 
                 async with self.db_factory() as db:
                     svc = AgentService(db, self.cache)
@@ -67,6 +76,7 @@ class AgentServicer:
                             "packages_checksum": getattr(request, "packages_checksum", None),
                             "health": _as_dict(health),
                             "job_results": [_as_dict(r) for r in (job_results or [])],
+                            "vulnerabilities": [_as_dict(v) for v in (vulnerabilities or [])],
                             "agent_version": getattr(request, "agent_version", None),
                             "recent_logs": getattr(request, "recent_logs", None),
                             "log_connections": getattr(request, "log_connections", None),
@@ -75,6 +85,31 @@ class AgentServicer:
                         },
                     )
                     pending_jobs = await svc.get_pending_jobs(agent.id)
+                    job_timeouts = {
+                        j.id: await get_job_timeout_seconds(db, j) for j in pending_jobs
+                    }
+
+                    # Compliance delta sync (docs/compliance/04-PROTOCOL.md §3) —
+                    # domain_hashes/domain_full arrive as SimpleNamespace via the
+                    # JSON codec's object_hook, same as system_status above.
+                    # _as_dict's return type is broad (dict | list, recursively,
+                    # same as system_status/packages above) — isinstance guards
+                    # against malformed input rather than trusting the wire shape.
+                    domain_hashes_raw = _as_dict(getattr(request, "domain_hashes", None))
+                    domain_hashes: dict = (
+                        domain_hashes_raw if isinstance(domain_hashes_raw, dict) else {}
+                    )
+                    domain_full_raw = _as_dict(getattr(request, "domain_full", None))
+                    domain_full: dict = domain_full_raw if isinstance(domain_full_raw, dict) else {}
+
+                    resync_domains: list[str] = []
+                    if domain_hashes:
+                        resync_domains = await diff_domain_hashes(db, agent.id, domain_hashes)
+                        await publish_domain_hashes(self.nats, agent.id, domain_hashes)
+                    if domain_full:
+                        await publish_domain_snapshots(
+                            self.nats, agent.id, domain_full, domain_hashes
+                        )
 
                 yield {
                     "pending_jobs": [
@@ -82,9 +117,11 @@ class AgentServicer:
                             "job_id": str(j.id),
                             "job_type": j.job_type,
                             "parameters": j.parameters or {},
+                            **({"timeout_seconds": job_timeouts[j.id]} if job_timeouts.get(j.id) else {}),
                         }
                         for j in pending_jobs
-                    ]
+                    ],
+                    "resync_domains": resync_domains,
                 }
             except Exception:
                 logger.error("HeartbeatStream error", exc_info=True)

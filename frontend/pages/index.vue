@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Server, ShieldAlert, ClipboardList, BellDot, FileText, Puzzle } from 'lucide-vue-next'
+import { Server, ShieldAlert, ClipboardList, BellDot } from 'lucide-vue-next'
 
 const api = useApi()
 const { hasRole } = useCurrentUser()
@@ -49,15 +49,15 @@ const statusBadges = (byStatus: Record<string, number>) =>
     <div v-if="loadError" class="text-sm text-red-500">Nu s-au putut încărca datele dashboard-ului.</div>
 
     <div v-else-if="!summary" class="space-y-3">
-      <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3">
-        <Skeleton v-for="i in 6" :key="i" class="h-24 rounded-xl" />
+      <div class="grid grid-cols-2 xl:grid-cols-4 gap-3">
+        <Skeleton v-for="i in 4" :key="i" class="h-[136px] rounded-xl" />
       </div>
       <Skeleton class="h-36 rounded-xl" />
     </div>
 
     <div v-else class="space-y-3">
       <!-- Row 1: stat cards — one unified grid, no orphaned/uneven rows -->
-      <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-3 [&>*]:animate-in [&>*]:fade-in-0 [&>*]:slide-in-from-bottom-2 [&>*]:duration-[250ms] [&>*]:fill-mode-backwards">
+      <div class="grid grid-cols-2 xl:grid-cols-4 gap-3 [&>*]:animate-in [&>*]:fade-in-0 [&>*]:slide-in-from-bottom-2 [&>*]:duration-[250ms] [&>*]:fill-mode-backwards">
         <StatCard
           style="animation-delay: 0ms"
           :icon="Server" label="Servere" :to="'/servers'"
@@ -84,8 +84,6 @@ const statusBadges = (byStatus: Record<string, number>) =>
           :badges="severityBadges(summary.alerts.by_severity)"
           empty-badges-text="fără alerte active"
         />
-        <StatCard style="animation-delay: 120ms" :icon="FileText" label="Politici" to="/policies" :value="summary.policies.total" :subtitle="`${summary.policies.enabled} active`" />
-        <StatCard style="animation-delay: 150ms" :icon="Puzzle" label="Plugin-uri" to="/plugins" :value="summary.plugins.total" :subtitle="`${summary.plugins.enabled} activate`" />
       </div>
 
       <!-- Row 2: OS distribution + top vulnerabilities -->

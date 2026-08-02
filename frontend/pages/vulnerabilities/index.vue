@@ -10,10 +10,17 @@ const SEVERITIES = ['', 'CRITICAL', 'HIGH', 'MEDIUM', 'LOW']
 
 const SEVERITY_COLORS: Record<string, string> = {
   CRITICAL: 'red',
-  HIGH: 'red',
-  MEDIUM: 'gray',
-  LOW: 'gray',
+  HIGH: 'orange',
+  MEDIUM: 'amber',
+  LOW: 'green',
   NONE: 'gray',
+}
+
+const SEVERITY_TEXT_COLORS: Record<string, string> = {
+  red: 'text-destructive',
+  orange: 'text-orange-600 dark:text-orange-400',
+  amber: 'text-warning',
+  green: 'text-success',
 }
 
 const columns = [
@@ -26,10 +33,10 @@ const columns = [
 ]
 
 const summaryCards = computed(() => [
-  { label: 'Critical', count: summary.value.CRITICAL, color: 'red' },
-  { label: 'High',     count: summary.value.HIGH,     color: 'red' },
-  { label: 'Medium',   count: summary.value.MEDIUM,   color: 'gray' },
-  { label: 'Low',      count: summary.value.LOW,      color: 'gray' },
+  { label: 'Critical', count: summary.value.CRITICAL, color: SEVERITY_COLORS.CRITICAL },
+  { label: 'High',     count: summary.value.HIGH,     color: SEVERITY_COLORS.HIGH },
+  { label: 'Medium',   count: summary.value.MEDIUM,   color: SEVERITY_COLORS.MEDIUM },
+  { label: 'Low',      count: summary.value.LOW,      color: SEVERITY_COLORS.LOW },
 ])
 
 const selectedCve = ref<(typeof cves.value)[0] | null>(null)
@@ -52,7 +59,7 @@ const showCveDetail = computed({
         <div class="text-center">
           <p
             class="text-xl font-bold font-mono"
-            :class="card.color === 'red' ? 'text-destructive' : 'text-foreground'"
+            :class="SEVERITY_TEXT_COLORS[card.color] ?? 'text-foreground'"
           >{{ card.count }}</p>
           <p class="text-sm text-muted-foreground mt-1">{{ card.label }}</p>
         </div>

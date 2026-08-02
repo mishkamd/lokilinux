@@ -9,7 +9,7 @@ homepage: https://lokilinux.io
 license: Apache-2.0
 
 contents:
-  - src: bin/lokilinux-agent
+  - src: bin/lokilinux-agent-nfpm-src
     dst: /usr/local/bin/lokilinux-agent
     file_info:
       mode: 0755

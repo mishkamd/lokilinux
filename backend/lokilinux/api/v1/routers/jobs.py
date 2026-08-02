@@ -36,11 +36,12 @@ async def list_jobs(
     limit: int = Query(20, ge=1, le=100),
     agent_id: str | None = Query(None),
     status: JobStatus | None = Query(None),
+    policy_id: UUID | None = Query(None),
     db: AsyncSession = Depends(get_db),
     cache: RedisCache = Depends(get_cache),
     _: dict = Depends(get_current_user),
 ) -> CursorPage[JobResponse]:
-    cache_key = f"job:list:{agent_id}:{status}:{cursor}:{limit}"
+    cache_key = f"job:list:{agent_id}:{status}:{policy_id}:{cursor}:{limit}"
     if hit := await cache.get_cached(cache_key):
         return CursorPage[JobResponse].model_validate(hit)
 
@@ -51,6 +52,10 @@ async def list_jobs(
     if agent_id:
         # Jobs target_servers stores agent_ids as JSON
         q = q.where(Job.target_servers["agent_ids"].astext.contains(agent_id))
+    if policy_id:
+        # Powers a policy's "Executions" tab — jobs.policy_id existed since
+        # 001 but nothing ever queried by it until now.
+        q = q.where(Job.policy_id == policy_id)
 
     if cursor:
         raw = decode_cursor(cursor)

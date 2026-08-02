@@ -122,6 +122,15 @@ if [ -n "$LOKI_CLI" ]; then
   # which every observed PATH includes.
   ln -sf /usr/local/bin/loki /usr/bin/loki
 fi
+# NOTE: this is the canonical unit — served live via /api/v1/agent/install.sh
+# (agent_install.py). Keep the [Service] section identical to
+# scripts/install-agent.sh's copy (secondary/offline install path); the two
+# diverged once already and it shipped a fix that never reached real hosts.
+# ProtectSystem=strict/ReadWritePaths stay narrow: host-mutating jobs escape
+# this sandbox per-job via systemd-run instead of needing writable paths
+# here (see agent/internal/modules/systemd_run.go) — ReadWritePaths can't
+# cover it anyway, since package installs write into /usr, not just
+# /var/log or /var/cache.
 cat > /etc/systemd/system/lokilinux-agent.service <<'EOF'
 [Unit]
 Description=LokiLinux Agent

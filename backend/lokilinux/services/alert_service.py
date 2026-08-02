@@ -12,7 +12,8 @@ import logging
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.models.alert import Alert, AlertRule
@@ -34,18 +35,39 @@ class AlertService:
         agent_id: UUID | None = None,
         rule_id: UUID | None = None,
         alert_type: str | None = None,
-    ) -> Alert:
-        alert = Alert(
-            title=title,
-            description=description,
-            severity=severity.upper(),
-            agent_id=agent_id,
-            rule_id=rule_id,
-            alert_type=alert_type,
-            status="ACTIVE",
+    ) -> Alert | None:
+        """Insert a new ACTIVE alert, deduped on (agent_id, alert_type) against
+        uq_alerts_active_agent_type (migration 022) — without this, a
+        recurring condition (e.g. an agent stuck offline, swept every 60s by
+        HeartbeatMonitorWorker) inserts a fresh row every cycle forever.
+        Confirmed live: one flapping agent had accumulated 64 identical
+        AGENT_OFFLINE alerts. Returns None when a matching ACTIVE alert
+        already exists — the caller must not re-publish ALERT_CREATED in
+        that case, or NotificationWorker would re-notify every cycle for an
+        already-known condition.
+        """
+        stmt = (
+            pg_insert(Alert)
+            .values(
+                title=title,
+                description=description,
+                severity=severity.upper(),
+                agent_id=agent_id,
+                rule_id=rule_id,
+                alert_type=alert_type,
+                status="ACTIVE",
+            )
+            .on_conflict_do_nothing(
+                index_elements=["agent_id", "alert_type"],
+                index_where=(Alert.status == "ACTIVE"),
+            )
+            .returning(Alert)
         )
-        self.db.add(alert)
+        alert = (await self.db.execute(stmt)).scalar_one_or_none()
         await self.db.commit()
+
+        if alert is None:
+            return None
 
         if self.nats:
             try:
@@ -57,6 +79,27 @@ class AlertService:
                 logger.warning("NATS publish failed for alert.created", exc_info=True)
 
         return alert
+
+    async def resolve_agent_offline_alerts(self, agent_id: UUID) -> None:
+        """Auto-resolve ACTIVE AGENT_OFFLINE alerts when an agent's heartbeat
+        recovers — called from AgentService.update_heartbeat on the
+        INACTIVE/UNHEALTHY -> ACTIVE transition. Without this nothing ever
+        closes the alert; confirmed live: both fleet agents were healthy and
+        heartbeating but still carried 68 ACTIVE AGENT_OFFLINE alerts between
+        them.
+        """
+        now = datetime.now(timezone.utc)
+        result = await self.db.execute(
+            select(Alert).where(
+                Alert.agent_id == agent_id,
+                Alert.alert_type == "AGENT_OFFLINE",
+                Alert.status == "ACTIVE",
+            )
+        )
+        for alert in result.scalars().all():
+            alert.status = "RESOLVED"
+            alert.resolved_at = now
+        await self.db.commit()
 
     async def acknowledge(self, alert_id: UUID, user_id: str) -> Alert:
         alert = await self.db.get(Alert, alert_id)
@@ -92,15 +135,19 @@ class AlertService:
         severity: str | None = None,
         limit: int = 20,
     ) -> dict:
-        query = select(Alert)
+        filters = []
         if status:
-            query = query.where(Alert.status == status.upper())
+            filters.append(Alert.status == status.upper())
         if severity:
-            query = query.where(Alert.severity == severity.upper())
-        query = query.order_by(Alert.created_at.desc()).limit(limit)
+            filters.append(Alert.severity == severity.upper())
+
+        count_query = select(func.count()).select_from(Alert).where(*filters)
+        total = (await self.db.execute(count_query)).scalar_one()
+
+        query = select(Alert).where(*filters).order_by(Alert.created_at.desc()).limit(limit)
         result = await self.db.execute(query)
         alerts = result.scalars().all()
-        return {"items": alerts, "next_cursor": None, "total": len(alerts)}
+        return {"items": alerts, "next_cursor": None, "total": total}
 
     async def create_rule(
         self,

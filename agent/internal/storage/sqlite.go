@@ -41,6 +41,13 @@ CREATE TABLE IF NOT EXISTS agent_config (
     updated_at  INTEGER NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS compliance_state (
+    domain       TEXT PRIMARY KEY,
+    last_hash    TEXT NOT NULL,
+    last_run_at  INTEGER NOT NULL,
+    facts        TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_jobs_status    ON jobs(status);
 CREATE INDEX IF NOT EXISTS idx_jobs_expires   ON jobs(expires_at);
 CREATE INDEX IF NOT EXISTS idx_pkgs_agent     ON packages_cache(agent_id);
@@ -203,4 +210,51 @@ func (s *Store) GetPackagesChecksum(ctx context.Context, agentID string) (string
 		return "", nil
 	}
 	return checksum, err
+}
+
+// ---- Compliance state ---------------------------------------------------------
+
+// ComplianceState is one domain's last-collected snapshot, persisted so an
+// agent restart doesn't lose lastHash/lastRun — internal/compliance.Runner
+// reads this on startup (docs/compliance/03-AGENT-PLUGIN-SDK.md §6) to
+// avoid re-sending domain_full for domains that haven't actually changed
+// since before the restart.
+type ComplianceState struct {
+	Domain    string
+	LastHash  string
+	LastRunAt time.Time
+	Facts     string // canonical JSON, "" if not yet captured
+}
+
+// UpsertComplianceState stores the latest collected state for one domain.
+func (s *Store) UpsertComplianceState(ctx context.Context, domain, hash, facts string) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT OR REPLACE INTO compliance_state(domain, last_hash, last_run_at, facts) VALUES(?,?,?,?)`,
+		domain, hash, time.Now().Unix(), facts,
+	)
+	return err
+}
+
+// AllComplianceState loads every persisted domain state, for Runner to warm
+// its in-memory cache from on startup.
+func (s *Store) AllComplianceState(ctx context.Context) ([]ComplianceState, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT domain, last_hash, last_run_at, facts FROM compliance_state`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var states []ComplianceState
+	for rows.Next() {
+		var st ComplianceState
+		var ts int64
+		if err := rows.Scan(&st.Domain, &st.LastHash, &ts, &st.Facts); err != nil {
+			return nil, err
+		}
+		st.LastRunAt = time.Unix(ts, 0)
+		states = append(states, st)
+	}
+	return states, rows.Err()
 }
