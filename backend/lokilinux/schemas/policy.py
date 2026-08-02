@@ -94,6 +94,18 @@ class PolicyResponse(PolicyBase):
 PolicyListResponse = CursorPage[PolicyResponse]
 
 
+class PolicyAuditResponse(BaseModel):
+    id: int
+    policy_id: UUID
+    changed_by: UUID | None = None
+    change_type: str
+    old_value: dict | None = None
+    new_value: dict | None = None
+    changed_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
 class PolicyRunResponse(BaseModel):
     job_ids: list[UUID]
     matched_agents: int

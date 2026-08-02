@@ -186,6 +186,22 @@ async def test_run_policy_no_matching_agents_returns_empty(client: AsyncClient, 
 
 
 @pytest.mark.asyncio
+async def test_get_policy_audit_returns_history(client: AsyncClient, db_session):
+    policy = Policy(name="audited", rules={}, created_by=uuid.uuid4())
+    db_session.add(policy)
+    await db_session.commit()
+
+    await client.patch(f"/api/v1/policies/{policy.id}", json={"name": "renamed"})
+    await client.patch(f"/api/v1/policies/{policy.id}", json={"name": "renamed-again"})
+
+    resp = await client.get(f"/api/v1/policies/{policy.id}/audit")
+    assert resp.status_code == 200
+    rows = resp.json()
+    assert len(rows) == 2
+    assert rows[0]["new_value"]["name"] == "renamed-again"  # newest first
+
+
+@pytest.mark.asyncio
 async def test_policies_router_gates_mutations_on_admin_or_operator():
     """create/update/delete/run used to be reachable by any authenticated
     user — no require_role at all. This is the exact dependency every one

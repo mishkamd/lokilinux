@@ -20,7 +20,14 @@ from lokilinux.dependencies import get_cache, get_db, get_nats
 from lokilinux.models.policy import Policy, PolicyAudit
 from lokilinux.nats_topics import POLICY_CHANGED
 from lokilinux.schemas.common import CursorPage, decode_cursor, encode_cursor
-from lokilinux.schemas.policy import PolicyCreate, PolicyResponse, PolicyRunResponse, PolicyUpdate, TriggerType
+from lokilinux.schemas.policy import (
+    PolicyAuditResponse,
+    PolicyCreate,
+    PolicyResponse,
+    PolicyRunResponse,
+    PolicyUpdate,
+    TriggerType,
+)
 from lokilinux.services.policy_service import compute_next_run_at, run_policy
 
 router = APIRouter()
@@ -232,3 +239,29 @@ async def run_policy_now(
 
     job_ids, matched = await run_policy(db, row, cache, triggered_by="manual")
     return PolicyRunResponse(job_ids=job_ids, matched_agents=matched)
+
+
+# ── Audit trail ───────────────────────────────────────────────────────────────
+
+@router.get("/{policy_id}/audit", response_model=list[PolicyAuditResponse])
+async def get_policy_audit(
+    policy_id: UUID,
+    limit: int = Query(50, ge=1, le=200),
+    db: AsyncSession = Depends(get_db),
+    _: dict = Depends(get_current_user),
+) -> list[PolicyAuditResponse]:
+    rows = (
+        await db.execute(
+            select(PolicyAudit)
+            .where(PolicyAudit.policy_id == policy_id)
+            # id as tiebreaker: Postgres's now() is the transaction start
+            # time, constant for every statement in the same transaction —
+            # two audits from rapid-fire requests inside one test transaction
+            # (or any single real transaction) can land on the identical
+            # changed_at, which would make ordering by changed_at alone
+            # non-deterministic. Confirmed by a real test failure.
+            .order_by(PolicyAudit.changed_at.desc(), PolicyAudit.id.desc())
+            .limit(limit)
+        )
+    ).scalars().all()
+    return [PolicyAuditResponse.model_validate(r) for r in rows]
