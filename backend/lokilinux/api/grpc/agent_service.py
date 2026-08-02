@@ -17,6 +17,7 @@ from lokilinux.services.compliance_ingest_service import (
     publish_domain_hashes,
     publish_domain_snapshots,
 )
+from lokilinux.services.policy_service import get_job_timeout_seconds
 
 logger = logging.getLogger(__name__)
 
@@ -84,6 +85,9 @@ class AgentServicer:
                         },
                     )
                     pending_jobs = await svc.get_pending_jobs(agent.id)
+                    job_timeouts = {
+                        j.id: await get_job_timeout_seconds(db, j) for j in pending_jobs
+                    }
 
                     # Compliance delta sync (docs/compliance/04-PROTOCOL.md §3) —
                     # domain_hashes/domain_full arrive as SimpleNamespace via the
@@ -113,6 +117,7 @@ class AgentServicer:
                             "job_id": str(j.id),
                             "job_type": j.job_type,
                             "parameters": j.parameters or {},
+                            **({"timeout_seconds": job_timeouts[j.id]} if job_timeouts.get(j.id) else {}),
                         }
                         for j in pending_jobs
                     ],

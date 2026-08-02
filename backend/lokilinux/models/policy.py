@@ -33,6 +33,19 @@ class Policy(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
 
+    # ── Phase 1 automation (migration 023) ──────────────────────────────────
+    trigger_type: Mapped[str] = mapped_column(String(30), default="MANUAL", nullable=False)  # MANUAL / SCHEDULE
+    cron_expr: Mapped[str | None] = mapped_column(String(100))
+    next_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # list of {type, params} — Phase 1 executes only actions[0]; kept as a
+    # list so multi-step orchestration doesn't need another migration later.
+    actions: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+    # {requires_approval?: bool, timeout_seconds?: int} today
+    execution: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
+    severity: Mapped[str | None] = mapped_column(String(20))
+    tags: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
+
 
 class PolicyAudit(Base):
     __tablename__ = "policy_audit"

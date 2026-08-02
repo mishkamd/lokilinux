@@ -71,6 +71,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from lokilinux.workers.cve_processor import CVEProcessorWorker
     from lokilinux.workers.alert_processor import AlertProcessorWorker
     from lokilinux.workers.policy_worker import PolicyWorker
+    from lokilinux.workers.policy_scheduler import PolicySchedulerWorker
     from lokilinux.workers.plugin_worker import PluginWorker
     from lokilinux.workers.heartbeat_monitor import HeartbeatMonitorWorker
     from lokilinux.workers.job_timeout import JobTimeoutWorker
@@ -85,6 +86,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await alert_worker.start()
     policy_worker = PolicyWorker(nc, session_factory, cache)
     await policy_worker.start()
+    policy_scheduler_worker = PolicySchedulerWorker(session_factory, cache)
+    await policy_scheduler_worker.start()
     plugin_worker = PluginWorker(nc, session_factory, cache)
     await plugin_worker.start()
     heartbeat_worker = HeartbeatMonitorWorker(nc, session_factory, cache)
@@ -96,7 +99,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     notification_worker = NotificationWorker(nc, session_factory)
     await notification_worker.start()
     app.state.workers = [
-        job_worker, cve_worker, alert_worker, policy_worker, plugin_worker,
+        job_worker, cve_worker, alert_worker, policy_worker, policy_scheduler_worker, plugin_worker,
         heartbeat_worker, job_timeout_worker, retention_worker, notification_worker,
     ]
     logger.info("workers.ready")
@@ -107,6 +110,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("lokilinux.shutdown")
     await heartbeat_worker.stop()
     await job_timeout_worker.stop()
+    await policy_scheduler_worker.stop()
     await retention_worker.stop()
     await nc.drain()
     await cache.disconnect()

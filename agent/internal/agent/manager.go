@@ -3,6 +3,7 @@ package agent
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"sync"
 	"time"
@@ -364,10 +365,12 @@ func (m *Manager) handleResponse(ctx context.Context, resp map[string]interface{
 }
 
 // runJob dispatches a single job to the executor matching its job_type. The
-// bool return is false when the job was malformed (a required parameter was
-// missing) and got skipped instead of run — same cases the old inline loop
-// handled with `continue`, just surfaced as a value now that dispatch runs
-// in its own goroutine instead of the loop body.
+// bool return is always true now — every path reports back, even malformed
+// or unrecognized jobs. It used to be false for those (skip, report
+// nothing), which left the job RUNNING until JobTimeoutWorker swept it to
+// TIMEOUT up to an hour later with zero explanation. A policy engine that
+// generates jobs automatically needs failures to surface in ~1 heartbeat,
+// not look like a hang.
 func (m *Manager) runJob(ctx context.Context, jobID, jobType string, params map[string]interface{}, timeoutSec int) (modules.JobResult, bool) {
 	switch jobType {
 	case "PLUGIN_INSTALL":
@@ -380,14 +383,17 @@ func (m *Manager) runJob(ctx context.Context, jobID, jobType string, params map[
 		roles, _ := params["roles"].(map[string]interface{})
 		if playbookContent == "" {
 			m.log.Warn("ansible job has no playbook_content, skipping", "job_id", jobID)
-			return modules.JobResult{}, false
+			return modules.JobResult{JobID: jobID, ExitCode: 1, Error: "missing required parameter: playbook_content"}, true
 		}
 		return m.ansibleExec.Execute(ctx, jobID, playbookContent, extraVars, roles, timeoutSec), true
 	default:
+		// Any job_type not matched above (including CUSTOM_COMMAND) falls
+		// here — a bare `command` param is enough regardless of job_type,
+		// same as before this fix, just no longer silent on failure.
 		command, _ := params["command"].(string)
 		if command == "" {
-			m.log.Warn("job has no command parameter, skipping", "job_id", jobID)
-			return modules.JobResult{}, false
+			m.log.Warn("unsupported job_type, skipping", "job_id", jobID, "job_type", jobType)
+			return modules.JobResult{JobID: jobID, ExitCode: 1, Error: fmt.Sprintf("unsupported job_type %q: no command parameter", jobType)}, true
 		}
 		return m.jobExec.Execute(ctx, jobID, command, timeoutSec), true
 	}

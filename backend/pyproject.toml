@@ -43,6 +43,9 @@ dependencies = [
     # Compliance Reporting Engine — XLSX/PDF export
     "openpyxl==3.1.5",
     "reportlab==5.0.0",
+
+    # Policy Engine — cron trigger scheduling
+    "croniter==6.2.4",
 ]
 
 [project.optional-dependencies]
