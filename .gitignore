@@ -1,0 +1,33 @@
+# Secrets — never commit
+.env
+.env.*
+!.env.example
+certs/
+.certs/
+
+# Agent tooling / local state
+.agents/
+.aislop/
+.claude-flow/
+.claude/
+.codex/
+.gstack/
+.omp/
+.planning/
+
+# Memory banks / databases
+banks/
+*.db
+*.db-wal
+*.db-shm
+
+# Generated output
+graphify-out/
+openwiki/
+frontend/.nuxt/
+frontend/.output/
+frontend/node_modules/
+backend/.coverage/
+__pycache__/
+*.pyc
+*.egg-info/

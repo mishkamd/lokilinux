@@ -126,8 +126,6 @@ An AWX-like automation layer runs alongside patch management, built on 4 entitie
 | **Playbooks** (`playbooks`) | Raw YAML, versioned on every edit, optionally scoped to a project and linked to `role_ids` |
 | **Job Templates** (`playbook_templates`) | Saved (playbook + default agents + default extra_vars) combo — the AWX "Job Template" equivalent, launchable repeatedly |
 
-Execution runs locally on each target agent (`ansible-playbook --connection=local`) as a normal `Job`, gated behind the `ansible-automation` plugin being enabled. Full details: [docs/ANSIBLE_AUTOMATION.md](docs/ANSIBLE_AUTOMATION.md).
-
 ## Plugin System
 
 `plugins.py` + the `plugins` table track a marketplace-style install lifecycle: `PENDING_INSTALL → INSTALLING → INSTALLED → ENABLED` (or `INSTALLING_FAILED` / `DISABLED` / `ERROR`). Plugin types: control-plane, agent, ui, notification. Agent-side plugins are dropped into `/opt/lokilinux/plugins/` on the managed host. UI lives at `/plugins`.
