@@ -25,6 +25,7 @@ import (
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
 
+	"github.com/lokilinux/compliance/internal/baseline"
 	"github.com/lokilinux/compliance/internal/config"
 	"github.com/lokilinux/compliance/internal/ingest"
 	"github.com/lokilinux/compliance/internal/rules"
@@ -115,6 +116,28 @@ func main() {
 		}
 	}()
 	log.Info("ingest consumer started", "stream", cfg.NATS.StreamName, "durable", cfg.NATS.ConsumerDurable)
+
+	// Baseline consumer: COMPLIANCE_BASELINE_PUBLISHED -> recompute
+	// baseline_effective for every agent (fleet-wide invalidation,
+	// docs/compliance/06-BASELINE.md §2). Sits on the same JetStream stream,
+	// filtered to a disjoint subject from the ingest consumer's.
+	baselineResolver := baseline.NewResolver(store)
+	baselineConsumer := baseline.NewConsumer(baselineResolver, log)
+	go func() {
+		if err := baselineConsumer.Start(ctx, stream, cfg.NATS.MaxAckPending); err != nil {
+			log.Error("baseline consumer stopped", "error", err)
+		}
+	}()
+	log.Info("baseline consumer started", "stream", cfg.NATS.StreamName, "durable", "compliance-baseline")
+
+	// Startup reconciliation: recompute baseline_effective for any agent
+	// that lacks a row, guarding against restart where NATS backlog is lost.
+	// Safe to call even when no baselines are published yet (no-op).
+	if err := baselineResolver.ReconcileOnStartup(ctx); err != nil {
+		log.Error("startup baseline reconciliation failed", "error", err)
+	} else {
+		log.Info("startup baseline reconciliation complete")
+	}
 
 	// Scheduler: leader election (NATS KV, TTL-based lease) + Job.scheduled_time
 	// dispatch — the first consumer that column has ever had

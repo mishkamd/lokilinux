@@ -52,7 +52,7 @@ async def list_file_changes(
         q = q.where(FileChange.change_kind == change_kind)
     if cursor:
         raw = decode_cursor(cursor)
-        ts_str, path = raw.split(":", 1)
+        ts_str, path = raw.rsplit("|", 1)
         ts = datetime.fromisoformat(ts_str)
         q = q.where((FileChange.time < ts) | ((FileChange.time == ts) & (FileChange.path < path)))
     q = q.limit(limit + 1)
@@ -63,7 +63,8 @@ async def list_file_changes(
     next_cursor = None
     if has_more and items:
         last = items[-1]
-        next_cursor = encode_cursor(f"{last.time.isoformat()}:{last.path}")
+        # Use | instead of : as separator because POSIX paths may contain ':'
+        next_cursor = encode_cursor(f"{last.time.isoformat()}|{last.path}")
 
     return CursorPage[FileChangeResponse](
         items=[FileChangeResponse.model_validate(c) for c in items],
