@@ -7,6 +7,7 @@ const {
 } = useServers()
 const toast = useToast()
 
+fetchServers()
 fetchCategories()
 fetchProjects()
 

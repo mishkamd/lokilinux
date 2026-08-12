@@ -15,10 +15,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.auth.dependencies import get_current_user, require_role, safe_user_uuid
-from lokilinux.cache import RedisCache, TTL_JOB_STATUS
+from lokilinux.cache import TTL_JOB_STATUS, RedisCache
 from lokilinux.dependencies import get_cache, get_db, get_nats
 from lokilinux.models.agent import Agent
-from lokilinux.models.job import Job, JobResult, JobStatus as JobStatusModel
+from lokilinux.models.job import Job, JobResult
+from lokilinux.models.job import JobStatus as JobStatusModel
 from lokilinux.schemas.common import CursorPage, decode_cursor, encode_cursor
 from lokilinux.schemas.job import JobCreate, JobResponse, JobResultResponse, JobStatus
 from lokilinux.services.job_service import JobService
@@ -50,8 +51,8 @@ async def list_jobs(
     if status:
         q = q.where(Job.status == status.value)
     if agent_id:
-        # Jobs target_servers stores agent_ids as JSON
-        q = q.where(Job.target_servers["agent_ids"].astext.contains(agent_id))
+        # JSONB containment (@>) matches the exact array element, not a substring
+        q = q.where(Job.target_servers["agent_ids"].contains([agent_id]))
     if policy_id:
         # Powers a policy's "Executions" tab — jobs.policy_id existed since
         # 001 but nothing ever queried by it until now.
@@ -207,4 +208,8 @@ async def cancel_job(
 
     row.status = JobStatusModel.CANCELLED
     await db.flush()
+    if row.job_type == "COMPLIANCE_REMEDIATE":
+        from lokilinux.services.job_service import sync_remediation_plan
+        await sync_remediation_plan(db, row.id)
+    await db.commit()
     await cache.invalidate(f"job:{job_id}:status")

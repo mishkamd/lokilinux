@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/google/uuid"
 	"lukechampine.com/blake3"
@@ -118,8 +119,6 @@ func (in *Ingester) Ingest(ctx context.Context, snap Snapshot) (Result, error) {
 
 	// Fetch the previous domain body *before* overwriting anything — this is
 	// the "vs previous snapshot" comparison from docs/compliance/08-DRIFT-FIM.md §1.
-	// ("vs baseline" needs baseline_effective, which nothing populates yet —
-	// see storage.ActiveRulesForDomain's ponytail note for the same honest gap.)
 	var driftDetected bool
 	if hadPrevious && !unchanged {
 		driftDetected, err = in.detectDrift(ctx, snap, previousHash)
@@ -135,6 +134,16 @@ func (in *Ingester) Ingest(ctx context.Context, snap Snapshot) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+
+	// "vs baseline" comparison (08-DRIFT-FIM.md §1) — independent of whether
+	// the state changed since the previous snapshot: a deviation from the
+	// effective baseline is reportable even on the very first snapshot, and
+	// is recorded once per distinct diff state, not once per heartbeat.
+	baselineDrift, err := in.detectBaselineDrift(ctx, snap)
+	if err != nil {
+		return Result{}, err
+	}
+	driftDetected = driftDetected || baselineDrift
 
 	evaluated, err := in.evaluateRules(ctx, snap)
 	if err != nil {
@@ -222,6 +231,71 @@ func (in *Ingester) detectDrift(ctx context.Context, snap Snapshot, previousHash
 	return true, nil
 }
 
+// detectBaselineDrift compares the new facts against the agent's effective
+// baseline (docs/compliance/08-DRIFT-FIM.md §1, the BASELINE comparison) and
+// records a drift_events row when they deviate. A persisted deviation is
+// recorded once per distinct diff state: the same set of changed field
+// paths as the most recent BASELINE event for this agent/domain does not
+// spam a new event every heartbeat.
+func (in *Ingester) detectBaselineDrift(ctx context.Context, snap Snapshot) (bool, error) {
+	mergedState, found, err := in.store.GetBaselineEffective(ctx, snap.AgentID)
+	if err != nil {
+		return false, err
+	}
+	if !found {
+		return false, nil
+	}
+	rawBaseline, ok := mergedState[snap.Domain]
+	if !ok {
+		return false, nil // effective baseline doesn't cover this domain
+	}
+	baselineFacts, ok := rawBaseline.(map[string]any)
+	if !ok {
+		return false, nil // domain value isn't an object — nothing to diff
+	}
+
+	event := drift.Detect(snap.Domain, drift.ComparedAgainstBaseline, baselineFacts, snap.Facts)
+	if event == nil {
+		return false, nil
+	}
+
+	paths := baselineDriftFieldPaths(event.FieldDiffs)
+	existing, have, err := in.store.LatestBaselineDriftFieldPaths(ctx, snap.AgentID, snap.Domain)
+	if err != nil {
+		return false, err
+	}
+	if have && slices.Equal(existing, paths) {
+		return false, nil // same deviation already recorded — state hasn't changed further
+	}
+
+	fieldDiffs := make([]storage.DriftFieldDiff, 0, len(event.FieldDiffs))
+	for _, d := range event.FieldDiffs {
+		oldJSON, _ := json.Marshal(d.OldValue)
+		newJSON, _ := json.Marshal(d.NewValue)
+		fieldDiffs = append(fieldDiffs, storage.DriftFieldDiff{FieldPath: d.FieldPath, OldValue: oldJSON, NewValue: newJSON})
+	}
+	if _, err := in.store.InsertDriftEvent(
+		ctx, snap.AgentID, event.Domain, string(event.ComparedAgainst),
+		string(event.Severity), string(event.ChangeType), event.Summary, fieldDiffs,
+	); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// baselineDriftFieldPaths extracts the field paths of a drift diff, sorted,
+// so identical deviation states compare equal regardless of walk order.
+func baselineDriftFieldPaths(diffs []drift.FieldDiff) []string {
+	paths := make([]string, 0, len(diffs))
+	for _, d := range diffs {
+		paths = append(paths, d.FieldPath)
+	}
+	slices.Sort(paths)
+	return paths
+}
+
+// evaluateRules runs every active rule for the snapshot's domain against
+// the new facts and records one verdict per rule.
 func (in *Ingester) evaluateRules(ctx context.Context, snap Snapshot) (int, error) {
 	activeRules, err := in.store.ActiveRulesForDomain(ctx, snap.Domain)
 	if err != nil {

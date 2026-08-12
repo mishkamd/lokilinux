@@ -14,8 +14,6 @@ const JOB_STATUS_COLORS: Record<string, string> = {
 export function useJobs(agentId?: string) {
   const store = useJobsStore()
 
-  onMounted(() => store.fetchJobs(agentId))
-
   function statusColor(status: string): string {
     return JOB_STATUS_COLORS[status] ?? 'gray'
   }
