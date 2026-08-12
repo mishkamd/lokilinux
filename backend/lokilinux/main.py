@@ -16,9 +16,9 @@ import nats
 import structlog
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import ORJSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.gzip import GZipMiddleware
+from starlette.responses import JSONResponse
 
 from lokilinux.api.v1 import router as api_v1_router
 from lokilinux.cache import RedisCache
@@ -128,7 +128,6 @@ app = FastAPI(
     version="0.1.0",
     description="Enterprise Linux fleet management — backend API",
     lifespan=lifespan,
-    default_response_class=ORJSONResponse,
     docs_url="/docs" if settings.debug else None,
     redoc_url=None,
     openapi_url="/openapi.json" if settings.debug else None,
@@ -176,7 +175,7 @@ async def liveness() -> dict[str, str]:
 
 
 @app.get("/ready", tags=["health"])
-async def readiness(request: Request) -> ORJSONResponse:
+async def readiness(request: Request) -> JSONResponse:
     """Kubernetes readiness probe — checks DB and cache."""
     errors: list[str] = []
 
@@ -191,8 +190,8 @@ async def readiness(request: Request) -> ORJSONResponse:
         errors.append("cache: unreachable")
 
     if errors:
-        return ORJSONResponse(status_code=503, content={"status": "not_ready", "errors": errors})
-    return ORJSONResponse({"status": "ready"})
+        return JSONResponse(status_code=503, content={"status": "not_ready", "errors": errors})
+    return JSONResponse({"status": "ready"})
 
 
 # ── Static files (agent packages) ────────────────────────────────────────────
@@ -209,7 +208,6 @@ app.include_router(api_v1_router, prefix="/api/v1")
 # ── Validation error handler ──────────────────────────────────────────────────
 
 from fastapi.exceptions import RequestValidationError  # noqa: E402
-from fastapi.responses import JSONResponse  # noqa: E402
 
 
 @app.exception_handler(RequestValidationError)
