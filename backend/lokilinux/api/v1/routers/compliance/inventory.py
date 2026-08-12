@@ -15,7 +15,7 @@ from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.auth.dependencies import get_current_user
@@ -101,7 +101,14 @@ async def get_inventory_delta_history(
     if has_more and items:
         next_cursor = encode_cursor(items[-1].time.isoformat())
 
+    # total count (no cursor filter — lightweight approximate, mirrors servers.py)
+    count_q = select(func.count()).select_from(InventoryDelta).where(
+        InventoryDelta.agent_id == agent_id, InventoryDelta.domain == domain
+    )
+    total = (await db.execute(count_q)).scalar()
+
     return CursorPage[InventoryDeltaResponse](
         items=[InventoryDeltaResponse.model_validate(d) for d in items],
         next_cursor=next_cursor,
+        total=total,
     )

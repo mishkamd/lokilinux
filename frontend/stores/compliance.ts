@@ -114,6 +114,7 @@ export interface RemediationPlan {
   status: RemediationPlanStatus
   trigger_type: 'MANUAL' | 'SCHEDULED' | 'AUTOMATIC' | 'AI_SUGGESTED'
   is_emergency: boolean
+  maintenance_window_id: string | null
   created_by: string | null
   approved_by: string | null
   approved_at: string | null
@@ -130,6 +131,36 @@ export interface RemediationAction {
   rendered_body: string
   rollback_body: string | null
   sequence: number
+}
+
+export interface MaintenanceWindow {
+  id: string
+  name: string
+  scope_type: string
+  scope_selector: Record<string, unknown>
+  cron_expr: string | null
+  duration_minutes: number
+  timezone: string
+  is_enabled: boolean
+  created_at: string
+}
+
+export interface RemediationExecutionResult {
+  agent_id: string
+  hostname: string | null
+  status: string
+  exit_code: number | null
+  error_message: string | null
+  stdout: string | null
+  stderr: string | null
+  duration_seconds: number | null
+}
+
+export interface RemediationExecution {
+  job_id: string | null
+  operation: 'APPLY' | 'ROLLBACK' | null
+  job_status: string | null
+  results: RemediationExecutionResult[]
 }
 
 export interface FileHash {
@@ -173,6 +204,25 @@ export interface ComplianceReport {
   completed_at: string | null
 }
 
+export interface TopViolatingRule {
+  rule_id: string
+  rule_key: string
+  title: string
+  domain: string
+  severity: string
+  fail_count: number
+}
+
+export interface TopChangedFile {
+  path: string
+  change_count: number
+}
+
+export interface TopViolations {
+  top_rules: TopViolatingRule[]
+  recent_drift: DriftEvent[]
+}
+
 export const useComplianceStore = defineStore('compliance', () => {
   const api = useApi()
 
@@ -196,7 +246,11 @@ export const useComplianceStore = defineStore('compliance', () => {
       const data = await api.get<{ items: Baseline[]; next_cursor: string | null; total: number }>(
         `/compliance/baselines?${params}`,
       )
-      baselines.value = data.items
+      if (cursor) {
+        baselines.value = [...baselines.value, ...data.items]
+      } else {
+        baselines.value = data.items
+      }
       baselinesTotal.value = data.total ?? 0
       baselinesNextCursor.value = data.next_cursor
     } finally {
@@ -295,6 +349,7 @@ export const useComplianceStore = defineStore('compliance', () => {
   const policySets = ref<PolicySet[]>([])
   const policySetsTotal = ref(0)
   const policySetsLoading = ref(false)
+  const policySetsNextCursor = ref<string | null>(null)
   const selectedPolicySet = ref<PolicySet | null>(null)
   const policySetRules = ref<ComplianceRule[]>([])
   const policySetCoverage = ref<PolicySetCoverage | null>(null)
@@ -310,7 +365,11 @@ export const useComplianceStore = defineStore('compliance', () => {
       const data = await api.get<{ items: ComplianceRule[]; next_cursor: string | null; total: number }>(
         `/compliance/rules?${params}`,
       )
-      rules.value = data.items
+      if (cursor) {
+        rules.value = [...rules.value, ...data.items]
+      } else {
+        rules.value = data.items
+      }
       rulesTotal.value = data.total ?? 0
       rulesNextCursor.value = data.next_cursor
     } finally {
@@ -326,8 +385,13 @@ export const useComplianceStore = defineStore('compliance', () => {
       const data = await api.get<{ items: PolicySet[]; next_cursor: string | null; total: number }>(
         `/compliance/policy-sets?${params}`,
       )
-      policySets.value = data.items
+      if (cursor) {
+        policySets.value = [...policySets.value, ...data.items]
+      } else {
+        policySets.value = data.items
+      }
       policySetsTotal.value = data.total ?? 0
+      policySetsNextCursor.value = data.next_cursor
     } finally {
       policySetsLoading.value = false
     }
@@ -377,7 +441,11 @@ export const useComplianceStore = defineStore('compliance', () => {
       const data = await api.get<{ items: DriftEvent[]; next_cursor: string | null; total: number }>(
         `/compliance/drift-events?${params}`,
       )
-      driftEvents.value = data.items
+      if (cursor) {
+        driftEvents.value = [...driftEvents.value, ...data.items]
+      } else {
+        driftEvents.value = data.items
+      }
       driftTotal.value = data.total ?? 0
       driftNextCursor.value = data.next_cursor
     } finally {
@@ -405,13 +473,18 @@ export const useComplianceStore = defineStore('compliance', () => {
   const remediationPlans = ref<RemediationPlan[]>([])
   const remediationTotal = ref(0)
   const remediationLoading = ref(false)
+  const remediationNextCursor = ref<string | null>(null)
+  const remediationError = ref<string | null>(null)
   const remediationFilters = ref({ status: '' })
 
   const selectedRemediationPlan = ref<RemediationPlan | null>(null)
   const remediationActions = ref<RemediationAction[]>([])
+  const remediationExecution = ref<RemediationExecution | null>(null)
+  const maintenanceWindows = ref<MaintenanceWindow[]>([])
 
   async function fetchRemediationPlans(cursor?: string) {
     remediationLoading.value = true
+    remediationError.value = null
     try {
       const params = new URLSearchParams()
       if (cursor) params.set('cursor', cursor)
@@ -419,11 +492,25 @@ export const useComplianceStore = defineStore('compliance', () => {
       const data = await api.get<{ items: RemediationPlan[]; next_cursor: string | null; total: number }>(
         `/compliance/remediation-plans?${params}`,
       )
-      remediationPlans.value = data.items
+      if (cursor) {
+        remediationPlans.value = [...remediationPlans.value, ...data.items]
+      } else {
+        remediationPlans.value = data.items
+      }
       remediationTotal.value = data.total ?? 0
+      remediationNextCursor.value = data.next_cursor
+    } catch (err) {
+      remediationError.value = 'Failed to load remediation plans'
     } finally {
       remediationLoading.value = false
     }
+  }
+
+  function _patchRemediationPlan(updated: RemediationPlan) {
+    if (selectedRemediationPlan.value?.id === updated.id) selectedRemediationPlan.value = updated
+    const idx = remediationPlans.value.findIndex((p) => p.id === updated.id)
+    if (idx !== -1) remediationPlans.value[idx] = updated
+    else remediationPlans.value = [updated, ...remediationPlans.value]
   }
 
   async function fetchRemediationPlan(id: string) {
@@ -434,16 +521,62 @@ export const useComplianceStore = defineStore('compliance', () => {
     remediationActions.value = await api.get<RemediationAction[]>(`/compliance/remediation-plans/${id}/actions`)
   }
 
+  async function createRemediationPlan(body: {
+    name: string
+    trigger_type?: string
+    is_emergency?: boolean
+    maintenance_window_id?: string | null
+    actions: Array<{
+      agent_id: string
+      provider: 'ansible' | 'shell' | 'python'
+      rendered_body: string
+      rollback_body?: string | null
+      rule_id?: string | null
+      drift_event_id?: string | null
+    }>
+  }) {
+    const plan = await api.post<RemediationPlan>('/compliance/remediation-plans', body)
+    remediationPlans.value = [plan, ...remediationPlans.value]
+    remediationTotal.value += 1
+    return plan
+  }
+
   async function submitRemediationPlan(id: string) {
     const updated = await api.post<RemediationPlan>(`/compliance/remediation-plans/${id}/submit`)
-    if (selectedRemediationPlan.value?.id === id) selectedRemediationPlan.value = updated
+    _patchRemediationPlan(updated)
     return updated
   }
 
   async function approveRemediationPlan(id: string) {
     const updated = await api.post<RemediationPlan>(`/compliance/remediation-plans/${id}/approve`)
-    if (selectedRemediationPlan.value?.id === id) selectedRemediationPlan.value = updated
+    _patchRemediationPlan(updated)
     return updated
+  }
+
+  async function fetchRemediationExecution(id: string) {
+    remediationExecution.value = await api.get<RemediationExecution>(`/compliance/remediation-plans/${id}/execution`)
+  }
+
+  async function rollbackRemediationPlan(id: string) {
+    _patchRemediationPlan(await api.post<RemediationPlan>(`/compliance/remediation-plans/${id}/rollback`))
+  }
+
+  async function fetchMaintenanceWindows() {
+    maintenanceWindows.value = await api.get<MaintenanceWindow[]>('/compliance/maintenance-windows')
+  }
+
+  async function createMaintenanceWindow(body: {
+    name: string
+    scope_type?: string
+    scope_selector?: Record<string, unknown>
+    cron_expr?: string | null
+    duration_minutes: number
+    timezone?: string
+    is_enabled?: boolean
+  }) {
+    const window = await api.post<MaintenanceWindow>('/compliance/maintenance-windows', body)
+    maintenanceWindows.value = [...maintenanceWindows.value, window]
+    return window
   }
 
   // ── File Integrity ───────────────────────────────────────────────────────
@@ -455,6 +588,7 @@ export const useComplianceStore = defineStore('compliance', () => {
   const fileChanges = ref<FileChange[]>([])
   const fileChangesTotal = ref(0)
   const fileChangesLoading = ref(false)
+  const fileChangesNextCursor = ref<string | null>(null)
   const fileChangeFilters = ref({ agent_id: '', change_kind: '' })
 
   async function fetchFileHashes(agentId: string) {
@@ -478,8 +612,13 @@ export const useComplianceStore = defineStore('compliance', () => {
       const data = await api.get<{ items: FileChange[]; next_cursor: string | null; total: number }>(
         `/compliance/file-changes?${params}`,
       )
-      fileChanges.value = data.items
+      if (cursor) {
+        fileChanges.value = [...fileChanges.value, ...data.items]
+      } else {
+        fileChanges.value = data.items
+      }
       fileChangesTotal.value = data.total ?? 0
+      fileChangesNextCursor.value = data.next_cursor
     } finally {
       fileChangesLoading.value = false
     }
@@ -490,6 +629,7 @@ export const useComplianceStore = defineStore('compliance', () => {
   const reports = ref<ComplianceReport[]>([])
   const reportsTotal = ref(0)
   const reportsLoading = ref(false)
+  const reportsNextCursor = ref<string | null>(null)
 
   async function fetchReports(cursor?: string) {
     reportsLoading.value = true
@@ -499,8 +639,13 @@ export const useComplianceStore = defineStore('compliance', () => {
       const data = await api.get<{ items: ComplianceReport[]; next_cursor: string | null; total: number }>(
         `/compliance/reports?${params}`,
       )
-      reports.value = data.items
+      if (cursor) {
+        reports.value = [...reports.value, ...data.items]
+      } else {
+        reports.value = data.items
+      }
       reportsTotal.value = data.total ?? 0
+      reportsNextCursor.value = data.next_cursor
     } finally {
       reportsLoading.value = false
     }
@@ -512,6 +657,31 @@ export const useComplianceStore = defineStore('compliance', () => {
     return report
   }
 
+  // ── Dashboard widgets ────────────────────────────────────────────────────
+
+  const topViolations = ref<TopViolations>({ top_rules: [], recent_drift: [] })
+  const topViolationsLoading = ref(false)
+  const topChangedFiles = ref<TopChangedFile[]>([])
+  const topChangedFilesLoading = ref(false)
+
+  async function fetchTopViolations() {
+    topViolationsLoading.value = true
+    try {
+      topViolations.value = await api.get<TopViolations>('/compliance/dashboard/top-violations')
+    } finally {
+      topViolationsLoading.value = false
+    }
+  }
+
+  async function fetchTopChangedFiles() {
+    topChangedFilesLoading.value = true
+    try {
+      topChangedFiles.value = await api.get<TopChangedFile[]>('/compliance/dashboard/top-changed-files')
+    } finally {
+      topChangedFilesLoading.value = false
+    }
+  }
+
   return {
     baselines, baselinesTotal, baselinesLoading, baselinesNextCursor, baselineFilters,
     selectedBaseline, versions, versionsLoading,
@@ -520,17 +690,21 @@ export const useComplianceStore = defineStore('compliance', () => {
     inventorySnapshot, inventorySnapshotError, inventoryHistory, inventoryLoading,
     fetchInventorySnapshot, fetchInventoryHistory,
     rules, rulesTotal, rulesLoading, rulesNextCursor, ruleFilters, fetchRules,
-    policySets, policySetsTotal, policySetsLoading, selectedPolicySet, policySetRules, policySetCoverage,
+    policySets, policySetsTotal, policySetsLoading, policySetsNextCursor, selectedPolicySet, policySetRules, policySetCoverage,
     fetchPolicySets, createPolicySet, fetchPolicySet, fetchPolicySetRules, fetchPolicySetCoverage, importPolicySet,
     driftEvents, driftTotal, driftLoading, driftNextCursor, driftFilters,
     selectedDriftEvent, driftDetails,
     fetchDriftEvents, fetchDriftEvent, fetchDriftDetails, acknowledgeDrift,
-    remediationPlans, remediationTotal, remediationLoading, remediationFilters,
-    selectedRemediationPlan, remediationActions,
+    remediationPlans, remediationTotal, remediationLoading, remediationNextCursor, remediationError, remediationFilters,
+    selectedRemediationPlan, remediationActions, remediationExecution, maintenanceWindows,
     fetchRemediationPlans, fetchRemediationPlan, fetchRemediationActions,
-    submitRemediationPlan, approveRemediationPlan,
+    createRemediationPlan, submitRemediationPlan, approveRemediationPlan,
+    fetchRemediationExecution, rollbackRemediationPlan,
+    fetchMaintenanceWindows, createMaintenanceWindow,
     fileHashes, fileHashesLoading, fileHashPathPrefix, fetchFileHashes,
-    fileChanges, fileChangesTotal, fileChangesLoading, fileChangeFilters, fetchFileChanges,
-    reports, reportsTotal, reportsLoading, fetchReports, createReport,
+    fileChanges, fileChangesTotal, fileChangesLoading, fileChangesNextCursor, fileChangeFilters, fetchFileChanges,
+    reports, reportsTotal, reportsLoading, reportsNextCursor, fetchReports, createReport,
+    topViolations, topViolationsLoading, topChangedFiles, topChangedFilesLoading,
+    fetchTopViolations, fetchTopChangedFiles,
   }
 })

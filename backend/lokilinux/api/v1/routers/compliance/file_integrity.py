@@ -10,7 +10,7 @@ from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.auth.dependencies import get_current_user
@@ -66,7 +66,16 @@ async def list_file_changes(
         # Use | instead of : as separator because POSIX paths may contain ':'
         next_cursor = encode_cursor(f"{last.time.isoformat()}|{last.path}")
 
+    # total count (no cursor filter — lightweight approximate, mirrors servers.py)
+    count_q = select(func.count()).select_from(FileChange)
+    if agent_id:
+        count_q = count_q.where(FileChange.agent_id == agent_id)
+    if change_kind:
+        count_q = count_q.where(FileChange.change_kind == change_kind)
+    total = (await db.execute(count_q)).scalar()
+
     return CursorPage[FileChangeResponse](
         items=[FileChangeResponse.model_validate(c) for c in items],
         next_cursor=next_cursor,
+        total=total,
     )

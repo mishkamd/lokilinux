@@ -2,7 +2,7 @@
 import { RefreshCw } from 'lucide-vue-next'
 
 const store = useComplianceStore()
-const { driftEvents, driftTotal, driftLoading, driftFilters } = storeToRefs(store)
+const { driftEvents, driftTotal, driftLoading, driftNextCursor, driftFilters } = storeToRefs(store)
 const { canEdit } = useCurrentUser()
 
 onMounted(() => store.fetchDriftEvents())
@@ -57,5 +57,11 @@ const columns = [
         <span v-else class="text-muted-foreground text-sm">Open</span>
       </template>
     </DataTable>
+
+    <div v-if="driftNextCursor" class="mt-4 flex justify-center">
+      <Button variant="outline" @click="store.fetchDriftEvents(driftNextCursor!)">
+        Load more
+      </Button>
+    </div>
   </div>
 </template>

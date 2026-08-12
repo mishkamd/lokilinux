@@ -2,7 +2,7 @@
 import { Download, Plus, RefreshCw } from 'lucide-vue-next'
 
 const store = useComplianceStore()
-const { policySets, policySetsTotal, policySetsLoading } = storeToRefs(store)
+const { policySets, policySetsTotal, policySetsLoading, policySetsNextCursor } = storeToRefs(store)
 const { canEdit, isAdmin } = useCurrentUser()
 const toast = useToast()
 
@@ -103,6 +103,12 @@ async function submitImport() {
         <span class="font-mono text-xs">{{ new Date(String(row.created_at)).toLocaleDateString() }}</span>
       </template>
     </DataTable>
+
+    <div v-if="policySetsNextCursor" class="mt-4 flex justify-center">
+      <Button variant="outline" @click="store.fetchPolicySets(policySetsNextCursor!)">
+        Load more
+      </Button>
+    </div>
 
     <Dialog v-model="showCreate" title="New policy set">
       <template #body>

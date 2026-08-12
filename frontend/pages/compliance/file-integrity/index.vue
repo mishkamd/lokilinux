@@ -6,7 +6,7 @@ const store = useComplianceStore()
 const serversStore = useServersStore()
 const {
   fileHashes, fileHashesLoading, fileHashPathPrefix,
-  fileChanges, fileChangesTotal, fileChangesLoading, fileChangeFilters,
+  fileChanges, fileChangesTotal, fileChangesLoading, fileChangesNextCursor, fileChangeFilters,
 } = storeToRefs(store)
 
 const agentOptions = ref<{ label: string; value: string }[]>([])
@@ -108,6 +108,12 @@ const changeColumns = [
             </Badge>
           </template>
         </DataTable>
+
+        <div v-if="fileChangesNextCursor" class="mt-4 flex justify-center">
+          <Button variant="outline" @click="store.fetchFileChanges(fileChangesNextCursor!)">
+            Load more
+          </Button>
+        </div>
       </template>
     </AppTabs>
   </div>

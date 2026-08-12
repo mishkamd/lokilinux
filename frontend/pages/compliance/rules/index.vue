@@ -3,7 +3,7 @@ import { RefreshCw } from 'lucide-vue-next'
 import type { CheckSource } from '~/stores/compliance'
 
 const store = useComplianceStore()
-const { rules, rulesTotal, rulesLoading, ruleFilters } = storeToRefs(store)
+const { rules, rulesTotal, rulesLoading, rulesNextCursor, ruleFilters } = storeToRefs(store)
 
 onMounted(() => store.fetchRules())
 
@@ -61,5 +61,11 @@ const columns = [
         <span class="font-mono text-xs text-muted-foreground">{{ row.source_version || '—' }}</span>
       </template>
     </DataTable>
+
+    <div v-if="rulesNextCursor" class="mt-4 flex justify-center">
+      <Button variant="outline" @click="store.fetchRules(rulesNextCursor!)">
+        Load more
+      </Button>
+    </div>
   </div>
 </template>

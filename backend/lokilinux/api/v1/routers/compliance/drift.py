@@ -11,7 +11,7 @@ from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.auth.dependencies import get_current_user, require_role, safe_user_uuid
@@ -65,9 +65,26 @@ async def list_drift_events(
         last = items[-1]
         next_cursor = encode_cursor(f"{last.time.isoformat()}:{last.id}")
 
+    # total count (no cursor filter — lightweight approximate, mirrors servers.py)
+    count_q = select(func.count()).select_from(DriftEvent)
+    if severity:
+        count_q = count_q.where(DriftEvent.severity == severity)
+    if domain:
+        count_q = count_q.where(DriftEvent.domain == domain)
+    if agent_id:
+        count_q = count_q.where(DriftEvent.agent_id == agent_id)
+    if acknowledged is not None:
+        count_q = count_q.where(
+            DriftEvent.acknowledged_at.isnot(None)
+            if acknowledged
+            else DriftEvent.acknowledged_at.is_(None)
+        )
+    total = (await db.execute(count_q)).scalar()
+
     return CursorPage[DriftEventResponse](
         items=[DriftEventResponse.model_validate(e) for e in items],
         next_cursor=next_cursor,
+        total=total,
     )
 
 

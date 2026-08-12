@@ -3,7 +3,7 @@ import { Plus, RefreshCw } from 'lucide-vue-next'
 import type { ScopeType } from '~/stores/compliance'
 
 const store = useComplianceStore()
-const { baselines, baselinesTotal, baselinesLoading, baselineFilters } = storeToRefs(store)
+const { baselines, baselinesTotal, baselinesLoading, baselinesNextCursor, baselineFilters } = storeToRefs(store)
 const { canEdit } = useCurrentUser()
 const toast = useToast()
 
@@ -103,6 +103,12 @@ async function submitCreate() {
         <span class="font-mono text-xs">{{ new Date(String(row.created_at)).toLocaleDateString() }}</span>
       </template>
     </DataTable>
+
+    <div v-if="baselinesNextCursor" class="mt-4 flex justify-center">
+      <Button variant="outline" @click="store.fetchBaselines(baselinesNextCursor!)">
+        Load more
+      </Button>
+    </div>
 
     <Dialog v-model="showCreate" title="New baseline">
       <template #body>

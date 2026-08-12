@@ -96,9 +96,22 @@ async def list_rules(
         last = items[-1]
         next_cursor = encode_cursor(f"{last.imported_at.isoformat()}:{last.id}")
 
+    # total count (no cursor filter — lightweight approximate, mirrors servers.py)
+    count_q = select(func.count()).select_from(ComplianceRule)
+    if search:
+        count_q = count_q.where(ComplianceRule.title.ilike(f"%{search}%"))
+    if severity:
+        count_q = count_q.where(ComplianceRule.severity == severity)
+    if domain:
+        count_q = count_q.where(ComplianceRule.domain == domain)
+    if framework:
+        count_q = count_q.where(ComplianceRule.standard_refs.has_key(framework))
+    total = (await db.execute(count_q)).scalar()
+
     return CursorPage[ComplianceRuleResponse](
         items=[ComplianceRuleResponse.model_validate(r) for r in items],
         next_cursor=next_cursor,
+        total=total,
     )
 
 
@@ -185,9 +198,16 @@ async def list_policy_sets(
     if has_more and items:
         last = items[-1]
         next_cursor = encode_cursor(f"{last.created_at.isoformat()}:{last.id}")
+    # total count (no cursor filter — lightweight approximate, mirrors servers.py)
+    count_q = select(func.count()).select_from(PolicySet)
+    if framework:
+        count_q = count_q.where(PolicySet.framework == framework)
+    total = (await db.execute(count_q)).scalar()
+
     return CursorPage[PolicySetResponse](
         items=[PolicySetResponse.model_validate(p) for p in items],
         next_cursor=next_cursor,
+        total=total,
     )
 
 

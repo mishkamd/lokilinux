@@ -6,7 +6,7 @@ const store = useComplianceStore()
 const api = useApi()
 const toast = useToast()
 const { canEdit } = useCurrentUser()
-const { reports, reportsTotal, reportsLoading } = storeToRefs(store)
+const { reports, reportsTotal, reportsLoading, reportsNextCursor } = storeToRefs(store)
 
 onMounted(() => store.fetchReports())
 
@@ -98,6 +98,12 @@ async function downloadReport(id: string, format: ReportFormat) {
         <span v-else-if="row.status === 'FAILED'" class="text-xs text-destructive">{{ row.error_message || 'Failed' }}</span>
       </template>
     </DataTable>
+
+    <div v-if="reportsNextCursor" class="mt-4 flex justify-center">
+      <Button variant="outline" @click="store.fetchReports(reportsNextCursor!)">
+        Load more
+      </Button>
+    </div>
 
     <Dialog v-model="showCreate" title="Generate report">
       <template #body>
