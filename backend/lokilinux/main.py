@@ -16,9 +16,9 @@ import nats
 import structlog
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import ORJSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.gzip import GZipMiddleware
-from fastapi.responses import ORJSONResponse
 
 from lokilinux.api.v1 import router as api_v1_router
 from lokilinux.cache import RedisCache
@@ -67,16 +67,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("nats.ready", url=settings.nats_url)
 
     # Workers — subscribe after NATS is up
-    from lokilinux.workers.job_executor import JobExecutorWorker
-    from lokilinux.workers.cve_processor import CVEProcessorWorker
     from lokilinux.workers.alert_processor import AlertProcessorWorker
-    from lokilinux.workers.policy_worker import PolicyWorker
-    from lokilinux.workers.policy_scheduler import PolicySchedulerWorker
-    from lokilinux.workers.plugin_worker import PluginWorker
+    from lokilinux.workers.cve_processor import CVEProcessorWorker
     from lokilinux.workers.heartbeat_monitor import HeartbeatMonitorWorker
+    from lokilinux.workers.job_executor import JobExecutorWorker
     from lokilinux.workers.job_timeout import JobTimeoutWorker
-    from lokilinux.workers.retention_cleanup import RetentionCleanupWorker
     from lokilinux.workers.notification_worker import NotificationWorker
+    from lokilinux.workers.plugin_worker import PluginWorker
+    from lokilinux.workers.policy_scheduler import PolicySchedulerWorker
+    from lokilinux.workers.policy_worker import PolicyWorker
+    from lokilinux.workers.retention_cleanup import RetentionCleanupWorker
 
     job_worker = JobExecutorWorker(nc, session_factory, cache)
     await job_worker.start()
@@ -96,11 +96,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await job_timeout_worker.start()
     retention_worker = RetentionCleanupWorker(session_factory)
     await retention_worker.start()
+    from lokilinux.workers.remediation_scheduler import RemediationSchedulerWorker
+    remediation_scheduler_worker = RemediationSchedulerWorker(session_factory, cache, nc)
+    await remediation_scheduler_worker.start()
     notification_worker = NotificationWorker(nc, session_factory)
     await notification_worker.start()
     app.state.workers = [
         job_worker, cve_worker, alert_worker, policy_worker, policy_scheduler_worker, plugin_worker,
-        heartbeat_worker, job_timeout_worker, retention_worker, notification_worker,
+        heartbeat_worker, job_timeout_worker, remediation_scheduler_worker, retention_worker, notification_worker,
     ]
     logger.info("workers.ready")
 
@@ -109,6 +112,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Shutdown — reverse order
     logger.info("lokilinux.shutdown")
     await heartbeat_worker.stop()
+    await remediation_scheduler_worker.stop()
     await job_timeout_worker.stop()
     await policy_scheduler_worker.stop()
     await retention_worker.stop()

@@ -11,6 +11,7 @@ in api/v1/__init__.py.
 from fastapi import APIRouter
 
 from .baselines import router as baselines_router
+from .dashboard import router as dashboard_router
 from .drift import router as drift_router
 from .file_integrity import router as file_integrity_router
 from .inventory import router as inventory_router
@@ -20,6 +21,7 @@ from .reports import router as reports_router
 
 router = APIRouter()
 router.include_router(baselines_router)
+router.include_router(dashboard_router)
 router.include_router(drift_router)
 router.include_router(file_integrity_router)
 router.include_router(inventory_router)
