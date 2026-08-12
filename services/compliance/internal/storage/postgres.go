@@ -10,6 +10,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -343,4 +344,189 @@ func (s *Store) DispatchScheduledJobs(ctx context.Context) (int64, error) {
 		return 0, fmt.Errorf("dispatching scheduled jobs: %w", err)
 	}
 	return tag.RowsAffected(), nil
+}
+
+// ── Baseline resolution (docs/compliance/06-BASELINE.md §2) ───────────────
+
+// AgentAttributes carries the scope-matching attributes of one agent:
+// os_distro/os_version from the agents row plus the category/project names
+// from its org-structure FKs. The spec's role/environment/datacenter/
+// cluster/application have no dedicated columns (migration 008 dropped
+// agents.scope as dead); the category name is the broad grouping
+// ("Production", "Client A") and the project name the narrow division —
+// the resolver aliases environment→category and application→project so
+// those selector keys still work against the schema that exists.
+type AgentAttributes struct {
+	AgentID   uuid.UUID
+	OsDistro  string
+	OsVersion string
+	Category  string
+	Project   string
+}
+
+// LoadAgentAttributes fetches one agent's scope-matching attributes.
+func (s *Store) LoadAgentAttributes(ctx context.Context, agentID uuid.UUID) (AgentAttributes, error) {
+	var a AgentAttributes
+	a.AgentID = agentID
+	err := s.pool.QueryRow(ctx, `
+		SELECT COALESCE(a.os_distro, ''), COALESCE(a.os_version, ''),
+		       COALESCE(c.name, ''), COALESCE(p.name, '')
+		FROM agents a
+		LEFT JOIN categories c ON c.id = a.category_id
+		LEFT JOIN projects p ON p.id = a.project_id
+		WHERE a.id = $1
+	`, agentID).Scan(&a.OsDistro, &a.OsVersion, &a.Category, &a.Project)
+	if err != nil {
+		return AgentAttributes{}, fmt.Errorf("loading agent attributes for %s: %w", agentID, err)
+	}
+	return a, nil
+}
+
+// PublishedBaseline is one enabled baseline's PUBLISHED version with its
+// scope metadata — the input set for effective-baseline resolution.
+type PublishedBaseline struct {
+	VersionID     uuid.UUID
+	BaselineID    uuid.UUID
+	ScopeType     string
+	ScopeSelector map[string]any
+	ExpectedState map[string]any
+	PublishedAt   time.Time
+}
+
+// LoadPublishedBaselines returns every PUBLISHED version of an enabled
+// baseline. BaselineService.publish deprecates the current PUBLISHED
+// version before promoting a new one, so at most one row per baseline is
+// live at a time — a flat list, not a window query.
+func (s *Store) LoadPublishedBaselines(ctx context.Context) ([]PublishedBaseline, error) {
+	rowsResult, err := s.pool.Query(ctx, `
+		SELECT bv.id, bv.baseline_id, b.scope_type, b.scope_selector, bv.expected_state, bv.published_at
+		FROM baseline_versions bv
+		JOIN baselines b ON b.id = bv.baseline_id
+		WHERE bv.status = 'PUBLISHED' AND b.is_enabled = true
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("querying published baselines: %w", err)
+	}
+	defer rowsResult.Close()
+
+	var out []PublishedBaseline
+	for rowsResult.Next() {
+		var p PublishedBaseline
+		if err := rowsResult.Scan(&p.VersionID, &p.BaselineID, &p.ScopeType, &p.ScopeSelector, &p.ExpectedState, &p.PublishedAt); err != nil {
+			return nil, fmt.Errorf("scanning published baseline row: %w", err)
+		}
+		out = append(out, p)
+	}
+	return out, rowsResult.Err()
+}
+
+// ListAgentIDs returns every registered agent's UUID — the recompute set
+// for a COMPLIANCE_BASELINE_PUBLISHED fleet-wide invalidation
+// (docs/compliance/06-BASELINE.md §2).
+func (s *Store) ListAgentIDs(ctx context.Context) ([]uuid.UUID, error) {
+	rowsResult, err := s.pool.Query(ctx, `SELECT id FROM agents`)
+	if err != nil {
+		return nil, fmt.Errorf("querying agent ids: %w", err)
+	}
+	defer rowsResult.Close()
+
+	var out []uuid.UUID
+	for rowsResult.Next() {
+		var id uuid.UUID
+		if err := rowsResult.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scanning agent id row: %w", err)
+		}
+		out = append(out, id)
+	}
+	return out, rowsResult.Err()
+}
+
+// UpsertBaselineEffective materializes one agent's resolved effective
+// baseline (docs/compliance/01-DATA-MODEL.md) — a cache, not a source of
+// truth; safe to recompute and overwrite at any time.
+func (s *Store) UpsertBaselineEffective(
+	ctx context.Context,
+	agentID uuid.UUID,
+	versionIDs []uuid.UUID,
+	mergedState map[string]any,
+	mergedHash string,
+) error {
+	_, err := s.pool.Exec(ctx, `
+		INSERT INTO baseline_effective (agent_id, baseline_version_ids, merged_state, merged_hash, computed_at)
+		VALUES ($1, $2, $3, $4, now())
+		ON CONFLICT (agent_id) DO UPDATE
+		SET baseline_version_ids = EXCLUDED.baseline_version_ids,
+		    merged_state = EXCLUDED.merged_state,
+		    merged_hash = EXCLUDED.merged_hash,
+		    computed_at = now()
+	`, agentID, versionIDs, mergedState, mergedHash)
+	if err != nil {
+		return fmt.Errorf("upserting baseline_effective (agent=%s): %w", agentID, err)
+	}
+	return nil
+}
+
+// CountBaselineEffective returns the total number of baseline_effective rows
+// (DEBUG helper for verifying upsert persistence).
+func (s *Store) CountBaselineEffective(ctx context.Context) (int, error) {
+	var cnt int
+	err := s.pool.QueryRow(ctx, `SELECT count(*) FROM baseline_effective`).Scan(&cnt)
+	return cnt, err
+}
+
+// GetBaselineEffective returns one agent's materialized merged_state, with
+// found=false when no effective baseline has been computed for it yet.
+func (s *Store) GetBaselineEffective(ctx context.Context, agentID uuid.UUID) (map[string]any, bool, error) {
+	var mergedState map[string]any
+	err := s.pool.QueryRow(ctx, `
+		SELECT merged_state FROM baseline_effective WHERE agent_id = $1
+	`, agentID).Scan(&mergedState)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("loading baseline_effective for agent %s: %w", agentID, err)
+	}
+	return mergedState, true, nil
+}
+
+// LatestBaselineDriftFieldPaths returns the field paths recorded on the
+// most recent BASELINE drift event for (agent, domain), with found=false
+// when no such event exists. Ingest uses this to avoid re-recording the
+// same persisted deviation on every heartbeat — one event per distinct
+// diff state, not one per heartbeat.
+func (s *Store) LatestBaselineDriftFieldPaths(ctx context.Context, agentID uuid.UUID, domain string) ([]string, bool, error) {
+	var eventID uuid.UUID
+	var eventTime time.Time
+	err := s.pool.QueryRow(ctx, `
+		SELECT id, time FROM drift_events
+		WHERE agent_id = $1 AND domain = $2 AND compared_against = 'BASELINE'
+		ORDER BY time DESC LIMIT 1
+	`, agentID, domain).Scan(&eventID, &eventTime)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, fmt.Errorf("loading latest baseline drift event (agent=%s domain=%s): %w", agentID, domain, err)
+	}
+
+	rowsResult, err := s.pool.Query(ctx, `
+		SELECT field_path FROM drift_details
+		WHERE drift_event_time = $1 AND drift_event_id = $2
+		ORDER BY field_path
+	`, eventTime, eventID)
+	if err != nil {
+		return nil, false, fmt.Errorf("querying drift details for event %s: %w", eventID, err)
+	}
+	defer rowsResult.Close()
+
+	var paths []string
+	for rowsResult.Next() {
+		var p string
+		if err := rowsResult.Scan(&p); err != nil {
+			return nil, false, fmt.Errorf("scanning drift detail path: %w", err)
+		}
+		paths = append(paths, p)
+	}
+	return paths, true, rowsResult.Err()
 }
