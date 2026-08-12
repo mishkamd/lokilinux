@@ -22,7 +22,6 @@ from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 

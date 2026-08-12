@@ -45,8 +45,8 @@ const statusBadges = (byStatus: Record<string, number>) =>
 </script>
 
 <template>
-  <div class="relative -m-3 sm:-m-4 min-h-full p-3 sm:p-4 glass-backdrop">
-    <div v-if="loadError" class="text-sm text-red-500">Nu s-au putut încărca datele dashboard-ului.</div>
+  <div class="relative -m-3 sm:-m-4 min-h-full p-3 sm:p-4">
+    <div v-if="loadError" class="text-sm text-red-500">Failed to load dashboard data.</div>
 
     <div v-else-if="!summary" class="space-y-3">
       <div class="grid grid-cols-2 xl:grid-cols-4 gap-3">
@@ -60,29 +60,29 @@ const statusBadges = (byStatus: Record<string, number>) =>
       <div class="grid grid-cols-2 xl:grid-cols-4 gap-3 [&>*]:animate-in [&>*]:fade-in-0 [&>*]:slide-in-from-bottom-2 [&>*]:duration-[250ms] [&>*]:fill-mode-backwards">
         <StatCard
           style="animation-delay: 0ms"
-          :icon="Server" label="Servere" :to="'/servers'"
+          :icon="Server" label="Servers" :to="'/servers'"
           :value="summary.agents.total" :subtitle="`${summary.agents.active} active`"
           :badges="statusBadges(summary.agents.by_status)"
         />
         <StatCard
           style="animation-delay: 30ms"
-          :icon="ShieldAlert" label="Vulnerabilități" :to="'/vulnerabilities'"
+          :icon="ShieldAlert" label="Vulnerabilities" :to="'/vulnerabilities'"
           :value="summary.vulnerabilities.unresolved_total"
           :badges="severityBadges(summary.vulnerabilities.by_severity)"
-          empty-badges-text="fără vulnerabilități deschise"
+          empty-badges-text="no open vulnerabilities"
         />
         <StatCard
           style="animation-delay: 60ms"
-          :icon="ClipboardList" label="Joburi" :to="'/jobs'"
-          :value="summary.jobs.total" :subtitle="`${summary.jobs.running} în execuție`"
+          :icon="ClipboardList" label="Jobs" :to="'/jobs'"
+          :value="summary.jobs.total" :subtitle="`${summary.jobs.running} running`"
           :badges="statusBadges(summary.jobs.by_status)"
         />
         <StatCard
           style="animation-delay: 90ms"
-          :icon="BellDot" label="Alerte" :to="'/alerts'"
+          :icon="BellDot" label="Alerts" :to="'/alerts'"
           :value="summary.alerts.active_total"
           :badges="severityBadges(summary.alerts.by_severity)"
-          empty-badges-text="fără alerte active"
+          empty-badges-text="no active alerts"
         />
       </div>
 
@@ -96,7 +96,7 @@ const statusBadges = (byStatus: Record<string, number>) =>
       <div class="grid grid-cols-1 xl:grid-cols-2 gap-3 [&>*]:animate-in [&>*]:fade-in-0 [&>*]:slide-in-from-bottom-2 [&>*]:duration-[250ms] [&>*]:fill-mode-backwards">
         <RecentActivityFeed v-if="hasRole('AUDITOR')" style="animation-delay: 240ms" />
         <div
-          class="glass-card rounded-xl p-3 flex items-center justify-between h-fit"
+          class="surface-card rounded-[var(--radius-md)] p-3 flex items-center justify-between h-fit"
           style="animation-delay: 270ms"
           :class="{ 'xl:col-span-2': !hasRole('AUDITOR') }"
         >
@@ -105,9 +105,9 @@ const statusBadges = (byStatus: Record<string, number>) =>
               class="size-2 rounded-full"
               :class="summary.agents.active === summary.agents.total ? 'bg-success' : 'bg-warning'"
             />
-            <span class="label-caps">Stare agenți</span>
+            <span class="label-caps">Agent Status</span>
           </div>
-          <span class="text-[12px] text-muted-foreground tabular-nums">{{ summary.agents.active }} / {{ summary.agents.total }} conectați</span>
+          <span class="text-[12px] text-muted-foreground tabular-nums">{{ summary.agents.active }} / {{ summary.agents.total }} connected</span>
         </div>
       </div>
     </div>

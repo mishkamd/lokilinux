@@ -14,12 +14,18 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.api.v1.routers._common import parse_agent_pk
 from lokilinux.auth.dependencies import get_current_user
-from lokilinux.cache import RedisCache, TTL_CVE_DATA
+from lokilinux.cache import TTL_CVE_DATA, RedisCache
 from lokilinux.dependencies import get_cache, get_db
 from lokilinux.models.agent import Agent
-from lokilinux.models.cve import AgentVulnerability, CVE
+from lokilinux.models.cve import CVE, AgentVulnerability
 from lokilinux.schemas.common import CursorPage, decode_cursor, encode_cursor
-from lokilinux.schemas.cve import CVEListResponse, CVEResponse, CVESeverity, CVESummary, VulnerabilityResponse
+from lokilinux.schemas.cve import (
+    CVEListResponse,
+    CVEResponse,
+    CVESeverity,
+    CVESummary,
+    VulnerabilityResponse,
+)
 
 router = APIRouter()
 

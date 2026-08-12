@@ -14,9 +14,10 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lokilinux.cache import RedisCache, TTL_JOB_STATUS
+from lokilinux.cache import RedisCache
 from lokilinux.models.job import Job, JobResult, JobStatus
 from lokilinux.models.plugin import Plugin, PluginInstallation, PluginStatus
+from lokilinux.models.remediation import RemediationJob, RemediationPlan
 from lokilinux.nats_topics import JOB_CREATED
 
 _TERMINAL_RESULT_STATUSES = {"COMPLETED", "FAILED", "TIMEOUT", "CANCELLED", "SKIPPED"}
@@ -64,6 +65,9 @@ async def recompute_job_status(db: AsyncSession, job_id: UUID) -> None:
     if job.job_type == "PLUGIN_INSTALL":
         await _sync_plugin_installations(db, job, rows)
 
+    if job.job_type == "COMPLIANCE_REMEDIATE":
+        await _sync_remediation_plan(db, job)
+
 
 async def _sync_plugin_installations(db: AsyncSession, job: Job, results) -> None:
     """Propagate PLUGIN_INSTALL job results into PluginInstallation rows and
@@ -108,6 +112,62 @@ async def _sync_plugin_installations(db: AsyncSession, job: Job, results) -> Non
         plugin.installed_at = plugin.installed_at or now
     elif "ERROR" in statuses:
         plugin.installation_status = PluginStatus.INSTALLING_FAILED
+
+
+async def _sync_remediation_plan(db: AsyncSession, job: Job) -> None:
+    """Propagate terminal COMPLIANCE_REMEDIATE job status to the linked
+    RemediationPlan. Idempotent — does not downgrade an already-ROLLED_BACK plan.
+
+    Only acts when the job is terminal (COMPLETED/FAILED/TIMEOUT/CANCELLED).
+    Uses the most recent RemediationJob link for this plan to avoid stale
+    results from an earlier job overwriting a newer rollback.
+    """
+    if job.status not in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.TIMEOUT, JobStatus.CANCELLED):
+        return
+
+    plan_id_raw = (job.parameters or {}).get("remediation_plan_id")
+    if not plan_id_raw:
+        return
+    plan_id = UUID(plan_id_raw)
+
+    # Find the most recent job linked to this plan
+    latest_link = (
+        await db.execute(
+            select(RemediationJob)
+            .join(Job, Job.id == RemediationJob.job_id)
+            .where(RemediationJob.remediation_plan_id == plan_id)
+            .order_by(Job.created_at.desc())
+        )
+    ).scalars().first()
+
+    if latest_link is None or latest_link.job_id != job.id:
+        return  # a newer job exists for this plan — ignore stale results
+
+    plan = await db.get(RemediationPlan, plan_id)
+    if plan is None:
+        return
+
+    operation = (job.parameters or {}).get("operation", "APPLY")
+
+    # Determine target status based on operation and job outcome
+    if operation == "ROLLBACK":
+        if job.status == JobStatus.COMPLETED:
+            plan.status = "ROLLED_BACK"
+        else:
+            plan.status = "FAILED"
+    else:  # APPLY
+        if job.status == JobStatus.COMPLETED:
+            plan.status = "COMPLETED"
+        else:
+            plan.status = "FAILED"
+
+
+async def sync_remediation_plan(db: AsyncSession, job_id: UUID) -> None:
+    """Public wrapper — call from job_timeout sweep and cancel_job after
+    they mark a job terminal without going through recompute_job_status."""
+    job = await db.get(Job, job_id)
+    if job and job.job_type == "COMPLIANCE_REMEDIATE":
+        await _sync_remediation_plan(db, job)
 
 
 class JobService:

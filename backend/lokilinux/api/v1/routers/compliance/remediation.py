@@ -1,25 +1,33 @@
 """
-LokiLinux — Compliance: Remediation Engine router.
-
-Approval creates a real Job through the existing JobService — see
-services/remediation_service.py for why plan-approval and Job creation
-happen atomically rather than as two separate steps.
+LokiLinux — Compliance Remediation API routes.
 """
 
 from datetime import datetime
 from uuid import UUID
 
+import zoneinfo
+from croniter import croniter
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.auth.dependencies import get_current_user, require_role, safe_user_uuid
 from lokilinux.cache import RedisCache
 from lokilinux.dependencies import get_cache, get_db, get_nats
-from lokilinux.models.remediation import RemediationAction, RemediationPlan
+from lokilinux.models.job import Job, JobResult
+from lokilinux.models.remediation import (
+    MaintenanceWindow,
+    RemediationAction,
+    RemediationJob,
+    RemediationPlan,
+)
 from lokilinux.schemas.common import CursorPage, decode_cursor, encode_cursor
 from lokilinux.schemas.remediation import (
+    MaintenanceWindowCreate,
+    MaintenanceWindowResponse,
     RemediationActionResponse,
+    RemediationExecutionResponse,
+    RemediationExecutionResult,
     RemediationPlanCreate,
     RemediationPlanResponse,
 )
@@ -27,6 +35,62 @@ from lokilinux.services.job_service import JobService
 from lokilinux.services.remediation_service import RemediationService
 
 router = APIRouter()
+
+_VALID_SCOPE_TYPES = {"GLOBAL", "OS", "ROLE", "ENVIRONMENT", "DATACENTER", "CLUSTER", "APPLICATION"}
+
+
+# ── Maintenance Windows ──────────────────────────────────────────────────────
+
+
+@router.get("/maintenance-windows", response_model=list[MaintenanceWindowResponse])
+async def list_maintenance_windows(
+    db: AsyncSession = Depends(get_db),
+    _: dict = Depends(get_current_user),
+) -> list[MaintenanceWindowResponse]:
+    rows = (
+        await db.execute(select(MaintenanceWindow).order_by(MaintenanceWindow.name))
+    ).scalars().all()
+    return [MaintenanceWindowResponse.model_validate(w) for w in rows]
+
+
+@router.post("/maintenance-windows", response_model=MaintenanceWindowResponse, status_code=201)
+async def create_maintenance_window(
+    body: MaintenanceWindowCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(require_role("ADMIN", "OPERATOR")),
+) -> MaintenanceWindowResponse:
+    # Validate timezone
+    try:
+        zoneinfo.ZoneInfo(body.timezone)
+    except (KeyError, Exception) as exc:
+        raise HTTPException(status_code=422, detail=f"Invalid timezone: {body.timezone}") from exc
+
+    # Validate cron expression
+    if body.cron_expr is not None:
+        try:
+            croniter(body.cron_expr)
+        except (ValueError, KeyError) as exc:
+            raise HTTPException(status_code=422, detail=f"Invalid cron expression: {body.cron_expr}") from exc
+
+    # Validate scope_type
+    if body.scope_type not in _VALID_SCOPE_TYPES:
+        raise HTTPException(status_code=422, detail=f"Invalid scope_type: {body.scope_type}")
+
+    window = MaintenanceWindow(
+        name=body.name,
+        scope_type=body.scope_type,
+        scope_selector=body.scope_selector,
+        cron_expr=body.cron_expr,
+        duration_minutes=body.duration_minutes,
+        timezone=body.timezone,
+        is_enabled=body.is_enabled,
+    )
+    db.add(window)
+    await db.commit()
+    return MaintenanceWindowResponse.model_validate(window)
+
+
+# ── Remediation Plans ────────────────────────────────────────────────────────
 
 
 @router.get("/remediation-plans", response_model=CursorPage[RemediationPlanResponse])
@@ -37,6 +101,12 @@ async def list_remediation_plans(
     db: AsyncSession = Depends(get_db),
     _: dict = Depends(get_current_user),
 ) -> CursorPage[RemediationPlanResponse]:
+    # Total count with same filters (no cursor filter)
+    count_q = select(func.count()).select_from(RemediationPlan)
+    if status_:
+        count_q = count_q.where(RemediationPlan.status == status_)
+    total = (await db.execute(count_q)).scalar() or 0
+
     q = select(RemediationPlan).order_by(RemediationPlan.created_at.desc(), RemediationPlan.id.desc())
     if status_:
         q = q.where(RemediationPlan.status == status_)
@@ -56,6 +126,7 @@ async def list_remediation_plans(
     return CursorPage[RemediationPlanResponse](
         items=[RemediationPlanResponse.model_validate(p) for p in items],
         next_cursor=next_cursor,
+        total=total,
     )
 
 
@@ -69,8 +140,12 @@ async def create_remediation_plan(
 ) -> RemediationPlanResponse:
     svc = RemediationService(db, JobService(db, cache, nats))
     plan = await svc.create_plan(
-        name=body.name, trigger_type=body.trigger_type.value, actions=body.actions,
-        is_emergency=body.is_emergency, created_by=safe_user_uuid(current_user),
+        name=body.name,
+        trigger_type=body.trigger_type.value,
+        actions=body.actions,
+        is_emergency=body.is_emergency,
+        maintenance_window_id=body.maintenance_window_id,
+        created_by=safe_user_uuid(current_user),
     )
     return RemediationPlanResponse.model_validate(plan)
 
@@ -126,4 +201,78 @@ async def approve_remediation_plan(
 ) -> RemediationPlanResponse:
     svc = RemediationService(db, JobService(db, cache, nats))
     plan = await svc.approve(plan_id, current_user)
+    return RemediationPlanResponse.model_validate(plan)
+
+
+# ── Execution & Rollback ─────────────────────────────────────────────────────
+
+
+@router.get("/remediation-plans/{plan_id}/execution", response_model=RemediationExecutionResponse)
+async def get_remediation_execution(
+    plan_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _: dict = Depends(get_current_user),
+) -> RemediationExecutionResponse:
+    """Return the most recent Job and its results for a remediation plan."""
+    # Check plan exists
+    plan = (await db.execute(
+        select(RemediationPlan).where(RemediationPlan.id == plan_id)
+    )).scalar_one_or_none()
+    if plan is None:
+        raise HTTPException(status_code=404, detail="Remediation plan not found")
+
+    # Find the most recent linked job
+    link = (
+        await db.execute(
+            select(RemediationJob)
+            .join(Job, Job.id == RemediationJob.job_id)
+            .where(RemediationJob.remediation_plan_id == plan_id)
+            .order_by(Job.created_at.desc())
+        )
+    ).scalars().first()
+
+    if link is None:
+        return RemediationExecutionResponse(job_id=None, operation=None, job_status=None, results=[])
+
+    job = await db.get(Job, link.job_id)
+    operation = (job.parameters or {}).get("operation")
+    if operation not in ("APPLY", "ROLLBACK"):
+        operation = None
+
+    # Get results
+    results = (
+        await db.execute(
+            select(JobResult).where(JobResult.job_id == job.id)
+        )
+    ).scalars().all()
+
+    return RemediationExecutionResponse(
+        job_id=job.id,
+        operation=operation,
+        job_status=job.status,
+        results=[
+            RemediationExecutionResult(
+                agent_id=r.agent_id,
+                status=r.status,
+                exit_code=r.exit_code,
+                error_message=r.error_message,
+                stdout=r.stdout,
+                stderr=r.stderr,
+                duration_seconds=r.duration_seconds,
+            )
+            for r in results
+        ],
+    )
+
+
+@router.post("/remediation-plans/{plan_id}/rollback", response_model=RemediationPlanResponse)
+async def rollback_remediation_plan(
+    plan_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    cache: RedisCache = Depends(get_cache),
+    nats=Depends(get_nats),
+    current_user: dict = Depends(require_role("ADMIN")),
+) -> RemediationPlanResponse:
+    svc = RemediationService(db, JobService(db, cache, nats))
+    plan = await svc.rollback(plan_id, current_user)
     return RemediationPlanResponse.model_validate(plan)

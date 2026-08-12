@@ -32,7 +32,7 @@ async def _make_agent(db_session, **overrides) -> Agent:
 
 @pytest.mark.asyncio
 async def test_update_heartbeat_activates_agent_and_sets_ip(db_session, fake_cache):
-    agent = await _make_agent(db_session, agent_id="agent-abc")
+    await _make_agent(db_session, agent_id="agent-abc")
     svc = AgentService(db_session, fake_cache)
 
     updated = await svc.update_heartbeat("agent-abc", {"ip_address": "10.0.0.5"})
@@ -46,7 +46,7 @@ async def test_update_heartbeat_activates_agent_and_sets_ip(db_session, fake_cac
 async def test_update_heartbeat_persists_fqdn_and_agent_version(db_session, fake_cache):
     """Regression: Overview tab showed FQDN/Agent Version as '—' — verify the
     heartbeat write path stores both when the agent reports them."""
-    agent = await _make_agent(db_session, agent_id="agent-fqdn")
+    await _make_agent(db_session, agent_id="agent-fqdn")
     svc = AgentService(db_session, fake_cache)
 
     updated = await svc.update_heartbeat(
@@ -64,7 +64,7 @@ async def test_update_heartbeat_persists_fqdn_and_agent_version(db_session, fake
 @pytest.mark.asyncio
 async def test_update_heartbeat_ignores_empty_system_status_values(db_session, fake_cache):
     """Falsy values (empty string) must not clobber a previously known field."""
-    agent = await _make_agent(db_session, agent_id="agent-keep", fqdn="already-set.example.com")
+    await _make_agent(db_session, agent_id="agent-keep", fqdn="already-set.example.com")
     svc = AgentService(db_session, fake_cache)
 
     updated = await svc.update_heartbeat(
@@ -84,7 +84,7 @@ async def test_update_heartbeat_unknown_agent_raises(db_session, fake_cache):
 
 @pytest.mark.asyncio
 async def test_update_heartbeat_syncs_recent_logs_shape(db_session, fake_cache):
-    agent = await _make_agent(db_session, agent_id="agent-logs")
+    await _make_agent(db_session, agent_id="agent-logs")
     svc = AgentService(db_session, fake_cache)
 
     updated = await svc.update_heartbeat(

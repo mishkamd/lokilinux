@@ -10,7 +10,8 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.cache import RedisCache
-from lokilinux.models.agent import Agent, AgentHealth as AgentHealthRow, AgentStatus
+from lokilinux.models.agent import Agent, AgentStatus
+from lokilinux.models.agent import AgentHealth as AgentHealthRow
 from lokilinux.models.cve import CVE, AgentVulnerability, Package
 from lokilinux.models.job import JobResult
 from lokilinux.services.alert_service import AlertService

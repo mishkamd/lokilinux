@@ -8,8 +8,9 @@ Reported by heartbeat: fqdn (resolved from system_status), system_users
 """
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision = "003"
 down_revision = "002"

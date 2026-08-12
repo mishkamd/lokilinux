@@ -10,8 +10,8 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lokilinux.cache import RedisCache, TTL_CVE_DATA
-from lokilinux.models.cve import AgentVulnerability, CVE
+from lokilinux.cache import TTL_CVE_DATA, RedisCache
+from lokilinux.models.cve import CVE, AgentVulnerability
 
 
 class CVEService:

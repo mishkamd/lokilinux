@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.api.v1.routers._common import parse_agent_pk
 from lokilinux.auth.dependencies import get_current_user, require_role
-from lokilinux.cache import RedisCache, TTL_SERVER_LIST
+from lokilinux.cache import TTL_SERVER_LIST, RedisCache
 from lokilinux.dependencies import get_cache, get_db
 from lokilinux.models.agent import Agent, AgentHealth, AgentStatus
 from lokilinux.models.cve import Package

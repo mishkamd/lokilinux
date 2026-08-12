@@ -5,7 +5,7 @@ const props = withDefaults(defineProps<{
   bySeverity: Record<string, number>
   title?: string
 }>(), {
-  title: 'Top vulnerabilități',
+  title: 'Top Vulnerabilities',
 })
 
 const SEVERITY_ORDER = ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW'] as const
@@ -13,7 +13,7 @@ const SEVERITY_BAR_COLOR: Record<string, string> = {
   CRITICAL: 'bg-destructive', HIGH: 'bg-orange-500', MEDIUM: 'bg-warning', LOW: 'bg-info',
 }
 const SEVERITY_LABEL: Record<string, string> = {
-  CRITICAL: 'Critice', HIGH: 'Înalte', MEDIUM: 'Medii', LOW: 'Scăzute',
+  CRITICAL: 'Critical', HIGH: 'High', MEDIUM: 'Medium', LOW: 'Low',
 }
 
 const rows = computed(() => {
@@ -29,14 +29,14 @@ const total = computed(() => SEVERITY_ORDER.reduce((sum, sev) => sum + (props.by
 </script>
 
 <template>
-  <div class="glass-card rounded-xl p-3">
+  <div class="surface-card rounded-[var(--radius-md)] p-3">
     <div class="flex items-center gap-1.5 text-muted-foreground mb-2.5">
       <span class="flex items-center justify-center size-5 rounded-md bg-[color-mix(in_oklch,var(--primary-active)_15%,transparent)] text-primary-active shrink-0">
         <ShieldAlert class="size-3" />
       </span>
       <h2 class="label-caps">{{ props.title }}</h2>
     </div>
-    <div v-if="total === 0" class="text-xs text-muted-foreground py-2 text-center">Nicio vulnerabilitate deschisă.</div>
+    <div v-if="total === 0" class="text-xs text-muted-foreground py-2 text-center">No open vulnerabilities.</div>
     <div v-else class="space-y-1.5">
       <div v-for="row in rows" :key="row.sev" class="flex items-center gap-2 text-xs">
         <span class="w-12 shrink-0 text-muted-foreground">{{ SEVERITY_LABEL[row.sev] }}</span>

@@ -5,14 +5,21 @@ const { signIn } = useAuth()
 const router = useRouter()
 const toast = useToast()
 
-const form = reactive({ username: '', password: '', code: '' })
+const form = reactive({ identifier: '', password: '', code: '' })
 const pending = ref(false)
 const requires2FA = ref(false)
 
 async function onSubmit() {
+  const id = form.identifier.trim()
+  if (!id || !form.password) return
+
   pending.value = true
   try {
-    await signIn.username({ username: form.username, password: form.password })
+    if (id.includes('@')) {
+      await signIn.email({ email: id, password: form.password })
+    } else {
+      await signIn.username({ username: id, password: form.password })
+    }
     await refreshAuthToken()
     await router.push('/')
   } catch (error: unknown) {
@@ -36,11 +43,11 @@ async function onSubmit() {
     </div>
 
     <form class="space-y-4" @submit.prevent="onSubmit">
-      <FormField label="Utilizator" name="username">
+      <FormField label="Email sau utilizator" name="identifier">
         <Input
-          id="username"
-          v-model="form.username"
-          placeholder="username"
+          id="identifier"
+          v-model="form.identifier"
+          placeholder="admin@lokilinux.local"
           autocomplete="username"
         />
       </FormField>

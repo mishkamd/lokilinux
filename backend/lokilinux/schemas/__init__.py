@@ -1,6 +1,11 @@
 """LokiLinux — schema exports."""
 
-from lokilinux.schemas.category import CategoryCreate, CategoryResponse, ProjectCreate, ProjectResponse
+from lokilinux.schemas.category import (
+    CategoryCreate,
+    CategoryResponse,
+    ProjectCreate,
+    ProjectResponse,
+)
 from lokilinux.schemas.common import CursorPage, ErrorResponse, decode_cursor, encode_cursor
 from lokilinux.schemas.cve import (
     CVEListResponse,

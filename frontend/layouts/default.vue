@@ -1,5 +1,5 @@
 <template>
-  <div class="flex h-screen bg-background text-foreground overflow-hidden">
+  <div class="flex h-screen bg-background text-foreground overflow-hidden atmosphere">
     <Toaster rich-colors position="top-center" />
 
     <!-- Mobile backdrop -->
@@ -11,7 +11,7 @@
 
     <!-- Sidebar -->
     <aside
-      class="fixed lg:static inset-y-0 left-0 z-40 w-[232px] flex-shrink-0 flex flex-col bg-sidebar/95 backdrop-blur-xl border-r border-sidebar-border shadow-[4px_0_24px_rgba(0,0,0,0.25)] transition-transform duration-200 -translate-x-full lg:translate-x-0"
+      class="fixed lg:static inset-y-0 left-0 z-40 w-[232px] flex-shrink-0 flex flex-col bg-sidebar border-r border-sidebar-border shadow-[4px_0_32px_rgba(0,0,0,0.35)] transition-transform duration-[var(--duration-slow)] ease-[var(--ease-out-expo)] -translate-x-full lg:translate-x-0"
       :class="{ 'translate-x-0': sidebarOpen, 'lg:hidden': sidebarCollapsed }"
     >
       <!-- Logo -->
@@ -142,7 +142,7 @@
 
     <!-- Main content -->
     <div class="flex-1 flex flex-col overflow-hidden">
-      <div class="sticky top-0 z-20 flex-shrink-0 border-b border-border bg-background/80 backdrop-blur-xl">
+      <div class="sticky top-0 z-20 flex-shrink-0 border-b border-border bg-background/90">
         <header class="h-16 flex items-center gap-2 sm:gap-3 px-3 sm:px-4">
           <button
             type="button"
@@ -162,7 +162,7 @@
             <PanelLeftClose v-else class="size-4.5" />
           </button>
 
-          <h1 class="text-sm font-semibold truncate shrink-0">{{ currentPageTitle }}</h1>
+          <h1 class="page-title truncate shrink-0">{{ currentPageTitle }}</h1>
 
           <div class="flex-1 hidden md:flex justify-center">
             <div class="relative w-full max-w-md">

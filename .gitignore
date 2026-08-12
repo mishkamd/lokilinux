@@ -10,6 +10,7 @@ certs/
 .aislop/
 .claude-flow/
 .claude/
+.codegraph/
 .codex/
 .gstack/
 .omp/
@@ -26,6 +27,7 @@ graphify-out/
 openwiki/
 frontend/.nuxt/
 frontend/.output/
+node_modules/
 frontend/node_modules/
 backend/.coverage
 __pycache__/

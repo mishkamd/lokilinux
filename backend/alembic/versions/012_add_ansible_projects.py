@@ -9,8 +9,9 @@ in the UI, matching a real project's debug/ directory of loose playbooks.
 """
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision = "012"
 down_revision = "011"

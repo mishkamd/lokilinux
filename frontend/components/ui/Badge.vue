@@ -22,7 +22,7 @@ const cls = computed(() => {
   const cv = COLOR[props.color] ?? COLOR.gray
   const colorCls = cv[props.variant!] ?? cv.soft
   const sizeCls = props.size === 'md' ? 'px-2.5 py-1 text-sm' : 'px-2 py-0.5 text-xs'
-  return cn('inline-flex items-center rounded-full font-mono font-medium', colorCls, sizeCls, props.class)
+  return cn('inline-flex items-center rounded-full font-mono font-medium tracking-tight', colorCls, sizeCls, props.class)
 })
 </script>
 

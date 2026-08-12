@@ -18,7 +18,7 @@ const props = defineProps<{
 </script>
 
 <template>
-  <div :class="cn('rounded-lg border p-4', COLOR[props.color ?? 'gray'], props.class)">
+  <div :class="cn('rounded-[var(--radius-md)] border p-4', COLOR[props.color ?? 'gray'], props.class)">
     <p v-if="title" class="font-medium text-sm">{{ title }}</p>
     <p v-if="description" class="text-sm mt-1 opacity-80">{{ description }}</p>
     <slot />

@@ -59,7 +59,7 @@ const attrs = useAttrs()
   <SelectRoot :model-value="internalValue" @update:model-value="onChange">
     <SelectTrigger
       :class="cn(
-        'group flex h-8 w-full items-center justify-between gap-2 rounded-lg border border-input bg-card px-2.5 py-1 text-[14px] ring-offset-background transition-colors hover:border-ring/50 focus:outline-none focus:ring-2 focus:ring-ring focus:border-primary disabled:cursor-not-allowed disabled:opacity-50 data-[placeholder]:text-muted-foreground',
+        'group flex h-8 w-full items-center justify-between gap-2 rounded-[var(--radius-sm)] border border-input bg-card px-2.5 py-1 text-[14px] ring-offset-background transition-all duration-[var(--duration-fast)] hover:border-ring/50 focus:outline-none focus:ring-2 focus:ring-ring focus:border-primary focus:shadow-[0_0_0_3px_color-mix(in_oklch,var(--ring)_15%,transparent)] disabled:cursor-not-allowed disabled:opacity-50 data-[placeholder]:text-muted-foreground',
         props.class,
       )"
       v-bind="attrs"
@@ -76,7 +76,7 @@ const attrs = useAttrs()
       <SelectContent
         :side-offset="6"
         position="popper"
-        class="z-50 max-h-64 w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-input bg-popover text-popover-foreground shadow-[0_8px_24px_rgba(0,0,0,0.45)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
+        class="z-50 max-h-64 w-[var(--radix-select-trigger-width)] overflow-hidden rounded-[var(--radius-md)] border border-input bg-popover text-popover-foreground shadow-[var(--shadow-overlay)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95"
       >
         <SelectScrollUpButton class="flex h-6 items-center justify-center bg-popover text-muted-foreground">
           <ChevronUp class="size-3.5" />

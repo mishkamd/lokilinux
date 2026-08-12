@@ -3,7 +3,38 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ─── Design Tokens ───────────────────────────────────────────────
+ *  "Precision Terminal" — enterprise command-center aesthetic.
+ *  Forest-green primary on deep near-black canvas, monospace-driven
+ *  typography, consistent geometry, atmospheric depth.
+ * ────────────────────────────────────────────────────────────────── */
+
 @theme inline {
+  /* Radius scale — all components derive from these variables.
+   * --radius is the base (16px). Every component uses the semantic
+   * variable, NOT a hardcoded value. */
+  --radius-none: 0;
+  --radius-sm: calc(var(--radius) - 6px);    /* 10px — inputs, selects, checkboxes */
+  --radius-md: calc(var(--radius) - 4px);    /* 12px — cards, alerts */
+  --radius-lg: var(--radius);                /* 16px — buttons, tables */
+  --radius-xl: calc(var(--radius) + 4px);    /* 20px — dialogs/modals */
+  --radius-2xl: calc(var(--radius) + 8px);   /* 24px — special containers */
+  --radius-full: 9999px;
+
+  /* Elevation shadows — consistent depth hierarchy */
+  --shadow-surface: 0 0 0 1px rgba(255, 255, 255, 0.03);
+  --shadow-raised: 0 4px 12px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  --shadow-overlay: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --shadow-dialog: 0 12px 48px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.08);
+
+  /* Animation */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-in-out-expo: cubic-bezier(0.87, 0, 0.13, 1);
+  --duration-fast: 150ms;
+  --duration-normal: 200ms;
+  --duration-slow: 300ms;
+
+  /* Color tokens — semantic names map to the CSS variables below */
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -42,15 +73,14 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
-  --radius-sm: calc(var(--radius) - 8px);
-  --radius-md: calc(var(--radius) - 4px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 8px);
-  --radius-2xl: calc(var(--radius) + 12px);
+
+  /* Typography — three-face system */
   --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: "IBM Plex Mono", "Geist Mono", ui-monospace, SFMono-Regular, monospace;
   --font-display: "Bitcount Single", "Inter", ui-sans-serif, sans-serif;
 }
+
+/* ─── Color Schemes ──────────────────────────────────────────── */
 
 :root {
   color-scheme: light;
@@ -137,8 +167,11 @@
   --sidebar-ring: #4FAF74;
 }
 
+/* ─── Base ───────────────────────────────────────────────────── */
+
 html {
   font-size: 106%;
+  scroll-behavior: smooth;
 }
 
 *,
@@ -151,12 +184,39 @@ html {
 body {
   background-color: var(--background);
   color: var(--foreground);
+  font-family: var(--font-sans);
   font-variant-numeric: tabular-nums;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
+
+/* ─── Typography ─────────────────────────────────────────────── */
 
 h1, h2, h3, h4, h5, h6 {
   font-weight: 600;
   line-height: 1.25;
+}
+
+/* Page titles — Bitcount Single for distinctive character */
+.page-title {
+  font-family: var(--font-display);
+  font-size: 1.25rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.section-title {
+  font-family: var(--font-display);
+  font-size: 0.9375rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+/* Data values — monospace for precision */
+.data-value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
 }
 
 .text-muted {
@@ -169,7 +229,90 @@ h1, h2, h3, h4, h5, h6 {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--muted-foreground);
+  font-family: var(--font-mono);
 }
+
+/* ─── Background Texture ────────────────────────────────────────
+ *  Subtle noise + grid overlay on the background surface.
+ *  Barely perceptible — adds atmospheric depth without distraction. */
+
+.bg-noise {
+  position: relative;
+}
+
+.bg-noise::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  opacity: 0.03;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 256px 256px;
+  pointer-events: none;
+}
+
+.bg-noise.dark::before,
+.dark .bg-noise::before {
+  opacity: 0.04;
+}
+
+/* Subtle grid — horizontal + vertical 1px lines at 64px spacing */
+.bg-grid {
+  position: relative;
+}
+
+.bg-grid::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  opacity: 0.02;
+  background-image:
+    linear-gradient(to right, currentColor 1px, transparent 1px),
+    linear-gradient(to bottom, currentColor 1px, transparent 1px);
+  background-size: 64px 64px;
+  pointer-events: none;
+  color: var(--foreground);
+}
+
+.dark .bg-grid::after {
+  opacity: 0.015;
+}
+
+/* Combined atmospheric backdrop — noise + grid on darkest layer */
+.atmosphere {
+  position: relative;
+}
+
+.atmosphere::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -2;
+  background-color: var(--background);
+}
+
+.atmosphere::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  opacity: 0.03;
+  background-image:
+    linear-gradient(to right, currentColor 1px, transparent 1px),
+    linear-gradient(to bottom, currentColor 1px, transparent 1px),
+    url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 64px 64px, 64px 64px, 256px 256px;
+  pointer-events: none;
+  color: var(--foreground);
+}
+
+.dark .atmosphere::after {
+  opacity: 0.025;
+}
+
+/* ─── Status Colors ──────────────────────────────────────────── */
 
 .status-active {
   color: #15803d;
@@ -207,6 +350,39 @@ h1, h2, h3, h4, h5, h6 {
   }
 }
 
+/* ─── Surface / Container Patterns ───────────────────────────── */
+
+/* Terminal-precision surface: no glass/blur, just crisp borders + subtle shadow */
+.surface-card {
+  background-color: var(--card);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-surface);
+  transition:
+    transform var(--duration-normal) var(--ease-out-expo),
+    box-shadow var(--duration-normal) var(--ease-out-expo),
+    border-color var(--duration-normal) var(--ease-out-expo);
+}
+
+.surface-card:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-raised);
+  border-color: color-mix(in oklch, var(--border), var(--primary) 20%);
+}
+
+.surface-elevated {
+  background-color: var(--card-elevated);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-raised);
+}
+
+.surface-dialog {
+  background-color: var(--card);
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-dialog);
+}
+
+/* ─── Toast / Sonner ─────────────────────────────────────────── */
+
 [data-sonner-toaster] {
   --normal-bg: var(--popover);
   --normal-border: var(--border);
@@ -222,21 +398,74 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 [data-sonner-toast] {
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.01), 0 8px 24px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-overlay);
 }
 
-/* Flat enterprise surface — no glass/blur, per terminal-inspired design brief */
-.glass-card {
-  background-color: var(--card);
-  border: 1px solid var(--border);
-  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.01);
-  transition: transform 200ms ease, box-shadow 200ms ease, border-color 200ms ease;
+/* ─── Animations ─────────────────────────────────────────────── */
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
-.glass-card:hover {
-  transform: translateY(-2px);
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 
-.glass-backdrop {
-  background-color: var(--background);
+@keyframes slide-down {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklch, var(--primary) 30%, transparent); }
+  50% { box-shadow: 0 0 0 4px color-mix(in oklch, var(--primary) 15%, transparent); }
+}
+
+/* Page content stagger — each child fades in with a delay */
+.animate-stagger > * {
+  opacity: 0;
+  animation: slide-up var(--duration-slow) var(--ease-out-expo) forwards;
+}
+
+.animate-stagger > *:nth-child(1) { animation-delay: 0ms; }
+.animate-stagger > *:nth-child(2) { animation-delay: 60ms; }
+.animate-stagger > *:nth-child(3) { animation-delay: 120ms; }
+.animate-stagger > *:nth-child(4) { animation-delay: 180ms; }
+.animate-stagger > *:nth-child(5) { animation-delay: 240ms; }
+.animate-stagger > *:nth-child(6) { animation-delay: 300ms; }
+.animate-stagger > *:nth-child(7) { animation-delay: 360ms; }
+.animate-stagger > *:nth-child(8) { animation-delay: 420ms; }
+
+/* ─── Scrollbar ──────────────────────────────────────────────── */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: color-mix(in oklch, var(--foreground) 12%, transparent);
+  border-radius: var(--radius-full);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in oklch, var(--foreground) 20%, transparent);
+}
+
+/* ─── Selection ──────────────────────────────────────────────── */
+
+::selection {
+  background-color: color-mix(in oklch, var(--primary) 30%, transparent);
+  color: var(--foreground);
 }

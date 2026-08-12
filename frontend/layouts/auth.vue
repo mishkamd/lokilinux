@@ -1,5 +1,5 @@
 <template>
-  <div class="min-h-screen flex items-center justify-center bg-background px-4 relative overflow-hidden glass-backdrop">
+  <div class="min-h-screen flex items-center justify-center px-4 relative overflow-hidden atmosphere">
     <Toaster rich-colors />
     <div class="w-full max-w-md relative">
       <div class="text-center mb-8">

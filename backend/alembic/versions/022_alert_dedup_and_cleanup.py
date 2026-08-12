@@ -14,6 +14,7 @@ Order matters: the partial unique index cannot be created while duplicate
 """
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision = "022"

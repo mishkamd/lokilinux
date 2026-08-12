@@ -64,7 +64,7 @@ describe('useServersStore', () => {
 
     expect(apiMocks.get).toHaveBeenCalledWith('/vulnerabilities/servers/srv-1')
     expect(store.vulnerabilities).toHaveLength(1)
-    expect(store.vulnerabilities[0].cve_id).toBe('CVE-2026-0001')
+    expect(store.vulnerabilities![0]!.cve_id).toBe('CVE-2026-0001')
     expect(store.vulnerabilitiesLoading).toBe(false)
   })
 
@@ -78,7 +78,7 @@ describe('useServersStore', () => {
     await store.toggleMaintenance('srv-1')
 
     expect(apiMocks.post).toHaveBeenCalledWith('/servers/srv-1/maintenance')
-    expect(store.servers[0].status).toBe('MAINTENANCE')
+    expect(store.servers![0]!.status).toBe('MAINTENANCE')
     expect(store.selectedServer?.status).toBe('MAINTENANCE')
   })
 })

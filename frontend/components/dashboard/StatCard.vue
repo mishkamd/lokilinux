@@ -25,7 +25,7 @@ const hasBadges = computed(() => !!props.badges?.length)
 <template>
   <NuxtLink
     :to="props.to"
-    class="group relative flex min-h-[104px] flex-col gap-2 overflow-hidden rounded-xl border border-white/[0.06] bg-card p-4 transition-all duration-200 ease-out hover:-translate-y-0.5 hover:border-primary-active/40"
+    class="group relative flex min-h-[104px] flex-col gap-2 overflow-hidden rounded-[var(--radius-md)] border border-[color-mix(in_oklch,var(--foreground)_6%,transparent)] bg-card p-4 shadow-[var(--shadow-surface)] transition-all duration-[var(--duration-normal)] ease-[var(--ease-out-expo)] hover:-translate-y-0.5 hover:shadow-[var(--shadow-raised)] hover:border-[color-mix(in_oklch,var(--border),var(--primary)_20%)]"
   >
     <div class="relative flex items-center justify-between gap-2">
       <div class="flex min-w-0 items-center gap-2 text-muted-foreground">

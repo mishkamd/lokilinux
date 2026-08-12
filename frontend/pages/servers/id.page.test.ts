@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mockNuxtImport, mountSuspended } from '@nuxt/test-utils/runtime'
 import { setActivePinia, createPinia } from 'pinia'
+// @ts-expect-error — Nuxt dynamic route brackets aren't in generated type declarations
 import ServerDetailPage from './[id].vue'
 
 const apiMocks = {
@@ -51,9 +52,9 @@ describe('servers/[id].vue — Vulnerabilities & Settings tabs', () => {
 
     expect(apiMocks.get).not.toHaveBeenCalledWith('/vulnerabilities/servers/srv-1')
 
-    // Vulnerabilities is the 3rd tab (index 2)
+    // Vulnerabilities is the 4th tab (index 3)
     const tabButtons = wrapper.findAll('button')
-    await tabButtons[2]!.trigger('click')
+    await tabButtons[3]!.trigger('click')
 
     expect(apiMocks.get).toHaveBeenCalledWith('/vulnerabilities/servers/srv-1')
     expect(wrapper.text()).toContain('CVE-2026-0001')
@@ -68,11 +69,11 @@ describe('servers/[id].vue — Vulnerabilities & Settings tabs', () => {
 
     const wrapper = await mountSuspended(ServerDetailPage)
 
-    // Settings is the last (7th) tab (index 6)
+    // Settings is the last (8th) tab (index 7)
     const tabButtons = wrapper.findAll('button')
-    await tabButtons[6]!.trigger('click')
+    await tabButtons[7]!.trigger('click')
 
-    const toggleButton = wrapper.findAll('button').find(b => b.text().includes('mentenanța'))
+    const toggleButton = wrapper.findAll('button').find(b => b.text().includes('maintenance'))
     expect(toggleButton).toBeTruthy()
 
     await toggleButton!.trigger('click')
