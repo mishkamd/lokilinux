@@ -364,4 +364,8 @@ const currentPageTitle = computed((): string => {
     ?? adminLinks.find((l) => isActive(l.to))
   return match?.label ?? companyName.value
 })
+
+// Drives the browser tab (via nuxt.config.ts's titleTemplate), reusing the
+// same label already shown in the page header — one source of truth.
+useHead({ title: currentPageTitle })
 </script>

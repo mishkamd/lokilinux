@@ -30,4 +30,6 @@
 import { Toaster } from 'vue-sonner'
 
 const { companyName, logoMaskStyle } = useBranding()
+
+useHead({ title: 'Autentificare' })
 </script>

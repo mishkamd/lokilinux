@@ -6,7 +6,23 @@ export default defineNuxtConfig({
 
   app: {
     head: {
-      meta: [{ name: 'color-scheme', content: 'dark light' }],
+      title: 'LokiLinux',
+      // %s comes from each page's useHead({ title }) — layouts/default.vue
+      // feeds it the same currentPageTitle already shown in the header, and
+      // layouts/auth.vue sets its own for the login screen.
+      titleTemplate: '%s · LokiLinux',
+      meta: [
+        { name: 'color-scheme', content: 'dark light' },
+        {
+          name: 'description',
+          content: 'Enterprise Linux fleet management — patch management, vulnerability scanning, compliance automation, and remediation at scale.',
+        },
+        // Every route sits behind auth (server/middleware/auth.ts) — there's
+        // no public content here for a search engine to rank, and indexing
+        // an internal admin tool risks leaking infrastructure details
+        // (server counts, CVE dashboards, org names) into search results.
+        { name: 'robots', content: 'noindex, nofollow' },
+      ],
       link: [{ rel: 'icon', type: 'image/svg+xml', href: '/logo.svg' }],
       script: [
         {
