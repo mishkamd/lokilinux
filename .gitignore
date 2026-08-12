@@ -27,7 +27,12 @@ openwiki/
 frontend/.nuxt/
 frontend/.output/
 frontend/node_modules/
-backend/.coverage/
+backend/.coverage
 __pycache__/
 *.pyc
 *.egg-info/
+
+# Go build artifacts (dev binaries + packaged releases under agent/bin/)
+agent/agent
+agent/bin/
+services/compliance/compliance

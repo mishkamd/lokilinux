@@ -34,7 +34,7 @@ export function useCurrentUser() {
   // hook (utils/api.ts): resolve the session server-side via the same
   // request-scoped getSession(event) used for Bearer-token auth, so the
   // value baked into the SSR payload matches what the client hydrates with.
-  const { data, status } = useAsyncData<AuthSession | null>('current-user', async () => {
+  const { data } = useAsyncData<AuthSession | null>('current-user', async () => {
     if (import.meta.server) {
       const event = useRequestEvent()
       if (!event) return null
@@ -46,8 +46,6 @@ export function useCurrentUser() {
   })
 
   const user = computed(() => data.value?.user ?? null)
-  const isAuthenticated = computed(() => !!data.value?.user)
-  const isPending = computed(() => status.value === 'pending')
 
   function hasRole(role: Role): boolean {
     // Better Auth stores role lowercase ('admin', 'user'); backend RBAC uses
@@ -60,5 +58,5 @@ export function useCurrentUser() {
   const canEdit = computed(() => hasRole('ADMIN') || hasRole('OPERATOR'))
   const isAdmin = computed(() => hasRole('ADMIN'))
 
-  return { user, isAuthenticated, isPending, hasRole, canEdit, isAdmin }
+  return { user, hasRole, canEdit, isAdmin }
 }
