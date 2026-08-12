@@ -19,7 +19,7 @@ export function useServers() {
   return {
     ...storeToRefs(store),
     statusColor,
-    refresh: store.fetchServers,
+    fetchServers: store.fetchServers,
     toggleMaintenance: store.toggleMaintenance,
     fetchCategories: store.fetchCategories,
     fetchProjects: store.fetchProjects,

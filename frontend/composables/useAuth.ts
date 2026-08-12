@@ -1,10 +1,10 @@
 import { createAuthClient } from "better-auth/vue"
-import { twoFactorClient } from "better-auth/client/plugins"
+import { twoFactorClient, usernameClient } from "better-auth/client/plugins"
 
 type Role = 'ADMIN' | 'OPERATOR' | 'VIEWER' | 'AUDITOR'
 
 const authClient = createAuthClient({
-  plugins: [twoFactorClient()],
+  plugins: [twoFactorClient(), usernameClient()],
 })
 
 export function useAuth() {
@@ -20,15 +20,34 @@ export async function refreshAuthToken(): Promise<string | null> {
   return token
 }
 
-export function useCurrentUser() {
-  // authClient.useSession() returns a Vue ref (nanostores shallowRef) — must
-  // read .value here since this runs inside a composable, not a <script setup>
-  // top-level binding, so no compiler auto-unwrap applies.
-  const session = authClient.useSession()
+interface AuthSession {
+  session: { token?: string; [key: string]: unknown }
+  user: { name?: string; username?: string; email?: string; role?: string; [key: string]: unknown }
+}
 
-  const user = computed(() => session.value?.data?.user ?? null)
-  const isAuthenticated = computed(() => !!session.value?.data)
-  const isPending = computed(() => session.value?.isPending)
+export function useCurrentUser() {
+  // authClient.useSession() (Better Auth's Vue client, nanostores-based) never
+  // resolves during SSR (refreshAuthToken() above explicitly skips it there) —
+  // the server render always fell back to a placeholder while the client
+  // resolved the real user moments later, causing a hydration mismatch on
+  // every authenticated page. useAsyncData mirrors useApi()'s onRequest
+  // hook (utils/api.ts): resolve the session server-side via the same
+  // request-scoped getSession(event) used for Bearer-token auth, so the
+  // value baked into the SSR payload matches what the client hydrates with.
+  const { data, status } = useAsyncData<AuthSession | null>('current-user', async () => {
+    if (import.meta.server) {
+      const event = useRequestEvent()
+      if (!event) return null
+      const { getSession } = await import('../server/utils/session')
+      return (await getSession(event)) as AuthSession | null
+    }
+    const res = await authClient.getSession()
+    return (res.data as AuthSession | null) ?? null
+  })
+
+  const user = computed(() => data.value?.user ?? null)
+  const isAuthenticated = computed(() => !!data.value?.user)
+  const isPending = computed(() => status.value === 'pending')
 
   function hasRole(role: Role): boolean {
     // Better Auth stores role lowercase ('admin', 'user'); backend RBAC uses

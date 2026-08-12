@@ -55,24 +55,29 @@ export default defineNuxtConfig({
     },
   },
 
-  nitro: {
-    compression: 'gzip',
-    headers: {
-      'Cache-Control': 'public, max-age=3600',
-    },
-    // node-server preset runs on node:22 (see Dockerfile) — bump esbuild's
-    // default es2019 target so top-level await compiles (server/utils/auth.ts
-    // reads Platform Settings from Postgres at module load).
-    esbuild: {
-      options: { target: 'node22' },
-    },
-  },
-
   routeRules: {
     // Same-origin proxy: browser hits /api/v1/** on the Nuxt origin, Nitro forwards
     // to the FastAPI container. One public URL fronts frontend + API (no CORS).
     '/api/v1/**': {
       proxy: `${process.env.API_INTERNAL_URL || 'http://lokilinux-api:8000'}/api/v1/**`,
+      // Without this, the '/**' rule below's Cache-Control leaks onto proxied
+      // API responses too — the browser then caches GETs (job lists, counts,
+      // statuses) for an hour and silently serves stale data on every
+      // subsequent request to the same URL, indistinguishable from a real bug.
+      headers: { 'Cache-Control': 'no-store' },
+    },
+    // Global cache headers for static content.
+    '/**': {
+      headers: { 'Cache-Control': 'public, max-age=3600' },
+    },
+  },
+
+  nitro: {
+    // node-server preset runs on node:22 (see Dockerfile) — bump esbuild's
+    // default es2019 target so top-level await compiles (server/utils/auth.ts
+    // reads Platform Settings from Postgres at module load).
+    esbuild: {
+      options: { target: 'node22' },
     },
   },
 
