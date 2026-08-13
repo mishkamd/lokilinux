@@ -8,10 +8,16 @@ package rules
 
 import (
 	"context"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/google/cel-go/cel"
+	"lukechampine.com/blake3"
+
+	"github.com/lokilinux/compliance/internal/scope"
 )
 
 // Result mirrors rule_evaluations.result (docs/compliance/01-DATA-MODEL.md §4).
@@ -36,24 +42,37 @@ const (
 
 // Rule is the subset of a compliance_rules row the evaluator needs.
 type Rule struct {
-	ID          string
-	CheckSource CheckSource
-	CheckExpr   string // CEL source; empty when CheckSource != CEL
+	ID             string
+	CheckSource    CheckSource
+	CheckExpr      string   // CEL source; empty when CheckSource != CEL
+	PlatformFilter []string // compliance_rules.platform_filter; empty = every platform
+	ExpectedValue  any      // compliance_rules.expected_value, decoded JSON; nil if unset
+	// EvidencePaths are dotted paths into the facts document (e.g.
+	// "sshd.PermitRootLogin") this rule's check_expr actually reads —
+	// sourced from compliance_rule_resources rows with
+	// resource_type='FACT_PATH' (docs/compliance §21, §40). Evidence is
+	// built by extracting exactly these values, never the whole facts
+	// document.
+	EvidencePaths []string
 }
 
 // Verdict is the outcome of evaluating one rule against one fact document.
 type Verdict struct {
-	Result      Result
-	ActualValue any
-	Evidence    map[string]any
-	Err         error
+	Result       Result
+	ActualValue  any
+	Evidence     map[string]any
+	EvidenceHash string // blake3(canonical evidence JSON) — tamper-evidence per docs/compliance §21
+	Err          error
 }
 
-// Evaluator checks one compliance rule against a fact document. The only
-// production implementation is CEL; the interface leaves room for a future
-// OscapEvaluator (CheckSourceOscapFallback) without touching call sites.
+// Evaluator checks one compliance rule against a fact document. platform is
+// the agent's compliance_rules.platform_filter identifier (scope.PlatformID)
+// — required so a rule scoped to rhel9 is never evaluated against an
+// Ubuntu agent (docs/compliance §38). The only production implementation is
+// CEL; the interface leaves room for a future OscapEvaluator
+// (CheckSourceOscapFallback) without touching call sites.
 type Evaluator interface {
-	Evaluate(ctx context.Context, rule Rule, facts map[string]any) Verdict
+	Evaluate(ctx context.Context, rule Rule, facts map[string]any, platform string) Verdict
 }
 
 // factsVar is the single top-level CEL variable every rule's check_expr is
@@ -84,7 +103,18 @@ func NewCELEvaluator() (*CELEvaluator, error) {
 	return &CELEvaluator{env: env, programs: make(map[string]cel.Program)}, nil
 }
 
-func (e *CELEvaluator) Evaluate(ctx context.Context, rule Rule, facts map[string]any) Verdict {
+func (e *CELEvaluator) Evaluate(ctx context.Context, rule Rule, facts map[string]any, platform string) Verdict {
+	if !scope.PlatformApplicable(rule.PlatformFilter, platform) {
+		return Verdict{
+			Result: ResultNotApplicable,
+			Evidence: map[string]any{
+				"reason":          "platform_not_applicable",
+				"agent_platform":  platform,
+				"platform_filter": rule.PlatformFilter,
+			},
+		}
+	}
+
 	if rule.CheckSource != CheckSourceCEL {
 		// OVAL_UNMAPPED / OSCAP_FALLBACK: never silently PASS. Coverage
 		// tracking (docs/compliance/07-POLICY-ENGINE.md §3) depends on this
@@ -110,11 +140,72 @@ func (e *CELEvaluator) Evaluate(ctx context.Context, rule Rule, facts map[string
 		}
 	}
 
-	evidence := map[string]any{"facts": facts}
-	if pass {
-		return Verdict{Result: ResultPass, ActualValue: true, Evidence: evidence}
+	actual := actualByPath(facts, rule.EvidencePaths)
+	evidence := map[string]any{
+		"fact_paths": rule.EvidencePaths,
+		"actual":     actual,
+		"source":     "lokilinux-agent",
 	}
-	return Verdict{Result: ResultFail, ActualValue: false, Evidence: evidence}
+	if rule.ExpectedValue != nil {
+		evidence["expected"] = rule.ExpectedValue
+	}
+	hash, hashErr := evidenceHash(evidence)
+	if hashErr != nil {
+		return Verdict{Result: ResultError, Err: fmt.Errorf("hashing evidence for rule %s: %w", rule.ID, hashErr)}
+	}
+
+	var actualValue any = actual
+	if pass {
+		return Verdict{Result: ResultPass, ActualValue: actualValue, Evidence: evidence, EvidenceHash: hash}
+	}
+	return Verdict{Result: ResultFail, ActualValue: actualValue, Evidence: evidence, EvidenceHash: hash}
+}
+
+// actualByPath extracts exactly the fact values a rule's check_expr reads —
+// never the whole facts document (docs/compliance §4, §21: "never store
+// only FAILED", but also never store more than what the check actually
+// looked at). Missing paths are simply absent from the result rather than
+// erroring — a rule whose evidence path doesn't (yet) exist in this
+// snapshot still produced a real PASS/FAIL/ERROR verdict above; the
+// evidence is best-effort annotation, not the source of truth for the result.
+func actualByPath(facts map[string]any, paths []string) map[string]any {
+	out := make(map[string]any, len(paths))
+	for _, p := range paths {
+		if v, ok := extractPath(facts, p); ok {
+			out[p] = v
+		}
+	}
+	return out
+}
+
+// extractPath walks a dot-separated path (e.g. "sshd.PermitRootLogin")
+// through nested map[string]any levels, mirroring the shape
+// encoding/json.Unmarshal produces for the canonical facts document.
+func extractPath(facts map[string]any, dotted string) (any, bool) {
+	var cur any = facts
+	for _, seg := range strings.Split(dotted, ".") {
+		m, ok := cur.(map[string]any)
+		if !ok {
+			return nil, false
+		}
+		cur, ok = m[seg]
+		if !ok {
+			return nil, false
+		}
+	}
+	return cur, true
+}
+
+// evidenceHash is BLAKE3 over the evidence map's canonical (key-sorted, via
+// encoding/json) JSON encoding — a stable fingerprint so evidence tampering
+// after the fact is detectable (docs/compliance §21).
+func evidenceHash(evidence map[string]any) (string, error) {
+	body, err := json.Marshal(evidence)
+	if err != nil {
+		return "", err
+	}
+	sum := blake3.Sum256(body)
+	return hex.EncodeToString(sum[:]), nil
 }
 
 // compiled returns the cached program for rule.ID, compiling and caching it

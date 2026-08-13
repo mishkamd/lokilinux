@@ -10,6 +10,7 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
@@ -144,41 +145,127 @@ type DriftFieldDiff struct {
 	NewValue  []byte
 }
 
-// ActiveRulesForDomain returns enabled CEL/OVAL_UNMAPPED/OSCAP_FALLBACK
-// rules for a domain that belong to a globally-assigned policy set.
-//
-// ponytail: GLOBAL-scope assignments only — full scope-tree resolution
-// (matching an agent's os/role/environment/datacenter/cluster/application
-// against policy_assignments.scope_selector, the same merge-by-specificity
-// algorithm baseline_effective uses) is real, non-trivial logic that
-// doesn't exist yet anywhere in this service. This is the honest v1: an
-// org with only fleet-wide policy sets gets correct evaluation today;
-// scoped assignments are silently not applied until that resolver is
-// built. Upgrade path: replace this query with a call into a
-// baseline.Resolver-shaped PolicyResolver once that exists.
-func (s *Store) ActiveRulesForDomain(ctx context.Context, domain string) ([]RuleWithPolicySet, error) {
+// PolicyAssignment is one enabled policy_assignments row — the input set
+// policy.MatchingSetIDs filters by the agent's attributes
+// (docs/compliance/07-POLICY-ENGINE.md).
+type PolicyAssignment struct {
+	PolicySetID   uuid.UUID
+	ScopeType     string
+	ScopeSelector map[string]any
+}
+
+// LoadActivePolicyAssignments returns every enabled policy_assignments row,
+// every scope_type — not just GLOBAL. Full scope-tree resolution happens in
+// internal/policy (mirrors internal/baseline's resolver), replacing the
+// earlier GLOBAL-only restriction.
+func (s *Store) LoadActivePolicyAssignments(ctx context.Context) ([]PolicyAssignment, error) {
 	rowsResult, err := s.pool.Query(ctx, `
-		SELECT DISTINCT cr.id, cr.rule_key, cr.check_source, cr.check_expr, psr.policy_set_id
+		SELECT policy_set_id, scope_type, scope_selector
+		FROM policy_assignments
+		WHERE is_enabled = true
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("querying active policy assignments: %w", err)
+	}
+	defer rowsResult.Close()
+
+	var out []PolicyAssignment
+	for rowsResult.Next() {
+		var a PolicyAssignment
+		if err := rowsResult.Scan(&a.PolicySetID, &a.ScopeType, &a.ScopeSelector); err != nil {
+			return nil, fmt.Errorf("scanning policy assignment row: %w", err)
+		}
+		out = append(out, a)
+	}
+	return out, rowsResult.Err()
+}
+
+// RulesForPolicySetsAndDomain returns enabled CEL/OVAL_UNMAPPED/OSCAP_FALLBACK
+// rules for a domain that belong to any of policySetIDs — the caller (ingest.go)
+// resolves policySetIDs via policy.MatchingSetIDs first, keeping scope
+// resolution and rule loading as separate, independently testable steps.
+// An empty policySetIDs returns no rows (no matching assignment for this
+// agent), not "every rule".
+func (s *Store) RulesForPolicySetsAndDomain(ctx context.Context, policySetIDs []uuid.UUID, domain string) ([]RuleWithPolicySet, error) {
+	if len(policySetIDs) == 0 {
+		return nil, nil
+	}
+	rowsResult, err := s.pool.Query(ctx, `
+		SELECT DISTINCT cr.id, cr.rule_key, cr.check_source, cr.check_expr,
+		       cr.platform_filter, cr.expected_value, psr.policy_set_id
 		FROM compliance_rules cr
 		JOIN policy_set_rules psr ON psr.rule_id = cr.id
-		JOIN policy_assignments pa ON pa.policy_set_id = psr.policy_set_id
-		WHERE cr.domain = $1 AND cr.is_enabled = true
-		  AND pa.is_enabled = true AND pa.scope_type = 'GLOBAL'
-	`, domain)
+		WHERE cr.domain = $1 AND cr.is_enabled = true AND psr.policy_set_id = ANY($2)
+	`, domain, policySetIDs)
 	if err != nil {
-		return nil, fmt.Errorf("querying active rules for domain %s: %w", domain, err)
+		return nil, fmt.Errorf("querying rules for domain %s: %w", domain, err)
 	}
 	defer rowsResult.Close()
 
 	var out []RuleWithPolicySet
+	var ruleIDs []uuid.UUID
 	for rowsResult.Next() {
 		var r RuleWithPolicySet
 		var checkSource string
-		if err := rowsResult.Scan(&r.Rule.ID, &r.RuleKey, &checkSource, &r.Rule.CheckExpr, &r.PolicySetID); err != nil {
+		var expectedValueJSON []byte
+		if err := rowsResult.Scan(
+			&r.Rule.ID, &r.RuleKey, &checkSource, &r.Rule.CheckExpr,
+			&r.Rule.PlatformFilter, &expectedValueJSON, &r.PolicySetID,
+		); err != nil {
 			return nil, fmt.Errorf("scanning active rule row: %w", err)
 		}
 		r.Rule.CheckSource = rules.CheckSource(checkSource)
+		if len(expectedValueJSON) > 0 {
+			if err := json.Unmarshal(expectedValueJSON, &r.Rule.ExpectedValue); err != nil {
+				return nil, fmt.Errorf("decoding expected_value for rule %s: %w", r.RuleKey, err)
+			}
+		}
+		id, err := uuid.Parse(r.Rule.ID)
+		if err != nil {
+			return nil, fmt.Errorf("rule %s has a non-UUID id: %w", r.RuleKey, err)
+		}
+		ruleIDs = append(ruleIDs, id)
 		out = append(out, r)
+	}
+	if err := rowsResult.Err(); err != nil {
+		return nil, err
+	}
+
+	evidencePaths, err := s.evidencePathsForRules(ctx, ruleIDs)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].Rule.EvidencePaths = evidencePaths[out[i].Rule.ID]
+	}
+	return out, nil
+}
+
+// evidencePathsForRules bulk-loads FACT_PATH resources for a set of rules in
+// one query — never N+1 per rule (docs/compliance §38, fleet-scale
+// requirement), keyed by rule ID string to match rules.Rule.ID's type.
+func (s *Store) evidencePathsForRules(ctx context.Context, ruleIDs []uuid.UUID) (map[string][]string, error) {
+	out := map[string][]string{}
+	if len(ruleIDs) == 0 {
+		return out, nil
+	}
+	rowsResult, err := s.pool.Query(ctx, `
+		SELECT rule_id, resource_path FROM compliance_rule_resources
+		WHERE resource_type = 'FACT_PATH' AND rule_id = ANY($1)
+	`, ruleIDs)
+	if err != nil {
+		return nil, fmt.Errorf("querying evidence paths: %w", err)
+	}
+	defer rowsResult.Close()
+
+	for rowsResult.Next() {
+		var ruleID uuid.UUID
+		var path string
+		if err := rowsResult.Scan(&ruleID, &path); err != nil {
+			return nil, fmt.Errorf("scanning evidence path row: %w", err)
+		}
+		key := ruleID.String()
+		out[key] = append(out[key], path)
 	}
 	return out, rowsResult.Err()
 }
@@ -192,19 +279,65 @@ type RuleWithPolicySet struct {
 	PolicySetID uuid.UUID
 }
 
+// ActiveException is one live compliance_exceptions row — expires_at > now()
+// and status = 'ACTIVE' already applied by the query, so callers never need
+// to re-check expiry (docs/compliance §17).
+type ActiveException struct {
+	ID            uuid.UUID
+	RuleID        uuid.UUID
+	AgentID       *uuid.UUID
+	ScopeSelector map[string]any
+}
+
+// LoadActiveExceptionsForRules bulk-loads active exceptions for a set of
+// rules (one query per domain evaluation batch, not per rule — same
+// fleet-scale reasoning as evidencePathsForRules).
+func (s *Store) LoadActiveExceptionsForRules(ctx context.Context, ruleIDs []uuid.UUID) ([]ActiveException, error) {
+	if len(ruleIDs) == 0 {
+		return nil, nil
+	}
+	rowsResult, err := s.pool.Query(ctx, `
+		SELECT id, rule_id, agent_id, scope_selector
+		FROM compliance_exceptions
+		WHERE status = 'ACTIVE' AND expires_at > now() AND rule_id = ANY($1)
+	`, ruleIDs)
+	if err != nil {
+		return nil, fmt.Errorf("querying active exceptions: %w", err)
+	}
+	defer rowsResult.Close()
+
+	var out []ActiveException
+	for rowsResult.Next() {
+		var e ActiveException
+		if err := rowsResult.Scan(&e.ID, &e.RuleID, &e.AgentID, &e.ScopeSelector); err != nil {
+			return nil, fmt.Errorf("scanning active exception row: %w", err)
+		}
+		out = append(out, e)
+	}
+	return out, rowsResult.Err()
+}
+
 // InsertRuleEvaluation records one verdict. rule_evaluations is a hypertable
 // (migration 016) — every call is a plain INSERT, never an UPDATE.
+// exceptionID is nil when no active exception covered this verdict — the
+// real evaluated result is always what's stored, exception_id only tags it
+// (docs/compliance §17: never silently overwrite FAIL with a fake PASS).
 func (s *Store) InsertRuleEvaluation(
 	ctx context.Context,
 	agentID, ruleID, policySetID uuid.UUID,
 	result string,
-	actualValue, evidence []byte,
-	errMsg string,
+	actualValue, evidence, expectedValue []byte,
+	errMsg, evidenceHash, source string,
+	exceptionID *uuid.UUID,
 ) error {
 	_, err := s.pool.Exec(ctx, `
-		INSERT INTO rule_evaluations (time, agent_id, rule_id, policy_set_id, result, actual_value, evidence, error_message)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, ''))
-	`, time.Now().UTC(), agentID, ruleID, policySetID, result, actualValue, evidence, errMsg)
+		INSERT INTO rule_evaluations (
+			time, agent_id, rule_id, policy_set_id, result, actual_value, evidence,
+			error_message, expected_value, evidence_hash, source, exception_id
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NULLIF($8, ''), $9, NULLIF($10, ''), NULLIF($11, ''), $12)
+	`, time.Now().UTC(), agentID, ruleID, policySetID, result, actualValue, evidence,
+		errMsg, expectedValue, evidenceHash, source, exceptionID)
 	if err != nil {
 		return fmt.Errorf("inserting rule evaluation (agent=%s rule=%s): %w", agentID, ruleID, err)
 	}

@@ -18,7 +18,9 @@ import (
 	"lukechampine.com/blake3"
 
 	"github.com/lokilinux/compliance/internal/drift"
+	"github.com/lokilinux/compliance/internal/policy"
 	"github.com/lokilinux/compliance/internal/rules"
+	"github.com/lokilinux/compliance/internal/scope"
 	"github.com/lokilinux/compliance/internal/scoring"
 	"github.com/lokilinux/compliance/internal/storage"
 )
@@ -294,43 +296,109 @@ func baselineDriftFieldPaths(diffs []drift.FieldDiff) []string {
 	return paths
 }
 
-// evaluateRules runs every active rule for the snapshot's domain against
-// the new facts and records one verdict per rule.
+// evaluateRules resolves which rules apply to this agent/domain (matching
+// policy assignments by scope, docs/compliance/07-POLICY-ENGINE.md) and
+// records one verdict per rule — with structured evidence, platform
+// applicability, and active-exception tagging (docs/compliance §2, §17, §21).
 func (in *Ingester) evaluateRules(ctx context.Context, snap Snapshot) (int, error) {
-	activeRules, err := in.store.ActiveRulesForDomain(ctx, snap.Domain)
+	attrs, err := in.store.LoadAgentAttributes(ctx, snap.AgentID)
+	if err != nil {
+		return 0, fmt.Errorf("loading agent attributes for evaluation: %w", err)
+	}
+	platform := scope.PlatformID(attrs.OsDistro, attrs.OsVersion)
+
+	assignments, err := in.store.LoadActivePolicyAssignments(ctx)
+	if err != nil {
+		return 0, err
+	}
+	matchedSetIDs := policy.MatchingSetIDs(attrs, assignments)
+	if len(matchedSetIDs) == 0 {
+		return 0, nil // no policy set assigned to this agent's scope — nothing to evaluate
+	}
+
+	activeRules, err := in.store.RulesForPolicySetsAndDomain(ctx, matchedSetIDs, snap.Domain)
+	if err != nil {
+		return 0, err
+	}
+	if len(activeRules) == 0 {
+		return 0, nil
+	}
+
+	ruleIDs := make([]uuid.UUID, 0, len(activeRules))
+	for _, r := range activeRules {
+		id, err := uuid.Parse(r.Rule.ID)
+		if err != nil {
+			return 0, fmt.Errorf("rule %s has a non-UUID ID %q: %w", r.RuleKey, r.Rule.ID, err)
+		}
+		ruleIDs = append(ruleIDs, id)
+	}
+	exceptions, err := in.store.LoadActiveExceptionsForRules(ctx, ruleIDs)
 	if err != nil {
 		return 0, err
 	}
 
-	for _, r := range activeRules {
-		verdict := in.evaluator.Evaluate(ctx, r.Rule, snap.Facts)
+	for i, r := range activeRules {
+		verdict := in.evaluator.Evaluate(ctx, r.Rule, snap.Facts, platform)
 
-		var actualValueJSON, evidenceJSON []byte
+		var actualValueJSON, evidenceJSON, expectedValueJSON []byte
 		if verdict.ActualValue != nil {
 			actualValueJSON, _ = json.Marshal(verdict.ActualValue)
 		}
 		if verdict.Evidence != nil {
 			evidenceJSON, _ = json.Marshal(verdict.Evidence)
 		}
+		if r.Rule.ExpectedValue != nil {
+			expectedValueJSON, _ = json.Marshal(r.Rule.ExpectedValue)
+		}
 		errMsg := ""
 		if verdict.Err != nil {
 			errMsg = verdict.Err.Error()
 		}
 
-		ruleID, err := uuid.Parse(r.Rule.ID)
-		if err != nil {
-			return len(activeRules), fmt.Errorf("rule %s has a non-UUID ID %q: %w", r.RuleKey, r.Rule.ID, err)
+		var exceptionID *uuid.UUID
+		if verdict.Result == rules.ResultFail {
+			if id, ok := matchException(exceptions, ruleIDs[i], snap.AgentID, attrs); ok {
+				exceptionID = &id
+			}
 		}
 
 		if err := in.store.InsertRuleEvaluation(
-			ctx, snap.AgentID, ruleID, r.PolicySetID,
-			string(verdict.Result), actualValueJSON, evidenceJSON, errMsg,
+			ctx, snap.AgentID, ruleIDs[i], r.PolicySetID,
+			string(verdict.Result), actualValueJSON, evidenceJSON, expectedValueJSON,
+			errMsg, verdict.EvidenceHash, "lokilinux-agent", exceptionID,
 		); err != nil {
 			return len(activeRules), err
 		}
 	}
 
 	return len(activeRules), nil
+}
+
+// matchException finds the first active exception covering (ruleID, agentID)
+// — either scoped directly to this agent, or (agent_id NULL) to a broader
+// selector this agent's attributes match. The real FAIL result stays stored
+// by the caller; this only tags which exception waived it
+// (docs/compliance §17: never silently overwrite).
+func matchException(exceptions []storage.ActiveException, ruleID, agentID uuid.UUID, attrs storage.AgentAttributes) (uuid.UUID, bool) {
+	sAttrs := scope.AgentAttributes{
+		OsDistro: attrs.OsDistro, OsVersion: attrs.OsVersion,
+		Category: attrs.Category, Project: attrs.Project,
+	}
+	for _, ex := range exceptions {
+		if ex.RuleID != ruleID {
+			continue
+		}
+		if ex.AgentID != nil {
+			if *ex.AgentID == agentID {
+				return ex.ID, true
+			}
+			continue
+		}
+		if scope.Matches(ex.ScopeSelector, sAttrs) {
+			return ex.ID, true
+		}
+	}
+	return uuid.Nil, false
 }
 
 // categoryScore is one category's computed score sample, ready for
