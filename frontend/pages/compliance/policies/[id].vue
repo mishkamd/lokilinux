@@ -104,6 +104,11 @@ const columns = [
 
     <AppTabs :items="tabs">
       <template #rules>
+        <Alert v-if="policySetRules.length === 0" color="amber" class="mb-4">
+          This policy set has no rules and cannot be published.
+          <NuxtLink to="/compliance/policies" class="underline">Use "Import from ComplianceAsCode"</NuxtLink>
+          on the Policy Sets list to populate it.
+        </Alert>
         <DataTable :rows="policySetRules" :columns="columns">
           <template #domain-data="{ row }"><Badge color="gray" size="xs">{{ row.domain }}</Badge></template>
           <template #severity-data="{ row }">

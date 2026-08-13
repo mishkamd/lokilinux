@@ -28,7 +28,10 @@ async function submitCreate() {
       name: form.value.name, slug: form.value.slug, framework: form.value.framework,
       version: form.value.version || undefined, description: form.value.description || undefined,
     })
-    toast.add({ title: 'Policy set created', description: 'Add rules, then publish it to make it live.' })
+    toast.add({
+      title: 'Policy set created',
+      description: 'It has no rules yet and cannot be published — use "Import from ComplianceAsCode" to populate it.',
+    })
     showCreate.value = false
     form.value = { name: '', slug: '', framework: 'INTERNAL', version: '', description: '' }
   } catch {
