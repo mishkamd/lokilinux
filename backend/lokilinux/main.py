@@ -99,11 +99,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from lokilinux.workers.remediation_scheduler import RemediationSchedulerWorker
     remediation_scheduler_worker = RemediationSchedulerWorker(session_factory, cache, nc)
     await remediation_scheduler_worker.start()
+    from lokilinux.workers.remediation_verification import RemediationVerificationWorker
+    remediation_verification_worker = RemediationVerificationWorker(session_factory)
+    await remediation_verification_worker.start()
     notification_worker = NotificationWorker(nc, session_factory)
     await notification_worker.start()
     app.state.workers = [
         job_worker, cve_worker, alert_worker, policy_worker, policy_scheduler_worker, plugin_worker,
-        heartbeat_worker, job_timeout_worker, remediation_scheduler_worker, retention_worker, notification_worker,
+        heartbeat_worker, job_timeout_worker, remediation_scheduler_worker, remediation_verification_worker,
+        retention_worker, notification_worker,
     ]
     logger.info("workers.ready")
 
@@ -112,6 +116,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Shutdown — reverse order
     logger.info("lokilinux.shutdown")
     await heartbeat_worker.stop()
+    await remediation_verification_worker.stop()
     await remediation_scheduler_worker.stop()
     await job_timeout_worker.stop()
     await policy_scheduler_worker.stop()

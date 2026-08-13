@@ -8,12 +8,12 @@ import (
 
 // Config mirrors /etc/lokilinux/agent.yaml
 type Config struct {
-	Platform     PlatformConfig `yaml:"platform"`
-	Identity     IdentityConfig `yaml:"identity"`
+	Platform     PlatformConfig  `yaml:"platform"`
+	Identity     IdentityConfig  `yaml:"identity"`
 	Heartbeat    HeartbeatConfig `yaml:"heartbeat"`
-	Cache        CacheConfig    `yaml:"cache"`
-	JobExecution JobExecConfig  `yaml:"job_execution"`
-	Logging      LoggingConfig  `yaml:"logging"`
+	Cache        CacheConfig     `yaml:"cache"`
+	JobExecution JobExecConfig   `yaml:"job_execution"`
+	Logging      LoggingConfig   `yaml:"logging"`
 }
 
 type PlatformConfig struct {

@@ -33,20 +33,33 @@ func NewRemediationExecutor(shell *JobExecutor, ansible *AnsibleExecutor, python
 	return &RemediationExecutor{shell: shell, ansible: ansible, python: python}
 }
 
-// runnerFor returns the ActionRunner for a given provider. shell uses
-// JobExecutor (runs via /bin/sh -c under systemd-run); ansible and python
-// use their own argv-based executors with empty extra_vars/roles.
-func (e *RemediationExecutor) runnerFor(provider string) (ActionRunner, error) {
+// runnerFor returns the ActionRunner for a given provider — dryRun selects
+// each provider's real check/dry-run mode (ansible --check --diff, sh -n,
+// Python ast.parse) instead of actually applying the action
+// (docs/compliance §13, §14). shell uses JobExecutor (runs via /bin/sh -c
+// under systemd-run); ansible and python use their own argv-based executors
+// with empty extra_vars/roles.
+func (e *RemediationExecutor) runnerFor(provider string, dryRun bool) (ActionRunner, error) {
 	switch provider {
 	case "shell":
+		if dryRun {
+			return func(ctx context.Context, jobID, body string, timeoutSec int) JobResult {
+				return e.shell.CheckSyntax(ctx, jobID, body, timeoutSec)
+			}, nil
+		}
 		return func(ctx context.Context, jobID, body string, timeoutSec int) JobResult {
 			return e.shell.Execute(ctx, jobID, body, timeoutSec)
 		}, nil
 	case "ansible":
 		return func(ctx context.Context, jobID, body string, timeoutSec int) JobResult {
-			return e.ansible.Execute(ctx, jobID, body, nil, nil, timeoutSec)
+			return e.ansible.Execute(ctx, jobID, body, nil, nil, timeoutSec, dryRun)
 		}, nil
 	case "python":
+		if dryRun {
+			return func(ctx context.Context, jobID, body string, timeoutSec int) JobResult {
+				return e.python.CheckSyntax(ctx, jobID, body, timeoutSec)
+			}, nil
+		}
 		return func(ctx context.Context, jobID, body string, timeoutSec int) JobResult {
 			return e.python.Execute(ctx, jobID, body, timeoutSec)
 		}, nil
@@ -57,8 +70,9 @@ func (e *RemediationExecutor) runnerFor(provider string) (ActionRunner, error) {
 
 // Execute runs actions in sequence order. Stops on the first non-zero exit
 // code or error. Output from each action is prefixed with a label so the
-// aggregated result shows which step produced what.
-func (e *RemediationExecutor) Execute(ctx context.Context, jobID string, actions []RemediationAction, timeoutSec int) JobResult {
+// aggregated result shows which step produced what. dryRun runs each
+// provider's real check mode instead of applying anything — see runnerFor.
+func (e *RemediationExecutor) Execute(ctx context.Context, jobID string, actions []RemediationAction, timeoutSec int, dryRun bool) JobResult {
 	start := time.Now()
 
 	if len(actions) == 0 {
@@ -85,7 +99,7 @@ func (e *RemediationExecutor) Execute(ctx context.Context, jobID string, actions
 			break
 		}
 
-		runner, err := e.runnerFor(action.Provider)
+		runner, err := e.runnerFor(action.Provider, dryRun)
 		if err != nil {
 			finalExit = 1
 			finalErr = err.Error()

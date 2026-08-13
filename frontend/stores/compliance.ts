@@ -113,7 +113,7 @@ export interface DriftDetail {
   new_value: unknown
 }
 
-export type RemediationPlanStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'EXECUTING' | 'COMPLETED' | 'FAILED' | 'ROLLED_BACK'
+export type RemediationPlanStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'EXECUTING' | 'VERIFYING' | 'COMPLETED' | 'FAILED' | 'ROLLED_BACK'
 
 export interface RemediationPlan {
   id: string
@@ -165,7 +165,7 @@ export interface RemediationExecutionResult {
 
 export interface RemediationExecution {
   job_id: string | null
-  operation: 'APPLY' | 'ROLLBACK' | null
+  operation: 'APPLY' | 'ROLLBACK' | 'DRY_RUN' | null
   job_status: string | null
   results: RemediationExecutionResult[]
 }
@@ -681,6 +681,10 @@ export const useComplianceStore = defineStore('compliance', () => {
     return updated
   }
 
+  async function dryRunRemediationPlan(id: string) {
+    return await api.post<RemediationPlan>(`/compliance/remediation-plans/${id}/dry-run`)
+  }
+
   async function fetchRemediationExecution(id: string) {
     remediationExecution.value = await api.get<RemediationExecution>(`/compliance/remediation-plans/${id}/execution`)
   }
@@ -881,7 +885,7 @@ export const useComplianceStore = defineStore('compliance', () => {
     remediationPlans, remediationTotal, remediationLoading, remediationNextCursor, remediationError, remediationFilters,
     selectedRemediationPlan, remediationActions, remediationExecution, maintenanceWindows,
     fetchRemediationPlans, fetchRemediationPlan, fetchRemediationActions,
-    createRemediationPlan, submitRemediationPlan, approveRemediationPlan,
+    createRemediationPlan, submitRemediationPlan, approveRemediationPlan, dryRunRemediationPlan,
     fetchRemediationExecution, rollbackRemediationPlan,
     fetchMaintenanceWindows, createMaintenanceWindow,
     fileHashes, fileHashesLoading, fileHashPathPrefix, fetchFileHashes,

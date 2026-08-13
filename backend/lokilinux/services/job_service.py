@@ -121,8 +121,15 @@ async def _sync_remediation_plan(db: AsyncSession, job: Job) -> None:
     Only acts when the job is terminal (COMPLETED/FAILED/TIMEOUT/CANCELLED).
     Uses the most recent RemediationJob link for this plan to avoid stale
     results from an earlier job overwriting a newer rollback.
+
+    DRY_RUN jobs never touch plan.status — a dry-run result is informational,
+    the plan stays in whatever state it was (docs/compliance §13).
     """
     if job.status not in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.TIMEOUT, JobStatus.CANCELLED):
+        return
+
+    operation = (job.parameters or {}).get("operation", "APPLY")
+    if operation == "DRY_RUN":
         return
 
     plan_id_raw = (job.parameters or {}).get("remediation_plan_id")
@@ -147,8 +154,6 @@ async def _sync_remediation_plan(db: AsyncSession, job: Job) -> None:
     if plan is None:
         return
 
-    operation = (job.parameters or {}).get("operation", "APPLY")
-
     # Determine target status based on operation and job outcome
     if operation == "ROLLBACK":
         if job.status == JobStatus.COMPLETED:
@@ -156,10 +161,32 @@ async def _sync_remediation_plan(db: AsyncSession, job: Job) -> None:
         else:
             plan.status = "FAILED"
     else:  # APPLY
-        if job.status == JobStatus.COMPLETED:
-            plan.status = "COMPLETED"
-        else:
+        if job.status != JobStatus.COMPLETED:
             plan.status = "FAILED"
+        elif await _plan_has_verifiable_actions(db, plan_id):
+            # The agent's exit code only means the commands ran without
+            # error — not that the desired state actually holds
+            # (docs/compliance §14: never mark successful on exit code
+            # alone). RemediationVerificationWorker re-checks each action's
+            # rule against a fresh post-apply evaluation before COMPLETED.
+            plan.status = "VERIFYING"
+        else:
+            # No rule_id on any action — nothing to verify against, so the
+            # old exit-code-based COMPLETED is the honest answer here.
+            plan.status = "COMPLETED"
+
+
+async def _plan_has_verifiable_actions(db: AsyncSession, plan_id: UUID) -> bool:
+    from lokilinux.models.remediation import RemediationAction
+
+    row = (
+        await db.execute(
+            select(RemediationAction.id)
+            .where(RemediationAction.remediation_plan_id == plan_id, RemediationAction.rule_id.isnot(None))
+            .limit(1)
+        )
+    ).first()
+    return row is not None
 
 
 async def sync_remediation_plan(db: AsyncSession, job_id: UUID) -> None:

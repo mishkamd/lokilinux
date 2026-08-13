@@ -17,6 +17,7 @@ class RemediationPlanStatus(str, Enum):
     PENDING_APPROVAL = "PENDING_APPROVAL"
     APPROVED = "APPROVED"
     EXECUTING = "EXECUTING"
+    VERIFYING = "VERIFYING"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
     ROLLED_BACK = "ROLLED_BACK"
@@ -126,6 +127,6 @@ class RemediationExecutionResult(BaseModel):
 
 class RemediationExecutionResponse(BaseModel):
     job_id: UUID | None = None
-    operation: Literal["APPLY", "ROLLBACK"] | None = None
+    operation: Literal["APPLY", "ROLLBACK", "DRY_RUN"] | None = None
     job_status: JobStatus | None = None
     results: list[RemediationExecutionResult] = Field(default_factory=list)

@@ -35,10 +35,24 @@ watch(() => String(route.params.id), (newId) => {
 
 const STATUS_COLORS: Record<RemediationPlanStatus, string> = {
   DRAFT: 'gray', PENDING_APPROVAL: 'amber', APPROVED: 'amber',
-  EXECUTING: 'amber', COMPLETED: 'green', FAILED: 'red', ROLLED_BACK: 'gray',
+  EXECUTING: 'amber', VERIFYING: 'amber', COMPLETED: 'green', FAILED: 'red', ROLLED_BACK: 'gray',
 }
 
 const busy = ref(false)
+const dryRunning = ref(false)
+
+async function dryRun() {
+  dryRunning.value = true
+  try {
+    await store.dryRunRemediationPlan(String(route.params.id))
+    await refreshExecution()
+    toast.add({ title: 'Dry run dispatched', description: 'Check mode only — nothing was applied.' })
+  } catch (err) {
+    toast.add({ title: (err as { data?: { detail?: string } })?.data?.detail ?? 'Failed to dry-run', color: 'red' })
+  } finally {
+    dryRunning.value = false
+  }
+}
 
 async function submit() {
   busy.value = true
@@ -126,6 +140,12 @@ const actionColumns = [
         <div class="flex items-center gap-2">
           <Badge v-if="selectedRemediationPlan.is_emergency" color="red">Emergency</Badge>
           <Badge :color="STATUS_COLORS[selectedRemediationPlan.status]">{{ selectedRemediationPlan.status }}</Badge>
+          <Button
+            v-if="canEdit && ['DRAFT', 'PENDING_APPROVAL', 'APPROVED'].includes(selectedRemediationPlan.status)"
+            size="sm" variant="outline" :loading="dryRunning" @click="dryRun"
+          >
+            Dry run
+          </Button>
           <Button v-if="canEdit && selectedRemediationPlan.status === 'DRAFT'" size="sm" :loading="busy" @click="submit">
             Submit for approval
           </Button>

@@ -76,8 +76,11 @@ func writeRoles(dir string, roles map[string]any) error {
 // Execute writes playbookContent, extraVars and roles to a temp dir and
 // runs ansible-playbook against localhost with connection=local. Roles are
 // written under <dir>/roles/, where ansible resolves them automatically
-// (adjacent to the playbook).
-func (e *AnsibleExecutor) Execute(ctx context.Context, jobID, playbookContent string, extraVars map[string]any, roles map[string]any, timeoutSec int) JobResult {
+// (adjacent to the playbook). checkMode adds ansible's own --check --diff
+// (dry-run: report what would change, apply nothing) — the ansible half of
+// remediation dry-run (docs/compliance §13, §14); real ansible-core
+// functionality, not an agent-side stand-in.
+func (e *AnsibleExecutor) Execute(ctx context.Context, jobID, playbookContent string, extraVars map[string]any, roles map[string]any, timeoutSec int, checkMode bool) JobResult {
 	start := time.Now()
 
 	if _, err := exec.LookPath(e.binary); err != nil {
@@ -127,8 +130,11 @@ func (e *AnsibleExecutor) Execute(ctx context.Context, jobID, playbookContent st
 		"-i", "localhost,",
 		"-c", "local",
 		"-e", "@" + extraVarsPath,
-		playbookPath,
 	}
+	if checkMode {
+		argv = append(argv, "--check", "--diff")
+	}
+	argv = append(argv, playbookPath)
 	result := runViaSystemdRunArgv(ctx, jobID, argv, dir, timeoutSec, e.maxOutputBytes)
 	result.DurationMs = msSince(start)
 	return result

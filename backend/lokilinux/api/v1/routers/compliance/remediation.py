@@ -191,6 +191,23 @@ async def submit_remediation_plan(
     return RemediationPlanResponse.model_validate(plan)
 
 
+@router.post("/remediation-plans/{plan_id}/dry-run", response_model=RemediationPlanResponse, status_code=202)
+async def dry_run_remediation_plan(
+    plan_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    cache: RedisCache = Depends(get_cache),
+    nats=Depends(get_nats),
+    current_user: dict = Depends(require_role("ADMIN", "OPERATOR")),
+) -> RemediationPlanResponse:
+    """Runs each action's real check mode (ansible --check --diff, sh -n,
+    Python ast.parse) without applying anything. Poll GET
+    .../execution afterwards for results — the plan's own status is
+    untouched (docs/compliance §13)."""
+    svc = RemediationService(db, JobService(db, cache, nats))
+    plan = await svc.dry_run(plan_id, current_user)
+    return RemediationPlanResponse.model_validate(plan)
+
+
 @router.post("/remediation-plans/{plan_id}/approve", response_model=RemediationPlanResponse)
 async def approve_remediation_plan(
     plan_id: UUID,
@@ -236,7 +253,7 @@ async def get_remediation_execution(
 
     job = await db.get(Job, link.job_id)
     operation = (job.parameters or {}).get("operation")
-    if operation not in ("APPLY", "ROLLBACK"):
+    if operation not in ("APPLY", "ROLLBACK", "DRY_RUN"):
         operation = None
 
     # Get results

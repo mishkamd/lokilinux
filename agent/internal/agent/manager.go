@@ -89,17 +89,17 @@ func NewManager(cfg *config.Config, log *slog.Logger, version string, logBuf *Lo
 	)
 
 	return &Manager{
-		cfg:              cfg,
-		log:              log,
-		version:          version,
-		logBuf:           logBuf,
-		client:           client,
-		store:            store,
-		sysMod:           modules.NewSystemInfoModule(),
-		pkgMod:           modules.NewPackageManagerModule(),
-		jobExec:          modules.NewJobExecutor(),
-		ansibleExec:      modules.NewAnsibleExecutor(),
-		remediationExec:  modules.NewRemediationExecutor(
+		cfg:         cfg,
+		log:         log,
+		version:     version,
+		logBuf:      logBuf,
+		client:      client,
+		store:       store,
+		sysMod:      modules.NewSystemInfoModule(),
+		pkgMod:      modules.NewPackageManagerModule(),
+		jobExec:     modules.NewJobExecutor(),
+		ansibleExec: modules.NewAnsibleExecutor(),
+		remediationExec: modules.NewRemediationExecutor(
 			modules.NewJobExecutor(),
 			modules.NewAnsibleExecutor(),
 			modules.NewPythonExecutor(),
@@ -400,14 +400,16 @@ func (m *Manager) runJob(ctx context.Context, jobID, jobType string, params map[
 			m.log.Warn("ansible job has no playbook_content, skipping", "job_id", jobID)
 			return modules.JobResult{JobID: jobID, ExitCode: 1, Error: "missing required parameter: playbook_content"}, true
 		}
-		return m.ansibleExec.Execute(ctx, jobID, playbookContent, extraVars, roles, timeoutSec), true
+		return m.ansibleExec.Execute(ctx, jobID, playbookContent, extraVars, roles, timeoutSec, false), true
 	case "COMPLIANCE_REMEDIATE":
 		actions, err := parseRemediationActions(params)
 		if err != nil {
 			m.log.Warn("compliance_remediate parse error", "job_id", jobID, "error", err)
 			return modules.JobResult{JobID: jobID, ExitCode: 1, Error: err.Error()}, true
 		}
-		return m.remediationExec.Execute(ctx, jobID, actions, timeoutSec), true
+		operation, _ := params["operation"].(string)
+		dryRun := operation == "DRY_RUN"
+		return m.remediationExec.Execute(ctx, jobID, actions, timeoutSec, dryRun), true
 	default:
 		// Any job_type not matched above (including CUSTOM_COMMAND) falls
 		// here — a bare `command` param is enough regardless of job_type,

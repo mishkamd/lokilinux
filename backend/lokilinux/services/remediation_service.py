@@ -196,6 +196,54 @@ class RemediationService:
         plan.status = "EXECUTING"
         await self.db.commit()
 
+    async def dry_run(self, plan_id: UUID, actor: dict) -> RemediationPlan:
+        """Dispatch a DRY_RUN Job for the plan's actions — the agent runs
+        each provider's real check mode (ansible --check --diff, sh -n,
+        Python ast.parse) and reports results the same way an APPLY job
+        does, but applies nothing. The plan's status is untouched
+        (docs/compliance §13): dry-run is a preview, never a state
+        transition — _sync_remediation_plan (job_service.py) explicitly
+        skips DRY_RUN jobs for the same reason.
+        """
+        plan = await self._get_plan(plan_id)
+        actions = (
+            await self.db.execute(
+                select(RemediationAction).where(RemediationAction.remediation_plan_id == plan.id)
+            )
+        ).scalars().all()
+        if not actions:
+            raise HTTPException(status_code=409, detail="Plan has no actions to dry-run")
+
+        agent_ids = sorted({str(a.agent_id) for a in actions})
+        actions_map = build_actions_payload(actions)
+
+        try:
+            job = await self.job_service.create_job(
+                name=f"Remediation dry-run: {plan.name}",
+                job_type="COMPLIANCE_REMEDIATE",
+                target_servers={"agent_ids": agent_ids},
+                parameters={
+                    "remediation_plan_id": str(plan.id),
+                    "operation": "DRY_RUN",
+                    "actions": actions_map,
+                },
+                requires_approval=False,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+        self.db.add(RemediationJob(remediation_plan_id=plan.id, job_id=job.id))
+        await self.db.commit()
+
+        await AuditService(self.db).log(
+            action="compliance.remediation_plan_dry_run",
+            user_id=actor.get("id"),
+            actor_name=actor.get("username") or actor.get("email"),
+            resource_type="remediation_plan", resource_id=str(plan_id),
+            changes={"job_id": str(job.id), "agent_count": len(agent_ids)},
+        )
+        return plan
+
     async def rollback(self, plan_id: UUID, actor: dict) -> RemediationPlan:
         """Roll back a completed/failed plan by dispatching a ROLLBACK Job.
 
