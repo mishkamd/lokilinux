@@ -29,8 +29,8 @@ async function acknowledge() {
   try {
     await store.acknowledgeDrift(eventId)
     toast.add({ title: 'Drift event acknowledged' })
-  } catch {
-    toast.add({ title: 'Failed to acknowledge', color: 'red' })
+  } catch (err) {
+    toast.add({ title: (err as { data?: { detail?: string } })?.data?.detail ?? 'Failed to acknowledge', color: 'red' })
   } finally {
     acting.value = false
   }
@@ -40,8 +40,8 @@ async function resolve() {
   try {
     await store.resolveDrift(eventId)
     toast.add({ title: 'Drift event resolved' })
-  } catch {
-    toast.add({ title: 'Failed to resolve', color: 'red' })
+  } catch (err) {
+    toast.add({ title: (err as { data?: { detail?: string } })?.data?.detail ?? 'Failed to resolve', color: 'red' })
   } finally {
     acting.value = false
   }
@@ -51,8 +51,8 @@ async function suppress() {
   try {
     await store.suppressDrift(eventId)
     toast.add({ title: 'Drift event suppressed' })
-  } catch {
-    toast.add({ title: 'Failed to suppress', color: 'red' })
+  } catch (err) {
+    toast.add({ title: (err as { data?: { detail?: string } })?.data?.detail ?? 'Failed to suppress', color: 'red' })
   } finally {
     acting.value = false
   }

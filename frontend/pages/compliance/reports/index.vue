@@ -64,8 +64,8 @@ async function submitCreate() {
     await store.createReport({ report_type: form.value.report_type, format: form.value.format, params })
     toast.add({ title: 'Report requested', description: 'Generating in the background — refresh to check status.' })
     showCreate.value = false
-  } catch {
-    toast.add({ title: 'Failed to request report', color: 'red' })
+  } catch (err) {
+    toast.add({ title: (err as { data?: { detail?: string } })?.data?.detail ?? 'Failed to request report', color: 'red' })
   } finally {
     creating.value = false
   }
@@ -85,8 +85,8 @@ async function downloadReport(id: string, format: ReportFormat) {
     a.click()
     a.remove()
     URL.revokeObjectURL(url)
-  } catch {
-    toast.add({ title: 'Download failed', color: 'red' })
+  } catch (err) {
+    toast.add({ title: (err as { data?: { detail?: string } })?.data?.detail ?? 'Download failed', color: 'red' })
   } finally {
     downloading.value = null
   }

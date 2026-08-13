@@ -485,6 +485,8 @@ export const useComplianceStore = defineStore('compliance', () => {
       }
       rulesTotal.value = data.total ?? 0
       rulesNextCursor.value = data.next_cursor
+    } catch {
+      // swallow — global onResponseError already surfaces a toast; keep last-known-good list
     } finally {
       rulesLoading.value = false
     }
@@ -582,6 +584,8 @@ export const useComplianceStore = defineStore('compliance', () => {
       }
       driftTotal.value = data.total ?? 0
       driftNextCursor.value = data.next_cursor
+    } catch {
+      // swallow — global onResponseError already surfaces a toast; keep last-known-good list
     } finally {
       driftLoading.value = false
     }
@@ -726,7 +730,7 @@ export const useComplianceStore = defineStore('compliance', () => {
       remediationTotal.value = data.total ?? 0
       remediationNextCursor.value = data.next_cursor
     } catch (err) {
-      remediationError.value = 'Failed to load remediation plans'
+      remediationError.value = (err as { data?: { detail?: string } })?.data?.detail ?? 'Failed to load remediation plans'
     } finally {
       remediationLoading.value = false
     }
@@ -827,6 +831,8 @@ export const useComplianceStore = defineStore('compliance', () => {
       const params = new URLSearchParams()
       if (fileHashPathPrefix.value) params.set('path_prefix', fileHashPathPrefix.value)
       fileHashes.value = await api.get<FileHash[]>(`/compliance/agents/${agentId}/file-hashes?${params}`)
+    } catch {
+      // swallow — global onResponseError already surfaces a toast; keep last-known-good list
     } finally {
       fileHashesLoading.value = false
     }
@@ -849,6 +855,8 @@ export const useComplianceStore = defineStore('compliance', () => {
       }
       fileChangesTotal.value = data.total ?? 0
       fileChangesNextCursor.value = data.next_cursor
+    } catch {
+      // swallow — global onResponseError already surfaces a toast; keep last-known-good list
     } finally {
       fileChangesLoading.value = false
     }
@@ -863,6 +871,8 @@ export const useComplianceStore = defineStore('compliance', () => {
       fileChangePathDetail.value = await api.get<FileChangePathDetail>(
         `/compliance/file-changes/by-path?path=${encodeURIComponent(path)}`,
       )
+    } catch {
+      // swallow — global onResponseError already surfaces a toast; keep last-known-good data
     } finally {
       fileChangePathDetailLoading.value = false
     }

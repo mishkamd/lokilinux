@@ -54,8 +54,8 @@ async function submitCreate() {
     toast.add({ title: 'Baseline created', description: `${form.value.name} — version 1 (DRAFT)` })
     showCreate.value = false
     form.value = { name: '', description: '', scope_type: 'GLOBAL', scope_selector: '{}', expected_state: '{}' }
-  } catch {
-    toast.add({ title: 'Failed to create baseline', color: 'red' })
+  } catch (err) {
+    toast.add({ title: (err as { data?: { detail?: string } })?.data?.detail ?? 'Failed to create baseline', color: 'red' })
   } finally {
     creating.value = false
   }

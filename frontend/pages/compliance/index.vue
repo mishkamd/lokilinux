@@ -70,8 +70,8 @@ async function submitRunAssessment() {
     toast.add({ title: 'Assessment queued', description: 'The leader-elected worker will pick it up shortly.' })
     showRunAssessment.value = false
     assessmentForm.value = { policy_set_id: '', scope_selector: '{}' }
-  } catch {
-    toast.add({ title: 'Failed to queue assessment', color: 'red' })
+  } catch (err) {
+    toast.add({ title: (err as { data?: { detail?: string } })?.data?.detail ?? 'Failed to queue assessment', color: 'red' })
   } finally {
     runningAssessment.value = false
   }

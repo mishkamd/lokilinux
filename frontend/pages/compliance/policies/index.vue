@@ -34,8 +34,8 @@ async function submitCreate() {
     })
     showCreate.value = false
     form.value = { name: '', slug: '', framework: 'INTERNAL', version: '', description: '' }
-  } catch {
-    toast.add({ title: 'Failed to create policy set', color: 'red' })
+  } catch (err) {
+    toast.add({ title: (err as { data?: { detail?: string } })?.data?.detail ?? 'Failed to create policy set', color: 'red' })
   } finally {
     creating.value = false
   }
@@ -63,8 +63,8 @@ async function submitImport() {
     toast.add({ title: 'Import started', description: `Job ${res.job_id} — running in the background` })
     showImport.value = false
     importForm.value = { profile_id: '', content_version: '', datastream_url: '' }
-  } catch {
-    toast.add({ title: 'Failed to start import', color: 'red' })
+  } catch (err) {
+    toast.add({ title: (err as { data?: { detail?: string } })?.data?.detail ?? 'Failed to start import', color: 'red' })
   } finally {
     importing.value = false
   }
