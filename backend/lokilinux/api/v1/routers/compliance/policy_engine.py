@@ -16,7 +16,7 @@ from uuid import UUID
 
 import httpx
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
-from sqlalchemy import func, select
+from sqlalchemy import String, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.auth.dependencies import get_current_user, require_role, safe_user_uuid
@@ -33,6 +33,7 @@ from lokilinux.models.rule_evaluation import RuleEvaluation
 from lokilinux.schemas.common import CursorPage, decode_cursor, encode_cursor
 from lokilinux.schemas.compliance_rule import (
     ComplianceRuleResponse,
+    FrameworkMapping,
     PolicyAssignmentCreate,
     PolicyAssignmentResponse,
     PolicySetCoverageResponse,
@@ -43,6 +44,7 @@ from lokilinux.schemas.compliance_rule import (
     PolicySetRuleAdd,
     RemediationTemplateResponse,
     RuleCoverageResponse,
+    RuleDetailResponse,
 )
 from lokilinux.services.audit_service import AuditService
 from lokilinux.services.complianceascode_importer import ComplianceAsCodeImporter
@@ -55,28 +57,60 @@ router = APIRouter()
 # ── Rule catalog (read-only) ──────────────────────────────────────────────────
 
 
-@router.get("/rules", response_model=CursorPage[ComplianceRuleResponse])
-async def list_rules(
-    cursor: str | None = Query(None),
-    limit: int = Query(20, ge=1, le=100),
-    search: str | None = Query(None),
-    severity: str | None = Query(None),
-    domain: str | None = Query(None),
-    framework: str | None = Query(
-        None, description="Filters via standard_refs JSONB key presence, e.g. 'cis'"
-    ),
-    db: AsyncSession = Depends(get_db),
-    _: dict = Depends(get_current_user),
-) -> CursorPage[ComplianceRuleResponse]:
-    q = select(ComplianceRule).order_by(ComplianceRule.imported_at.desc(), ComplianceRule.id.desc())
+def _apply_rule_filters(q, search, severity, domain, framework, platform, source, status, check_source):
+    """Shared WHERE-clause builder for list_rules' item query and its count
+    query — kept as one function so the two can never drift apart
+    (docs/compliance §18: Rule Catalog filters on domain/severity/platform/
+    framework/source/status, search across rule ID/name/description/CCE/
+    NIST/STIG/CIS/PCI-DSS)."""
     if search:
-        q = q.where(ComplianceRule.title.ilike(f"%{search}%"))
+        pattern = f"%{search}%"
+        q = q.where(
+            ComplianceRule.title.ilike(pattern)
+            | ComplianceRule.rule_key.ilike(pattern)
+            | ComplianceRule.description.ilike(pattern)
+            | ComplianceRule.standard_refs.cast(String).ilike(pattern)
+        )
     if severity:
         q = q.where(ComplianceRule.severity == severity)
     if domain:
         q = q.where(ComplianceRule.domain == domain)
     if framework:
         q = q.where(ComplianceRule.standard_refs.has_key(framework))
+    if platform:
+        q = q.where(ComplianceRule.platform_filter.contains([platform]))
+    if source:
+        q = q.where(ComplianceRule.source == source)
+    if check_source:
+        q = q.where(ComplianceRule.check_source == check_source)
+    if status == "enabled":
+        q = q.where(ComplianceRule.is_enabled.is_(True))
+    elif status == "disabled":
+        q = q.where(ComplianceRule.is_enabled.is_(False))
+    return q
+
+
+@router.get("/rules", response_model=CursorPage[ComplianceRuleResponse])
+async def list_rules(
+    cursor: str | None = Query(None),
+    limit: int = Query(20, ge=1, le=100),
+    search: str | None = Query(
+        None, description="Matches rule key, title, description, or any standard_refs value (CCE/NIST/STIG/CIS/PCI-DSS)"
+    ),
+    severity: str | None = Query(None),
+    domain: str | None = Query(None),
+    framework: str | None = Query(
+        None, description="Filters via standard_refs JSONB key presence, e.g. 'cis'"
+    ),
+    platform: str | None = Query(None, description="e.g. 'rocky9' — matches compliance_rules.platform_filter"),
+    source: str | None = Query(None, description="e.g. 'complianceascode'"),
+    status: str | None = Query(None, description="'enabled' or 'disabled'"),
+    check_source: str | None = Query(None, description="CEL / OVAL_UNMAPPED / OSCAP_FALLBACK"),
+    db: AsyncSession = Depends(get_db),
+    _: dict = Depends(get_current_user),
+) -> CursorPage[ComplianceRuleResponse]:
+    q = select(ComplianceRule).order_by(ComplianceRule.imported_at.desc(), ComplianceRule.id.desc())
+    q = _apply_rule_filters(q, search, severity, domain, framework, platform, source, status, check_source)
 
     if cursor:
         raw = decode_cursor(cursor)
@@ -97,21 +131,98 @@ async def list_rules(
         next_cursor = encode_cursor(f"{last.imported_at.isoformat()}:{last.id}")
 
     # total count (no cursor filter — lightweight approximate, mirrors servers.py)
-    count_q = select(func.count()).select_from(ComplianceRule)
-    if search:
-        count_q = count_q.where(ComplianceRule.title.ilike(f"%{search}%"))
-    if severity:
-        count_q = count_q.where(ComplianceRule.severity == severity)
-    if domain:
-        count_q = count_q.where(ComplianceRule.domain == domain)
-    if framework:
-        count_q = count_q.where(ComplianceRule.standard_refs.has_key(framework))
+    count_q = _apply_rule_filters(
+        select(func.count()).select_from(ComplianceRule),
+        search, severity, domain, framework, platform, source, status, check_source,
+    )
     total = (await db.execute(count_q)).scalar()
 
     return CursorPage[ComplianceRuleResponse](
         items=[ComplianceRuleResponse.model_validate(r) for r in items],
         next_cursor=next_cursor,
         total=total,
+    )
+
+
+@router.get("/rules/{rule_id}", response_model=RuleDetailResponse)
+async def get_rule_detail(
+    rule_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _: dict = Depends(get_current_user),
+) -> RuleDetailResponse:
+    """Full rule detail (docs/compliance §37): everything list_rules already
+    returns, plus framework mappings (the normalized Framework/Control
+    tables, not just raw standard_refs), live PASS/FAIL/NOT_APPLICABLE/
+    ERROR coverage from the latest verdict per agent, and which agents are
+    currently failing."""
+    rule = (await db.execute(select(ComplianceRule).where(ComplianceRule.id == rule_id))).scalar_one_or_none()
+    if rule is None:
+        raise HTTPException(status_code=404, detail="Rule not found")
+
+    mapping_rows = (
+        await db.execute(
+            text(
+                """
+                SELECT f.key, f.name, fv.version, c.control_id, c.title
+                FROM compliance_rule_mappings rm
+                JOIN compliance_controls c ON c.id = rm.control_id
+                JOIN compliance_framework_versions fv ON fv.id = c.framework_version_id
+                JOIN compliance_frameworks f ON f.id = fv.framework_id
+                WHERE rm.rule_id = :rule_id
+                ORDER BY f.key, fv.version
+                """
+            ),
+            {"rule_id": rule_id},
+        )
+    ).mappings().all()
+    framework_mappings = [
+        FrameworkMapping(
+            framework_key=m["key"], framework_name=m["name"], framework_version=m["version"],
+            control_id=m["control_id"], control_title=m["title"],
+        )
+        for m in mapping_rows
+    ]
+
+    coverage_rows = (
+        await db.execute(
+            text(
+                """
+                WITH latest AS (
+                    SELECT DISTINCT ON (agent_id) agent_id, result
+                    FROM rule_evaluations WHERE rule_id = :rule_id
+                    ORDER BY agent_id, time DESC
+                )
+                SELECT result, count(*) AS n FROM latest GROUP BY result
+                """
+            ),
+            {"rule_id": rule_id},
+        )
+    ).mappings().all()
+    coverage = {"PASS": 0, "FAIL": 0, "NOT_APPLICABLE": 0, "ERROR": 0, "NOT_EVALUATED": 0}
+    for r in coverage_rows:
+        coverage[r["result"]] = r["n"]
+
+    failing_rows = (
+        await db.execute(
+            text(
+                """
+                WITH latest AS (
+                    SELECT DISTINCT ON (agent_id) agent_id, result
+                    FROM rule_evaluations WHERE rule_id = :rule_id
+                    ORDER BY agent_id, time DESC
+                )
+                SELECT agent_id FROM latest WHERE result = 'FAIL' LIMIT 50
+                """
+            ),
+            {"rule_id": rule_id},
+        )
+    ).scalars().all()
+
+    return RuleDetailResponse(
+        **ComplianceRuleResponse.model_validate(rule).model_dump(),
+        framework_mappings=framework_mappings,
+        coverage=coverage,
+        failing_agent_ids=list(failing_rows),
     )
 
 
@@ -323,6 +434,10 @@ async def _run_compliance_import(
                     "rules_imported": result.rules_imported,
                     "rules_updated": result.rules_updated,
                     "policy_sets_imported": result.policy_sets_imported,
+                    "rules_added": result.rules_added,
+                    "rules_modified": result.rules_modified,
+                    "rules_unchanged": result.rules_unchanged,
+                    "rules_removed": result.rules_removed,
                 },
             }
             await db.commit()

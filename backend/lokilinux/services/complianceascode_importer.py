@@ -29,6 +29,7 @@ compliance_rules.check_source.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass, field
 from urllib.parse import urlparse
@@ -37,7 +38,21 @@ from xml.etree import ElementTree
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lokilinux.models.compliance_framework import (
+    ComplianceControl,
+    ComplianceFramework,
+    ComplianceFrameworkVersion,
+    ComplianceRuleMapping,
+)
 from lokilinux.models.compliance_rule import ComplianceRule, PolicySet, PolicySetRule
+
+# reference_N is this parser's own positional fallback label for a
+# <reference> with no href-derived key (see parse_xccdf_rules) — never a
+# real framework identifier, so it's excluded from framework mapping
+# backfill. A standard_refs value that's itself a URL (a bare <reference>
+# href, not a system-qualified <ident>) is excluded the same way — a
+# framework Control needs a control identifier, not a link.
+_SYNTHETIC_REF_KEY = re.compile(r"^reference_\d+$")
 
 XCCDF_NS = "http://checklists.nist.gov/xccdf/1.2"
 
@@ -175,6 +190,28 @@ class ImportResult:
     rules_imported: int = 0
     rules_updated: int = 0
     policy_sets_imported: int = 0
+    # Diff summary (docs/compliance §41) — added/modified/removed/unchanged
+    # against whatever complianceascode-sourced rules existed before this
+    # run. rules_removed is a count only: matching §41's "never
+    # automatically destroy old rule versions," nothing is deleted or
+    # disabled, the rule row simply wasn't present in the new datastream.
+    rules_added: int = 0
+    rules_modified: int = 0
+    rules_unchanged: int = 0
+    rules_removed: int = 0
+
+
+def _rule_content_hash(title: str, description: str | None, rationale: str | None, severity: str, standard_refs: dict) -> str:
+    """Stable fingerprint of the fields import_datastream can change on an
+    existing row — used to tell "re-imported identical" (unchanged) apart
+    from "content actually changed" (modified) for the diff summary."""
+    import json
+
+    body = json.dumps(
+        {"title": title, "description": description, "rationale": rationale, "severity": severity, "standard_refs": standard_refs},
+        sort_keys=True,
+    )
+    return hashlib.sha256(body.encode()).hexdigest()
 
 
 class ComplianceAsCodeImporter:
@@ -201,12 +238,29 @@ class ComplianceAsCodeImporter:
         result = ImportResult()
         rule_key_to_id = {}
 
+        # Diff baseline: every rule_key this source previously imported,
+        # before this run touches anything (docs/compliance §41).
+        previously_imported_keys = set(
+            (
+                await self.db.execute(
+                    select(ComplianceRule.rule_key).where(ComplianceRule.source == "complianceascode")
+                )
+            )
+            .scalars()
+            .all()
+        )
+        new_keys = {r.rule_key for r in rules}
+        result.rules_removed = len(previously_imported_keys - new_keys)
+
+        framework_cache = await self._preload_framework_cache()
+
         for r in rules:
             existing = (
                 await self.db.execute(
                     select(ComplianceRule).where(ComplianceRule.rule_key == r.rule_key)
                 )
             ).scalar_one_or_none()
+            content_hash = _rule_content_hash(r.title, r.description, r.rationale, r.severity, r.standard_refs)
 
             if existing is None:
                 row = ComplianceRule(
@@ -225,7 +279,11 @@ class ComplianceAsCodeImporter:
                 await self.db.flush()
                 rule_key_to_id[r.rule_key] = row.id
                 result.rules_imported += 1
+                result.rules_added += 1
             else:
+                existing_hash = _rule_content_hash(
+                    existing.title, existing.description, existing.rationale, existing.severity, existing.standard_refs
+                )
                 existing.title = r.title
                 existing.description = r.description
                 existing.rationale = r.rationale
@@ -234,6 +292,14 @@ class ComplianceAsCodeImporter:
                 existing.source_version = content_version
                 rule_key_to_id[r.rule_key] = existing.id
                 result.rules_updated += 1
+                if existing_hash == content_hash:
+                    result.rules_unchanged += 1
+                else:
+                    result.rules_modified += 1
+
+            await self._backfill_framework_mappings(
+                framework_cache, rule_key_to_id[r.rule_key], r.standard_refs, content_version
+            )
 
         for p in profiles:
             policy_set = (
@@ -268,3 +334,61 @@ class ComplianceAsCodeImporter:
 
         await self.db.commit()
         return result
+
+    async def _preload_framework_cache(self) -> dict:
+        """Bulk-loads every existing Framework/FrameworkVersion/Control row
+        into in-memory dicts once, before the per-rule loop — never one
+        get-or-create query per rule per standard_refs key (docs/compliance
+        §38: a real datastream import is thousands of rules, each with
+        several refs). New rows are added to these same dicts as they're
+        created during the run, so a repeated key within one import also
+        avoids a duplicate INSERT.
+        """
+        frameworks = (await self.db.execute(select(ComplianceFramework))).scalars().all()
+        by_key = {f.key: f for f in frameworks}
+
+        versions = (await self.db.execute(select(ComplianceFrameworkVersion))).scalars().all()
+        by_fw_version = {(v.framework_id, v.version): v for v in versions}
+
+        controls = (await self.db.execute(select(ComplianceControl))).scalars().all()
+        by_version_control = {(c.framework_version_id, c.control_id): c for c in controls}
+
+        return {"frameworks": by_key, "versions": by_fw_version, "controls": by_version_control, "mappings": set()}
+
+    async def _backfill_framework_mappings(
+        self, cache: dict, rule_id, standard_refs: dict, content_version: str
+    ) -> None:
+        """Normalizes standard_refs (the raw <ident>/<reference> JSONB blob
+        captured at import time) into queryable Framework -> FrameworkVersion
+        -> Control -> RuleMapping rows (docs/compliance §19) — standard_refs
+        itself stays untouched as the source of truth this is derived from.
+        """
+        for key, value in standard_refs.items():
+            if _SYNTHETIC_REF_KEY.match(key) or not value or value.startswith("http"):
+                continue
+
+            framework = cache["frameworks"].get(key)
+            if framework is None:
+                framework = ComplianceFramework(key=key, name=key.upper())
+                self.db.add(framework)
+                await self.db.flush()
+                cache["frameworks"][key] = framework
+
+            version = cache["versions"].get((framework.id, content_version))
+            if version is None:
+                version = ComplianceFrameworkVersion(framework_id=framework.id, version=content_version)
+                self.db.add(version)
+                await self.db.flush()
+                cache["versions"][(framework.id, content_version)] = version
+
+            control = cache["controls"].get((version.id, value))
+            if control is None:
+                control = ComplianceControl(framework_version_id=version.id, control_id=value, title=value)
+                self.db.add(control)
+                await self.db.flush()
+                cache["controls"][(version.id, value)] = control
+
+            mapping_key = (rule_id, control.id)
+            if mapping_key not in cache["mappings"]:
+                self.db.add(ComplianceRuleMapping(rule_id=rule_id, control_id=control.id))
+                cache["mappings"].add(mapping_key)

@@ -42,6 +42,24 @@ class ComplianceRuleResponse(BaseModel):
 ComplianceRuleListResponse = CursorPage[ComplianceRuleResponse]
 
 
+class FrameworkMapping(BaseModel):
+    framework_key: str
+    framework_name: str
+    framework_version: str
+    control_id: str
+    control_title: str
+
+
+class RuleDetailResponse(ComplianceRuleResponse):
+    """Extends the catalog row (docs/compliance §37) with framework
+    mappings, live coverage, and which agents are currently failing —
+    everything a rule detail page needs in one call."""
+
+    framework_mappings: list[FrameworkMapping] = []
+    coverage: dict[str, int] = {}
+    failing_agent_ids: list[UUID] = []
+
+
 class RuleCoverageResponse(BaseModel):
     rule_id: UUID
     rule_key: str

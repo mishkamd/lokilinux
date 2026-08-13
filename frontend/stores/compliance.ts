@@ -66,6 +66,20 @@ export interface ComplianceRule {
   imported_at: string
 }
 
+export interface FrameworkMapping {
+  framework_key: string
+  framework_name: string
+  framework_version: string
+  control_id: string
+  control_title: string
+}
+
+export interface RuleDetail extends ComplianceRule {
+  framework_mappings: FrameworkMapping[]
+  coverage: Record<string, number>
+  failing_agent_ids: string[]
+}
+
 export interface PolicySet {
   id: string
   name: string
@@ -399,7 +413,10 @@ export const useComplianceStore = defineStore('compliance', () => {
   const rulesTotal = ref(0)
   const rulesLoading = ref(false)
   const rulesNextCursor = ref<string | null>(null)
-  const ruleFilters = ref({ domain: '', check_source: '', severity: '' })
+  const ruleFilters = ref({
+    domain: '', check_source: '', severity: '', search: '', framework: '', platform: '', source: '', status: '',
+  })
+  const selectedRule = ref<RuleDetail | null>(null)
 
   const policySets = ref<PolicySet[]>([])
   const policySetsTotal = ref(0)
@@ -417,6 +434,11 @@ export const useComplianceStore = defineStore('compliance', () => {
       if (ruleFilters.value.domain) params.set('domain', ruleFilters.value.domain)
       if (ruleFilters.value.check_source) params.set('check_source', ruleFilters.value.check_source)
       if (ruleFilters.value.severity) params.set('severity', ruleFilters.value.severity)
+      if (ruleFilters.value.search) params.set('search', ruleFilters.value.search)
+      if (ruleFilters.value.framework) params.set('framework', ruleFilters.value.framework)
+      if (ruleFilters.value.platform) params.set('platform', ruleFilters.value.platform)
+      if (ruleFilters.value.source) params.set('source', ruleFilters.value.source)
+      if (ruleFilters.value.status) params.set('status', ruleFilters.value.status)
       const data = await api.get<{ items: ComplianceRule[]; next_cursor: string | null; total: number }>(
         `/compliance/rules?${params}`,
       )
@@ -430,6 +452,10 @@ export const useComplianceStore = defineStore('compliance', () => {
     } finally {
       rulesLoading.value = false
     }
+  }
+
+  async function fetchRule(id: string) {
+    selectedRule.value = await api.get<RuleDetail>(`/compliance/rules/${id}`)
   }
 
   async function fetchPolicySets(cursor?: string) {
@@ -875,6 +901,7 @@ export const useComplianceStore = defineStore('compliance', () => {
     inventorySnapshot, inventorySnapshotError, inventoryHistory, inventoryLoading,
     fetchInventorySnapshot, fetchInventoryHistory,
     rules, rulesTotal, rulesLoading, rulesNextCursor, ruleFilters, fetchRules,
+    selectedRule, fetchRule,
     policySets, policySetsTotal, policySetsLoading, policySetsNextCursor, selectedPolicySet, policySetRules, policySetCoverage,
     fetchPolicySets, createPolicySet, fetchPolicySet, fetchPolicySetRules, fetchPolicySetCoverage, importPolicySet,
     driftEvents, driftTotal, driftLoading, driftNextCursor, driftFilters,

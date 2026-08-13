@@ -28,12 +28,20 @@ const columns = [
   <div>
     <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
       <div class="flex flex-wrap items-center gap-3">
-        <Input v-model="ruleFilters.domain" placeholder="Filter by domain (e.g. sshd)" class="w-56"
+        <Input v-model="ruleFilters.search" placeholder="Search rule ID, title, CCE/NIST/STIG/CIS…" class="w-64"
+               @keyup.enter="store.fetchRules()" />
+        <Input v-model="ruleFilters.domain" placeholder="Filter by domain (e.g. sshd)" class="w-48"
                @keyup.enter="store.fetchRules()" />
         <Select v-model="ruleFilters.check_source" :options="['', ...CHECK_SOURCES]" placeholder="Coverage" class="w-44"
                 @change="store.fetchRules()" />
         <Select v-model="ruleFilters.severity" :options="['', 'CRITICAL', 'HIGH', 'MEDIUM', 'LOW']" placeholder="Severity"
                 class="w-36" @change="store.fetchRules()" />
+        <Input v-model="ruleFilters.framework" placeholder="Framework (e.g. cis)" class="w-36"
+               @keyup.enter="store.fetchRules()" />
+        <Input v-model="ruleFilters.platform" placeholder="Platform (e.g. rocky9)" class="w-36"
+               @keyup.enter="store.fetchRules()" />
+        <Select v-model="ruleFilters.status" :options="[{ label: 'All', value: '' }, { label: 'Enabled', value: 'enabled' }, { label: 'Disabled', value: 'disabled' }]"
+                placeholder="Status" class="w-32" @change="store.fetchRules()" />
         <Button variant="outline" @click="store.fetchRules()">
           <RefreshCw class="size-4" /> Refresh
         </Button>
@@ -41,7 +49,8 @@ const columns = [
       <Badge color="gray">{{ rulesTotal }} rules</Badge>
     </div>
 
-    <DataTable :rows="rules" :columns="columns" :loading="rulesLoading">
+    <DataTable :rows="rules" :columns="columns" :loading="rulesLoading" rows-clickable
+               @row-click="(row) => navigateTo(`/compliance/rules/${row.id}`)">
       <template #title-data="{ row }">
         <div>
           <p class="font-medium">{{ row.title }}</p>
