@@ -300,6 +300,7 @@ const navSections = computed((): { title: string; links: NavLink[] }[] => [
       { to: '/agents',          label: 'Agents',          icon: Cpu },
       { to: '/jobs',            label: 'Jobs',            icon: ClipboardList },
       { to: '/vulnerabilities', label: 'Vulnerabilities', icon: ShieldAlert },
+      { to: '/vulnerabilities/list', label: 'CVE Catalog', icon: ListChecks },
     ],
   },
   {
@@ -355,7 +356,7 @@ function isActive(to: string): boolean {
   // Exact match for index-style links that are themselves a path-prefix of a
   // sibling nav entry (e.g. "/compliance" vs "/compliance/baselines") —
   // otherwise both would show active at once, same reasoning as "/".
-  if (to === '/' || to === '/compliance') return route.path === to
+  if (to === '/' || to === '/compliance' || to === '/vulnerabilities') return route.path === to
   return route.path.startsWith(to)
 }
 
