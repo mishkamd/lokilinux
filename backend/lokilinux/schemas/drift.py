@@ -24,6 +24,13 @@ class DriftEventResponse(BaseModel):
     root_cause: Any | None = None
     acknowledged_by: UUID | None = None
     acknowledged_at: datetime | None = None
+    status: str = "OPEN"
+    occurrences: int = 1
+    first_seen: datetime | None = None
+    last_seen: datetime | None = None
+    correlation_key: str | None = None
+    resolved_at: datetime | None = None
+    suppressed_by: UUID | None = None
 
     model_config = {"from_attributes": True}
 

@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/google/uuid"
 	"lukechampine.com/blake3"
@@ -211,7 +212,9 @@ func (in *Ingester) ingestFileIntegrity(ctx context.Context, snap Snapshot) erro
 }
 
 // detectDrift compares the new facts against the previous snapshot's
-// decoded body and, if they differ structurally, records a drift_events row.
+// decoded body and, if they differ structurally, records or correlates a
+// drift_events row (docs/compliance §9, §39: one open incident with an
+// occurrences count, never a new row per poll cycle).
 func (in *Ingester) detectDrift(ctx context.Context, snap Snapshot, previousHash string) (bool, error) {
 	previousBody, err := in.store.GetBlobBody(ctx, previousHash)
 	if err != nil {
@@ -226,30 +229,12 @@ func (in *Ingester) detectDrift(ctx context.Context, snap Snapshot, previousHash
 	if event == nil {
 		return false, nil
 	}
-
-	fieldDiffs := make([]storage.DriftFieldDiff, 0, len(event.FieldDiffs))
-	for _, d := range event.FieldDiffs {
-		oldJSON, _ := json.Marshal(d.OldValue)
-		newJSON, _ := json.Marshal(d.NewValue)
-		fieldDiffs = append(fieldDiffs, storage.DriftFieldDiff{FieldPath: d.FieldPath, OldValue: oldJSON, NewValue: newJSON})
-	}
-
-	_, err = in.store.InsertDriftEvent(
-		ctx, snap.AgentID, event.Domain, string(event.ComparedAgainst),
-		string(event.Severity), string(event.ChangeType), event.Summary, fieldDiffs,
-	)
-	if err != nil {
-		return false, err
-	}
-	return true, nil
+	return in.recordOrCorrelateDrift(ctx, snap.AgentID, event)
 }
 
 // detectBaselineDrift compares the new facts against the agent's effective
 // baseline (docs/compliance/08-DRIFT-FIM.md §1, the BASELINE comparison) and
-// records a drift_events row when they deviate. A persisted deviation is
-// recorded once per distinct diff state: the same set of changed field
-// paths as the most recent BASELINE event for this agent/domain does not
-// spam a new event every heartbeat.
+// records or correlates a drift_events row when they deviate.
 func (in *Ingester) detectBaselineDrift(ctx context.Context, snap Snapshot) (bool, error) {
 	mergedState, found, err := in.store.GetBaselineEffective(ctx, snap.AgentID)
 	if err != nil {
@@ -271,14 +256,26 @@ func (in *Ingester) detectBaselineDrift(ctx context.Context, snap Snapshot) (boo
 	if event == nil {
 		return false, nil
 	}
+	return in.recordOrCorrelateDrift(ctx, snap.AgentID, event)
+}
 
-	paths := baselineDriftFieldPaths(event.FieldDiffs)
-	existing, have, err := in.store.LatestBaselineDriftFieldPaths(ctx, snap.AgentID, snap.Domain)
+// recordOrCorrelateDrift is the shared dedup path for both comparison
+// branches (docs/compliance §9: "PermitRootLogin=yes detected 100 times ...
+// one open drift incident with occurrences, not 100 independent
+// violations"). correlationKey identifies "the same deviation" independent
+// of exactly when it was first observed, so an OPEN or ACKNOWLEDGED match
+// increments occurrences/last_seen instead of inserting a new row; a drift
+// already RESOLVED/SUPPRESSED/EXCEPTION correctly starts a fresh incident
+// if the same deviation reappears.
+func (in *Ingester) recordOrCorrelateDrift(ctx context.Context, agentID uuid.UUID, event *drift.Event) (bool, error) {
+	key := correlationKey(event.Domain, event.ComparedAgainst, event.FieldDiffs)
+
+	incremented, err := in.store.IncrementDriftOccurrence(ctx, agentID, key)
 	if err != nil {
 		return false, err
 	}
-	if have && slices.Equal(existing, paths) {
-		return false, nil // same deviation already recorded — state hasn't changed further
+	if incremented {
+		return true, nil
 	}
 
 	fieldDiffs := make([]storage.DriftFieldDiff, 0, len(event.FieldDiffs))
@@ -288,23 +285,34 @@ func (in *Ingester) detectBaselineDrift(ctx context.Context, snap Snapshot) (boo
 		fieldDiffs = append(fieldDiffs, storage.DriftFieldDiff{FieldPath: d.FieldPath, OldValue: oldJSON, NewValue: newJSON})
 	}
 	if _, err := in.store.InsertDriftEvent(
-		ctx, snap.AgentID, event.Domain, string(event.ComparedAgainst),
-		string(event.Severity), string(event.ChangeType), event.Summary, fieldDiffs,
+		ctx, agentID, event.Domain, string(event.ComparedAgainst),
+		string(event.Severity), string(event.ChangeType), event.Summary, key, fieldDiffs,
 	); err != nil {
 		return false, err
 	}
 	return true, nil
 }
 
-// baselineDriftFieldPaths extracts the field paths of a drift diff, sorted,
-// so identical deviation states compare equal regardless of walk order.
-func baselineDriftFieldPaths(diffs []drift.FieldDiff) []string {
+// correlationKey identifies "the same deviation" for dedup purposes: same
+// domain, same comparison basis, same set of changed field paths (sorted —
+// order-independent). Deliberately excludes agent_id from the hash content
+// itself (the query already filters by agent_id) so the same violation
+// pattern across different agents naturally shares a key, useful for future
+// fleet-wide grouping without being relied on for anything today.
+func correlationKey(domain string, comparedAgainst drift.ComparedAgainst, diffs []drift.FieldDiff) string {
 	paths := make([]string, 0, len(diffs))
 	for _, d := range diffs {
 		paths = append(paths, d.FieldPath)
 	}
 	slices.Sort(paths)
-	return paths
+
+	h := blake3.New(32, nil)
+	h.Write([]byte(domain))
+	h.Write([]byte{0})
+	h.Write([]byte(comparedAgainst))
+	h.Write([]byte{0})
+	h.Write([]byte(strings.Join(paths, "\x00")))
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 // evaluateRules resolves which rules apply to this agent/domain (matching

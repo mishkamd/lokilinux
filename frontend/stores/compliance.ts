@@ -97,6 +97,13 @@ export interface DriftEvent {
   root_cause: Record<string, unknown> | null
   acknowledged_by: string | null
   acknowledged_at: string | null
+  status: 'OPEN' | 'ACKNOWLEDGED' | 'IN_REMEDIATION' | 'RESOLVED' | 'SUPPRESSED' | 'EXCEPTION'
+  occurrences: number
+  first_seen: string | null
+  last_seen: string | null
+  correlation_key: string | null
+  resolved_at: string | null
+  suppressed_by: string | null
 }
 
 export interface DriftDetail {
@@ -425,7 +432,7 @@ export const useComplianceStore = defineStore('compliance', () => {
   const driftTotal = ref(0)
   const driftLoading = ref(false)
   const driftNextCursor = ref<string | null>(null)
-  const driftFilters = ref({ severity: '', domain: '', acknowledged: '' })
+  const driftFilters = ref({ severity: '', domain: '', acknowledged: '', status: '' })
 
   const selectedDriftEvent = ref<DriftEvent | null>(null)
   const driftDetails = ref<DriftDetail[]>([])
@@ -438,6 +445,7 @@ export const useComplianceStore = defineStore('compliance', () => {
       if (driftFilters.value.severity) params.set('severity', driftFilters.value.severity)
       if (driftFilters.value.domain) params.set('domain', driftFilters.value.domain)
       if (driftFilters.value.acknowledged) params.set('acknowledged', driftFilters.value.acknowledged)
+      if (driftFilters.value.status) params.set('status', driftFilters.value.status)
       const data = await api.get<{ items: DriftEvent[]; next_cursor: string | null; total: number }>(
         `/compliance/drift-events?${params}`,
       )
@@ -463,6 +471,20 @@ export const useComplianceStore = defineStore('compliance', () => {
 
   async function acknowledgeDrift(id: string) {
     const updated = await api.post<DriftEvent>(`/compliance/drift-events/${id}/acknowledge`)
+    applyDriftUpdate(id, updated)
+  }
+
+  async function suppressDrift(id: string, reason?: string) {
+    const updated = await api.post<DriftEvent>(`/compliance/drift-events/${id}/suppress`, { reason: reason ?? null })
+    applyDriftUpdate(id, updated)
+  }
+
+  async function resolveDrift(id: string) {
+    const updated = await api.post<DriftEvent>(`/compliance/drift-events/${id}/resolve`)
+    applyDriftUpdate(id, updated)
+  }
+
+  function applyDriftUpdate(id: string, updated: DriftEvent) {
     const idx = driftEvents.value.findIndex((e) => e.id === id)
     if (idx !== -1) driftEvents.value[idx] = updated
     if (selectedDriftEvent.value?.id === id) selectedDriftEvent.value = updated
@@ -694,7 +716,7 @@ export const useComplianceStore = defineStore('compliance', () => {
     fetchPolicySets, createPolicySet, fetchPolicySet, fetchPolicySetRules, fetchPolicySetCoverage, importPolicySet,
     driftEvents, driftTotal, driftLoading, driftNextCursor, driftFilters,
     selectedDriftEvent, driftDetails,
-    fetchDriftEvents, fetchDriftEvent, fetchDriftDetails, acknowledgeDrift,
+    fetchDriftEvents, fetchDriftEvent, fetchDriftDetails, acknowledgeDrift, suppressDrift, resolveDrift,
     remediationPlans, remediationTotal, remediationLoading, remediationNextCursor, remediationError, remediationFilters,
     selectedRemediationPlan, remediationActions, remediationExecution, maintenanceWindows,
     fetchRemediationPlans, fetchRemediationPlan, fetchRemediationActions,

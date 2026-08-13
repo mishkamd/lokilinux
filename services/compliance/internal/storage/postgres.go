@@ -106,19 +106,26 @@ func (s *Store) GetBlobBody(ctx context.Context, contentHash string) ([]byte, er
 
 // InsertDriftEvent records one drift.Event as a drift_events row plus one
 // drift_details row per field diff — both hypertables (migration 017).
+// Always the start of a fresh incident (status OPEN, occurrences 1) — the
+// caller (ingest.recordOrCorrelateDrift) only reaches this after
+// IncrementDriftOccurrence found no existing OPEN/ACKNOWLEDGED match for
+// correlationKey (docs/compliance §9).
 func (s *Store) InsertDriftEvent(
 	ctx context.Context,
 	agentID uuid.UUID,
-	domain, comparedAgainst, severity, changeType, summary string,
+	domain, comparedAgainst, severity, changeType, summary, correlationKey string,
 	fieldDiffs []DriftFieldDiff,
 ) (uuid.UUID, error) {
 	now := time.Now().UTC()
 	var eventID uuid.UUID
 	err := s.pool.QueryRow(ctx, `
-		INSERT INTO drift_events (time, agent_id, domain, compared_against, severity, change_type, summary)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		INSERT INTO drift_events (
+			time, agent_id, domain, compared_against, severity, change_type, summary,
+			correlation_key, status, occurrences, first_seen, last_seen
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'OPEN', 1, $1, $1)
 		RETURNING id
-	`, now, agentID, domain, comparedAgainst, severity, changeType, summary).Scan(&eventID)
+	`, now, agentID, domain, comparedAgainst, severity, changeType, summary, correlationKey).Scan(&eventID)
 	if err != nil {
 		return uuid.Nil, fmt.Errorf("inserting drift event (agent=%s domain=%s): %w", agentID, domain, err)
 	}
@@ -133,6 +140,25 @@ func (s *Store) InsertDriftEvent(
 		}
 	}
 	return eventID, nil
+}
+
+// IncrementDriftOccurrence bumps occurrences/last_seen on an existing
+// OPEN or ACKNOWLEDGED drift_events row matching (agentID, correlationKey)
+// instead of inserting a duplicate — the dedup half of docs/compliance §9's
+// "100 occurrences, one incident." Returns found=false when no such row
+// exists (caller then inserts a fresh incident) — a RESOLVED/SUPPRESSED/
+// EXCEPTION row with the same key correctly does not match, so a
+// deviation that reappears after being fixed opens a new incident rather
+// than silently reopening a closed one.
+func (s *Store) IncrementDriftOccurrence(ctx context.Context, agentID uuid.UUID, correlationKey string) (bool, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE drift_events SET occurrences = occurrences + 1, last_seen = now()
+		WHERE agent_id = $1 AND correlation_key = $2 AND status IN ('OPEN', 'ACKNOWLEDGED')
+	`, agentID, correlationKey)
+	if err != nil {
+		return false, fmt.Errorf("incrementing drift occurrence (agent=%s): %w", agentID, err)
+	}
+	return tag.RowsAffected() > 0, nil
 }
 
 // DriftFieldDiff mirrors drift.FieldDiff but with pre-marshaled JSON values
@@ -687,45 +713,4 @@ func (s *Store) GetBaselineEffective(ctx context.Context, agentID uuid.UUID) (ma
 		return nil, false, fmt.Errorf("loading baseline_effective for agent %s: %w", agentID, err)
 	}
 	return mergedState, true, nil
-}
-
-// LatestBaselineDriftFieldPaths returns the field paths recorded on the
-// most recent BASELINE drift event for (agent, domain), with found=false
-// when no such event exists. Ingest uses this to avoid re-recording the
-// same persisted deviation on every heartbeat — one event per distinct
-// diff state, not one per heartbeat.
-func (s *Store) LatestBaselineDriftFieldPaths(ctx context.Context, agentID uuid.UUID, domain string) ([]string, bool, error) {
-	var eventID uuid.UUID
-	var eventTime time.Time
-	err := s.pool.QueryRow(ctx, `
-		SELECT id, time FROM drift_events
-		WHERE agent_id = $1 AND domain = $2 AND compared_against = 'BASELINE'
-		ORDER BY time DESC LIMIT 1
-	`, agentID, domain).Scan(&eventID, &eventTime)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return nil, false, nil
-	}
-	if err != nil {
-		return nil, false, fmt.Errorf("loading latest baseline drift event (agent=%s domain=%s): %w", agentID, domain, err)
-	}
-
-	rowsResult, err := s.pool.Query(ctx, `
-		SELECT field_path FROM drift_details
-		WHERE drift_event_time = $1 AND drift_event_id = $2
-		ORDER BY field_path
-	`, eventTime, eventID)
-	if err != nil {
-		return nil, false, fmt.Errorf("querying drift details for event %s: %w", eventID, err)
-	}
-	defer rowsResult.Close()
-
-	var paths []string
-	for rowsResult.Next() {
-		var p string
-		if err := rowsResult.Scan(&p); err != nil {
-			return nil, false, fmt.Errorf("scanning drift detail path: %w", err)
-		}
-		paths = append(paths, p)
-	}
-	return paths, true, rowsResult.Err()
 }

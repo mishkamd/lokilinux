@@ -11,14 +11,24 @@ const SEVERITY_COLORS: Record<string, string> = {
   CRITICAL: 'red', HIGH: 'red', MEDIUM: 'amber', LOW: 'gray',
 }
 
+const STATUS_COLORS: Record<string, string> = {
+  OPEN: 'red', ACKNOWLEDGED: 'amber', IN_REMEDIATION: 'amber',
+  RESOLVED: 'green', SUPPRESSED: 'gray', EXCEPTION: 'gray',
+}
+
 const columns = [
   { key: 'time', label: 'Detected' },
   { key: 'agent_id', label: 'Server' },
   { key: 'domain', label: 'Domain' },
   { key: 'severity', label: 'Severity' },
-  { key: 'change_type', label: 'Change' },
-  { key: 'acknowledged_at', label: 'Status' },
+  { key: 'occurrences', label: 'Occurrences' },
+  { key: 'status', label: 'Status' },
+  { key: 'actions', label: '' },
 ]
+
+async function onSuppress(id: string) {
+  await store.suppressDrift(id)
+}
 </script>
 
 <template>
@@ -29,8 +39,9 @@ const columns = [
                 placeholder="Severity" class="w-36" @change="store.fetchDriftEvents()" />
         <Input v-model="driftFilters.domain" placeholder="Filter by domain" class="w-48"
                @keyup.enter="store.fetchDriftEvents()" />
-        <Select v-model="driftFilters.acknowledged" :options="[{ label: 'All', value: '' }, { label: 'Open', value: 'false' }, { label: 'Acknowledged', value: 'true' }]"
-                placeholder="Status" class="w-40" @change="store.fetchDriftEvents()" />
+        <Select v-model="driftFilters.status"
+                :options="[{ label: 'All', value: '' }, { label: 'Open', value: 'OPEN' }, { label: 'Acknowledged', value: 'ACKNOWLEDGED' }, { label: 'Resolved', value: 'RESOLVED' }, { label: 'Suppressed', value: 'SUPPRESSED' }]"
+                placeholder="Status" class="w-44" @change="store.fetchDriftEvents()" />
         <Button variant="outline" @click="store.fetchDriftEvents()">
           <RefreshCw class="size-4" /> Refresh
         </Button>
@@ -49,12 +60,24 @@ const columns = [
       <template #severity-data="{ row }">
         <Badge :color="SEVERITY_COLORS[String(row.severity)] ?? 'gray'" size="xs">{{ row.severity }}</Badge>
       </template>
-      <template #acknowledged_at-data="{ row }">
-        <Badge v-if="row.acknowledged_at" color="green" size="xs">Acknowledged</Badge>
-        <Button v-else-if="canEdit" size="xs" variant="ghost" @click.stop="store.acknowledgeDrift(String(row.id))">
-          Acknowledge
-        </Button>
-        <span v-else class="text-muted-foreground text-sm">Open</span>
+      <template #occurrences-data="{ row }">
+        <span class="font-mono text-xs text-muted-foreground">{{ row.occurrences }}×</span>
+      </template>
+      <template #status-data="{ row }">
+        <Badge :color="STATUS_COLORS[String(row.status)] ?? 'gray'" size="xs">{{ row.status }}</Badge>
+      </template>
+      <template #actions-data="{ row }">
+        <div v-if="canEdit" class="flex items-center gap-1">
+          <Button v-if="row.status === 'OPEN'" size="xs" variant="ghost" @click.stop="store.acknowledgeDrift(String(row.id))">
+            Acknowledge
+          </Button>
+          <Button v-if="['OPEN', 'ACKNOWLEDGED'].includes(String(row.status))" size="xs" variant="ghost" @click.stop="store.resolveDrift(String(row.id))">
+            Resolve
+          </Button>
+          <Button v-if="['OPEN', 'ACKNOWLEDGED'].includes(String(row.status))" size="xs" variant="ghost" @click.stop="onSuppress(String(row.id))">
+            Suppress
+          </Button>
+        </div>
       </template>
     </DataTable>
 
