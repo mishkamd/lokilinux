@@ -247,6 +247,21 @@ export interface TrendPoint {
   compliance_pct: number
 }
 
+export interface ComplianceAssessment {
+  id: string
+  scope_selector: Record<string, unknown>
+  policy_set_id: string | null
+  status: 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED'
+  servers_total: number
+  servers_done: number
+  rules_total: number
+  rules_done: number
+  created_by: string | null
+  created_at: string
+  started_at: string | null
+  completed_at: string | null
+}
+
 export interface ComplianceException {
   id: string
   rule_id: string
@@ -820,6 +835,34 @@ export const useComplianceStore = defineStore('compliance', () => {
     }
   }
 
+  const assessments = ref<ComplianceAssessment[]>([])
+  const assessmentsLoading = ref(false)
+
+  async function fetchAssessments() {
+    assessmentsLoading.value = true
+    try {
+      const data = await api.get<{ items: ComplianceAssessment[]; next_cursor: string | null; total: number }>(
+        '/compliance/assessments?limit=5',
+      )
+      assessments.value = data.items
+    } finally {
+      assessmentsLoading.value = false
+    }
+  }
+
+  async function createAssessment(body: { policy_set_id: string; scope_selector?: Record<string, unknown> }) {
+    const created = await api.post<ComplianceAssessment>('/compliance/assessments', body)
+    assessments.value = [created, ...assessments.value]
+    return created
+  }
+
+  async function fetchAssessment(id: string) {
+    const updated = await api.get<ComplianceAssessment>(`/compliance/assessments/${id}`)
+    const idx = assessments.value.findIndex((a) => a.id === id)
+    if (idx !== -1) assessments.value[idx] = updated
+    return updated
+  }
+
   return {
     baselines, baselinesTotal, baselinesLoading, baselinesNextCursor, baselineFilters,
     selectedBaseline, versions, versionsLoading,
@@ -848,5 +891,6 @@ export const useComplianceStore = defineStore('compliance', () => {
     fetchTopViolations, fetchTopChangedFiles,
     overview, overviewLoading, fetchOverview,
     trend, trendLoading, trendRange, fetchTrend,
+    assessments, assessmentsLoading, fetchAssessments, createAssessment, fetchAssessment,
   }
 })

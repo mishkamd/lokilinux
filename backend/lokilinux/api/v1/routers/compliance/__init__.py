@@ -10,6 +10,7 @@ in api/v1/__init__.py.
 
 from fastapi import APIRouter
 
+from .assessments import router as assessments_router
 from .baselines import router as baselines_router
 from .dashboard import router as dashboard_router
 from .drift import router as drift_router
@@ -21,6 +22,7 @@ from .remediation import router as remediation_router
 from .reports import router as reports_router
 
 router = APIRouter()
+router.include_router(assessments_router)
 router.include_router(baselines_router)
 router.include_router(dashboard_router)
 router.include_router(drift_router)

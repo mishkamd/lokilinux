@@ -303,6 +303,10 @@ type RuleWithPolicySet struct {
 	Rule        rules.Rule
 	RuleKey     string
 	PolicySetID uuid.UUID
+	// Domain is only populated by RulesForPolicySet (which spans every
+	// domain in one policy set); RulesForPolicySetsAndDomain's caller
+	// already knows the domain it queried for, so it leaves this zero.
+	Domain string
 }
 
 // ActiveException is one live compliance_exceptions row — expires_at > now()
@@ -682,6 +686,34 @@ func (s *Store) ListAgentIDs(ctx context.Context) ([]uuid.UUID, error) {
 	return out, rowsResult.Err()
 }
 
+// ListAgentAttributes bulk-loads every agent's scope-matching attributes —
+// the input set for matching a compliance_assessments.scope_selector
+// against the whole fleet in one query, never one LoadAgentAttributes call
+// per agent (docs/compliance §38).
+func (s *Store) ListAgentAttributes(ctx context.Context) ([]AgentAttributes, error) {
+	rowsResult, err := s.pool.Query(ctx, `
+		SELECT a.id, COALESCE(a.os_distro, ''), COALESCE(a.os_version, ''),
+		       COALESCE(c.name, ''), COALESCE(p.name, '')
+		FROM agents a
+		LEFT JOIN categories c ON c.id = a.category_id
+		LEFT JOIN projects p ON p.id = a.project_id
+	`)
+	if err != nil {
+		return nil, fmt.Errorf("listing agent attributes: %w", err)
+	}
+	defer rowsResult.Close()
+
+	var out []AgentAttributes
+	for rowsResult.Next() {
+		var a AgentAttributes
+		if err := rowsResult.Scan(&a.AgentID, &a.OsDistro, &a.OsVersion, &a.Category, &a.Project); err != nil {
+			return nil, fmt.Errorf("scanning agent attributes row: %w", err)
+		}
+		out = append(out, a)
+	}
+	return out, rowsResult.Err()
+}
+
 // UpsertBaselineEffective materializes one agent's resolved effective
 // baseline (docs/compliance/01-DATA-MODEL.md) — a cache, not a source of
 // truth; safe to recompute and overwrite at any time.
@@ -729,4 +761,139 @@ func (s *Store) GetBaselineEffective(ctx context.Context, agentID uuid.UUID) (ma
 		return nil, false, fmt.Errorf("loading baseline_effective for agent %s: %w", agentID, err)
 	}
 	return mergedState, true, nil
+}
+
+// ── Async fleet assessments (docs/compliance §24) ──────────────────────────
+
+// Assessment is one compliance_assessments row's fields RunAssessment needs.
+type Assessment struct {
+	ID            uuid.UUID
+	ScopeSelector map[string]any
+	PolicySetID   *uuid.UUID
+}
+
+// ClaimNextPendingAssessment atomically picks the oldest PENDING assessment
+// and flips it to RUNNING in one statement (SELECT ... FOR UPDATE SKIP
+// LOCKED semantics aren't needed — only the elected leader ever calls this,
+// scheduler.AssessmentPoller mirrors Dispatcher/Expirer's leader-only
+// pattern), so there's no multi-writer race to guard against here. Returns
+// found=false when there's nothing queued.
+func (s *Store) ClaimNextPendingAssessment(ctx context.Context) (Assessment, bool, error) {
+	var a Assessment
+	err := s.pool.QueryRow(ctx, `
+		UPDATE compliance_assessments
+		SET status = 'RUNNING', started_at = now()
+		WHERE id = (
+			SELECT id FROM compliance_assessments WHERE status = 'PENDING' ORDER BY created_at LIMIT 1
+		)
+		RETURNING id, scope_selector, policy_set_id
+	`).Scan(&a.ID, &a.ScopeSelector, &a.PolicySetID)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Assessment{}, false, nil
+	}
+	if err != nil {
+		return Assessment{}, false, fmt.Errorf("claiming next pending assessment: %w", err)
+	}
+	return a, true, nil
+}
+
+// SetAssessmentTotals records the resolved scope size once RunAssessment
+// knows it (matched agent count, rule count for the target policy set) —
+// separate from the initial claim since resolving scope requires a second
+// query (ListAgentAttributes + selector matching) the claim itself doesn't do.
+func (s *Store) SetAssessmentTotals(ctx context.Context, assessmentID uuid.UUID, serversTotal, rulesTotal int) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE compliance_assessments SET servers_total = $2, rules_total = $3 WHERE id = $1
+	`, assessmentID, serversTotal, rulesTotal)
+	if err != nil {
+		return fmt.Errorf("setting assessment totals (id=%s): %w", assessmentID, err)
+	}
+	return nil
+}
+
+// IncrementAssessmentProgress bumps servers_done/rules_done — called once
+// per agent (rulesDone = however many rules were actually evaluated for
+// that agent) as RunAssessment works through the matched fleet, so a
+// polling client sees live progress instead of only a final jump to 100%.
+func (s *Store) IncrementAssessmentProgress(ctx context.Context, assessmentID uuid.UUID, serversDone, rulesDone int) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE compliance_assessments
+		SET servers_done = servers_done + $2, rules_done = rules_done + $3
+		WHERE id = $1
+	`, assessmentID, serversDone, rulesDone)
+	if err != nil {
+		return fmt.Errorf("incrementing assessment progress (id=%s): %w", assessmentID, err)
+	}
+	return nil
+}
+
+// FinishAssessment marks an assessment COMPLETED or FAILED — the terminal
+// transition RunAssessment always reaches, success or error, so no
+// assessment is ever left stuck in RUNNING after a claim.
+func (s *Store) FinishAssessment(ctx context.Context, assessmentID uuid.UUID, status string) error {
+	_, err := s.pool.Exec(ctx, `
+		UPDATE compliance_assessments SET status = $2, completed_at = now() WHERE id = $1
+	`, assessmentID, status)
+	if err != nil {
+		return fmt.Errorf("finishing assessment (id=%s, status=%s): %w", assessmentID, status, err)
+	}
+	return nil
+}
+
+// RulesForPolicySet returns every enabled rule in one policy set, across all
+// its domains — RunAssessment groups these by Domain itself since the
+// evaluator needs one domain's rules against that domain's latest snapshot
+// at a time. Distinct from RulesForPolicySetsAndDomain (single-domain,
+// scope-resolved multi-set) — this is single-set, all-domain, used only for
+// the explicit policy_set_id an assessment targets.
+func (s *Store) RulesForPolicySet(ctx context.Context, policySetID uuid.UUID) ([]RuleWithPolicySet, error) {
+	rowsResult, err := s.pool.Query(ctx, `
+		SELECT cr.id, cr.rule_key, cr.check_source, cr.check_expr, cr.platform_filter,
+		       cr.expected_value, cr.domain, psr.policy_set_id
+		FROM compliance_rules cr
+		JOIN policy_set_rules psr ON psr.rule_id = cr.id
+		WHERE psr.policy_set_id = $1 AND cr.is_enabled = true
+	`, policySetID)
+	if err != nil {
+		return nil, fmt.Errorf("querying rules for policy set %s: %w", policySetID, err)
+	}
+	defer rowsResult.Close()
+
+	var out []RuleWithPolicySet
+	var ruleIDs []uuid.UUID
+	for rowsResult.Next() {
+		var r RuleWithPolicySet
+		var checkSource string
+		var expectedValueJSON []byte
+		if err := rowsResult.Scan(
+			&r.Rule.ID, &r.RuleKey, &checkSource, &r.Rule.CheckExpr, &r.Rule.PlatformFilter,
+			&expectedValueJSON, &r.Domain, &r.PolicySetID,
+		); err != nil {
+			return nil, fmt.Errorf("scanning policy set rule row: %w", err)
+		}
+		r.Rule.CheckSource = rules.CheckSource(checkSource)
+		if len(expectedValueJSON) > 0 {
+			if err := json.Unmarshal(expectedValueJSON, &r.Rule.ExpectedValue); err != nil {
+				return nil, fmt.Errorf("decoding expected_value for rule %s: %w", r.RuleKey, err)
+			}
+		}
+		id, err := uuid.Parse(r.Rule.ID)
+		if err != nil {
+			return nil, fmt.Errorf("rule %s has a non-UUID id: %w", r.RuleKey, err)
+		}
+		ruleIDs = append(ruleIDs, id)
+		out = append(out, r)
+	}
+	if err := rowsResult.Err(); err != nil {
+		return nil, err
+	}
+
+	evidencePaths, err := s.evidencePathsForRules(ctx, ruleIDs)
+	if err != nil {
+		return nil, err
+	}
+	for i := range out {
+		out[i].Rule.EvidencePaths = evidencePaths[out[i].Rule.ID]
+	}
+	return out, nil
 }
