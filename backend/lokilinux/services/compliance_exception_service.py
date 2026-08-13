@@ -69,6 +69,7 @@ class ExceptionService:
         exc.status = "ACTIVE"
         exc.approved_by = actor_id
         exc.approved_at = datetime.now(timezone.utc)
+        exc.updated_at = datetime.now(timezone.utc)
         await self.db.commit()
 
         await AuditService(self.db).log(
@@ -86,6 +87,7 @@ class ExceptionService:
             raise HTTPException(status_code=409, detail=f"Cannot revoke from status {exc.status}")
 
         exc.status = "REVOKED"
+        exc.updated_at = datetime.now(timezone.utc)
         await self.db.commit()
 
         await AuditService(self.db).log(

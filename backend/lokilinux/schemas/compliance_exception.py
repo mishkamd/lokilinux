@@ -21,7 +21,10 @@ class ExceptionCreate(BaseModel):
 class ExceptionResponse(BaseModel):
     id: UUID
     rule_id: UUID
+    rule_key: str | None = None
+    rule_title: str | None = None
     agent_id: UUID | None = None
+    hostname: str | None = None
     scope_selector: dict[str, Any] = Field(default_factory=dict)
     reason: str
     owner: str

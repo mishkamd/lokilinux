@@ -307,7 +307,10 @@ export interface ComplianceAssessment {
 export interface ComplianceException {
   id: string
   rule_id: string
+  rule_key: string | null
+  rule_title: string | null
   agent_id: string | null
+  hostname: string | null
   scope_selector: Record<string, unknown>
   reason: string
   owner: string
@@ -653,8 +656,10 @@ export const useComplianceStore = defineStore('compliance', () => {
     scope_selector?: Record<string, unknown>
   }) {
     const exc = await api.post<ComplianceException>('/compliance/exceptions', body)
-    exceptions.value = [exc, ...exceptions.value]
-    exceptionsTotal.value += 1
+    // refetch instead of unshifting the raw create response — that response has
+    // no rule_key/hostname join and would also show up under a status filter
+    // it doesn't belong to (a fresh row is always PENDING).
+    await fetchExceptions()
     return exc
   }
 
@@ -669,8 +674,19 @@ export const useComplianceStore = defineStore('compliance', () => {
   }
 
   function applyExceptionUpdate(id: string, updated: ComplianceException) {
+    // approve/revoke responses don't re-join rule_key/rule_title/hostname —
+    // keep the row's existing values instead of letting the null from
+    // `updated` blank them out on a full replace (same fix as applyDriftUpdate).
     const idx = exceptions.value.findIndex((e) => e.id === id)
-    if (idx !== -1) exceptions.value[idx] = updated
+    const existing = idx !== -1 ? exceptions.value[idx] : undefined
+    if (existing) {
+      exceptions.value[idx] = {
+        ...updated,
+        rule_key: updated.rule_key ?? existing.rule_key,
+        rule_title: updated.rule_title ?? existing.rule_title,
+        hostname: updated.hostname ?? existing.hostname,
+      }
+    }
   }
 
   // ── Remediation ──────────────────────────────────────────────────────────

@@ -17,7 +17,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.auth.dependencies import get_current_user, require_role, safe_user_uuid
 from lokilinux.dependencies import get_db
+from lokilinux.models.agent import Agent
 from lokilinux.models.compliance_exception import ComplianceException
+from lokilinux.models.compliance_rule import ComplianceRule
 from lokilinux.schemas.common import CursorPage, decode_cursor, encode_cursor
 from lokilinux.schemas.compliance_exception import ExceptionCreate, ExceptionResponse
 from lokilinux.services.compliance_exception_service import ExceptionService
@@ -35,7 +37,12 @@ async def list_exceptions(
     db: AsyncSession = Depends(get_db),
     _: dict = Depends(get_current_user),
 ) -> CursorPage[ExceptionResponse]:
-    q = select(ComplianceException).order_by(ComplianceException.created_at.desc(), ComplianceException.id.desc())
+    q = (
+        select(ComplianceException, ComplianceRule.rule_key, ComplianceRule.title, Agent.hostname)
+        .outerjoin(ComplianceRule, ComplianceRule.id == ComplianceException.rule_id)
+        .outerjoin(Agent, Agent.id == ComplianceException.agent_id)
+        .order_by(ComplianceException.created_at.desc(), ComplianceException.id.desc())
+    )
     if status:
         q = q.where(ComplianceException.status == status)
     if rule_id:
@@ -56,12 +63,12 @@ async def list_exceptions(
         )
     q = q.limit(limit + 1)
 
-    rows = (await db.execute(q)).scalars().all()
+    rows = (await db.execute(q)).all()
     has_more = len(rows) > limit
     items = rows[:limit]
     next_cursor = None
     if has_more and items:
-        last = items[-1]
+        last = items[-1][0]
         next_cursor = encode_cursor(f"{last.created_at.isoformat()}:{last.id}")
 
     count_q = select(func.count()).select_from(ComplianceException)
@@ -74,7 +81,12 @@ async def list_exceptions(
     total = (await db.execute(count_q)).scalar()
 
     return CursorPage[ExceptionResponse](
-        items=[ExceptionResponse.model_validate(e) for e in items],
+        items=[
+            ExceptionResponse.model_validate(e).model_copy(
+                update={"rule_key": rule_key, "rule_title": rule_title, "hostname": hostname}
+            )
+            for e, rule_key, rule_title, hostname in items
+        ],
         next_cursor=next_cursor,
         total=total,
     )
@@ -105,12 +117,20 @@ async def get_exception(
     db: AsyncSession = Depends(get_db),
     _: dict = Depends(get_current_user),
 ) -> ExceptionResponse:
-    row = (
-        await db.execute(select(ComplianceException).where(ComplianceException.id == exception_id))
-    ).scalar_one_or_none()
-    if row is None:
+    result = (
+        await db.execute(
+            select(ComplianceException, ComplianceRule.rule_key, ComplianceRule.title, Agent.hostname)
+            .outerjoin(ComplianceRule, ComplianceRule.id == ComplianceException.rule_id)
+            .outerjoin(Agent, Agent.id == ComplianceException.agent_id)
+            .where(ComplianceException.id == exception_id)
+        )
+    ).first()
+    if result is None:
         raise HTTPException(status_code=404, detail="Exception not found")
-    return ExceptionResponse.model_validate(row)
+    row, rule_key, rule_title, hostname = result
+    return ExceptionResponse.model_validate(row).model_copy(
+        update={"rule_key": rule_key, "rule_title": rule_title, "hostname": hostname}
+    )
 
 
 @router.post("/exceptions/{exception_id}/approve", response_model=ExceptionResponse)

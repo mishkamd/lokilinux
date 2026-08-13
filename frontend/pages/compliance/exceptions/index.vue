@@ -1,12 +1,37 @@
 <script setup lang="ts">
 import { Plus, RefreshCw } from 'lucide-vue-next'
+import { useServersStore } from '~/stores/servers'
 
 const store = useComplianceStore()
+const serversStore = useServersStore()
+const api = useApi()
 const { exceptions, exceptionsTotal, exceptionsLoading, exceptionsNextCursor, exceptionFilters } = storeToRefs(store)
 const { canEdit, isAdmin } = useCurrentUser()
 const toast = useToast()
 
-onMounted(() => store.fetchExceptions())
+onMounted(() => {
+  store.fetchExceptions()
+  serversStore.fetchServers()
+  fetchRulePicks()
+})
+
+// ponytail: one 100-rule page covers the curated catalog (25 rules today).
+// A ComplianceAsCode import pushes this into the thousands and silently
+// truncates — swap for a debounced search-as-you-type using the backend's
+// existing ?search= param when that happens.
+const rulePicks = ref<{ id: string; rule_key: string; title: string }[]>([])
+async function fetchRulePicks() {
+  const data = await api.get<{ items: { id: string; rule_key: string; title: string }[] }>('/compliance/rules?limit=100')
+  rulePicks.value = data.items
+}
+const ruleOptions = computed(() => [
+  { value: '', label: 'Select rule…' },
+  ...rulePicks.value.map((r) => ({ value: r.id, label: `${r.rule_key} — ${r.title}` })),
+])
+const serverOptions = computed(() => [
+  { value: '', label: 'All servers (scope-wide)' },
+  ...serversStore.servers.map((s) => ({ value: s.id, label: s.hostname || s.id })),
+])
 
 const STATUS_COLORS: Record<string, string> = {
   PENDING: 'amber', ACTIVE: 'green', EXPIRED: 'gray', REVOKED: 'gray',
@@ -14,6 +39,7 @@ const STATUS_COLORS: Record<string, string> = {
 
 const columns = [
   { key: 'rule_id', label: 'Rule' },
+  { key: 'agent_id', label: 'Server' },
   { key: 'owner', label: 'Owner' },
   { key: 'reason', label: 'Reason' },
   { key: 'status', label: 'Status' },
@@ -44,8 +70,8 @@ async function submitCreate() {
     toast.add({ title: 'Exception requested', description: 'Pending approval before it waives anything.' })
     showCreate.value = false
     form.value = { rule_id: '', reason: '', owner: '', expires_at: '', agent_id: '' }
-  } catch {
-    toast.add({ title: 'Failed to create exception', color: 'red' })
+  } catch (err) {
+    formError.value = (err as { data?: { detail?: string } })?.data?.detail ?? 'Failed to create exception'
   } finally {
     creating.value = false
   }
@@ -55,8 +81,8 @@ async function approve(id: string) {
   try {
     await store.approveException(id)
     toast.add({ title: 'Exception approved' })
-  } catch {
-    toast.add({ title: 'Failed to approve', color: 'red' })
+  } catch (err) {
+    toast.add({ title: (err as { data?: { detail?: string } })?.data?.detail ?? 'Failed to approve', color: 'red' })
   }
 }
 
@@ -64,8 +90,8 @@ async function revoke(id: string) {
   try {
     await store.revokeException(id)
     toast.add({ title: 'Exception revoked' })
-  } catch {
-    toast.add({ title: 'Failed to revoke', color: 'red' })
+  } catch (err) {
+    toast.add({ title: (err as { data?: { detail?: string } })?.data?.detail ?? 'Failed to revoke', color: 'red' })
   }
 }
 </script>
@@ -95,7 +121,10 @@ async function revoke(id: string) {
 
     <DataTable :rows="exceptions" :columns="columns" :loading="exceptionsLoading">
       <template #rule_id-data="{ row }">
-        <span class="font-mono text-xs">{{ row.rule_id }}</span>
+        <span class="font-mono text-xs" :title="row.rule_title">{{ row.rule_key || row.rule_id }}</span>
+      </template>
+      <template #agent_id-data="{ row }">
+        <span class="font-mono text-xs">{{ row.hostname || 'All servers' }}</span>
       </template>
       <template #reason-data="{ row }">
         <span class="text-sm truncate max-w-xs block" :title="row.reason">{{ row.reason }}</span>
@@ -127,11 +156,11 @@ async function revoke(id: string) {
     <Dialog v-model="showCreate" title="New exception">
       <template #body>
         <div class="space-y-4">
-          <FormField label="Rule ID" required help="UUID of the compliance rule">
-            <Input v-model="form.rule_id" placeholder="e.g. from the Rule Catalog" />
+          <FormField label="Rule" required help="The rule this waiver applies to">
+            <Select v-model="form.rule_id" :options="ruleOptions" />
           </FormField>
-          <FormField label="Agent ID" help="Leave empty for a broader-scope exception">
-            <Input v-model="form.agent_id" placeholder="Optional" />
+          <FormField label="Server" help="Leave empty to waive across a broader scope">
+            <Select v-model="form.agent_id" :options="serverOptions" />
           </FormField>
           <FormField label="Reason" required>
             <Input v-model="form.reason" placeholder="Legacy application requirement" />
