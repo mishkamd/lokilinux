@@ -104,9 +104,11 @@ func NewManager(cfg *config.Config, log *slog.Logger, version string, logBuf *Lo
 			modules.NewAnsibleExecutor(),
 			modules.NewPythonExecutor(),
 		),
-		complianceRunner: compliance.NewRunner(compliance.Registry, store, log),
-		stop:             make(chan struct{}),
-		inFlight:         make(map[string]struct{}),
+		complianceRunner: compliance.NewRunner(
+			compliance.BuildRegistry(cfg.FileIntegrity.WatchPaths, cfg.FileIntegrity.Ignores), store, log,
+		),
+		stop:     make(chan struct{}),
+		inFlight: make(map[string]struct{}),
 	}, nil
 }
 

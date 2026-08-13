@@ -75,3 +75,73 @@ func TestFileIntegrityCollector_ImplementsCollector(t *testing.T) {
 		t.Error("Interval() must be > 0 — FIM must not run every heartbeat")
 	}
 }
+
+func TestFileIntegrityCollector_Collect_ReportsModeUIDGIDMTime(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "watched.conf")
+	if err := os.WriteFile(path, []byte("setting=1"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	c := &FileIntegrityCollector{WatchPaths: []string{dir}}
+	facts, err := c.Collect(nil)
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	files := facts["files"].([]FileHash)
+	if len(files) != 1 {
+		t.Fatalf("got %d files, want 1", len(files))
+	}
+	f := files[0]
+	if f.Mode != 0o640 {
+		t.Errorf("Mode = %o, want 0640", f.Mode)
+	}
+	if f.MTime.IsZero() {
+		t.Error("MTime is zero, want the file's actual mtime")
+	}
+	// UID/GID: whatever this test process's euid/egid are (files it just
+	// created), just confirm statOwnership actually populated something
+	// rather than always returning the -1,-1 fallback.
+	if f.UID < 0 || f.GID < 0 {
+		t.Errorf("UID/GID = %d/%d, want real non-negative values from syscall.Stat_t", f.UID, f.GID)
+	}
+}
+
+func TestNewFileIntegrityCollectorWithConfig_EmptyWatchPathsFallsBackToDefault(t *testing.T) {
+	c := NewFileIntegrityCollectorWithConfig(nil, []string{"/some/ignore"})
+	if len(c.WatchPaths) != len(fileIntegrityWatchPaths) {
+		t.Errorf("WatchPaths = %v, want the built-in default when config passes none", c.WatchPaths)
+	}
+	if len(c.Ignores) != 1 || c.Ignores[0] != "/some/ignore" {
+		t.Errorf("Ignores = %v, want [/some/ignore]", c.Ignores)
+	}
+}
+
+func TestNewFileIntegrityCollectorWithConfig_CustomWatchPathsOverrideDefault(t *testing.T) {
+	c := NewFileIntegrityCollectorWithConfig([]string{"/custom/path"}, nil)
+	if len(c.WatchPaths) != 1 || c.WatchPaths[0] != "/custom/path" {
+		t.Errorf("WatchPaths = %v, want [/custom/path]", c.WatchPaths)
+	}
+}
+
+func TestBuildRegistry_ReplacesOnlyFileIntegrityCollector(t *testing.T) {
+	registry := BuildRegistry([]string{"/custom/path"}, []string{"/ignore/me"})
+	if len(registry) != len(Registry) {
+		t.Fatalf("BuildRegistry length = %d, want %d (same collector count as Registry)", len(registry), len(Registry))
+	}
+
+	var found bool
+	for _, c := range registry {
+		fic, ok := c.(*FileIntegrityCollector)
+		if !ok {
+			continue
+		}
+		found = true
+		if len(fic.WatchPaths) != 1 || fic.WatchPaths[0] != "/custom/path" {
+			t.Errorf("configured FileIntegrityCollector.WatchPaths = %v, want [/custom/path]", fic.WatchPaths)
+		}
+	}
+	if !found {
+		t.Fatal("BuildRegistry dropped the FileIntegrityCollector entirely")
+	}
+}

@@ -197,7 +197,7 @@ export interface FileHash {
   updated_at: string
 }
 
-export type FileChangeKind = 'CREATED' | 'MODIFIED' | 'DELETED' | 'PERMISSION_CHANGED'
+export type FileChangeKind = 'CREATED' | 'MODIFIED' | 'DELETED' | 'PERMISSION_CHANGED' | 'OWNER_CHANGED'
 
 export interface FileChange {
   time: string
@@ -206,6 +206,12 @@ export interface FileChange {
   old_hash: string | null
   new_hash: string | null
   change_kind: FileChangeKind
+  old_mode: number | null
+  new_mode: number | null
+  old_uid: number | null
+  new_uid: number | null
+  old_gid: number | null
+  new_gid: number | null
 }
 
 export type ReportType = 'FLEET_SUMMARY' | 'POLICY_SET' | 'DATACENTER' | 'CUSTOM'

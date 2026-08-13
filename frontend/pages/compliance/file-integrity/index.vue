@@ -26,9 +26,22 @@ async function onAgentChange() {
 }
 
 const CHANGE_KIND_COLORS: Record<FileChangeKind, string> = {
-  CREATED: 'green', MODIFIED: 'amber', DELETED: 'red', PERMISSION_CHANGED: 'amber',
+  CREATED: 'green', MODIFIED: 'amber', DELETED: 'red', PERMISSION_CHANGED: 'amber', OWNER_CHANGED: 'amber',
 }
-const CHANGE_KINDS: FileChangeKind[] = ['CREATED', 'MODIFIED', 'DELETED', 'PERMISSION_CHANGED']
+const CHANGE_KINDS: FileChangeKind[] = ['CREATED', 'MODIFIED', 'DELETED', 'PERMISSION_CHANGED', 'OWNER_CHANGED']
+
+function formatModeChange(row: { old_mode: number | null; new_mode: number | null }) {
+  if (row.old_mode === null && row.new_mode === null) return null
+  const old = row.old_mode !== null ? row.old_mode.toString(8) : '—'
+  const next = row.new_mode !== null ? row.new_mode.toString(8) : '—'
+  return old === next ? null : `${old} → ${next}`
+}
+function formatOwnerChange(row: { old_uid: number | null; new_uid: number | null; old_gid: number | null; new_gid: number | null }) {
+  if (row.old_uid === row.new_uid && row.old_gid === row.new_gid) return null
+  const old = `${row.old_uid ?? '—'}:${row.old_gid ?? '—'}`
+  const next = `${row.new_uid ?? '—'}:${row.new_gid ?? '—'}`
+  return `${old} → ${next}`
+}
 
 const tabs = [
   { label: 'Current State', slot: 'current' },
@@ -47,6 +60,7 @@ const changeColumns = [
   { key: 'agent_id', label: 'Server' },
   { key: 'path', label: 'Path' },
   { key: 'change_kind', label: 'Change' },
+  { key: 'details', label: 'Details' },
 ]
 </script>
 
@@ -106,6 +120,15 @@ const changeColumns = [
             <Badge :color="CHANGE_KIND_COLORS[row.change_kind as FileChangeKind] ?? 'gray'" size="xs">
               {{ row.change_kind }}
             </Badge>
+          </template>
+          <template #details-data="{ row }">
+            <span v-if="row.change_kind === 'PERMISSION_CHANGED'" class="font-mono text-xs text-muted-foreground">
+              {{ formatModeChange(row) }}
+            </span>
+            <span v-else-if="row.change_kind === 'OWNER_CHANGED'" class="font-mono text-xs text-muted-foreground">
+              {{ formatOwnerChange(row) }}
+            </span>
+            <span v-else class="text-muted-foreground">—</span>
           </template>
         </DataTable>
 

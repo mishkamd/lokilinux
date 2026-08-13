@@ -191,14 +191,21 @@ func (in *Ingester) ingestFileIntegrity(ctx context.Context, snap Snapshot) erro
 
 	changedPaths := make([]string, 0, len(changes))
 	for _, c := range changes {
-		if err := in.store.InsertFileChange(ctx, snap.AgentID, c.Path, c.OldHash, c.NewHash, c.ChangeKind); err != nil {
+		meta := storage.FileChangeMetadata{
+			OldMode: c.OldMode, NewMode: c.NewMode,
+			OldUID: c.OldUID, NewUID: c.NewUID,
+			OldGID: c.OldGID, NewGID: c.NewGID,
+		}
+		if err := in.store.InsertFileChange(ctx, snap.AgentID, c.Path, c.OldHash, c.NewHash, c.ChangeKind, meta); err != nil {
 			return err
 		}
 		if c.ChangeKind == "DELETED" {
 			if err := in.store.DeleteFileHash(ctx, snap.AgentID, c.Path); err != nil {
 				return err
 			}
-		} else if err := in.store.UpsertFileHash(ctx, snap.AgentID, c.Path, "blake3", c.NewHash, c.NewSize); err != nil {
+		} else if err := in.store.UpsertFileHash(
+			ctx, snap.AgentID, c.Path, "blake3", c.NewHash, c.NewSize, c.NewModeVal, c.NewUIDVal, c.NewGIDVal,
+		); err != nil {
 			return err
 		}
 		changedPaths = append(changedPaths, c.Path)

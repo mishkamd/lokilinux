@@ -32,6 +32,12 @@ class FileChangeResponse(BaseModel):
     old_hash: str | None = None
     new_hash: str | None = None
     change_kind: str
+    old_mode: int | None = None
+    new_mode: int | None = None
+    old_uid: int | None = None
+    new_uid: int | None = None
+    old_gid: int | None = None
+    new_gid: int | None = None
 
     model_config = {"from_attributes": True}
 
