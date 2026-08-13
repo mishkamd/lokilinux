@@ -5,7 +5,7 @@ LokiLinux — AgentService: heartbeat updates, pending-job dispatch, inactivity 
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import and_, delete, or_, select, tuple_, update
+from sqlalchemy import and_, case, delete, or_, select, tuple_, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -109,7 +109,15 @@ class AgentService:
 
         vulnerabilities = data.get("vulnerabilities")
         if vulnerabilities is not None:
-            await self._sync_vulnerabilities(agent.id, vulnerabilities)
+            # sendHeartbeat (agent/internal/agent/manager.go) always computes
+            # vulns := Vulnerabilities(pkgs) from whatever ListPackages() just
+            # returned — including a transient failure, where pkgs is empty
+            # and vulns is therefore empty too, indistinguishable at this
+            # layer from "real scan, host fully patched". Use `packages`
+            # non-empty as proof this heartbeat's collection actually
+            # succeeded before trusting an empty vulnerabilities list enough
+            # to reconcile (mark prior findings resolved) on it.
+            await self._sync_vulnerabilities(agent.id, vulnerabilities, scan_succeeded=bool(packages))
 
         health = data.get("health")
         if health:
@@ -177,7 +185,9 @@ class AgentService:
         )
         await self.db.commit()
 
-    async def _sync_vulnerabilities(self, agent_pk: UUID, vulnerabilities: list[dict]) -> None:
+    async def _sync_vulnerabilities(
+        self, agent_pk: UUID, vulnerabilities: list[dict], *, scan_succeeded: bool
+    ) -> None:
         """Upsert the agent's reported CVEs, then reconcile: any previously
         non-remediated (cve_id, package_name) for this agent that the new
         report no longer contains gets marked remediated (not deleted — the
@@ -194,8 +204,16 @@ class AgentService:
         An empty `vulnerabilities` list is the normal steady state once
         everything's patched — it must still run the reconcile step below
         (mark everything remediated), not bail out early the way
-        _sync_packages does (a package list is never legitimately empty for
-        a real host, so that early-return doesn't apply here).
+        _sync_packages does. BUT the agent's sendHeartbeat computes
+        vulnerabilities from whatever ListPackages() just returned on every
+        heartbeat unconditionally, including a transient failure — a failed
+        package listing and a genuinely clean host both arrive here as an
+        empty list, with nothing in this payload alone to tell them apart.
+        `scan_succeeded` (the caller's `bool(data.get("packages"))`) is that
+        signal: reconcile only runs when this heartbeat's package listing
+        actually produced something, so a transient collector hiccup can
+        never be misread as "everything got patched" and silently resolve a
+        host's real, still-open vulnerabilities.
         """
         rows = [
             {
@@ -203,6 +221,7 @@ class AgentService:
                 "package_name": v["package_name"],
                 "package_version": v.get("installed_version") or "",
                 "severity": v.get("severity") or None,
+                "fixed_version": v.get("fixed_version") or None,
             }
             for v in vulnerabilities
             if v.get("cve_id") and v.get("package_name")
@@ -231,6 +250,7 @@ class AgentService:
             # package_name) — dedupe the same way in case a source ever lists
             # the same CVE/package pair twice in one report.
             unique_vulns = {(r["cve_id"], r["package_name"]): r for r in rows}
+            now = datetime.now(timezone.utc)
             vuln_stmt = pg_insert(AgentVulnerability).values([
                 {
                     "agent_id": agent_pk,
@@ -238,7 +258,10 @@ class AgentService:
                     "package_name": r["package_name"],
                     "package_version": r["package_version"],
                     "severity": r["severity"],
+                    "fixed_version": r["fixed_version"],
                     "fix_available": True,
+                    "status": "PATCH_AVAILABLE",
+                    "last_scan_at": now,
                 }
                 for r in unique_vulns.values()
             ])
@@ -247,21 +270,42 @@ class AgentService:
                 set_={
                     "package_version": vuln_stmt.excluded.package_version,
                     "severity": vuln_stmt.excluded.severity,
-                    "last_check": datetime.now(timezone.utc),
+                    "fixed_version": vuln_stmt.excluded.fixed_version,
+                    "last_check": now,
+                    "last_scan_at": now,
+                    # A re-detected CVE reopens OPEN/RESOLVED findings (a
+                    # previous remediation didn't stick, or a downgrade
+                    # reintroduced it) but never overwrites a status someone
+                    # is actively working — IN_PROGRESS/MITIGATED/
+                    # ACCEPTED_RISK stay exactly as a human/process left them.
+                    "status": case(
+                        (AgentVulnerability.status.in_(("IN_PROGRESS", "MITIGATED", "ACCEPTED_RISK")), AgentVulnerability.status),
+                        else_="PATCH_AVAILABLE",
+                    ),
+                    # Re-detected means present again, i.e. by definition not
+                    # remediated — true in every branch above, including the
+                    # protected ones (IN_PROGRESS/MITIGATED/ACCEPTED_RISK
+                    # were never is_remediated=True to begin with).
+                    "is_remediated": False,
                 },
             )
             await self.db.execute(vuln_stmt)
 
-        reported = [(r["cve_id"], r["package_name"]) for r in rows]
-        await self.db.execute(
-            update(AgentVulnerability)
-            .where(
-                AgentVulnerability.agent_id == agent_pk,
-                AgentVulnerability.is_remediated.is_(False),
-                tuple_(AgentVulnerability.cve_id, AgentVulnerability.package_name).not_in(reported),
+        if scan_succeeded:
+            reported = [(r["cve_id"], r["package_name"]) for r in rows]
+            await self.db.execute(
+                update(AgentVulnerability)
+                .where(
+                    AgentVulnerability.agent_id == agent_pk,
+                    AgentVulnerability.is_remediated.is_(False),
+                    tuple_(AgentVulnerability.cve_id, AgentVulnerability.package_name).not_in(reported),
+                )
+                .values(
+                    is_remediated=True,
+                    status="RESOLVED",
+                    remediation_date=datetime.now(timezone.utc),
+                )
             )
-            .values(is_remediated=True, remediation_date=datetime.now(timezone.utc))
-        )
         await self.db.commit()
 
         # invalidate_agent (called unconditionally at the end of
