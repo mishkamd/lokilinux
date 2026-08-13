@@ -120,10 +120,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await remediation_verification_worker.start()
     notification_worker = NotificationWorker(nc, session_factory)
     await notification_worker.start()
+    from lokilinux.workers.cve_enrichment import CVEEnrichmentWorker
+    cve_enrichment_worker = CVEEnrichmentWorker(session_factory, cache)
+    await cve_enrichment_worker.start()
     app.state.workers = [
         job_worker, cve_worker, alert_worker, policy_worker, policy_scheduler_worker, plugin_worker,
         heartbeat_worker, job_timeout_worker, remediation_scheduler_worker, remediation_verification_worker,
-        retention_worker, notification_worker,
+        retention_worker, notification_worker, cve_enrichment_worker,
     ]
     logger.info("workers.ready")
 
@@ -137,6 +140,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await job_timeout_worker.stop()
     await policy_scheduler_worker.stop()
     await retention_worker.stop()
+    await cve_enrichment_worker.stop()
     await nc.drain()
     await cache.disconnect()
     await engine.dispose()

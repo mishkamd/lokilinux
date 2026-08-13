@@ -16,7 +16,7 @@ interface AllSettings {
   }
   fleet: { heartbeat_timeout_minutes: number; job_stale_timeout_minutes: number }
   retention: { metrics_days: number }
-  cve: { feed_source_url: string; sync_interval_hours: number }
+  cve: { feed_source_url: string; sync_interval_hours: number; nvd_api_key: string }
   branding: { company_name: string; logo_url: string }
   plugins: { marketplace_url: string }
   repo: { default_mirror_url: string }
@@ -37,7 +37,7 @@ const form = reactive<AllSettings>({
   notifications: { smtp_host: '', smtp_port: 587, smtp_user: '', smtp_password: '', smtp_from: '', slack_webhook_url: '' },
   fleet: { heartbeat_timeout_minutes: 5, job_stale_timeout_minutes: 60 },
   retention: { metrics_days: 365 },
-  cve: { feed_source_url: '', sync_interval_hours: 24 },
+  cve: { feed_source_url: '', sync_interval_hours: 24, nvd_api_key: '' },
   branding: { company_name: 'LokiLinux', logo_url: '/logo.svg' },
   plugins: { marketplace_url: '' },
   repo: { default_mirror_url: '' },
@@ -234,11 +234,14 @@ async function saveGroups(...groups: (keyof AllSettings)[]) {
               <FormField label="Metrics retention (days)" help="Informational only — does not modify TimescaleDB">
                 <Input v-model.number="form.retention.metrics_days" type="number" />
               </FormField>
-              <FormField label="CVE feed source" help="Reserved — future NVD sync">
+              <FormField label="CVE feed source" help="NVD 2.0 API base URL">
                 <Input v-model="form.cve.feed_source_url" placeholder="https://services.nvd.nist.gov/rest/json/cves/2.0" />
               </FormField>
               <FormField label="Sync interval (hours)">
                 <Input v-model.number="form.cve.sync_interval_hours" type="number" />
+              </FormField>
+              <FormField label="NVD API key" help="Optional — raises the rate limit from 5 to 50 requests/30s">
+                <Input v-model="form.cve.nvd_api_key" type="password" placeholder="Leave blank for unauthenticated rate limit" />
               </FormField>
             </div>
             <div class="flex justify-end pt-1">
