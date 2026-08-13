@@ -51,6 +51,7 @@ class RemediationTemplate(Base):
     rule_key: Mapped[str] = mapped_column(String(255), ForeignKey("compliance_rules.rule_key"), nullable=False)
     provider: Mapped[str] = mapped_column(String(20), nullable=False)  # ansible/shell/python/terraform
     body: Mapped[str] = mapped_column(Text, nullable=False)
+    rollback_body: Mapped[str | None] = mapped_column(Text)
     source: Mapped[str] = mapped_column(String(30), default="complianceascode", nullable=False)
     git_path: Mapped[str | None] = mapped_column(String(500))
     version: Mapped[int] = mapped_column(default=1, nullable=False)

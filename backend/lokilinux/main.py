@@ -55,6 +55,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.session_factory = session_factory
     logger.info("db.ready")
 
+    # Curated compliance rule content (docs/compliance §3, §43) — idempotent
+    # upsert on every startup, cheap (~25 rules), so the catalog and its
+    # GLOBAL policy assignment always exist without a manual import step.
+    from lokilinux.services.curated_rules_loader import CuratedRulesLoader
+    async with session_factory() as db:
+        try:
+            load_result = await CuratedRulesLoader(db).load_all()
+            logger.info(
+                "compliance.curated_rules_loaded",
+                rules_loaded=load_result.rules_loaded,
+                policy_set_created=load_result.policy_set_created,
+                assignment_created=load_result.assignment_created,
+            )
+        except Exception:
+            logger.error("compliance.curated_rules_load_failed", exc_info=True)
+
     # Redis
     cache = RedisCache(url=settings.redis_url)
     await cache.connect()

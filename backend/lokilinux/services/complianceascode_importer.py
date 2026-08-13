@@ -38,21 +38,8 @@ from xml.etree import ElementTree
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lokilinux.models.compliance_framework import (
-    ComplianceControl,
-    ComplianceFramework,
-    ComplianceFrameworkVersion,
-    ComplianceRuleMapping,
-)
 from lokilinux.models.compliance_rule import ComplianceRule, PolicySet, PolicySetRule
-
-# reference_N is this parser's own positional fallback label for a
-# <reference> with no href-derived key (see parse_xccdf_rules) — never a
-# real framework identifier, so it's excluded from framework mapping
-# backfill. A standard_refs value that's itself a URL (a bare <reference>
-# href, not a system-qualified <ident>) is excluded the same way — a
-# framework Control needs a control identifier, not a link.
-_SYNTHETIC_REF_KEY = re.compile(r"^reference_\d+$")
+from lokilinux.services.framework_mapping import backfill_framework_mappings, preload_framework_cache
 
 XCCDF_NS = "http://checklists.nist.gov/xccdf/1.2"
 
@@ -252,7 +239,7 @@ class ComplianceAsCodeImporter:
         new_keys = {r.rule_key for r in rules}
         result.rules_removed = len(previously_imported_keys - new_keys)
 
-        framework_cache = await self._preload_framework_cache()
+        framework_cache = await preload_framework_cache(self.db)
 
         for r in rules:
             existing = (
@@ -297,8 +284,8 @@ class ComplianceAsCodeImporter:
                 else:
                     result.rules_modified += 1
 
-            await self._backfill_framework_mappings(
-                framework_cache, rule_key_to_id[r.rule_key], r.standard_refs, content_version
+            await backfill_framework_mappings(
+                self.db, framework_cache, rule_key_to_id[r.rule_key], r.standard_refs, content_version
             )
 
         for p in profiles:
@@ -334,61 +321,3 @@ class ComplianceAsCodeImporter:
 
         await self.db.commit()
         return result
-
-    async def _preload_framework_cache(self) -> dict:
-        """Bulk-loads every existing Framework/FrameworkVersion/Control row
-        into in-memory dicts once, before the per-rule loop — never one
-        get-or-create query per rule per standard_refs key (docs/compliance
-        §38: a real datastream import is thousands of rules, each with
-        several refs). New rows are added to these same dicts as they're
-        created during the run, so a repeated key within one import also
-        avoids a duplicate INSERT.
-        """
-        frameworks = (await self.db.execute(select(ComplianceFramework))).scalars().all()
-        by_key = {f.key: f for f in frameworks}
-
-        versions = (await self.db.execute(select(ComplianceFrameworkVersion))).scalars().all()
-        by_fw_version = {(v.framework_id, v.version): v for v in versions}
-
-        controls = (await self.db.execute(select(ComplianceControl))).scalars().all()
-        by_version_control = {(c.framework_version_id, c.control_id): c for c in controls}
-
-        return {"frameworks": by_key, "versions": by_fw_version, "controls": by_version_control, "mappings": set()}
-
-    async def _backfill_framework_mappings(
-        self, cache: dict, rule_id, standard_refs: dict, content_version: str
-    ) -> None:
-        """Normalizes standard_refs (the raw <ident>/<reference> JSONB blob
-        captured at import time) into queryable Framework -> FrameworkVersion
-        -> Control -> RuleMapping rows (docs/compliance §19) — standard_refs
-        itself stays untouched as the source of truth this is derived from.
-        """
-        for key, value in standard_refs.items():
-            if _SYNTHETIC_REF_KEY.match(key) or not value or value.startswith("http"):
-                continue
-
-            framework = cache["frameworks"].get(key)
-            if framework is None:
-                framework = ComplianceFramework(key=key, name=key.upper())
-                self.db.add(framework)
-                await self.db.flush()
-                cache["frameworks"][key] = framework
-
-            version = cache["versions"].get((framework.id, content_version))
-            if version is None:
-                version = ComplianceFrameworkVersion(framework_id=framework.id, version=content_version)
-                self.db.add(version)
-                await self.db.flush()
-                cache["versions"][(framework.id, content_version)] = version
-
-            control = cache["controls"].get((version.id, value))
-            if control is None:
-                control = ComplianceControl(framework_version_id=version.id, control_id=value, title=value)
-                self.db.add(control)
-                await self.db.flush()
-                cache["controls"][(version.id, value)] = control
-
-            mapping_key = (rule_id, control.id)
-            if mapping_key not in cache["mappings"]:
-                self.db.add(ComplianceRuleMapping(rule_id=rule_id, control_id=control.id))
-                cache["mappings"].add(mapping_key)

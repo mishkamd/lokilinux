@@ -1,0 +1,31 @@
+# LokiLinux curated compliance content — selinux domain.
+#
+# selinux_collector.go reports facts.mode ("Enforcing"/"Permissive"/
+# "Disabled"/"not_applicable" on non-SELinux distros). platform_filter
+# restricts this rule to RHEL-family platforms — a Debian host correctly
+# reports not_applicable and must never be scored as a violation for a
+# security model it was never expected to have (docs/compliance §38).
+
+- rule_key: SELINUX-001
+  title: SELinux must be enforcing
+  description: SELinux must be in Enforcing mode on RHEL-family hosts.
+  rationale: Permissive mode logs violations but doesn't block them — no different from Disabled from a containment standpoint, just noisier.
+  severity: CRITICAL
+  domain: selinux
+  check_expr: 'facts.mode == "Enforcing"'
+  expected_value: "Enforcing"
+  platform_filter: [rocky9, rhel9, ol9, almalinux9]
+  standard_refs:
+    cis: "1.2.1"
+  evidence_paths: [mode]
+  resources:
+    - type: FILE
+      path: /etc/selinux/config
+  remediation:
+    provider: shell
+    body: |
+      setenforce 1
+      sed -i 's/^SELINUX=.*/SELINUX=enforcing/' /etc/selinux/config
+    rollback: |
+      setenforce 0
+      sed -i 's/^SELINUX=.*/SELINUX=permissive/' /etc/selinux/config

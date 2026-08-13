@@ -75,6 +75,7 @@ class RemediationTemplateResponse(BaseModel):
     rule_key: str
     provider: str
     body: str
+    rollback_body: str | None = None
     source: str
     git_path: str | None = None
     version: int
