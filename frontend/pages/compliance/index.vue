@@ -1,18 +1,24 @@
 <script setup lang="ts">
-import { FileText, ShieldCheck, ShieldAlert } from 'lucide-vue-next'
+import { FileText, ShieldCheck, ShieldAlert, Gauge, BookCheck, ShieldOff } from 'lucide-vue-next'
 
 const store = useComplianceStore()
-const { baselines, baselinesTotal, baselinesLoading, topViolations, topViolationsLoading, topChangedFiles, topChangedFilesLoading } = storeToRefs(store)
+const {
+  baselines, baselinesLoading, topViolations, topViolationsLoading, topChangedFiles, topChangedFilesLoading,
+  overview, overviewLoading, trend, trendLoading, trendRange,
+} = storeToRefs(store)
 
 onMounted(() => {
   store.fetchBaselines()
   store.fetchTopViolations()
   store.fetchTopChangedFiles()
+  store.fetchOverview()
+  store.fetchTrend()
 })
 
-const enabledCount = computed(
-  () => baselines.value.filter((b) => b.is_enabled).length,
-)
+function onRangeChange(range: string) {
+  trendRange.value = range as typeof trendRange.value
+  store.fetchTrend()
+}
 
 const SEVERITY_COLORS: Record<string, string> = {
   CRITICAL: 'red', HIGH: 'red', MEDIUM: 'amber', LOW: 'gray',
@@ -31,27 +37,79 @@ const sortedDrift = computed(() =>
   <div>
     <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
       <StatCard
-        :icon="ShieldCheck"
-        label="Baselines"
-        :value="baselinesTotal"
-        to="/compliance/baselines"
-        view-all-label="View"
-      />
-      <StatCard
-        :icon="FileText"
-        label="Enabled"
-        :value="enabledCount"
-        subtitle="baselines on this page"
-        to="/compliance/baselines"
+        :icon="Gauge"
+        label="Compliance"
+        :value="overview ? `${overview.overall_compliance_pct.toFixed(1)}%` : (overviewLoading ? '…' : '—')"
+        to="/compliance/rules"
         view-all-label="View"
       />
       <StatCard
         :icon="ShieldAlert"
-        label="Open drift"
-        :value="topViolations.recent_drift.length"
-        subtitle="worst events, last 7 days"
+        label="Critical violations"
+        :value="overview?.critical_violations ?? (overviewLoading ? '…' : '—')"
         to="/compliance/drift"
         view-all-label="View"
+      />
+      <StatCard
+        :icon="ShieldAlert"
+        label="High violations"
+        :value="overview?.high_violations ?? (overviewLoading ? '…' : '—')"
+        to="/compliance/drift"
+        view-all-label="View"
+      />
+      <StatCard
+        :icon="ShieldCheck"
+        label="Baselines"
+        :value="overview?.active_baselines ?? (overviewLoading ? '…' : '—')"
+        subtitle="active"
+        to="/compliance/baselines"
+        view-all-label="View"
+      />
+      <StatCard
+        :icon="BookCheck"
+        label="Policies"
+        :value="overview?.enabled_policies ?? (overviewLoading ? '…' : '—')"
+        subtitle="published + enabled"
+        to="/compliance/policies"
+        view-all-label="View"
+      />
+      <StatCard
+        :icon="FileText"
+        label="Open drift"
+        :value="overview?.open_drift ?? (overviewLoading ? '…' : '—')"
+        to="/compliance/drift"
+        view-all-label="View"
+      />
+      <StatCard
+        :icon="ShieldCheck"
+        label="Servers evaluated"
+        :value="overview?.servers_evaluated ?? (overviewLoading ? '…' : '—')"
+        to="/servers"
+        view-all-label="View"
+      />
+      <StatCard
+        :icon="ShieldAlert"
+        label="Non-compliant"
+        :value="overview?.servers_non_compliant ?? (overviewLoading ? '…' : '—')"
+        to="/servers"
+        view-all-label="View"
+      />
+      <StatCard
+        :icon="ShieldOff"
+        label="Exceptions"
+        :value="overview?.exceptions_active ?? (overviewLoading ? '…' : '—')"
+        subtitle="active"
+        to="/compliance/exceptions"
+        view-all-label="View"
+      />
+    </div>
+
+    <div class="mb-4">
+      <ComplianceTrendChart
+        :points="trend"
+        :loading="trendLoading"
+        :range="trendRange"
+        @update:range="onRangeChange"
       />
     </div>
 

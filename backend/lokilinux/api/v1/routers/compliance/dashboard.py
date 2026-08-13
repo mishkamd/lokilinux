@@ -14,9 +14,9 @@ drift events, the one ORM-shaped read, use the model.
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
-from sqlalchemy import select, text
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.auth.dependencies import get_current_user
@@ -27,6 +27,12 @@ from lokilinux.schemas.drift import DriftEventResponse
 router = APIRouter()
 
 _DASHBOARD_WINDOW = "interval '7 days'"
+
+# Matches drift.py's _OPEN_STATUSES — an incident someone still needs to act
+# on, whether or not it's been acknowledged yet.
+_OPEN_DRIFT_STATUSES = ("OPEN", "ACKNOWLEDGED", "IN_REMEDIATION")
+
+_TREND_RANGES = {"7d": "7 days", "30d": "30 days", "90d": "90 days", "1y": "365 days"}
 
 
 class TopViolatingRule(BaseModel):
@@ -107,6 +113,133 @@ async def top_violations(
     recent_drift = [DriftEventResponse.model_validate(d) for d in drift_rows]
 
     return TopViolationsResponse(top_rules=top_rules, recent_drift=recent_drift)
+
+
+class ComplianceOverview(BaseModel):
+    """The real-data Overview page cards (docs/compliance §22) — every
+    number here comes from a live query, never a client-side computation
+    over one page of results (the gap this closes: index.vue previously
+    counted "Enabled" baselines only from whatever page was loaded)."""
+
+    overall_compliance_pct: float
+    critical_violations: int
+    high_violations: int
+    open_drift: int
+    active_baselines: int
+    enabled_policies: int
+    servers_evaluated: int
+    servers_non_compliant: int
+    exceptions_active: int
+
+
+@router.get("/overview", response_model=ComplianceOverview)
+async def overview(
+    db: AsyncSession = Depends(get_db),
+    _: dict = Depends(get_current_user),
+) -> ComplianceOverview:
+    # Latest verdict per (agent, rule) within the window — same bounded-scan
+    # convention as top_violations/top_changed_files above, never a full
+    # hypertable scan (docs/compliance §38).
+    latest_cte = f"""
+        latest AS (
+            SELECT DISTINCT ON (re.agent_id, re.rule_id)
+                   re.agent_id, re.rule_id, re.result, cr.severity
+            FROM rule_evaluations re
+            JOIN compliance_rules cr ON cr.id = re.rule_id
+            WHERE re.time > now() - {_DASHBOARD_WINDOW}
+            ORDER BY re.agent_id, re.rule_id, re.time DESC
+        )
+    """
+    counts_row = (
+        await db.execute(
+            text(
+                f"""
+                WITH {latest_cte}
+                SELECT
+                    count(*) FILTER (WHERE result = 'PASS') AS passed,
+                    count(*) FILTER (WHERE result = 'FAIL') AS failed,
+                    count(*) FILTER (WHERE result = 'FAIL' AND severity = 'CRITICAL') AS critical,
+                    count(*) FILTER (WHERE result = 'FAIL' AND severity = 'HIGH') AS high,
+                    count(DISTINCT agent_id) AS servers_evaluated,
+                    count(DISTINCT agent_id) FILTER (WHERE result = 'FAIL') AS servers_non_compliant
+                FROM latest
+                """
+            )
+        )
+    ).mappings().one()
+
+    passed = counts_row["passed"] or 0
+    failed = counts_row["failed"] or 0
+    applicable = passed + failed
+    compliance_pct = round(100.0 * passed / applicable, 2) if applicable > 0 else 0.0
+
+    open_drift = (
+        await db.execute(
+            select(func.count()).select_from(DriftEvent).where(DriftEvent.status.in_(_OPEN_DRIFT_STATUSES))
+        )
+    ).scalar() or 0
+
+    active_baselines = (
+        await db.execute(text("SELECT count(*) FROM baselines WHERE is_enabled = true"))
+    ).scalar() or 0
+    enabled_policies = (
+        await db.execute(
+            text("SELECT count(*) FROM policy_sets WHERE is_enabled = true AND status = 'PUBLISHED'")
+        )
+    ).scalar() or 0
+    exceptions_active = (
+        await db.execute(text("SELECT count(*) FROM compliance_exceptions WHERE status = 'ACTIVE'"))
+    ).scalar() or 0
+
+    return ComplianceOverview(
+        overall_compliance_pct=compliance_pct,
+        critical_violations=counts_row["critical"] or 0,
+        high_violations=counts_row["high"] or 0,
+        open_drift=open_drift,
+        active_baselines=active_baselines,
+        enabled_policies=enabled_policies,
+        servers_evaluated=counts_row["servers_evaluated"] or 0,
+        servers_non_compliant=counts_row["servers_non_compliant"] or 0,
+        exceptions_active=exceptions_active,
+    )
+
+
+class TrendPoint(BaseModel):
+    day: str
+    compliance_pct: float
+
+
+@router.get("/trend", response_model=list[TrendPoint])
+async def trend(
+    range: str = Query("30d", pattern="^(7d|30d|90d|1y)$"),
+    db: AsyncSession = Depends(get_db),
+    _: dict = Depends(get_current_user),
+) -> list[TrendPoint]:
+    """Fleet-wide daily compliance score (docs/compliance §23), from the
+    compliance_scores_daily continuous aggregate (migration 016) — nothing
+    queried it before this. avg(avg_score) fleet-wide per day, "overall"
+    category only (per-agent trend is a future drill-down, not this widget)."""
+    interval = _TREND_RANGES.get(range)
+    if interval is None:
+        raise HTTPException(status_code=400, detail=f"Unsupported range: {range}")
+
+    rows = (
+        await db.execute(
+            text(
+                f"""
+                SELECT day, avg(avg_score) AS compliance_pct
+                FROM compliance_scores_daily
+                WHERE category = 'overall' AND day > now() - interval '{interval}'
+                GROUP BY day
+                ORDER BY day
+                """
+            )
+        )
+    ).mappings().all()
+    return [
+        TrendPoint(day=r["day"].date().isoformat(), compliance_pct=round(float(r["compliance_pct"]), 2))
+        for r in rows
+    ]
 
 
 @router.get("/dashboard/top-changed-files", response_model=list[TopChangedFile])

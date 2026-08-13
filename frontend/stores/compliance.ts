@@ -230,6 +230,23 @@ export interface TopViolations {
   recent_drift: DriftEvent[]
 }
 
+export interface ComplianceOverview {
+  overall_compliance_pct: number
+  critical_violations: number
+  high_violations: number
+  open_drift: number
+  active_baselines: number
+  enabled_policies: number
+  servers_evaluated: number
+  servers_non_compliant: number
+  exceptions_active: number
+}
+
+export interface TrendPoint {
+  day: string
+  compliance_pct: number
+}
+
 export interface ComplianceException {
   id: string
   rule_id: string
@@ -778,6 +795,31 @@ export const useComplianceStore = defineStore('compliance', () => {
     }
   }
 
+  const overview = ref<ComplianceOverview | null>(null)
+  const overviewLoading = ref(false)
+
+  async function fetchOverview() {
+    overviewLoading.value = true
+    try {
+      overview.value = await api.get<ComplianceOverview>('/compliance/overview')
+    } finally {
+      overviewLoading.value = false
+    }
+  }
+
+  const trend = ref<TrendPoint[]>([])
+  const trendLoading = ref(false)
+  const trendRange = ref<'7d' | '30d' | '90d' | '1y'>('30d')
+
+  async function fetchTrend() {
+    trendLoading.value = true
+    try {
+      trend.value = await api.get<TrendPoint[]>(`/compliance/trend?range=${trendRange.value}`)
+    } finally {
+      trendLoading.value = false
+    }
+  }
+
   return {
     baselines, baselinesTotal, baselinesLoading, baselinesNextCursor, baselineFilters,
     selectedBaseline, versions, versionsLoading,
@@ -804,5 +846,7 @@ export const useComplianceStore = defineStore('compliance', () => {
     reports, reportsTotal, reportsLoading, reportsNextCursor, fetchReports, createReport,
     topViolations, topViolationsLoading, topChangedFiles, topChangedFilesLoading,
     fetchTopViolations, fetchTopChangedFiles,
+    overview, overviewLoading, fetchOverview,
+    trend, trendLoading, trendRange, fetchTrend,
   }
 })
