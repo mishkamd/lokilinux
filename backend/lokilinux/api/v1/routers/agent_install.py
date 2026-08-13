@@ -269,7 +269,7 @@ def _generate_agent_cert(agent_id: str) -> tuple[str, str, str]:
         x509.NameAttribute(NameOID.ORGANIZATION_NAME, "LokiLinux"),
     ])
 
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc)
     cert = (
         x509.CertificateBuilder()
         .subject_name(subject)

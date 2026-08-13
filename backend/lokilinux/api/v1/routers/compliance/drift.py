@@ -7,7 +7,7 @@ never by this API — mirrors how inventory.py only ever reads what the Go
 service wrote.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -166,7 +166,7 @@ async def acknowledge_drift_event(
         raise HTTPException(status_code=409, detail=f"Cannot acknowledge from status {row.status}")
 
     row.acknowledged_by = safe_user_uuid(current_user)
-    row.acknowledged_at = datetime.utcnow()
+    row.acknowledged_at = datetime.now(timezone.utc)
     row.status = "ACKNOWLEDGED"
     await db.commit()
 
@@ -236,7 +236,7 @@ async def resolve_drift_event(
         raise HTTPException(status_code=409, detail=f"Cannot resolve from status {row.status}")
 
     row.status = "RESOLVED"
-    row.resolved_at = datetime.utcnow()
+    row.resolved_at = datetime.now(timezone.utc)
     await db.commit()
 
     await AuditService(db).log(

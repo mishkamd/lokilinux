@@ -20,7 +20,7 @@ categories, not all five from the full spec.
 import csv
 import io
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID
 
 import openpyxl
@@ -125,7 +125,7 @@ async def build_fleet_summary_data(
     )
 
     return {
-        "generated_at": datetime.utcnow().isoformat(),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "overall_score": overall_score,
         "categories": categories,
         "top_violations": violations[:50],
@@ -185,7 +185,7 @@ async def build_framework_report_data(
     scored = [c["score"] for c in controls if c["score"] is not None]
 
     return {
-        "generated_at": datetime.utcnow().isoformat(),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "framework": framework_key,
         "overall_score": round(sum(scored) / len(scored), 1) if scored else None,
         "controls": controls,
@@ -210,7 +210,7 @@ async def build_exception_report_data(db: AsyncSession) -> dict:
         for e in rows
     ]
     return {
-        "generated_at": datetime.utcnow().isoformat(),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "total": len(exceptions),
         "active": sum(1 for e in exceptions if e["status"] == "ACTIVE"),
         "exceptions": exceptions,
@@ -476,11 +476,11 @@ async def generate_report(db: AsyncSession, report: ComplianceReport) -> None:
             serialize = _SERIALIZERS[report.format]
         report.body = serialize(data)
         report.status = "COMPLETED"
-        report.completed_at = datetime.utcnow()
+        report.completed_at = datetime.now(timezone.utc)
         report.artifact_uri = f"/api/v1/compliance/reports/{report.id}/download"
     except Exception as exc:
         report.status = "FAILED"
         report.error_message = str(exc)
-        report.completed_at = datetime.utcnow()
+        report.completed_at = datetime.now(timezone.utc)
 
     await db.commit()

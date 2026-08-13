@@ -10,7 +10,7 @@ AND expires_at > now() directly, so there's no code path here that would let
 a stale PENDING or EXPIRED row silently keep waiving anything.
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any
 from uuid import UUID
 
@@ -63,12 +63,12 @@ class ExceptionService:
     async def approve(self, exc: ComplianceException, actor: dict, actor_id: UUID | None) -> ComplianceException:
         if exc.status != "PENDING":
             raise HTTPException(status_code=409, detail=f"Cannot approve from status {exc.status}")
-        if exc.expires_at <= datetime.utcnow():
+        if exc.expires_at <= datetime.now(timezone.utc):
             raise HTTPException(status_code=409, detail="Cannot approve an exception whose expiry is already in the past")
 
         exc.status = "ACTIVE"
         exc.approved_by = actor_id
-        exc.approved_at = datetime.utcnow()
+        exc.approved_at = datetime.now(timezone.utc)
         await self.db.commit()
 
         await AuditService(self.db).log(

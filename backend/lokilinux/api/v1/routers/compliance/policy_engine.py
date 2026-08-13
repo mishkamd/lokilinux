@@ -11,7 +11,7 @@ lower-stakes, easily-reversible grouping, not a signed, fleet-wide contract.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID
 
 import httpx
@@ -441,7 +441,7 @@ async def _run_compliance_import(
             return
 
         job.status = JobStatus.RUNNING
-        job.started_at = datetime.utcnow()
+        job.started_at = datetime.now(timezone.utc)
         await db.commit()
 
         try:
@@ -455,7 +455,7 @@ async def _run_compliance_import(
             )
 
             job.status = JobStatus.COMPLETED
-            job.completed_at = datetime.utcnow()
+            job.completed_at = datetime.now(timezone.utc)
             job.parameters = {
                 **(job.parameters or {}),
                 "result": {
@@ -472,7 +472,7 @@ async def _run_compliance_import(
         except Exception as exc:
             logger.error("compliance content import failed", exc_info=True)
             job.status = JobStatus.FAILED
-            job.completed_at = datetime.utcnow()
+            job.completed_at = datetime.now(timezone.utc)
             job.parameters = {**(job.parameters or {}), "error": str(exc)}
             await db.commit()
 
