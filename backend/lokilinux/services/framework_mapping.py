@@ -40,7 +40,15 @@ async def preload_framework_cache(db: AsyncSession) -> dict:
     controls = (await db.execute(select(ComplianceControl))).scalars().all()
     by_version_control = {(c.framework_version_id, c.control_id): c for c in controls}
 
-    return {"frameworks": by_key, "versions": by_fw_version, "controls": by_version_control, "mappings": set()}
+    # Bug fixed live (F9/F10 idempotency): without preloading existing
+    # mappings too, a second run (this loader runs on every backend
+    # startup) re-attempted every INSERT and hit
+    # compliance_rule_mappings_pkey — the in-memory "mappings" set alone
+    # only prevented a duplicate within a single run, never across runs.
+    existing_mappings = (await db.execute(select(ComplianceRuleMapping))).scalars().all()
+    mappings = {(m.rule_id, m.control_id) for m in existing_mappings}
+
+    return {"frameworks": by_key, "versions": by_fw_version, "controls": by_version_control, "mappings": mappings}
 
 
 async def backfill_framework_mappings(db: AsyncSession, cache: dict, rule_id, standard_refs: dict, content_version: str) -> None:
