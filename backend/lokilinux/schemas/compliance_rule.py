@@ -4,6 +4,7 @@ LokiLinux — Compliance Policy Engine Pydantic schemas.
 
 from datetime import datetime
 from enum import Enum
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -27,7 +28,8 @@ class ComplianceRuleResponse(BaseModel):
     domain: str
     check_source: CheckSource
     check_expr: str | None = None
-    expected_value: dict | None = None
+    # JSONB — curated content stores scalars (e.g. "no", true), not just objects
+    expected_value: Any | None = None
     platform_filter: list[str]
     standard_refs: dict
     remediation_template_id: UUID | None = None

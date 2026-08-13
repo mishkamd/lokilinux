@@ -33,7 +33,7 @@ class ComplianceRule(Base):
     domain: Mapped[str] = mapped_column(String(50), nullable=False)
     check_source: Mapped[str] = mapped_column(String(20), default="CEL", nullable=False)  # CEL/OVAL_UNMAPPED/OSCAP_FALLBACK
     check_expr: Mapped[str | None] = mapped_column(Text)
-    expected_value: Mapped[dict | None] = mapped_column(JSONB)
+    expected_value: Mapped[object | None] = mapped_column(JSONB)
     platform_filter: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
     standard_refs: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
     remediation_template_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("remediation_templates.id"))

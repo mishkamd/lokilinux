@@ -54,6 +54,9 @@ async function onSuppress(id: string) {
       <template #time-data="{ row }">
         <span class="font-mono text-xs">{{ new Date(String(row.time)).toLocaleString() }}</span>
       </template>
+      <template #agent_id-data="{ row }">
+        <span class="font-mono text-xs">{{ row.hostname || row.agent_id }}</span>
+      </template>
       <template #domain-data="{ row }">
         <Badge color="gray" size="xs">{{ row.domain }}</Badge>
       </template>

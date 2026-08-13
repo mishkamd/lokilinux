@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.auth.dependencies import get_current_user, require_role, safe_user_uuid
 from lokilinux.dependencies import get_db
+from lokilinux.models.agent import Agent
 from lokilinux.models.drift import DriftDetail, DriftEvent
 from lokilinux.schemas.common import CursorPage, decode_cursor, encode_cursor
 from lokilinux.schemas.drift import DriftDetailResponse, DriftEventResponse
@@ -49,7 +50,11 @@ async def list_drift_events(
     db: AsyncSession = Depends(get_db),
     _: dict = Depends(get_current_user),
 ) -> CursorPage[DriftEventResponse]:
-    q = select(DriftEvent).order_by(DriftEvent.time.desc(), DriftEvent.id.desc())
+    q = (
+        select(DriftEvent, Agent.hostname)
+        .outerjoin(Agent, Agent.id == DriftEvent.agent_id)
+        .order_by(DriftEvent.time.desc(), DriftEvent.id.desc())
+    )
     if severity:
         q = q.where(DriftEvent.severity == severity)
     if domain:
@@ -73,12 +78,12 @@ async def list_drift_events(
         )
     q = q.limit(limit + 1)
 
-    rows = (await db.execute(q)).scalars().all()
+    rows = (await db.execute(q)).all()
     has_more = len(rows) > limit
     items = rows[:limit]
     next_cursor = None
     if has_more and items:
-        last = items[-1]
+        last = items[-1][0]
         next_cursor = encode_cursor(f"{last.time.isoformat()}:{last.id}")
 
     # total count (no cursor filter — lightweight approximate, mirrors servers.py)
@@ -100,7 +105,10 @@ async def list_drift_events(
     total = (await db.execute(count_q)).scalar()
 
     return CursorPage[DriftEventResponse](
-        items=[DriftEventResponse.model_validate(e) for e in items],
+        items=[
+            DriftEventResponse.model_validate(e).model_copy(update={"hostname": hostname})
+            for e, hostname in items
+        ],
         next_cursor=next_cursor,
         total=total,
     )
@@ -115,12 +123,17 @@ async def get_drift_event(
     # id alone (not the full time/agent_id/id hypertable PK) is enough —
     # it's server-generated via gen_random_uuid() so collisions aren't a
     # practical concern, and the frontend only ever has the bare id to link with.
-    row = (
-        await db.execute(select(DriftEvent).where(DriftEvent.id == event_id))
-    ).scalar_one_or_none()
-    if row is None:
+    result = (
+        await db.execute(
+            select(DriftEvent, Agent.hostname)
+            .outerjoin(Agent, Agent.id == DriftEvent.agent_id)
+            .where(DriftEvent.id == event_id)
+        )
+    ).first()
+    if result is None:
         raise HTTPException(status_code=404, detail="Drift event not found")
-    return DriftEventResponse.model_validate(row)
+    row, hostname = result
+    return DriftEventResponse.model_validate(row).model_copy(update={"hostname": hostname})
 
 
 @router.get("/drift-events/{event_id}/details", response_model=list[DriftDetailResponse])

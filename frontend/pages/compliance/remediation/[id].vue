@@ -182,7 +182,7 @@ const actionColumns = [
           <div v-for="r in remediationExecution.results" :key="r.agent_id" class="rounded border p-2 text-sm">
             <div class="flex items-center gap-2 mb-1">
               <Badge :color="r.status === 'COMPLETED' ? 'green' : r.status === 'FAILED' ? 'red' : 'gray'" size="xs">{{ r.status }}</Badge>
-              <span class="font-mono text-xs">{{ r.agent_id.slice(0, 8) }}…</span>
+              <span class="font-mono text-xs">{{ r.hostname || r.agent_id.slice(0, 8) + '…' }}</span>
               <span v-if="r.exit_code !== null" class="text-muted-foreground text-xs">exit {{ r.exit_code }}</span>
               <span v-if="r.duration_seconds !== null" class="text-muted-foreground text-xs">{{ r.duration_seconds }}s</span>
             </div>
@@ -196,6 +196,9 @@ const actionColumns = [
       <!-- Actions table -->
       <h3 class="text-sm font-semibold mb-2">Actions</h3>
       <DataTable :rows="remediationActions" :columns="actionColumns">
+        <template #agent_id-data="{ row }">
+          <span class="font-mono text-xs">{{ row.hostname || row.agent_id }}</span>
+        </template>
         <template #provider-data="{ row }"><Badge color="gray" size="xs">{{ row.provider }}</Badge></template>
         <template #rendered_body-data="{ row }">
           <pre class="font-mono text-xs whitespace-pre-wrap max-w-xl">{{ row.rendered_body }}</pre>

@@ -48,6 +48,7 @@ class RemediationActionResponse(BaseModel):
     rule_id: UUID | None = None
     drift_event_id: UUID | None = None
     agent_id: UUID
+    hostname: str | None = None
     provider: str
     rendered_body: str
     rollback_body: str | None = None

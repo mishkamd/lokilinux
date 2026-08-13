@@ -131,6 +131,9 @@ const changeColumns = [
           <template #time-data="{ row }">
             <span class="font-mono text-xs">{{ new Date(String(row.time)).toLocaleString() }}</span>
           </template>
+          <template #agent_id-data="{ row }">
+            <span class="font-mono text-xs">{{ row.hostname || row.agent_id }}</span>
+          </template>
           <template #path-data="{ row }">
             <button class="font-mono text-xs text-primary hover:underline text-left" @click="openPathDetail(String(row.path))">
               {{ row.path }}
@@ -201,7 +204,7 @@ const changeColumns = [
             <p class="label-caps mb-1">Timeline</p>
             <ul class="divide-y divide-border">
               <li v-for="(c, i) in fileChangePathDetail.timeline" :key="i" class="py-1.5 flex items-center justify-between gap-2 text-xs">
-                <span class="font-mono text-muted-foreground">{{ new Date(c.time).toLocaleString() }} · {{ c.agent_id.slice(0, 8) }}…</span>
+                <span class="font-mono text-muted-foreground">{{ new Date(c.time).toLocaleString() }} · {{ c.hostname || c.agent_id.slice(0, 8) + '…' }}</span>
                 <Badge :color="CHANGE_KIND_COLORS[c.change_kind] ?? 'gray'" size="xs">{{ c.change_kind }}</Badge>
               </li>
             </ul>

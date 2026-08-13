@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from lokilinux.auth.dependencies import get_current_user, require_role, safe_user_uuid
 from lokilinux.cache import RedisCache
 from lokilinux.dependencies import get_cache, get_db, get_nats
+from lokilinux.models.agent import Agent
 from lokilinux.models.job import Job, JobResult
 from lokilinux.models.remediation import (
     MaintenanceWindow,
@@ -170,12 +171,16 @@ async def list_remediation_actions(
 ) -> list[RemediationActionResponse]:
     rows = (
         await db.execute(
-            select(RemediationAction)
+            select(RemediationAction, Agent.hostname)
+            .outerjoin(Agent, Agent.id == RemediationAction.agent_id)
             .where(RemediationAction.remediation_plan_id == plan_id)
             .order_by(RemediationAction.sequence)
         )
-    ).scalars().all()
-    return [RemediationActionResponse.model_validate(a) for a in rows]
+    ).all()
+    return [
+        RemediationActionResponse.model_validate(a).model_copy(update={"hostname": hostname})
+        for a, hostname in rows
+    ]
 
 
 @router.post("/remediation-plans/{plan_id}/submit", response_model=RemediationPlanResponse)

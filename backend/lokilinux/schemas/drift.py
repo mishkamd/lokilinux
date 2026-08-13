@@ -15,6 +15,7 @@ class DriftEventResponse(BaseModel):
     id: UUID
     time: datetime
     agent_id: UUID
+    hostname: str | None = None
     domain: str
     compared_against: str
     severity: str

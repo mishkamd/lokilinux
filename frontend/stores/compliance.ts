@@ -107,6 +107,7 @@ export interface DriftEvent {
   id: string
   time: string
   agent_id: string
+  hostname: string | null
   domain: string
   compared_against: string
   severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
@@ -152,6 +153,7 @@ export interface RemediationAction {
   rule_id: string | null
   drift_event_id: string | null
   agent_id: string
+  hostname: string | null
   provider: string
   rendered_body: string
   rollback_body: string | null
@@ -206,6 +208,7 @@ export type FileChangeKind = 'CREATED' | 'MODIFIED' | 'DELETED' | 'PERMISSION_CH
 export interface FileChange {
   time: string
   agent_id: string
+  hostname: string | null
   path: string
   old_hash: string | null
   new_hash: string | null
@@ -600,9 +603,16 @@ export const useComplianceStore = defineStore('compliance', () => {
   }
 
   function applyDriftUpdate(id: string, updated: DriftEvent) {
+    // acknowledge/suppress/resolve responses don't re-join hostname (only
+    // status fields change) — keep the row's existing hostname instead of
+    // letting the null from `updated` blank it out on a full replace.
     const idx = driftEvents.value.findIndex((e) => e.id === id)
-    if (idx !== -1) driftEvents.value[idx] = updated
-    if (selectedDriftEvent.value?.id === id) selectedDriftEvent.value = updated
+    const existing = idx !== -1 ? driftEvents.value[idx] : undefined
+    if (existing) driftEvents.value[idx] = { ...updated, hostname: updated.hostname ?? existing.hostname }
+    const selected = selectedDriftEvent.value
+    if (selected?.id === id) {
+      selectedDriftEvent.value = { ...updated, hostname: updated.hostname ?? selected.hostname }
+    }
   }
 
   // ── Exceptions ───────────────────────────────────────────────────────────

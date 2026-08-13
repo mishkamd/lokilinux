@@ -28,6 +28,7 @@ class FileHashResponse(BaseModel):
 class FileChangeResponse(BaseModel):
     time: datetime
     agent_id: UUID
+    hostname: str | None = None
     path: str
     old_hash: str | None = None
     new_hash: str | None = None

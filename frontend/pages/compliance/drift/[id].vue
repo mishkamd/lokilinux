@@ -65,7 +65,7 @@ async function suppress() {
       <div>
         <h2 class="text-lg font-semibold">{{ selectedDriftEvent.summary }}</h2>
         <p class="text-sm text-muted-foreground font-mono">
-          {{ selectedDriftEvent.domain }} · agent {{ selectedDriftEvent.agent_id }} · {{ new Date(selectedDriftEvent.time).toLocaleString() }}
+          {{ selectedDriftEvent.domain }} · {{ selectedDriftEvent.hostname || selectedDriftEvent.agent_id }} · {{ new Date(selectedDriftEvent.time).toLocaleString() }}
         </p>
       </div>
       <div class="flex items-center gap-2">
