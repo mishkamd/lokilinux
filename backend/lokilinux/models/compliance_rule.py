@@ -14,7 +14,7 @@ standard_refs (not "references" — reserved word in PostgreSQL).
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -69,6 +69,13 @@ class PolicySet(Base):
     source_profile: Mapped[str | None] = mapped_column(String(255))
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+    # Migration 025 — flat immutable versioning: editing a PUBLISHED set
+    # clones a new row via parent_policy_set_id rather than mutating rules
+    # under an already-published version (§6).
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="PUBLISHED")  # DRAFT/PUBLISHED/ARCHIVED
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    published_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    parent_policy_set_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("policy_sets.id"))
 
 
 class PolicySetRule(Base):

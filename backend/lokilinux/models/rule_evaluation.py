@@ -29,6 +29,14 @@ class RuleEvaluation(Base):
     actual_value: Mapped[dict | None] = mapped_column(JSONB)
     evidence: Mapped[dict | None] = mapped_column(JSONB)
     error_message: Mapped[str | None] = mapped_column(Text)
+    # Migration 025 — structured evidence provenance (docs/compliance §21).
+    expected_value: Mapped[dict | None] = mapped_column(JSONB)
+    evidence_hash: Mapped[str | None] = mapped_column(String(64))
+    source: Mapped[str | None] = mapped_column(String(50))
+    agent_version: Mapped[str | None] = mapped_column(String(50))
+    # Set when an active compliance_exceptions row covered this verdict — the
+    # real FAIL result is still stored, never silently overwritten (§17).
+    exception_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
 
 
 class ComplianceScore(Base):
