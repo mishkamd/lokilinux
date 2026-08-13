@@ -406,6 +406,72 @@ func (s *Store) InsertFileChange(ctx context.Context, agentID uuid.UUID, path, o
 	return nil
 }
 
+// LoadFileIntegrityIgnorePatterns returns every GLOBAL-scope
+// file_integrity_ignores.path_pattern (migration 017, unused before this).
+//
+// ponytail: GLOBAL-scope only — the table supports per-scope ignore rules
+// (scope_type/scope_selector), but resolving those against an agent needs
+// the same scope.Matches call sites already do elsewhere; not worth the
+// extra query on every file_integrity snapshot until a real per-scope
+// ignore rule is needed. Upgrade path: extend the WHERE clause once that's
+// requested, same honest-v1 pattern as ActiveRulesForDomain's predecessor.
+func (s *Store) LoadFileIntegrityIgnorePatterns(ctx context.Context) ([]string, error) {
+	rowsResult, err := s.pool.Query(ctx, `SELECT path_pattern FROM file_integrity_ignores WHERE scope_type = 'GLOBAL'`)
+	if err != nil {
+		return nil, fmt.Errorf("querying file integrity ignore patterns: %w", err)
+	}
+	defer rowsResult.Close()
+
+	var out []string
+	for rowsResult.Next() {
+		var p string
+		if err := rowsResult.Scan(&p); err != nil {
+			return nil, fmt.Errorf("scanning ignore pattern row: %w", err)
+		}
+		out = append(out, p)
+	}
+	return out, rowsResult.Err()
+}
+
+// AffectedRule pairs a rule with its domain — resolving which rules a
+// changed resource path affects necessarily crosses domains (a changed
+// /etc/ssh/sshd_config can affect sshd-domain rules while the snapshot that
+// detected the change is itself the file_integrity domain).
+type AffectedRule struct {
+	RuleID uuid.UUID
+	Domain string
+}
+
+// RulesForResourcePaths resolves compliance_rule_resources -> compliance_rules
+// for a set of changed paths in one query (docs/compliance §40) — the
+// dependency-index lookup incremental evaluation needs, never a per-path
+// query in a loop.
+func (s *Store) RulesForResourcePaths(ctx context.Context, resourceType string, paths []string) ([]AffectedRule, error) {
+	if len(paths) == 0 {
+		return nil, nil
+	}
+	rowsResult, err := s.pool.Query(ctx, `
+		SELECT DISTINCT crr.rule_id, cr.domain
+		FROM compliance_rule_resources crr
+		JOIN compliance_rules cr ON cr.id = crr.rule_id
+		WHERE crr.resource_type = $1 AND crr.resource_path = ANY($2) AND cr.is_enabled = true
+	`, resourceType, paths)
+	if err != nil {
+		return nil, fmt.Errorf("querying rules for resource paths: %w", err)
+	}
+	defer rowsResult.Close()
+
+	var out []AffectedRule
+	for rowsResult.Next() {
+		var a AffectedRule
+		if err := rowsResult.Scan(&a.RuleID, &a.Domain); err != nil {
+			return nil, fmt.Errorf("scanning affected rule row: %w", err)
+		}
+		out = append(out, a)
+	}
+	return out, rowsResult.Err()
+}
+
 // EvaluationSummary is one agent's latest verdict for one rule, joined with
 // the rule's domain — the input to per-category score computation.
 type EvaluationSummary struct {

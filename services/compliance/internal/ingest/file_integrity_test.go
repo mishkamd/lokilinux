@@ -81,3 +81,42 @@ func TestParseAgentFileHashes_MissingFilesKey(t *testing.T) {
 		t.Errorf("got %v, want nil", got)
 	}
 }
+
+func TestFilterIgnored_MatchingPatternDropped(t *testing.T) {
+	changes := []FileChange{
+		{Path: "/var/log/messages", ChangeKind: "MODIFIED"},
+		{Path: "/etc/ssh/sshd_config", ChangeKind: "MODIFIED"},
+	}
+	out := filterIgnored(changes, []string{"/var/log/*"})
+	if len(out) != 1 || out[0].Path != "/etc/ssh/sshd_config" {
+		t.Fatalf("filterIgnored = %+v, want only /etc/ssh/sshd_config", out)
+	}
+}
+
+func TestFilterIgnored_NoPatternsReturnsAllUnchanged(t *testing.T) {
+	changes := []FileChange{{Path: "/etc/passwd", ChangeKind: "MODIFIED"}}
+	out := filterIgnored(changes, nil)
+	if len(out) != 1 {
+		t.Fatalf("filterIgnored with no patterns = %v, want unchanged", out)
+	}
+}
+
+func TestFilterIgnored_MultiplePatterns(t *testing.T) {
+	changes := []FileChange{
+		{Path: "/run/lock/foo", ChangeKind: "CREATED"},
+		{Path: "/proc/self/status", ChangeKind: "MODIFIED"},
+		{Path: "/etc/sudoers", ChangeKind: "MODIFIED"},
+	}
+	out := filterIgnored(changes, []string{"/run/*", "/proc/*"})
+	if len(out) != 1 || out[0].Path != "/etc/sudoers" {
+		t.Fatalf("filterIgnored = %+v, want only /etc/sudoers", out)
+	}
+}
+
+func TestFilterIgnored_MalformedPatternNeverMatchesButDoesNotPanic(t *testing.T) {
+	changes := []FileChange{{Path: "/etc/passwd", ChangeKind: "MODIFIED"}}
+	out := filterIgnored(changes, []string{"["}) // invalid glob pattern
+	if len(out) != 1 {
+		t.Fatalf("filterIgnored with malformed pattern = %v, want the change kept (pattern treated as non-matching)", out)
+	}
+}

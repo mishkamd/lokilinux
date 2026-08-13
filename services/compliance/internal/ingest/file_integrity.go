@@ -1,5 +1,10 @@
 package ingest
 
+import (
+	"path/filepath"
+	"strings"
+)
+
 // AgentFileHash is one entry of a file_integrity snapshot's "files" array —
 // mirrors agent/internal/compliance.FileHash's JSON shape exactly
 // ({"path":..., "hash":..., "size":...}).
@@ -48,6 +53,48 @@ func diffFileIntegrity(previous map[string]string, current []AgentFileHash) []Fi
 	}
 
 	return changes
+}
+
+// filterIgnored drops changes whose path matches any of patterns
+// (file_integrity_ignores.path_pattern — docs/compliance §11's example
+// `/var/log/*`, `/run/*`, ...). filepath.Match's glob syntax is the whole
+// pattern language for v1: it covers every example in the brief without
+// needing a heavier matcher, and path.Match errors (a malformed pattern)
+// are treated as "does not match" rather than failing the whole ingest —
+// one bad admin-entered pattern must not block file integrity processing
+// fleet-wide.
+func filterIgnored(changes []FileChange, patterns []string) []FileChange {
+	if len(patterns) == 0 {
+		return changes
+	}
+	out := make([]FileChange, 0, len(changes))
+	for _, c := range changes {
+		if !matchesAny(c.Path, patterns) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// matchesAny checks path against each pattern. A pattern ending in "/*"
+// (every example in docs/compliance §11: /var/log/*, /run/*, /proc/*,
+// /sys/*) matches every path under that directory, recursively — the
+// admin's intent for "ignore this whole tree," not filepath.Match's literal
+// single-segment glob semantics. Any other pattern falls back to
+// filepath.Match for finer-grained cases (e.g. "*.tmp").
+func matchesAny(path string, patterns []string) bool {
+	for _, p := range patterns {
+		if prefix, ok := strings.CutSuffix(p, "/*"); ok {
+			if strings.HasPrefix(path, prefix+"/") {
+				return true
+			}
+			continue
+		}
+		if ok, err := filepath.Match(p, path); err == nil && ok {
+			return true
+		}
+	}
+	return false
 }
 
 // parseAgentFileHashes decodes the "files" array from a file_integrity

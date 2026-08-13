@@ -182,6 +182,13 @@ func (in *Ingester) ingestFileIntegrity(ctx context.Context, snap Snapshot) erro
 	current := parseAgentFileHashes(snap.Facts)
 	changes := diffFileIntegrity(existing, current)
 
+	ignorePatterns, err := in.store.LoadFileIntegrityIgnorePatterns(ctx)
+	if err != nil {
+		return err
+	}
+	changes = filterIgnored(changes, ignorePatterns)
+
+	changedPaths := make([]string, 0, len(changes))
 	for _, c := range changes {
 		if err := in.store.InsertFileChange(ctx, snap.AgentID, c.Path, c.OldHash, c.NewHash, c.ChangeKind); err != nil {
 			return err
@@ -190,13 +197,17 @@ func (in *Ingester) ingestFileIntegrity(ctx context.Context, snap Snapshot) erro
 			if err := in.store.DeleteFileHash(ctx, snap.AgentID, c.Path); err != nil {
 				return err
 			}
-			continue
-		}
-		if err := in.store.UpsertFileHash(ctx, snap.AgentID, c.Path, "blake3", c.NewHash, c.NewSize); err != nil {
+		} else if err := in.store.UpsertFileHash(ctx, snap.AgentID, c.Path, "blake3", c.NewHash, c.NewSize); err != nil {
 			return err
 		}
+		changedPaths = append(changedPaths, c.Path)
 	}
-	return nil
+
+	// Correlation with the compliance engine (docs/compliance §12): a
+	// monitored config file changing off-cycle re-evaluates exactly the
+	// rules that depend on it, rather than waiting for that domain's next
+	// scheduled snapshot.
+	return in.reevaluateAffectedRules(ctx, snap.AgentID, changedPaths)
 }
 
 // detectDrift compares the new facts against the previous snapshot's
@@ -305,13 +316,11 @@ func (in *Ingester) evaluateRules(ctx context.Context, snap Snapshot) (int, erro
 	if err != nil {
 		return 0, fmt.Errorf("loading agent attributes for evaluation: %w", err)
 	}
-	platform := scope.PlatformID(attrs.OsDistro, attrs.OsVersion)
 
-	assignments, err := in.store.LoadActivePolicyAssignments(ctx)
+	matchedSetIDs, err := in.matchedPolicySetIDs(ctx, attrs)
 	if err != nil {
 		return 0, err
 	}
-	matchedSetIDs := policy.MatchingSetIDs(attrs, assignments)
 	if len(matchedSetIDs) == 0 {
 		return 0, nil // no policy set assigned to this agent's scope — nothing to evaluate
 	}
@@ -320,9 +329,37 @@ func (in *Ingester) evaluateRules(ctx context.Context, snap Snapshot) (int, erro
 	if err != nil {
 		return 0, err
 	}
+	return in.evaluateAndRecord(ctx, snap.AgentID, attrs, activeRules, snap.Facts)
+}
+
+// matchedPolicySetIDs loads active policy_assignments and filters them
+// against attrs — split out so both the per-domain snapshot path
+// (evaluateRules) and the resource-triggered incremental path
+// (reevaluateAffectedRules) resolve scope the same way.
+func (in *Ingester) matchedPolicySetIDs(ctx context.Context, attrs storage.AgentAttributes) ([]uuid.UUID, error) {
+	assignments, err := in.store.LoadActivePolicyAssignments(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return policy.MatchingSetIDs(attrs, assignments), nil
+}
+
+// evaluateAndRecord evaluates activeRules against facts and inserts one
+// rule_evaluations row per rule — the shared core between a fresh domain
+// snapshot's full evaluation and a resource-change-triggered partial
+// re-evaluation (docs/compliance §39, §40). Returns the number of rules
+// evaluated.
+func (in *Ingester) evaluateAndRecord(
+	ctx context.Context,
+	agentID uuid.UUID,
+	attrs storage.AgentAttributes,
+	activeRules []storage.RuleWithPolicySet,
+	facts map[string]any,
+) (int, error) {
 	if len(activeRules) == 0 {
 		return 0, nil
 	}
+	platform := scope.PlatformID(attrs.OsDistro, attrs.OsVersion)
 
 	ruleIDs := make([]uuid.UUID, 0, len(activeRules))
 	for _, r := range activeRules {
@@ -338,7 +375,7 @@ func (in *Ingester) evaluateRules(ctx context.Context, snap Snapshot) (int, erro
 	}
 
 	for i, r := range activeRules {
-		verdict := in.evaluator.Evaluate(ctx, r.Rule, snap.Facts, platform)
+		verdict := in.evaluator.Evaluate(ctx, r.Rule, facts, platform)
 
 		var actualValueJSON, evidenceJSON, expectedValueJSON []byte
 		if verdict.ActualValue != nil {
@@ -357,13 +394,13 @@ func (in *Ingester) evaluateRules(ctx context.Context, snap Snapshot) (int, erro
 
 		var exceptionID *uuid.UUID
 		if verdict.Result == rules.ResultFail {
-			if id, ok := matchException(exceptions, ruleIDs[i], snap.AgentID, attrs); ok {
+			if id, ok := matchException(exceptions, ruleIDs[i], agentID, attrs); ok {
 				exceptionID = &id
 			}
 		}
 
 		if err := in.store.InsertRuleEvaluation(
-			ctx, snap.AgentID, ruleIDs[i], r.PolicySetID,
+			ctx, agentID, ruleIDs[i], r.PolicySetID,
 			string(verdict.Result), actualValueJSON, evidenceJSON, expectedValueJSON,
 			errMsg, verdict.EvidenceHash, "lokilinux-agent", exceptionID,
 		); err != nil {
@@ -372,6 +409,90 @@ func (in *Ingester) evaluateRules(ctx context.Context, snap Snapshot) (int, erro
 	}
 
 	return len(activeRules), nil
+}
+
+// reevaluateAffectedRules is the incremental-evaluation path
+// (docs/compliance §12, §39, §40): given the file paths that just changed
+// on this agent, look up exactly which rules depend on them
+// (compliance_rule_resources, resource_type='FILE') and re-evaluate only
+// those rules — never the whole domain's rule set, and never every domain.
+// A rule's domain (e.g. sshd) generally differs from the file_integrity
+// snapshot's domain, so each affected rule is re-evaluated against that
+// domain's own latest stored snapshot facts, not the FIM snapshot's facts.
+func (in *Ingester) reevaluateAffectedRules(ctx context.Context, agentID uuid.UUID, paths []string) error {
+	if len(paths) == 0 {
+		return nil
+	}
+	affected, err := in.store.RulesForResourcePaths(ctx, "FILE", paths)
+	if err != nil {
+		return err
+	}
+	if len(affected) == 0 {
+		return nil
+	}
+
+	byDomain := make(map[string][]uuid.UUID)
+	for _, a := range affected {
+		byDomain[a.Domain] = append(byDomain[a.Domain], a.RuleID)
+	}
+
+	attrs, err := in.store.LoadAgentAttributes(ctx, agentID)
+	if err != nil {
+		return fmt.Errorf("loading agent attributes for incremental evaluation: %w", err)
+	}
+	matchedSetIDs, err := in.matchedPolicySetIDs(ctx, attrs)
+	if err != nil {
+		return err
+	}
+	if len(matchedSetIDs) == 0 {
+		return nil
+	}
+
+	for domain, wantedIDs := range byDomain {
+		latestHash, found, err := in.store.LatestSnapshotHash(ctx, agentID, domain)
+		if err != nil {
+			return err
+		}
+		if !found {
+			continue // no snapshot collected yet for this domain — nothing to re-evaluate against
+		}
+		body, err := in.store.GetBlobBody(ctx, latestHash)
+		if err != nil {
+			return err
+		}
+		var facts map[string]any
+		if err := json.Unmarshal(body, &facts); err != nil {
+			return fmt.Errorf("decoding latest %s snapshot for incremental evaluation: %w", domain, err)
+		}
+
+		domainRules, err := in.store.RulesForPolicySetsAndDomain(ctx, matchedSetIDs, domain)
+		if err != nil {
+			return err
+		}
+		subset := filterRulesByID(domainRules, wantedIDs)
+		if _, err := in.evaluateAndRecord(ctx, agentID, attrs, subset, facts); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// filterRulesByID keeps only the rules whose ID is in wanted — activeRules
+// (from RulesForPolicySetsAndDomain) already carries every rule for the
+// domain; this narrows it to exactly the resource-affected subset without a
+// second, more complex query.
+func filterRulesByID(activeRules []storage.RuleWithPolicySet, wanted []uuid.UUID) []storage.RuleWithPolicySet {
+	wantSet := make(map[string]struct{}, len(wanted))
+	for _, id := range wanted {
+		wantSet[id.String()] = struct{}{}
+	}
+	var out []storage.RuleWithPolicySet
+	for _, r := range activeRules {
+		if _, ok := wantSet[r.Rule.ID]; ok {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // matchException finds the first active exception covering (ruleID, agentID)
