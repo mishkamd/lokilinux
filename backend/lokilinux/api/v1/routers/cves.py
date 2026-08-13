@@ -7,9 +7,10 @@ GET /servers/{agent_id}/vulnerabilities     — per-server CVEs
 """
 
 import json
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.api.v1.routers._common import parse_agent_pk
@@ -17,6 +18,7 @@ from lokilinux.auth.dependencies import get_current_user
 from lokilinux.cache import TTL_CVE_DATA, RedisCache
 from lokilinux.dependencies import get_cache, get_db
 from lokilinux.models.agent import Agent
+from lokilinux.models.category import Category, Project
 from lokilinux.models.cve import CVE, AgentVulnerability
 from lokilinux.schemas.common import CursorPage, decode_cursor, encode_cursor
 from lokilinux.schemas.cve import (
@@ -24,10 +26,24 @@ from lokilinux.schemas.cve import (
     CVEResponse,
     CVESeverity,
     CVESummary,
+    PatchableVulnerability,
+    TopVulnerableResource,
+    VulnerabilityResourceDetail,
     VulnerabilityResponse,
+    VulnerabilityStatus,
+    VulnerabilitySummaryResponse,
+    VulnerabilityTrendPoint,
 )
 
 router = APIRouter()
+
+# statuses that count as "still exposed" for KPI/trend/top-N purposes —
+# RESOLVED and ACCEPTED_RISK are deliberately excluded (docs/vulnerabilities
+# V4): a resolved finding shouldn't inflate "how exposed is the fleet
+# right now", and an accepted risk is a recorded decision, not an open gap.
+_OPEN_STATUSES = ("OPEN", "PATCH_AVAILABLE", "IN_PROGRESS", "MITIGATED")
+
+_TREND_RANGES = {"7d": (7, "1 day"), "30d": (30, "1 day"), "90d": (90, "1 day"), "1y": (365, "7 days")}
 
 
 # ── Global CVE list ───────────────────────────────────────────────────────────
@@ -123,6 +139,209 @@ async def list_vulnerabilities(
     return page
 
 
+# ── Dashboard aggregates ───────────────────────────────────────────────────────
+# Registered before /{cve_id} — FastAPI matches routes in declaration order,
+# and a literal path here would otherwise be swallowed by that path param.
+
+
+@router.get("/summary", response_model=VulnerabilitySummaryResponse)
+async def vulnerability_summary(
+    db: AsyncSession = Depends(get_db),
+    cache: RedisCache = Depends(get_cache),
+    _: dict = Depends(get_current_user),
+) -> VulnerabilitySummaryResponse:
+    cache_key = "cve:summary"
+    if hit := await cache.get_cached(cache_key):
+        return VulnerabilitySummaryResponse.model_validate(hit)
+
+    resources_scanned = (
+        await db.execute(select(func.count(func.distinct(AgentVulnerability.agent_id))))
+    ).scalar_one()
+    resources_total = (await db.execute(select(func.count()).select_from(Agent))).scalar_one()
+
+    counts = dict(
+        (await db.execute(
+            select(AgentVulnerability.severity, func.count())
+            .where(AgentVulnerability.status.in_(_OPEN_STATUSES))
+            .group_by(AgentVulnerability.severity)
+        )).all()
+    )
+
+    # Delta vs the prior 7-day window, by count of findings discovered in
+    # each window and still open today — a real signal ("is this getting
+    # worse"), not a fabricated placeholder.
+    now = datetime.now(timezone.utc)
+    week_ago, two_weeks_ago = now - timedelta(days=7), now - timedelta(days=14)
+    prior_counts = dict(
+        (await db.execute(
+            select(AgentVulnerability.severity, func.count())
+            .where(
+                AgentVulnerability.status.in_(_OPEN_STATUSES),
+                AgentVulnerability.discovered_at >= two_weeks_ago,
+                AgentVulnerability.discovered_at < week_ago,
+            )
+            .group_by(AgentVulnerability.severity)
+        )).all()
+    )
+    current_counts = dict(
+        (await db.execute(
+            select(AgentVulnerability.severity, func.count())
+            .where(
+                AgentVulnerability.status.in_(_OPEN_STATUSES),
+                AgentVulnerability.discovered_at >= week_ago,
+            )
+            .group_by(AgentVulnerability.severity)
+        )).all()
+    )
+
+    def _delta_pct(sev: str) -> float | None:
+        prior, current = prior_counts.get(sev, 0), current_counts.get(sev, 0)
+        if prior == 0:
+            return None  # nothing to compare against — not "0%", genuinely unknown
+        return round(100.0 * (current - prior) / prior, 1)
+
+    resp = VulnerabilitySummaryResponse(
+        resources_scanned=resources_scanned,
+        resources_total=resources_total,
+        critical=counts.get("CRITICAL", 0),
+        high=counts.get("HIGH", 0),
+        medium=counts.get("MEDIUM", 0),
+        low=counts.get("LOW", 0),
+        critical_delta_pct=_delta_pct("CRITICAL"),
+        high_delta_pct=_delta_pct("HIGH"),
+        medium_delta_pct=_delta_pct("MEDIUM"),
+    )
+    await cache.set_cached(cache_key, json.loads(resp.model_dump_json()), ttl=TTL_CVE_DATA)
+    return resp
+
+
+@router.get("/trend", response_model=list[VulnerabilityTrendPoint])
+async def vulnerability_trend(
+    range: str = Query("30d", pattern="^(7d|30d|90d|1y)$"),
+    db: AsyncSession = Depends(get_db),
+    cache: RedisCache = Depends(get_cache),
+    _: dict = Depends(get_current_user),
+) -> list[VulnerabilityTrendPoint]:
+    """Derived retroactively from discovered_at/remediation_date — no
+    snapshot table needed. For each day in the window, a finding counts as
+    open if it was discovered on/before that day and either never resolved
+    or resolved after that day. Verified live against the real DB before
+    this was written (docs/vulnerabilities V4's design note)."""
+    cache_key = f"cve:trend:{range}"
+    if hit := await cache.get_cached(cache_key):
+        return [VulnerabilityTrendPoint.model_validate(p) for p in hit]
+
+    days, bucket = _TREND_RANGES[range]
+    rows = (
+        await db.execute(
+            text(
+                """
+                SELECT d::date AS day,
+                       count(*) FILTER (WHERE av.severity = 'CRITICAL') AS critical,
+                       count(*) FILTER (WHERE av.severity = 'HIGH') AS high,
+                       count(*) FILTER (WHERE av.severity = 'MEDIUM') AS medium,
+                       count(*) FILTER (WHERE av.severity = 'LOW') AS low
+                FROM generate_series(now() - (:days || ' days')::interval, now(), (:bucket)::interval) d
+                LEFT JOIN agent_vulnerabilities av
+                  ON av.discovered_at <= d
+                 AND (av.remediation_date IS NULL OR av.remediation_date > d)
+                GROUP BY d
+                ORDER BY d
+                """
+            ),
+            {"days": days, "bucket": bucket},
+        )
+    ).mappings().all()
+
+    points = [VulnerabilityTrendPoint(**r) for r in rows]
+    await cache.set_cached(cache_key, json.loads(json.dumps([p.model_dump(mode="json") for p in points])), ttl=TTL_CVE_DATA)
+    return points
+
+
+@router.get("/top-resources", response_model=list[TopVulnerableResource])
+async def top_vulnerable_resources(
+    limit: int = Query(10, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+    cache: RedisCache = Depends(get_cache),
+    _: dict = Depends(get_current_user),
+) -> list[TopVulnerableResource]:
+    cache_key = f"cve:top-resources:{limit}"
+    if hit := await cache.get_cached(cache_key):
+        return [TopVulnerableResource.model_validate(r) for r in hit]
+
+    rows = (
+        await db.execute(
+            text(
+                """
+                SELECT a.id AS agent_id, a.hostname, cat.name AS environment, proj.name AS project,
+                       a.os_distro, a.os_version,
+                       count(*) FILTER (WHERE av.severity = 'CRITICAL') AS critical,
+                       count(*) FILTER (WHERE av.severity = 'HIGH') AS high,
+                       count(*) FILTER (WHERE av.severity = 'MEDIUM') AS medium,
+                       count(*) FILTER (WHERE av.severity = 'LOW') AS low,
+                       count(*) AS total
+                FROM agent_vulnerabilities av
+                JOIN agents a ON a.id = av.agent_id
+                LEFT JOIN categories cat ON cat.id = a.category_id
+                LEFT JOIN projects proj ON proj.id = a.project_id
+                WHERE av.status = ANY(:open_statuses)
+                GROUP BY a.id, a.hostname, cat.name, proj.name, a.os_distro, a.os_version
+                ORDER BY total DESC
+                LIMIT :limit
+                """
+            ),
+            {"open_statuses": list(_OPEN_STATUSES), "limit": limit},
+        )
+    ).mappings().all()
+
+    resources = [TopVulnerableResource(**r) for r in rows]
+    await cache.set_cached(cache_key, json.loads(json.dumps([r.model_dump(mode="json") for r in resources])), ttl=TTL_CVE_DATA)
+    return resources
+
+
+@router.get("/patchable", response_model=list[PatchableVulnerability])
+async def top_patchable_vulnerabilities(
+    limit: int = Query(10, ge=1, le=50),
+    db: AsyncSession = Depends(get_db),
+    cache: RedisCache = Depends(get_cache),
+    _: dict = Depends(get_current_user),
+) -> list[PatchableVulnerability]:
+    cache_key = f"cve:patchable:{limit}"
+    if hit := await cache.get_cached(cache_key):
+        return [PatchableVulnerability.model_validate(r) for r in hit]
+
+    rows = (
+        await db.execute(
+            select(
+                AgentVulnerability.cve_id,
+                CVE.cvss_v3_score,
+                CVE.cvss_v3_severity,
+                AgentVulnerability.package_name,
+                func.max(AgentVulnerability.fixed_version).label("fixed_version"),
+                func.count(func.distinct(AgentVulnerability.agent_id)).label("affected_count"),
+            )
+            .join(CVE, CVE.cve_id == AgentVulnerability.cve_id)
+            .where(
+                AgentVulnerability.status.in_(_OPEN_STATUSES),
+                AgentVulnerability.fix_available.is_(True),
+            )
+            .group_by(AgentVulnerability.cve_id, CVE.cvss_v3_score, CVE.cvss_v3_severity, AgentVulnerability.package_name)
+            .order_by(func.count(func.distinct(AgentVulnerability.agent_id)).desc())
+            .limit(limit)
+        )
+    ).all()
+
+    items = [
+        PatchableVulnerability(
+            cve_id=r.cve_id, cvss_v3_score=r.cvss_v3_score, cvss_v3_severity=r.cvss_v3_severity,
+            package_name=r.package_name, fixed_version=r.fixed_version, affected_count=r.affected_count,
+        )
+        for r in rows
+    ]
+    await cache.set_cached(cache_key, json.loads(json.dumps([i.model_dump(mode="json") for i in items])), ttl=TTL_CVE_DATA)
+    return items
+
+
 # ── CVE detail ────────────────────────────────────────────────────────────────
 
 @router.get("/{cve_id}", response_model=CVEResponse)
@@ -191,8 +410,58 @@ async def list_server_vulnerabilities(
     next_cursor = encode_cursor(str(items[-1].id)) if has_more and items else None
 
     page = CursorPage[VulnerabilityResponse](
-        items=[VulnerabilityResponse.model_validate(v) for v in items],
+        items=[
+            VulnerabilityResponse.model_validate(v).model_copy(update={"hostname": agent.hostname})
+            for v in items
+        ],
         next_cursor=next_cursor,
     )
     await cache.set_cached(cache_key, json.loads(page.model_dump_json()), ttl=TTL_CVE_DATA)
     return page
+
+
+# ── Affected resources for a CVE ────────────────────────────────────────────────
+
+@router.get("/{cve_id}/resources", response_model=list[VulnerabilityResourceDetail])
+async def cve_affected_resources(
+    cve_id: str,
+    db: AsyncSession = Depends(get_db),
+    cache: RedisCache = Depends(get_cache),
+    _: dict = Depends(get_current_user),
+) -> list[VulnerabilityResourceDetail]:
+    cache_key = f"cve:{cve_id}:resources"
+    if hit := await cache.get_cached(cache_key):
+        return [VulnerabilityResourceDetail.model_validate(r) for r in hit]
+
+    rows = (
+        await db.execute(
+            select(AgentVulnerability, Agent, Category.name, Project.name)
+            .join(Agent, Agent.id == AgentVulnerability.agent_id)
+            .outerjoin(Category, Category.id == Agent.category_id)
+            .outerjoin(Project, Project.id == Agent.project_id)
+            .where(AgentVulnerability.cve_id == cve_id)
+            .order_by(AgentVulnerability.status, Agent.hostname)
+        )
+    ).all()
+
+    resources = [
+        VulnerabilityResourceDetail(
+            agent_id=av.agent_id,
+            hostname=agent.hostname,
+            ip=agent.last_heartbeat_ip,
+            os_distro=agent.os_distro,
+            os_version=agent.os_version,
+            package_name=av.package_name,
+            package_version=av.package_version,
+            fixed_version=av.fixed_version,
+            environment=cat_name,
+            project=proj_name,
+            last_scan_at=av.last_scan_at,
+            status=av.status,
+        )
+        for av, agent, cat_name, proj_name in rows
+    ]
+    await cache.set_cached(
+        cache_key, json.loads(json.dumps([r.model_dump(mode="json") for r in resources])), ttl=TTL_CVE_DATA
+    )
+    return resources
