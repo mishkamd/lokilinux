@@ -8,7 +8,22 @@ const toast = useToast()
 const { canEdit } = useCurrentUser()
 const { reports, reportsTotal, reportsLoading, reportsNextCursor } = storeToRefs(store)
 
-onMounted(() => store.fetchReports())
+onMounted(() => {
+  store.fetchReports()
+  fetchPolicySetPicks()
+})
+
+// local fetch, not store.fetchPolicySets() — this is a one-off picker for
+// the create dialog, no reason to couple it to the Policy Sets page's own state.
+const policySetPicks = ref<{ id: string; name: string }[]>([])
+async function fetchPolicySetPicks() {
+  const data = await api.get<{ items: { id: string; name: string }[] }>('/compliance/policy-sets?limit=100')
+  policySetPicks.value = data.items
+}
+const policySetOptions = computed(() => [
+  { value: '', label: 'Select policy set…' },
+  ...policySetPicks.value.map((p) => ({ value: p.id, label: p.name })),
+])
 
 const STATUS_COLORS: Record<ReportStatus, string> = {
   PENDING: 'gray', GENERATING: 'amber', COMPLETED: 'green', FAILED: 'red',
@@ -27,7 +42,7 @@ const columns = [
 ]
 
 const showCreate = ref(false)
-const form = ref({ report_type: 'FLEET_SUMMARY' as ReportType, format: 'JSON' as ReportFormat, framework: '' })
+const form = ref({ report_type: 'FLEET_SUMMARY' as ReportType, format: 'JSON' as ReportFormat, framework: '', policy_set_id: '' })
 const creating = ref(false)
 const createError = ref<string | null>(null)
 
@@ -37,9 +52,15 @@ async function submitCreate() {
     createError.value = 'Framework key is required (e.g. cis, nist, stig).'
     return
   }
+  if (form.value.report_type === 'POLICY_SET' && !form.value.policy_set_id) {
+    createError.value = 'Policy set is required.'
+    return
+  }
   creating.value = true
   try {
-    const params = form.value.report_type === 'FRAMEWORK' ? { framework: form.value.framework } : {}
+    const params = form.value.report_type === 'FRAMEWORK' ? { framework: form.value.framework }
+      : form.value.report_type === 'POLICY_SET' ? { policy_set_id: form.value.policy_set_id }
+      : {}
     await store.createReport({ report_type: form.value.report_type, format: form.value.format, params })
     toast.add({ title: 'Report requested', description: 'Generating in the background — refresh to check status.' })
     showCreate.value = false
@@ -122,6 +143,9 @@ async function downloadReport(id: string, format: ReportFormat) {
           </FormField>
           <FormField v-if="form.report_type === 'FRAMEWORK'" label="Framework" required help="e.g. cis, nist, stig">
             <Input v-model="form.framework" placeholder="cis" />
+          </FormField>
+          <FormField v-if="form.report_type === 'POLICY_SET'" label="Policy set" required>
+            <Select v-model="form.policy_set_id" :options="policySetOptions" />
           </FormField>
           <FormField label="Format" required>
             <Select v-model="form.format" :options="REPORT_FORMATS" />
