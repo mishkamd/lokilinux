@@ -102,6 +102,10 @@ class PolicySetResponse(BaseModel):
     source_profile: str | None = None
     is_enabled: bool
     created_at: datetime
+    status: str = "PUBLISHED"
+    published_at: datetime | None = None
+    published_version: int = 1
+    parent_policy_set_id: UUID | None = None
 
     model_config = {"from_attributes": True}
 

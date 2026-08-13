@@ -10,13 +10,16 @@ from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import func, select
+from pydantic import BaseModel
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.auth.dependencies import get_current_user
 from lokilinux.dependencies import get_db
+from lokilinux.models.drift import DriftEvent
 from lokilinux.models.file_integrity import FileChange, FileHash
 from lokilinux.schemas.common import CursorPage, decode_cursor, encode_cursor
+from lokilinux.schemas.drift import DriftEventResponse
 from lokilinux.schemas.file_integrity import FileChangeResponse, FileHashResponse
 
 router = APIRouter()
@@ -78,4 +81,91 @@ async def list_file_changes(
         items=[FileChangeResponse.model_validate(c) for c in items],
         next_cursor=next_cursor,
         total=total,
+    )
+
+
+class RelatedRule(BaseModel):
+    rule_id: UUID
+    rule_key: str
+    title: str
+    domain: str
+
+
+class FileChangePathDetail(BaseModel):
+    """A "Top Changed Files" card click drills into this (docs/compliance
+    §35): every server that has ever reported a change to this exact path,
+    its recent timeline (hashes/permissions/owners), and what compliance
+    context it feeds — the rules that depend on it (F3's resource index)
+    and any still-open drift on those rules' domains."""
+
+    path: str
+    servers: list[UUID]
+    timeline: list[FileChangeResponse]
+    related_rules: list[RelatedRule]
+    related_drift: list[DriftEventResponse]
+
+
+@router.get("/file-changes/by-path", response_model=FileChangePathDetail)
+async def get_file_changes_by_path(
+    path: str = Query(..., description="Exact file path, e.g. /etc/ssh/sshd_config"),
+    db: AsyncSession = Depends(get_db),
+    _: dict = Depends(get_current_user),
+) -> FileChangePathDetail:
+    servers = (
+        (await db.execute(select(FileChange.agent_id).where(FileChange.path == path).distinct()))
+        .scalars()
+        .all()
+    )
+
+    timeline_rows = (
+        (
+            await db.execute(
+                select(FileChange).where(FileChange.path == path).order_by(FileChange.time.desc()).limit(50)
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+    rule_rows = (
+        await db.execute(
+            text(
+                """
+                SELECT cr.id, cr.rule_key, cr.title, cr.domain
+                FROM compliance_rule_resources crr
+                JOIN compliance_rules cr ON cr.id = crr.rule_id
+                WHERE crr.resource_type = 'FILE' AND crr.resource_path = :path
+                """
+            ),
+            {"path": path},
+        )
+    ).mappings().all()
+    related_rules = [
+        RelatedRule(rule_id=r["id"], rule_key=r["rule_key"], title=r["title"], domain=r["domain"])
+        for r in rule_rows
+    ]
+
+    related_drift: list[DriftEventResponse] = []
+    domains = {r.domain for r in related_rules}
+    if domains and servers:
+        drift_rows = (
+            await db.execute(
+                select(DriftEvent)
+                .where(
+                    DriftEvent.domain.in_(domains),
+                    DriftEvent.agent_id.in_(servers),
+                    DriftEvent.status.in_(["OPEN", "ACKNOWLEDGED", "IN_REMEDIATION"]),
+                )
+                .order_by(DriftEvent.time.desc())
+                .limit(20)
+            )
+        ).scalars().all()
+        related_drift = [DriftEventResponse.model_validate(d) for d in drift_rows]
+
+    return FileChangePathDetail(
+        path=path,
+        servers=list(servers),
+        timeline=[FileChangeResponse.model_validate(c) for c in timeline_rows],
+        related_rules=related_rules,
+        related_drift=related_drift,
     )

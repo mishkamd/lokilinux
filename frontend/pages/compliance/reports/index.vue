@@ -13,7 +13,9 @@ onMounted(() => store.fetchReports())
 const STATUS_COLORS: Record<ReportStatus, string> = {
   PENDING: 'gray', GENERATING: 'amber', COMPLETED: 'green', FAILED: 'red',
 }
-const REPORT_TYPES: ReportType[] = ['FLEET_SUMMARY', 'POLICY_SET', 'DATACENTER', 'CUSTOM']
+const REPORT_TYPES: ReportType[] = [
+  'FLEET_SUMMARY', 'POLICY_SET', 'DATACENTER', 'CUSTOM', 'FRAMEWORK', 'EXCEPTION', 'EXECUTIVE_SUMMARY',
+]
 const REPORT_FORMATS: ReportFormat[] = ['JSON', 'CSV', 'XLSX', 'PDF']
 
 const columns = [
@@ -25,13 +27,20 @@ const columns = [
 ]
 
 const showCreate = ref(false)
-const form = ref({ report_type: 'FLEET_SUMMARY' as ReportType, format: 'JSON' as ReportFormat })
+const form = ref({ report_type: 'FLEET_SUMMARY' as ReportType, format: 'JSON' as ReportFormat, framework: '' })
 const creating = ref(false)
+const createError = ref<string | null>(null)
 
 async function submitCreate() {
+  createError.value = null
+  if (form.value.report_type === 'FRAMEWORK' && !form.value.framework) {
+    createError.value = 'Framework key is required (e.g. cis, nist, stig).'
+    return
+  }
   creating.value = true
   try {
-    await store.createReport({ report_type: form.value.report_type, format: form.value.format })
+    const params = form.value.report_type === 'FRAMEWORK' ? { framework: form.value.framework } : {}
+    await store.createReport({ report_type: form.value.report_type, format: form.value.format, params })
     toast.add({ title: 'Report requested', description: 'Generating in the background — refresh to check status.' })
     showCreate.value = false
   } catch {
@@ -111,9 +120,13 @@ async function downloadReport(id: string, format: ReportFormat) {
           <FormField label="Report type" required>
             <Select v-model="form.report_type" :options="REPORT_TYPES" />
           </FormField>
+          <FormField v-if="form.report_type === 'FRAMEWORK'" label="Framework" required help="e.g. cis, nist, stig">
+            <Input v-model="form.framework" placeholder="cis" />
+          </FormField>
           <FormField label="Format" required>
             <Select v-model="form.format" :options="REPORT_FORMATS" />
           </FormField>
+          <Alert v-if="createError" color="red">{{ createError }}</Alert>
         </div>
       </template>
       <template #footer>

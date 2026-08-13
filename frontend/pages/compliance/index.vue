@@ -214,7 +214,12 @@ async function submitRunAssessment() {
         </p>
         <ul v-else class="divide-y divide-border">
           <li v-for="f in topChangedFiles.slice(0, 8)" :key="f.path" class="py-2 flex items-center justify-between gap-2">
-            <p class="text-sm font-mono truncate" :title="f.path">{{ f.path }}</p>
+            <NuxtLink
+              :to="`/compliance/file-integrity?path=${encodeURIComponent(f.path)}`"
+              class="text-sm font-mono truncate hover:underline hover:text-primary" :title="f.path"
+            >
+              {{ f.path }}
+            </NuxtLink>
             <Badge color="gray" size="xs">{{ f.change_count }}×</Badge>
           </li>
         </ul>

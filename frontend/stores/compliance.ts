@@ -90,6 +90,10 @@ export interface PolicySet {
   source_profile: string | null
   is_enabled: boolean
   created_at: string
+  status: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED'
+  published_at: string | null
+  published_version: number
+  parent_policy_set_id: string | null
 }
 
 export interface PolicySetCoverage {
@@ -214,7 +218,22 @@ export interface FileChange {
   new_gid: number | null
 }
 
-export type ReportType = 'FLEET_SUMMARY' | 'POLICY_SET' | 'DATACENTER' | 'CUSTOM'
+export interface RelatedRule {
+  rule_id: string
+  rule_key: string
+  title: string
+  domain: string
+}
+
+export interface FileChangePathDetail {
+  path: string
+  servers: string[]
+  timeline: FileChange[]
+  related_rules: RelatedRule[]
+  related_drift: DriftEvent[]
+}
+
+export type ReportType = 'FLEET_SUMMARY' | 'POLICY_SET' | 'DATACENTER' | 'CUSTOM' | 'FRAMEWORK' | 'EXCEPTION' | 'EXECUTIVE_SUMMARY'
 export type ReportFormat = 'JSON' | 'CSV' | 'XLSX' | 'PDF'
 export type ReportStatus = 'PENDING' | 'GENERATING' | 'COMPLETED' | 'FAILED'
 
@@ -506,6 +525,22 @@ export const useComplianceStore = defineStore('compliance', () => {
     return await api.post<{ job_id: string; status: string }>('/compliance/policy-sets/import', body)
   }
 
+  async function publishPolicySet(id: string) {
+    const updated = await api.post<PolicySet>(`/compliance/policy-sets/${id}/publish`)
+    if (selectedPolicySet.value?.id === id) selectedPolicySet.value = updated
+    return updated
+  }
+
+  async function archivePolicySet(id: string) {
+    const updated = await api.post<PolicySet>(`/compliance/policy-sets/${id}/archive`)
+    if (selectedPolicySet.value?.id === id) selectedPolicySet.value = updated
+    return updated
+  }
+
+  async function newPolicySetVersion(id: string) {
+    return await api.post<PolicySet>(`/compliance/policy-sets/${id}/new-version`)
+  }
+
   // ── Drift ────────────────────────────────────────────────────────────────
 
   const driftEvents = ref<DriftEvent[]>([])
@@ -788,6 +823,20 @@ export const useComplianceStore = defineStore('compliance', () => {
     }
   }
 
+  const fileChangePathDetail = ref<FileChangePathDetail | null>(null)
+  const fileChangePathDetailLoading = ref(false)
+
+  async function fetchFileChangesByPath(path: string) {
+    fileChangePathDetailLoading.value = true
+    try {
+      fileChangePathDetail.value = await api.get<FileChangePathDetail>(
+        `/compliance/file-changes/by-path?path=${encodeURIComponent(path)}`,
+      )
+    } finally {
+      fileChangePathDetailLoading.value = false
+    }
+  }
+
   // ── Reporting Engine ─────────────────────────────────────────────────────
 
   const reports = ref<ComplianceReport[]>([])
@@ -910,6 +959,7 @@ export const useComplianceStore = defineStore('compliance', () => {
     selectedRule, fetchRule,
     policySets, policySetsTotal, policySetsLoading, policySetsNextCursor, selectedPolicySet, policySetRules, policySetCoverage,
     fetchPolicySets, createPolicySet, fetchPolicySet, fetchPolicySetRules, fetchPolicySetCoverage, importPolicySet,
+    publishPolicySet, archivePolicySet, newPolicySetVersion,
     driftEvents, driftTotal, driftLoading, driftNextCursor, driftFilters,
     selectedDriftEvent, driftDetails,
     fetchDriftEvents, fetchDriftEvent, fetchDriftDetails, acknowledgeDrift, suppressDrift, resolveDrift,
@@ -923,6 +973,7 @@ export const useComplianceStore = defineStore('compliance', () => {
     fetchMaintenanceWindows, createMaintenanceWindow,
     fileHashes, fileHashesLoading, fileHashPathPrefix, fetchFileHashes,
     fileChanges, fileChangesTotal, fileChangesLoading, fileChangesNextCursor, fileChangeFilters, fetchFileChanges,
+    fileChangePathDetail, fileChangePathDetailLoading, fetchFileChangesByPath,
     reports, reportsTotal, reportsLoading, reportsNextCursor, fetchReports, createReport,
     topViolations, topViolationsLoading, topChangedFiles, topChangedFilesLoading,
     fetchTopViolations, fetchTopChangedFiles,

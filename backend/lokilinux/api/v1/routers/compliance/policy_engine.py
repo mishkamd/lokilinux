@@ -48,6 +48,7 @@ from lokilinux.schemas.compliance_rule import (
 )
 from lokilinux.services.audit_service import AuditService
 from lokilinux.services.complianceascode_importer import ComplianceAsCodeImporter
+from lokilinux.services.policy_set_service import PolicySetService
 
 logger = logging.getLogger(__name__)
 
@@ -328,20 +329,14 @@ async def create_policy_set(
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(require_role("ADMIN", "OPERATOR")),
 ) -> PolicySetResponse:
-    existing = (
-        await db.execute(select(PolicySet).where(PolicySet.slug == body.slug))
-    ).scalar_one_or_none()
-    if existing is not None:
-        raise HTTPException(status_code=409, detail=f"Policy set slug '{body.slug}' already exists")
-    policy_set = PolicySet(
-        name=body.name,
-        slug=body.slug,
-        framework=body.framework,
-        version=body.version,
-        description=body.description,
+    """Creates a DRAFT policy set (docs/compliance §6) — add rules via
+    POST .../rules, then POST .../publish to make it live. is_enabled stays
+    false until published, so an in-progress draft is never picked up by
+    policy resolution."""
+    policy_set = await PolicySetService(db).create_draft(
+        name=body.name, slug=body.slug, framework=body.framework,
+        version=body.version, description=body.description,
     )
-    db.add(policy_set)
-    await db.commit()
     await AuditService(db).log(
         action="compliance.policy_set_created",
         user_id=current_user.get("id"),
@@ -351,6 +346,39 @@ async def create_policy_set(
         changes={"name": body.name, "slug": body.slug, "framework": body.framework},
     )
     return PolicySetResponse.model_validate(policy_set)
+
+
+@router.post("/policy-sets/{policy_set_id}/publish", response_model=PolicySetResponse)
+async def publish_policy_set(
+    policy_set_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(require_role("ADMIN", "OPERATOR")),
+) -> PolicySetResponse:
+    policy_set = await PolicySetService(db).publish(policy_set_id, current_user)
+    return PolicySetResponse.model_validate(policy_set)
+
+
+@router.post("/policy-sets/{policy_set_id}/archive", response_model=PolicySetResponse)
+async def archive_policy_set(
+    policy_set_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(require_role("ADMIN")),
+) -> PolicySetResponse:
+    policy_set = await PolicySetService(db).archive(policy_set_id, current_user)
+    return PolicySetResponse.model_validate(policy_set)
+
+
+@router.post("/policy-sets/{policy_set_id}/new-version", response_model=PolicySetResponse, status_code=201)
+async def new_policy_set_version(
+    policy_set_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(require_role("ADMIN", "OPERATOR")),
+) -> PolicySetResponse:
+    """Clones a PUBLISHED policy set's rules into a new DRAFT — the
+    published row is never mutated, matching baselines' immutable-once-
+    published rule. Edit the returned draft's rules, then publish it."""
+    clone = await PolicySetService(db).create_new_version(policy_set_id, current_user)
+    return PolicySetResponse.model_validate(clone)
 
 
 @router.post("/policy-sets/import", response_model=PolicySetImportResponse, status_code=202)

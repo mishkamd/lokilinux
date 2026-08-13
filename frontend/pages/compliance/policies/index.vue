@@ -28,7 +28,7 @@ async function submitCreate() {
       name: form.value.name, slug: form.value.slug, framework: form.value.framework,
       version: form.value.version || undefined, description: form.value.description || undefined,
     })
-    toast.add({ title: 'Policy set created' })
+    toast.add({ title: 'Policy set created', description: 'Add rules, then publish it to make it live.' })
     showCreate.value = false
     form.value = { name: '', slug: '', framework: 'INTERNAL', version: '', description: '' }
   } catch {
@@ -97,7 +97,7 @@ async function submitImport() {
         <Badge color="gray" size="xs">{{ row.framework }}</Badge>
       </template>
       <template #is_enabled-data="{ row }">
-        <Badge :color="row.is_enabled ? 'green' : 'gray'" size="xs">{{ row.is_enabled ? 'Enabled' : 'Disabled' }}</Badge>
+        <Badge :color="row.status === 'PUBLISHED' ? 'green' : 'gray'" size="xs">{{ row.status }}</Badge>
       </template>
       <template #created_at-data="{ row }">
         <span class="font-mono text-xs">{{ new Date(String(row.created_at)).toLocaleDateString() }}</span>
