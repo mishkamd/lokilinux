@@ -54,6 +54,12 @@ class CVE(Base):
 
     is_zero_day: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     is_actively_exploited: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    kev_date_added: Mapped[date | None] = mapped_column(Date)  # CISA Known Exploited Vulnerabilities
+
+    # NVD enrichment tracking — PENDING/OK/NOT_FOUND/ERROR, makes the
+    # backfill worker resumable: it only re-queries PENDING rows.
+    enrichment_status: Mapped[str] = mapped_column(String(20), default="PENDING", nullable=False)
+    last_enriched_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
@@ -123,11 +129,26 @@ class AgentVulnerability(Base):
     risk_score: Mapped[float | None] = mapped_column(Float)
 
     # Remediation
+    fixed_version: Mapped[str | None] = mapped_column(String(100))
     fix_available: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     recommended_action: Mapped[str | None] = mapped_column(String(50))  # patch / upgrade / monitor / retire
     is_remediated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     remediation_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     remediation_job_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("jobs.id"))
+    remediation_plan_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("remediation_plans.id"))
+
+    # Lifecycle — source of truth going forward; is_remediated is kept for
+    # existing readers/writers (agent_service, dashboard.py) but new code
+    # should read/write status.
+    status: Mapped[str] = mapped_column(String(20), default="OPEN", nullable=False)
+    # Accept-risk (mirrors compliance_exceptions' shape)
+    accepted_risk_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    accepted_risk_reason: Mapped[str | None] = mapped_column(Text)
+    accepted_risk_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     discovered_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
     last_check: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), server_default=text("now()"))
+    # Set only when this agent's heartbeat carried a real, non-empty
+    # vulnerability report — distinguishes "verified present in the last
+    # scan" from "row just hasn't been touched since a stale heartbeat".
+    last_scan_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
