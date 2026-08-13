@@ -432,6 +432,22 @@ func (s *Store) InsertFileChange(ctx context.Context, agentID uuid.UUID, path, o
 	return nil
 }
 
+// ExpirePendingExceptions flips ACTIVE compliance_exceptions past their
+// expires_at to EXPIRED (docs/compliance §17: "After expiration ->
+// EXCEPTION EXPIRED -> RULE FAIL") — the evaluation path never treats a
+// waiver as active once this runs, since evaluateAndRecord's exception
+// lookup already filters on status = 'ACTIVE'.
+func (s *Store) ExpirePendingExceptions(ctx context.Context) (int64, error) {
+	tag, err := s.pool.Exec(ctx, `
+		UPDATE compliance_exceptions SET status = 'EXPIRED', updated_at = now()
+		WHERE status = 'ACTIVE' AND expires_at <= now()
+	`)
+	if err != nil {
+		return 0, fmt.Errorf("expiring compliance exceptions: %w", err)
+	}
+	return tag.RowsAffected(), nil
+}
+
 // LoadFileIntegrityIgnorePatterns returns every GLOBAL-scope
 // file_integrity_ignores.path_pattern (migration 017, unused before this).
 //

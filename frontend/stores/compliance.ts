@@ -230,6 +230,22 @@ export interface TopViolations {
   recent_drift: DriftEvent[]
 }
 
+export interface ComplianceException {
+  id: string
+  rule_id: string
+  agent_id: string | null
+  scope_selector: Record<string, unknown>
+  reason: string
+  owner: string
+  requested_by: string | null
+  approved_by: string | null
+  approved_at: string | null
+  status: 'PENDING' | 'ACTIVE' | 'EXPIRED' | 'REVOKED'
+  expires_at: string
+  created_at: string
+  updated_at: string
+}
+
 export const useComplianceStore = defineStore('compliance', () => {
   const api = useApi()
 
@@ -490,6 +506,64 @@ export const useComplianceStore = defineStore('compliance', () => {
     if (selectedDriftEvent.value?.id === id) selectedDriftEvent.value = updated
   }
 
+  // ── Exceptions ───────────────────────────────────────────────────────────
+
+  const exceptions = ref<ComplianceException[]>([])
+  const exceptionsTotal = ref(0)
+  const exceptionsLoading = ref(false)
+  const exceptionsNextCursor = ref<string | null>(null)
+  const exceptionFilters = ref({ status: '' })
+
+  async function fetchExceptions(cursor?: string) {
+    exceptionsLoading.value = true
+    try {
+      const params = new URLSearchParams()
+      if (cursor) params.set('cursor', cursor)
+      if (exceptionFilters.value.status) params.set('status', exceptionFilters.value.status)
+      const data = await api.get<{ items: ComplianceException[]; next_cursor: string | null; total: number }>(
+        `/compliance/exceptions?${params}`,
+      )
+      if (cursor) {
+        exceptions.value = [...exceptions.value, ...data.items]
+      } else {
+        exceptions.value = data.items
+      }
+      exceptionsTotal.value = data.total ?? 0
+      exceptionsNextCursor.value = data.next_cursor
+    } finally {
+      exceptionsLoading.value = false
+    }
+  }
+
+  async function createException(body: {
+    rule_id: string
+    reason: string
+    owner: string
+    expires_at: string
+    agent_id?: string
+    scope_selector?: Record<string, unknown>
+  }) {
+    const exc = await api.post<ComplianceException>('/compliance/exceptions', body)
+    exceptions.value = [exc, ...exceptions.value]
+    exceptionsTotal.value += 1
+    return exc
+  }
+
+  async function approveException(id: string) {
+    const updated = await api.post<ComplianceException>(`/compliance/exceptions/${id}/approve`)
+    applyExceptionUpdate(id, updated)
+  }
+
+  async function revokeException(id: string) {
+    const updated = await api.post<ComplianceException>(`/compliance/exceptions/${id}/revoke`)
+    applyExceptionUpdate(id, updated)
+  }
+
+  function applyExceptionUpdate(id: string, updated: ComplianceException) {
+    const idx = exceptions.value.findIndex((e) => e.id === id)
+    if (idx !== -1) exceptions.value[idx] = updated
+  }
+
   // ── Remediation ──────────────────────────────────────────────────────────
 
   const remediationPlans = ref<RemediationPlan[]>([])
@@ -717,6 +791,8 @@ export const useComplianceStore = defineStore('compliance', () => {
     driftEvents, driftTotal, driftLoading, driftNextCursor, driftFilters,
     selectedDriftEvent, driftDetails,
     fetchDriftEvents, fetchDriftEvent, fetchDriftDetails, acknowledgeDrift, suppressDrift, resolveDrift,
+    exceptions, exceptionsTotal, exceptionsLoading, exceptionsNextCursor, exceptionFilters,
+    fetchExceptions, createException, approveException, revokeException,
     remediationPlans, remediationTotal, remediationLoading, remediationNextCursor, remediationError, remediationFilters,
     selectedRemediationPlan, remediationActions, remediationExecution, maintenanceWindows,
     fetchRemediationPlans, fetchRemediationPlan, fetchRemediationActions,

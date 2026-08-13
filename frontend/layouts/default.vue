@@ -237,7 +237,7 @@ import {
   LayoutDashboard, Server, Cpu, ClipboardList, ShieldAlert,
   FileText, Puzzle, BellDot, Bell, Users, Settings, UserCircle, LogOut, Search, Menu, X,
   PanelLeft, PanelLeftClose, Bot, Layers, FolderKanban, ShieldCheck,
-  BookCheck, ListChecks, GitCompare, Wrench, FileSearch, FileChartColumn,
+  BookCheck, ListChecks, GitCompare, Wrench, FileSearch, FileChartColumn, ShieldOff,
 } from 'lucide-vue-next'
 import { Toaster } from 'vue-sonner'
 
@@ -331,6 +331,7 @@ const navSections = computed((): { title: string; links: NavLink[] }[] => [
           { to: '/compliance/drift',          label: 'Drift',         icon: GitCompare },
           { to: '/compliance/file-integrity', label: 'File Integrity', icon: FileSearch },
           { to: '/compliance/remediation',    label: 'Remediation',   icon: Wrench },
+          { to: '/compliance/exceptions',     label: 'Exceptions',    icon: ShieldOff },
           { to: '/compliance/reports',        label: 'Reports',       icon: FileChartColumn },
         ],
       },
