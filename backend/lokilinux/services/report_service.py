@@ -31,6 +31,7 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lokilinux.models.agent import Agent
 from lokilinux.models.compliance_exception import ComplianceException
 from lokilinux.models.compliance_report import ComplianceReport
 from lokilinux.models.compliance_rule import ComplianceRule, PolicySetRule
@@ -68,8 +69,9 @@ async def _latest_evaluations(
     join a POLICY_SET-scoped report needs instead of fleet-wide data.
     """
     q = (
-        select(RuleEvaluation, ComplianceRule.domain, ComplianceRule.severity, ComplianceRule.title)
+        select(RuleEvaluation, ComplianceRule.domain, ComplianceRule.severity, ComplianceRule.title, Agent.hostname)
         .join(ComplianceRule, ComplianceRule.id == RuleEvaluation.rule_id)
+        .outerjoin(Agent, Agent.id == RuleEvaluation.agent_id)
         .distinct(RuleEvaluation.agent_id, RuleEvaluation.rule_id)
         .order_by(RuleEvaluation.agent_id, RuleEvaluation.rule_id, RuleEvaluation.time.desc())
     )
@@ -90,7 +92,7 @@ async def build_fleet_summary_data(
     category_counts: dict[str, dict[str, int]] = {}
     violations: list[dict] = []
 
-    for evaluation, domain, severity, title in rows:
+    for evaluation, domain, severity, title, hostname in rows:
         category = CATEGORY_BY_DOMAIN.get(domain, "configuration")
         bucket = category_counts.setdefault(category, {"passed": 0, "failed": 0})
         if evaluation.result == "PASS":
@@ -100,6 +102,7 @@ async def build_fleet_summary_data(
             violations.append(
                 {
                     "agent_id": str(evaluation.agent_id),
+                    "hostname": hostname,
                     "domain": domain,
                     "severity": severity,
                     "title": title,
@@ -162,7 +165,7 @@ async def build_framework_report_data(
         rule_to_controls.setdefault(r["rule_id"], []).append({"control_id": r["control_id"], "title": r["title"]})
 
     control_counts: dict[str, dict] = {}
-    for evaluation, _domain, _severity, _title in rows:
+    for evaluation, _domain, _severity, _title, _hostname in rows:
         for c in rule_to_controls.get(evaluation.rule_id, []):
             bucket = control_counts.setdefault(c["control_id"], {"title": c["title"], "passed": 0, "failed": 0})
             if evaluation.result == "PASS":

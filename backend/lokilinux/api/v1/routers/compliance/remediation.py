@@ -264,9 +264,11 @@ async def get_remediation_execution(
     # Get results
     results = (
         await db.execute(
-            select(JobResult).where(JobResult.job_id == job.id)
+            select(JobResult, Agent.hostname)
+            .outerjoin(Agent, Agent.id == JobResult.agent_id)
+            .where(JobResult.job_id == job.id)
         )
-    ).scalars().all()
+    ).all()
 
     return RemediationExecutionResponse(
         job_id=job.id,
@@ -275,6 +277,7 @@ async def get_remediation_execution(
         results=[
             RemediationExecutionResult(
                 agent_id=r.agent_id,
+                hostname=hostname,
                 status=r.status,
                 exit_code=r.exit_code,
                 error_message=r.error_message,
@@ -282,7 +285,7 @@ async def get_remediation_execution(
                 stderr=r.stderr,
                 duration_seconds=r.duration_seconds,
             )
-            for r in results
+            for r, hostname in results
         ],
     )
 

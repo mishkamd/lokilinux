@@ -33,6 +33,7 @@ from lokilinux.models.rule_evaluation import RuleEvaluation
 from lokilinux.schemas.common import CursorPage, decode_cursor, encode_cursor
 from lokilinux.schemas.compliance_rule import (
     ComplianceRuleResponse,
+    FailingAgent,
     FrameworkMapping,
     PolicyAssignmentCreate,
     PolicyAssignmentResponse,
@@ -212,18 +213,22 @@ async def get_rule_detail(
                     FROM rule_evaluations WHERE rule_id = :rule_id
                     ORDER BY agent_id, time DESC
                 )
-                SELECT agent_id FROM latest WHERE result = 'FAIL' LIMIT 50
+                SELECT latest.agent_id, agents.hostname
+                FROM latest
+                LEFT JOIN agents ON agents.id = latest.agent_id
+                WHERE latest.result = 'FAIL' LIMIT 50
                 """
             ),
             {"rule_id": rule_id},
         )
-    ).scalars().all()
+    ).mappings().all()
+    failing_agents = [FailingAgent(agent_id=r["agent_id"], hostname=r["hostname"]) for r in failing_rows]
 
     return RuleDetailResponse(
         **ComplianceRuleResponse.model_validate(rule).model_dump(),
         framework_mappings=framework_mappings,
         coverage=coverage,
-        failing_agent_ids=list(failing_rows),
+        failing_agents=failing_agents,
     )
 
 

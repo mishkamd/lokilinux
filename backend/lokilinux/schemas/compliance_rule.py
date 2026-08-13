@@ -52,6 +52,11 @@ class FrameworkMapping(BaseModel):
     control_title: str
 
 
+class FailingAgent(BaseModel):
+    agent_id: UUID
+    hostname: str | None = None
+
+
 class RuleDetailResponse(ComplianceRuleResponse):
     """Extends the catalog row (docs/compliance §37) with framework
     mappings, live coverage, and which agents are currently failing —
@@ -59,7 +64,7 @@ class RuleDetailResponse(ComplianceRuleResponse):
 
     framework_mappings: list[FrameworkMapping] = []
     coverage: dict[str, int] = {}
-    failing_agent_ids: list[UUID] = []
+    failing_agents: list[FailingAgent] = []
 
 
 class RuleCoverageResponse(BaseModel):

@@ -124,14 +124,14 @@ const coverageEntries = computed(() => Object.entries(selectedRule.value?.covera
             {{ result }}: {{ n }}
           </Badge>
         </div>
-        <div v-if="selectedRule.failing_agent_ids.length" class="mt-3">
-          <p class="text-xs text-muted-foreground mb-1">Failing servers ({{ selectedRule.failing_agent_ids.length }})</p>
+        <div v-if="selectedRule.failing_agents.length" class="mt-3">
+          <p class="text-xs text-muted-foreground mb-1">Failing servers ({{ selectedRule.failing_agents.length }})</p>
           <div class="flex flex-wrap gap-1">
             <NuxtLink
-              v-for="aid in selectedRule.failing_agent_ids.slice(0, 20)" :key="aid"
-              :to="`/servers/${aid}`" class="font-mono text-xs text-primary hover:underline"
+              v-for="fa in selectedRule.failing_agents.slice(0, 20)" :key="fa.agent_id"
+              :to="`/servers/${fa.agent_id}`" class="font-mono text-xs text-primary hover:underline"
             >
-              {{ aid.slice(0, 8) }}…
+              {{ fa.hostname || fa.agent_id.slice(0, 8) + '…' }}
             </NuxtLink>
           </div>
         </div>

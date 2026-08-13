@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.auth.dependencies import get_current_user
 from lokilinux.dependencies import get_db
+from lokilinux.models.agent import Agent
 from lokilinux.models.drift import DriftEvent
 from lokilinux.schemas.drift import DriftEventResponse
 
@@ -101,7 +102,8 @@ async def top_violations(
     # then newest — the "what's on fire right now" half of the widget.
     drift_rows = (
         await db.execute(
-            select(DriftEvent)
+            select(DriftEvent, Agent.hostname)
+            .outerjoin(Agent, Agent.id == DriftEvent.agent_id)
             .where(text(f"time > now() - {_DASHBOARD_WINDOW}"))
             .order_by(
                 text("CASE severity WHEN 'CRITICAL' THEN 0 WHEN 'HIGH' THEN 1 WHEN 'MEDIUM' THEN 2 ELSE 3 END"),
@@ -109,8 +111,11 @@ async def top_violations(
             )
             .limit(limit)
         )
-    ).scalars().all()
-    recent_drift = [DriftEventResponse.model_validate(d) for d in drift_rows]
+    ).all()
+    recent_drift = [
+        DriftEventResponse.model_validate(d).model_copy(update={"hostname": hostname})
+        for d, hostname in drift_rows
+    ]
 
     return TopViolationsResponse(top_rules=top_rules, recent_drift=recent_drift)
 

@@ -74,10 +74,15 @@ export interface FrameworkMapping {
   control_title: string
 }
 
+export interface FailingAgent {
+  agent_id: string
+  hostname: string | null
+}
+
 export interface RuleDetail extends ComplianceRule {
   framework_mappings: FrameworkMapping[]
   coverage: Record<string, number>
-  failing_agent_ids: string[]
+  failing_agents: FailingAgent[]
 }
 
 export interface PolicySet {
@@ -230,7 +235,7 @@ export interface RelatedRule {
 
 export interface FileChangePathDetail {
   path: string
-  servers: string[]
+  servers: FailingAgent[]
   timeline: FileChange[]
   related_rules: RelatedRule[]
   related_drift: DriftEvent[]

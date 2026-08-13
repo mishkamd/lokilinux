@@ -99,6 +99,11 @@ class RelatedRule(BaseModel):
     domain: str
 
 
+class ServerRef(BaseModel):
+    agent_id: UUID
+    hostname: str | None = None
+
+
 class FileChangePathDetail(BaseModel):
     """A "Top Changed Files" card click drills into this (docs/compliance
     §35): every server that has ever reported a change to this exact path,
@@ -107,7 +112,7 @@ class FileChangePathDetail(BaseModel):
     and any still-open drift on those rules' domains."""
 
     path: str
-    servers: list[UUID]
+    servers: list[ServerRef]
     timeline: list[FileChangeResponse]
     related_rules: list[RelatedRule]
     related_drift: list[DriftEventResponse]
@@ -119,11 +124,16 @@ async def get_file_changes_by_path(
     db: AsyncSession = Depends(get_db),
     _: dict = Depends(get_current_user),
 ) -> FileChangePathDetail:
-    servers = (
-        (await db.execute(select(FileChange.agent_id).where(FileChange.path == path).distinct()))
-        .scalars()
-        .all()
-    )
+    server_rows = (
+        await db.execute(
+            select(FileChange.agent_id, Agent.hostname)
+            .outerjoin(Agent, Agent.id == FileChange.agent_id)
+            .where(FileChange.path == path)
+            .distinct()
+        )
+    ).all()
+    servers = [aid for aid, _hostname in server_rows]
+    server_refs = [ServerRef(agent_id=aid, hostname=hostname) for aid, hostname in server_rows]
 
     timeline_rows = (
         await db.execute(
@@ -158,7 +168,8 @@ async def get_file_changes_by_path(
     if domains and servers:
         drift_rows = (
             await db.execute(
-                select(DriftEvent)
+                select(DriftEvent, Agent.hostname)
+                .outerjoin(Agent, Agent.id == DriftEvent.agent_id)
                 .where(
                     DriftEvent.domain.in_(domains),
                     DriftEvent.agent_id.in_(servers),
@@ -167,12 +178,15 @@ async def get_file_changes_by_path(
                 .order_by(DriftEvent.time.desc())
                 .limit(20)
             )
-        ).scalars().all()
-        related_drift = [DriftEventResponse.model_validate(d) for d in drift_rows]
+        ).all()
+        related_drift = [
+            DriftEventResponse.model_validate(d).model_copy(update={"hostname": hostname})
+            for d, hostname in drift_rows
+        ]
 
     return FileChangePathDetail(
         path=path,
-        servers=list(servers),
+        servers=server_refs,
         timeline=[
             FileChangeResponse.model_validate(c).model_copy(update={"hostname": hostname})
             for c, hostname in timeline_rows
