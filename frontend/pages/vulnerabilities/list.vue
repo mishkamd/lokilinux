@@ -1,10 +1,35 @@
 <script setup lang="ts">
-import { RefreshCw, Search } from 'lucide-vue-next'
+import { Download, RefreshCw, Search } from 'lucide-vue-next'
 
 const store = useVulnerabilitiesStore()
+const api = useApi()
+const toast = useToast()
 const { cves, cvesTotal, cvesLoading, cvesNextCursor, cveFilters, cveSummaryBySeverity } = storeToRefs(store)
 
 onMounted(() => store.fetchCves())
+
+const exporting = ref<'csv' | 'json' | null>(null)
+async function exportCves(format: 'csv' | 'json') {
+  exporting.value = format
+  try {
+    const params = new URLSearchParams({ format })
+    if (cveFilters.value.severity) params.set('severity', cveFilters.value.severity)
+    if (cveFilters.value.exploited_only) params.set('exploited_only', 'true')
+    const blob = await api.get<Blob>(`/vulnerabilities/export?${params}`, { responseType: 'blob' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `vulnerabilities.${format}`
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  } catch (err) {
+    toast.add({ title: (err as { data?: { detail?: string } })?.data?.detail ?? 'Export failed', color: 'red' })
+  } finally {
+    exporting.value = null
+  }
+}
 
 const SEVERITIES = ['', 'CRITICAL', 'HIGH', 'MEDIUM', 'LOW']
 
@@ -75,6 +100,12 @@ function filterBySeverity(sev: string) {
         <Checkbox v-model="cveFilters.exploited_only" label="Actively exploited" @change="store.fetchCves()" />
         <Button variant="outline" @click="store.fetchCves()">
           <RefreshCw class="size-4" /> Refresh
+        </Button>
+        <Button variant="outline" size="sm" :loading="exporting === 'csv'" @click="exportCves('csv')">
+          <Download class="size-3.5" /> CSV
+        </Button>
+        <Button variant="outline" size="sm" :loading="exporting === 'json'" @click="exportCves('json')">
+          <Download class="size-3.5" /> JSON
         </Button>
       </div>
       <Badge color="gray">{{ cvesTotal }} CVEs</Badge>

@@ -6,11 +6,14 @@ GET /vulnerabilities/{cve_id}               — CVE detail
 GET /servers/{agent_id}/vulnerabilities     — per-server CVEs
 """
 
+import csv
+import io
 import json
 from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -364,6 +367,55 @@ async def top_patchable_vulnerabilities(
     ]
     await cache.set_cached(cache_key, json.loads(json.dumps([i.model_dump(mode="json") for i in items])), ttl=TTL_CVE_DATA)
     return items
+
+
+@router.get("/export")
+async def export_vulnerabilities(
+    format: str = Query("csv", pattern="^(csv|json)$"),
+    severity: CVESeverity | None = Query(None),
+    exploited_only: bool = Query(False),
+    db: AsyncSession = Depends(get_db),
+    _: dict = Depends(get_current_user),
+) -> Response:
+    """Exports the CVE catalog (one row per CVE, matching the catalog
+    list's grain — not per-finding). Capped at 10,000 rows: a fleet-scale
+    export belongs on the existing Compliance report generator's async
+    job pattern (services/report_service.py), not a synchronous request —
+    this is the honest ceiling for "download the current filtered view,"
+    not a promise to export the whole catalog at 100K-server scale."""
+    q = select(CVE).order_by(CVE.cvss_v3_score.desc().nullslast(), CVE.id.desc()).limit(10_000)
+    if severity:
+        q = q.where(CVE.cvss_v3_severity == severity.value)
+    if exploited_only:
+        q = q.where(CVE.is_actively_exploited.is_(True))
+    rows = (await db.execute(q)).scalars().all()
+
+    fields = [
+        "cve_id", "cvss_v3_severity", "cvss_v3_score", "title", "is_actively_exploited",
+        "is_zero_day", "published_date", "enrichment_status",
+    ]
+
+    if format == "json":
+        payload = [
+            {f: (getattr(r, f).isoformat() if hasattr(getattr(r, f), "isoformat") else getattr(r, f)) for f in fields}
+            for r in rows
+        ]
+        return Response(
+            content=json.dumps(payload, indent=2),
+            media_type="application/json",
+            headers={"Content-Disposition": "attachment; filename=vulnerabilities.json"},
+        )
+
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=fields)
+    writer.writeheader()
+    for r in rows:
+        writer.writerow({f: getattr(r, f) for f in fields})
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=vulnerabilities.csv"},
+    )
 
 
 # ── CVE detail ────────────────────────────────────────────────────────────────
