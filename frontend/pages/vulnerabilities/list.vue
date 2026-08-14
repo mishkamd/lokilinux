@@ -71,7 +71,6 @@ function filterBySeverity(sev: string) {
     <div class="flex items-center justify-between mb-4">
       <div>
         <h1 class="page-title">CVE Catalog</h1>
-        <p class="text-sm text-muted-foreground">Every tracked CVE and how many resources it affects</p>
       </div>
     </div>
 
