@@ -37,9 +37,9 @@ async function downloadDirect(link: PkgLink) {
     a.click()
     a.remove()
     URL.revokeObjectURL(url)
-    toast.add({ title: 'Descărcare pornită', description: link.filename, color: 'green' })
+    toast.add({ title: 'Download started', description: link.filename, color: 'green' })
   } catch {
-    toast.add({ title: 'Eroare la descărcare', color: 'red' })
+    toast.add({ title: 'Download error', color: 'red' })
   } finally {
     downloading.value = null
   }
@@ -65,26 +65,26 @@ function isHttpUrl(v: string): boolean {
 }
 
 function validateConfig(): string | null {
-  if (!isHttpUrl(cfg.value.platform_url)) return 'Server URL trebuie să fie un URL http(s) valid'
+  if (!isHttpUrl(cfg.value.platform_url)) return 'Server URL must be a valid http(s) URL'
   if (cfg.value.download_base && !isHttpUrl(cfg.value.download_base))
-    return 'Download Base trebuie să fie un URL http(s) valid'
+    return 'Download Base must be a valid http(s) URL'
   return null
 }
 
 async function saveConfig() {
   const err = validateConfig()
   if (err) {
-    toast.add({ title: 'Configurație invalidă', description: err, color: 'red' })
+    toast.add({ title: 'Invalid configuration', description: err, color: 'red' })
     return
   }
   cfgPending.value = true
   try {
     await api.put('/admin/agent-config', cfg.value)
-    toast.add({ title: 'Configurație salvată', color: 'green' })
+    toast.add({ title: 'Configuration saved', color: 'green' })
     showConfig.value = false
     await loadPackages()
   } catch {
-    toast.add({ title: 'Eroare la salvare', color: 'red' })
+    toast.add({ title: 'Save error', color: 'red' })
   } finally {
     cfgPending.value = false
   }
@@ -101,7 +101,7 @@ async function generateToken() {
     enrollResult.value = await api.post('/agent/enrollment-token', { label: tokenLabel.value })
   } catch (e: unknown) {
     const err = e as { message?: string }
-    toast.add({ title: 'Eroare', description: err?.message, color: 'red' })
+    toast.add({ title: 'Error', description: err?.message, color: 'red' })
   } finally {
     tokenPending.value = false
   }
@@ -123,9 +123,9 @@ async function copy(text: string) {
       document.execCommand('copy')
       ta.remove()
     }
-    toast.add({ title: 'Copiat!', color: 'green' })
+    toast.add({ title: 'Copied!', color: 'green' })
   } catch {
-    toast.add({ title: 'Eroare la copiere', description: 'Copiază manual textul.', color: 'red' })
+    toast.add({ title: 'Copy error', description: 'Copy the text manually.', color: 'red' })
   }
 }
 </script>
@@ -145,36 +145,36 @@ async function copy(text: string) {
     <!-- Admin config -->
     <div v-if="isAdmin">
       <div class="flex items-center justify-between mb-3">
-        <h2 class="text-lg font-semibold">Pachete agent</h2>
+        <h2 class="text-lg font-semibold">Agent packages</h2>
         <Button size="sm" variant="outline" @click="showConfig = !showConfig">
           <component :is="showConfig ? ChevronUp : Settings" class="size-4" />
-          Configurare URL-uri
+          Configure URLs
         </Button>
       </div>
       <Card v-if="showConfig" class="mb-4">
         <div class="space-y-4">
-          <FormField label="Server URL (platforma)" name="platform_url">
+          <FormField label="Server URL (platform)" name="platform_url">
             <Input v-model="cfg.platform_url" placeholder="http://lokilinux.example.com:8000" />
           </FormField>
           <FormField label="Download Base URL" name="download_base">
             <Input v-model="cfg.download_base" placeholder="https://github.com/lokilinux/releases/download/v0.1.0" />
           </FormField>
-          <FormField label="Versiune agent" name="version">
+          <FormField label="Agent version" name="version">
             <Input v-model="cfg.version" placeholder="0.1.0" class="max-w-xs" />
           </FormField>
           <div class="flex gap-2">
-            <Button :loading="cfgPending" @click="saveConfig">Salvează</Button>
-            <Button variant="ghost" @click="showConfig = false">Anulează</Button>
+            <Button :loading="cfgPending" @click="saveConfig">Save</Button>
+            <Button variant="ghost" @click="showConfig = false">Cancel</Button>
           </div>
         </div>
       </Card>
     </div>
     <div v-else>
-      <h2 class="text-lg font-semibold mb-3">Pachete agent</h2>
+      <h2 class="text-lg font-semibold mb-3">Agent packages</h2>
     </div>
 
     <!-- Download cards -->
-    <div v-if="packagesError" class="text-sm text-red-500">Nu s-au putut încărca URL-urile pachetelor.</div>
+    <div v-if="packagesError" class="text-sm text-red-500">Failed to load package URLs.</div>
     <div v-else-if="!packages" class="grid grid-cols-1 md:grid-cols-3 gap-4">
       <Skeleton v-for="i in 3" :key="i" class="h-36 rounded-lg" />
     </div>
@@ -190,7 +190,7 @@ async function copy(text: string) {
         </template>
         <div class="space-y-2">
           <template v-for="link in card.links" :key="link.arch">
-            <!-- Generat direct de platformă (build local) -->
+            <!-- Generated directly by platform (local build) -->
             <Button
               v-if="link.available"
               :loading="downloading === `${link.os}-${link.arch}`"
@@ -202,13 +202,13 @@ async function copy(text: string) {
               <Download class="size-4" />
               {{ link.label }}
             </Button>
-            <!-- Fallback: URL extern configurat -->
+            <!-- Fallback: configured external URL -->
             <Button v-else-if="link.external" :to="link.external" target="_blank" variant="outline" size="sm" class="w-full">
               <Download class="size-4" />
-              {{ link.label }} (extern)
+              {{ link.label }} (external)
             </Button>
             <Button v-else disabled variant="secondary" size="sm" class="w-full">
-              {{ link.label }} — indisponibil
+              {{ link.label }} — unavailable
             </Button>
           </template>
         </div>
@@ -217,23 +217,23 @@ async function copy(text: string) {
 
     <!-- Enrollment token -->
     <section v-if="canEdit">
-      <h2 class="text-lg font-semibold mb-1">Instalare agent pe server nou</h2>
-      <p class="text-sm text-muted-foreground mb-4">Token valid 24h · single-use · rulează comanda pe serverul țintă ca root</p>
+      <h2 class="text-lg font-semibold mb-1">Install agent on new server</h2>
+      <p class="text-sm text-muted-foreground mb-4">Token valid 24h · single-use · run command on target server as root</p>
 
       <Card class="max-w-2xl">
         <div class="space-y-4">
           <div class="flex gap-3 items-end">
-            <FormField label="Etichetă (opțional)" name="label" class="flex-1">
-              <Input v-model="tokenLabel" placeholder="ex: prod-web-01" :disabled="tokenPending" />
+            <FormField label="Label (optional)" name="label" class="flex-1">
+              <Input v-model="tokenLabel" placeholder="e.g. prod-web-01" :disabled="tokenPending" />
             </FormField>
             <Button :loading="tokenPending" @click="generateToken">
               <Key class="size-4" />
-              Generează token
+              Generate token
             </Button>
           </div>
 
           <div v-if="enrollResult" class="space-y-3">
-            <Alert color="green" title="Token generat — valabil 24h" />
+            <Alert color="green" title="Token generated — valid 24h" />
 
             <FormField label="Token">
               <div class="flex gap-2">
@@ -244,7 +244,7 @@ async function copy(text: string) {
               </div>
             </FormField>
 
-            <FormField label="Comandă de instalare (rulează ca root pe serverul țintă)">
+            <FormField label="Install command (run as root on target server)">
               <div class="flex gap-2">
                 <Input :model-value="enrollResult.install_command" readonly class="font-mono text-xs flex-1" />
                 <Button variant="outline" @click="copy(enrollResult.install_command)">
@@ -254,7 +254,7 @@ async function copy(text: string) {
             </FormField>
 
             <Button variant="ghost" size="sm" @click="enrollResult = null; tokenLabel = ''">
-              Generează alt token
+              Generate another token
             </Button>
           </div>
         </div>

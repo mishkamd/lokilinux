@@ -46,4 +46,12 @@ class FileChange(Base):
     new_hash: Mapped[str | None] = mapped_column(String(128))
     change_kind: Mapped[str] = mapped_column(
         String(20), nullable=False
-    )  # CREATED/MODIFIED/DELETED/PERMISSION_CHANGED
+    )  # CREATED/MODIFIED/DELETED/PERMISSION_CHANGED/OWNER_CHANGED
+    # Migration 025 — populated once the agent's FIM collector reports
+    # mode/uid/gid (agent/internal/compliance/file_integrity_collector.go).
+    old_mode: Mapped[int | None] = mapped_column(Integer)
+    new_mode: Mapped[int | None] = mapped_column(Integer)
+    old_uid: Mapped[int | None] = mapped_column(Integer)
+    new_uid: Mapped[int | None] = mapped_column(Integer)
+    old_gid: Mapped[int | None] = mapped_column(Integer)
+    new_gid: Mapped[int | None] = mapped_column(Integer)

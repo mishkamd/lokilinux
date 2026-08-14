@@ -22,7 +22,6 @@ from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel
-
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -270,7 +269,7 @@ def _generate_agent_cert(agent_id: str) -> tuple[str, str, str]:
         x509.NameAttribute(NameOID.ORGANIZATION_NAME, "LokiLinux"),
     ])
 
-    now = datetime.datetime.utcnow()
+    now = datetime.datetime.now(datetime.timezone.utc)
     cert = (
         x509.CertificateBuilder()
         .subject_name(subject)

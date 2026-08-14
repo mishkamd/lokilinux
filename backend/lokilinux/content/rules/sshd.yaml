@@ -1,0 +1,234 @@
+# LokiLinux curated compliance content — sshd domain.
+#
+# check_expr operates on facts.<key>, matching sshd_collector.go's actual
+# shape exactly: `sshd -T` output is flat lowercase directive keys at the
+# top level of the domain's facts document (no "sshd." nesting) — e.g.
+# facts.permitrootlogin, not facts.sshd.PermitRootLogin.
+#
+# SSH-001 is the brief's designated end-to-end reference rule (§43): full
+# check/expected/remediation/rollback/framework-mapping/resource-index.
+
+- rule_key: SSH-001
+  title: Disable SSH root login
+  description: Root must not be permitted to log in directly over SSH — an administrator should authenticate as themselves and elevate via sudo, so every privileged action is attributable to a real account.
+  rationale: A shared root SSH login makes it impossible to attribute an action to the person who performed it, and gives any single compromised credential unrestricted remote access.
+  severity: CRITICAL
+  domain: sshd
+  check_expr: 'facts.permitrootlogin == "no"'
+  expected_value: "no"
+  standard_refs:
+    cis: "5.2.10"
+    stig: "SRG-OS-000109-GPOS-00056"
+    nist: "AC-6"
+  evidence_paths: [permitrootlogin]
+  resources:
+    - type: FILE
+      path: /etc/ssh/sshd_config
+  remediation:
+    provider: shell
+    body: |
+      sed -i -E 's/^[#[:space:]]*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+      grep -q '^PermitRootLogin no' /etc/ssh/sshd_config || echo 'PermitRootLogin no' >> /etc/ssh/sshd_config
+      sshd -t
+      systemctl reload sshd
+    rollback: |
+      sed -i -E 's/^[#[:space:]]*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
+      sshd -t
+      systemctl reload sshd
+
+- rule_key: SSH-002
+  title: Disable SSH password authentication
+  description: SSH must not accept password authentication — key-based authentication only.
+  rationale: Passwords are guessable/phishable; SSH keys are not, and centralize credential rotation to key management instead of per-host password policy.
+  severity: HIGH
+  domain: sshd
+  check_expr: 'facts.passwordauthentication == "no"'
+  expected_value: "no"
+  standard_refs:
+    cis: "5.2.4"
+    stig: "SRG-OS-000106-GPOS-00053"
+  evidence_paths: [passwordauthentication]
+  resources:
+    - type: FILE
+      path: /etc/ssh/sshd_config
+  remediation:
+    provider: shell
+    body: |
+      sed -i -E 's/^[#[:space:]]*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+      grep -q '^PasswordAuthentication no' /etc/ssh/sshd_config || echo 'PasswordAuthentication no' >> /etc/ssh/sshd_config
+      sshd -t
+      systemctl reload sshd
+    rollback: |
+      sed -i -E 's/^[#[:space:]]*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+      sshd -t
+      systemctl reload sshd
+
+- rule_key: SSH-003
+  title: Disable SSH empty passwords
+  description: SSH must not permit login with an empty password.
+  rationale: An account with a blank password combined with PermitEmptyPasswords yes is an unauthenticated login.
+  severity: CRITICAL
+  domain: sshd
+  check_expr: 'facts.permitemptypasswords == "no"'
+  expected_value: "no"
+  standard_refs:
+    cis: "5.2.9"
+  evidence_paths: [permitemptypasswords]
+  resources:
+    - type: FILE
+      path: /etc/ssh/sshd_config
+  remediation:
+    provider: shell
+    body: |
+      sed -i -E 's/^[#[:space:]]*PermitEmptyPasswords.*/PermitEmptyPasswords no/' /etc/ssh/sshd_config
+      grep -q '^PermitEmptyPasswords no' /etc/ssh/sshd_config || echo 'PermitEmptyPasswords no' >> /etc/ssh/sshd_config
+      sshd -t
+      systemctl reload sshd
+    rollback: |
+      sed -i -E 's/^[#[:space:]]*PermitEmptyPasswords.*/PermitEmptyPasswords yes/' /etc/ssh/sshd_config
+      sshd -t
+      systemctl reload sshd
+
+- rule_key: SSH-004
+  title: Limit SSH authentication attempts
+  description: SSH must limit the number of authentication attempts per connection to 4 or fewer.
+  rationale: Bounding retries slows online brute-force attempts against a single connection.
+  severity: MEDIUM
+  domain: sshd
+  check_expr: 'int(facts.maxauthtries) <= 4'
+  expected_value: "4"
+  standard_refs:
+    cis: "5.2.6"
+  evidence_paths: [maxauthtries]
+  resources:
+    - type: FILE
+      path: /etc/ssh/sshd_config
+  remediation:
+    provider: shell
+    body: |
+      sed -i -E 's/^[#[:space:]]*MaxAuthTries.*/MaxAuthTries 4/' /etc/ssh/sshd_config
+      grep -q '^MaxAuthTries 4' /etc/ssh/sshd_config || echo 'MaxAuthTries 4' >> /etc/ssh/sshd_config
+      sshd -t
+      systemctl reload sshd
+    rollback: null
+
+- rule_key: SSH-005
+  title: Disable SSH X11 forwarding
+  description: SSH must not forward X11 sessions.
+  rationale: X11 forwarding exposes the client's X server to whatever runs on the remote host over the SSH tunnel — unneeded surface for a server that isn't a development jump host.
+  severity: MEDIUM
+  domain: sshd
+  check_expr: 'facts.x11forwarding == "no"'
+  expected_value: "no"
+  standard_refs:
+    cis: "5.2.3"
+  evidence_paths: [x11forwarding]
+  resources:
+    - type: FILE
+      path: /etc/ssh/sshd_config
+  remediation:
+    provider: shell
+    body: |
+      sed -i -E 's/^[#[:space:]]*X11Forwarding.*/X11Forwarding no/' /etc/ssh/sshd_config
+      grep -q '^X11Forwarding no' /etc/ssh/sshd_config || echo 'X11Forwarding no' >> /etc/ssh/sshd_config
+      sshd -t
+      systemctl reload sshd
+    rollback: |
+      sed -i -E 's/^[#[:space:]]*X11Forwarding.*/X11Forwarding yes/' /etc/ssh/sshd_config
+      sshd -t
+      systemctl reload sshd
+
+- rule_key: SSH-006
+  title: Bound SSH client alive interval
+  description: SSH must disconnect idle sessions — ClientAliveInterval set and no greater than 300 seconds.
+  rationale: An idle, still-authenticated SSH session left open on a shared or unattended terminal is a standing access risk.
+  severity: MEDIUM
+  domain: sshd
+  check_expr: 'int(facts.clientaliveinterval) > 0 && int(facts.clientaliveinterval) <= 300'
+  expected_value: "300"
+  standard_refs:
+    cis: "5.2.16"
+  evidence_paths: [clientaliveinterval]
+  resources:
+    - type: FILE
+      path: /etc/ssh/sshd_config
+  remediation:
+    provider: shell
+    body: |
+      sed -i -E 's/^[#[:space:]]*ClientAliveInterval.*/ClientAliveInterval 300/' /etc/ssh/sshd_config
+      grep -q '^ClientAliveInterval 300' /etc/ssh/sshd_config || echo 'ClientAliveInterval 300' >> /etc/ssh/sshd_config
+      sshd -t
+      systemctl reload sshd
+    rollback: null
+
+- rule_key: SSH-007
+  title: Bound SSH login grace time
+  description: SSH must disconnect an unauthenticated connection within 60 seconds.
+  rationale: An unbounded (or very long) login grace period lets an attacker hold open many half-authenticated connections.
+  severity: MEDIUM
+  domain: sshd
+  check_expr: 'int(facts.logingracetime) > 0 && int(facts.logingracetime) <= 60'
+  expected_value: "60"
+  standard_refs:
+    cis: "5.2.19"
+  evidence_paths: [logingracetime]
+  resources:
+    - type: FILE
+      path: /etc/ssh/sshd_config
+  remediation:
+    provider: shell
+    body: |
+      sed -i -E 's/^[#[:space:]]*LoginGraceTime.*/LoginGraceTime 60/' /etc/ssh/sshd_config
+      grep -q '^LoginGraceTime 60' /etc/ssh/sshd_config || echo 'LoginGraceTime 60' >> /etc/ssh/sshd_config
+      sshd -t
+      systemctl reload sshd
+    rollback: null
+
+- rule_key: SSH-008
+  title: Disable SSH TCP forwarding
+  description: SSH must not allow arbitrary TCP port forwarding.
+  rationale: TCP forwarding turns an SSH session into a general-purpose network tunnel, which can bypass firewall egress controls.
+  severity: LOW
+  domain: sshd
+  check_expr: 'facts.allowtcpforwarding == "no"'
+  expected_value: "no"
+  standard_refs:
+    cis: "5.2.5"
+  evidence_paths: [allowtcpforwarding]
+  resources:
+    - type: FILE
+      path: /etc/ssh/sshd_config
+  remediation:
+    provider: shell
+    body: |
+      sed -i -E 's/^[#[:space:]]*AllowTcpForwarding.*/AllowTcpForwarding no/' /etc/ssh/sshd_config
+      grep -q '^AllowTcpForwarding no' /etc/ssh/sshd_config || echo 'AllowTcpForwarding no' >> /etc/ssh/sshd_config
+      sshd -t
+      systemctl reload sshd
+    rollback: |
+      sed -i -E 's/^[#[:space:]]*AllowTcpForwarding.*/AllowTcpForwarding yes/' /etc/ssh/sshd_config
+      sshd -t
+      systemctl reload sshd
+
+- rule_key: SSH-009
+  title: SSH must use PAM
+  description: SSH must be configured to use PAM (UsePAM yes) so host-wide account/session policy (lockout, session limits) applies to SSH logins too.
+  rationale: Without PAM, SSH bypasses whatever account lockout and session policy the rest of the host enforces via PAM.
+  severity: MEDIUM
+  domain: sshd
+  check_expr: 'facts.usepam == "yes"'
+  expected_value: "yes"
+  standard_refs:
+    cis: "5.2.7"
+  evidence_paths: [usepam]
+  resources:
+    - type: FILE
+      path: /etc/ssh/sshd_config
+  remediation:
+    provider: shell
+    body: |
+      sed -i -E 's/^[#[:space:]]*UsePAM.*/UsePAM yes/' /etc/ssh/sshd_config
+      grep -q '^UsePAM yes' /etc/ssh/sshd_config || echo 'UsePAM yes' >> /etc/ssh/sshd_config
+      sshd -t
+      systemctl reload sshd
+    rollback: null

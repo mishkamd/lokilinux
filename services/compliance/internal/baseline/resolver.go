@@ -9,11 +9,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"strings"
 
 	"github.com/google/uuid"
 	"lukechampine.com/blake3"
 
+	"github.com/lokilinux/compliance/internal/scope"
 	"github.com/lokilinux/compliance/internal/storage"
 )
 
@@ -166,38 +166,15 @@ func (r *Resolver) ReconcileOnStartup(ctx context.Context) error {
 }
 
 // selectorMatches evaluates a scope_selector against an agent's attributes.
-// An empty selector (GLOBAL) matches everything.
-//
-// Attribute keys are sourced from the schema that exists: os_distro and
-// os_version from the agents row, category (broad grouping) and project
-// (narrow division) from the org-structure FKs. environment aliases to the
-// category name and application to the project name so the spec's scope
-// tree works without columns migration 008 dropped (agents.scope). Keys
-// with no source column (role, datacenter, cluster) never match — a
-// documented no-op, not a wrong match.
+// Thin forwarder to scope.Matches (internal/scope/selector.go) — the actual
+// matching rule is shared with policy set resolution (internal/policy) and
+// lives there once; kept as a same-named wrapper here so this package's
+// existing tests (resolver_test.go) needed no changes.
 func selectorMatches(selector map[string]any, attrs storage.AgentAttributes) bool {
-	if len(selector) == 0 {
-		return true
-	}
-	attrValues := map[string]string{
-		"os_distro":   strings.ToLower(attrs.OsDistro),
-		"os_version":  strings.ToLower(attrs.OsVersion),
-		"category":    strings.ToLower(attrs.Category),
-		"environment": strings.ToLower(attrs.Category),
-		"project":     strings.ToLower(attrs.Project),
-		"application": strings.ToLower(attrs.Project),
-	}
-	for key, want := range selector {
-		wantStr, ok := want.(string)
-		if !ok {
-			return false // non-string selector value can never match
-		}
-		got, ok := attrValues[key]
-		if !ok || !strings.EqualFold(got, wantStr) {
-			return false
-		}
-	}
-	return true
+	return scope.Matches(selector, scope.AgentAttributes{
+		OsDistro: attrs.OsDistro, OsVersion: attrs.OsVersion,
+		Category: attrs.Category, Project: attrs.Project,
+	})
 }
 
 // deepMergeOverwrite merges src into dst per-key, recursing into nested

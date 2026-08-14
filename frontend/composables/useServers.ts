@@ -12,8 +12,6 @@ const STATUS_COLORS: Record<string, string> = {
 export function useServers() {
   const store = useServersStore()
 
-  onMounted(() => store.fetchServers())
-
   function statusColor(status: string): string {
     return STATUS_COLORS[status] ?? 'gray'
   }
@@ -21,7 +19,7 @@ export function useServers() {
   return {
     ...storeToRefs(store),
     statusColor,
-    refresh: store.fetchServers,
+    fetchServers: store.fetchServers,
     toggleMaintenance: store.toggleMaintenance,
     fetchCategories: store.fetchCategories,
     fetchProjects: store.fetchProjects,

@@ -50,7 +50,7 @@ function handleSecurity() {
         <FormField label="Name">
           <Input v-model="profileForm.name" placeholder="Your name" />
         </FormField>
-        <FormField label="Email" help="Schimbarea email necesită verificare SMTP, indisponibilă momentan">
+        <FormField label="Email" help="Email changes require SMTP verification, currently unavailable">
           <Input
             :model-value="(currentUser as Record<string, unknown>)?.email ?? ''"
             disabled

@@ -6,7 +6,7 @@ from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.auth.dependencies import get_current_user, require_role, safe_user_uuid
@@ -85,9 +85,16 @@ async def list_reports(
         last = items[-1]
         next_cursor = encode_cursor(f"{last.created_at.isoformat()}:{last.id}")
 
+    # total count (no cursor filter — lightweight approximate, mirrors servers.py)
+    count_q = select(func.count()).select_from(ComplianceReport)
+    if status_:
+        count_q = count_q.where(ComplianceReport.status == status_)
+    total = (await db.execute(count_q)).scalar()
+
     return CursorPage[ComplianceReportResponse](
         items=[ComplianceReportResponse.model_validate(r) for r in items],
         next_cursor=next_cursor,
+        total=total,
     )
 
 

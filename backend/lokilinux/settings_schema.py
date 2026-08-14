@@ -18,7 +18,7 @@ from typing import Any
 SETTINGS_SCHEMA: dict[str, dict[str, tuple[str, Any]]] = {
     "agent": {
         "platform_url": ("string", ""),
-        "version": ("string", "0.35.1"),
+        "version": ("string", "0.36.0"),
         "download_base": ("string", ""),
     },
     "security": {
@@ -55,6 +55,7 @@ SETTINGS_SCHEMA: dict[str, dict[str, tuple[str, Any]]] = {
     "cve": {
         "feed_source_url": ("string", ""),
         "sync_interval_hours": ("integer", 24),
+        "nvd_api_key": ("string", ""),
     },
     "branding": {
         "company_name": ("string", "LokiLinux"),
@@ -69,7 +70,7 @@ SETTINGS_SCHEMA: dict[str, dict[str, tuple[str, Any]]] = {
 }
 
 # Keys never echoed back in plaintext once set.
-SECRET_KEYS = {"security.ldap_bind_password", "notifications.smtp_password"}
+SECRET_KEYS = {"security.ldap_bind_password", "notifications.smtp_password", "cve.nvd_api_key"}
 
 # Subset safe to expose without auth (login page, layouts, pre-session checks).
 PUBLIC_GROUPS = {"branding"}

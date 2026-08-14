@@ -8,6 +8,12 @@ export interface ApiInstance {
   del<T>(path: string, opts?: FetchOptions<'json'>): Promise<T>
 }
 
+/** Simplified fetch signature — strips Nuxt's route-typed overloads that
+ *  cause excessive-complexity errors with TS 6. The typed route info is
+ *  only useful inside auto-generated server code; callers go through
+ *  ApiInstance which already erases it. */
+type SimpleFetch = <T>(path: string, opts?: FetchOptions<'json'>) => Promise<T>
+
 export function useApi(): ApiInstance {
   const config = useRuntimeConfig()
   const token = useState<string | null>('auth:token')
@@ -21,10 +27,6 @@ export function useApi(): ApiInstance {
   const apiFetch = $fetch.create({
     baseURL,
     async onRequest({ options }) {
-      // ponytail: auth:token is only populated by the client-only auth plugin,
-      // so SSR requests would otherwise go out unauthenticated on every full
-      // page load — fetch the session directly from the local Better Auth
-      // instance (no HTTP round trip) to get a bearer token for this request.
       let bearer = token.value
       if (!bearer && import.meta.server) {
         const event = useRequestEvent()
@@ -35,10 +37,9 @@ export function useApi(): ApiInstance {
         }
       }
       if (bearer) {
-        options.headers = {
-          ...(options.headers as Record<string, string> ?? {}),
-          Authorization: `Bearer ${bearer}`,
-        }
+        const headers = new Headers(options.headers)
+        headers.set('Authorization', `Bearer ${bearer}`)
+        options.headers = headers
       }
     },
     onResponseError({ response }): void {
@@ -54,22 +55,34 @@ export function useApi(): ApiInstance {
         })
       }
     },
-  })
+  }) as unknown as SimpleFetch
 
   return {
     get: <T>(path: string, opts?: FetchOptions<'json'>) =>
-      apiFetch<T>(path, { method: 'GET', ...opts }),
+      apiFetch<T>(path, { method: 'GET', ...opts }) as unknown as Promise<T>,
 
     post: <T>(path: string, body?: unknown, opts?: FetchOptions<'json'>) =>
-      apiFetch<T>(path, { method: 'POST', body, ...opts }),
+      apiFetch<T>(path, {
+        method: 'POST',
+        body: body as BodyInit | Record<string, unknown> | null,
+        ...opts,
+      }) as unknown as Promise<T>,
 
     put: <T>(path: string, body?: unknown, opts?: FetchOptions<'json'>) =>
-      apiFetch<T>(path, { method: 'PUT', body, ...opts }),
+      apiFetch<T>(path, {
+        method: 'PUT',
+        body: body as BodyInit | Record<string, unknown> | null,
+        ...opts,
+      }) as unknown as Promise<T>,
 
     patch: <T>(path: string, body?: unknown, opts?: FetchOptions<'json'>) =>
-      apiFetch<T>(path, { method: 'PATCH', body, ...opts }),
+      apiFetch<T>(path, {
+        method: 'PATCH',
+        body: body as BodyInit | Record<string, unknown> | null,
+        ...opts,
+      }) as unknown as Promise<T>,
 
     del: <T>(path: string, opts?: FetchOptions<'json'>) =>
-      apiFetch<T>(path, { method: 'DELETE', ...opts }),
+      apiFetch<T>(path, { method: 'DELETE', ...opts }) as unknown as Promise<T>,
   }
 }

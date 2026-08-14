@@ -41,7 +41,7 @@ export function buildPackageCards(p: PackagesResponse | null): PackageCard[] {
       mk('deb', 'amd64', p.deb.amd64, `lokilinux-agent_${v}_amd64.deb`),
       mk('deb', 'arm64', p.deb.arm64, `lokilinux-agent_${v}_arm64.deb`),
     ] },
-    { type: 'TAR.GZ', description: 'Orice distribuție Linux', links: [
+    { type: 'TAR.GZ', description: 'Any Linux distribution', links: [
       mk('tar.gz', 'amd64', p.tar_gz.amd64, `lokilinux-agent_${v}_linux_amd64.tar.gz`),
       mk('tar.gz', 'arm64', p.tar_gz.arm64, `lokilinux-agent_${v}_linux_arm64.tar.gz`),
     ] },

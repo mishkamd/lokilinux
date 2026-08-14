@@ -10,6 +10,7 @@ certs/
 .aislop/
 .claude-flow/
 .claude/
+.codegraph/
 .codex/
 .gstack/
 .omp/
@@ -26,8 +27,14 @@ graphify-out/
 openwiki/
 frontend/.nuxt/
 frontend/.output/
+node_modules/
 frontend/node_modules/
-backend/.coverage/
+backend/.coverage
 __pycache__/
 *.pyc
 *.egg-info/
+
+# Go build artifacts (dev binaries + packaged releases under agent/bin/)
+agent/agent
+agent/bin/
+services/compliance/compliance

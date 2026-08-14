@@ -44,7 +44,13 @@ func (c *FirewallCollector) Collect(ctx context.Context) (Facts, error) {
 		}
 		out, err := exec.CommandContext(ctx, backend.binaryPath, backend.args...).Output()
 		if err != nil {
-			return nil, err
+			// Binary present but erroring (permission denied, DBus down,
+			// missing CAP_NET_ADMIN in a netns, ...) is a degraded fact, not
+			// a collection failure — mirrors auditd_collector.go /
+			// container_runtime_collector.go. Returning an error here would
+			// make the runner skip updating domain_hashes/domain_full
+			// entirely, silently dropping "firewall" from every heartbeat.
+			return Facts{"backend": backend.name, "error": err.Error()}, nil
 		}
 		return Facts{"backend": backend.name, "ruleset": strings.TrimSpace(string(out))}, nil
 	}

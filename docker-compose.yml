@@ -152,7 +152,7 @@ services:
         condition: service_healthy
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pgbouncer:5432/${POSTGRES_DB}
-      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3000}
+      BETTER_AUTH_URL: ${BETTER_AUTH_INTERNAL_URL:-http://lokilinux-frontend:3000}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
     command: ["alembic", "upgrade", "head"]
     networks:
@@ -184,7 +184,11 @@ services:
       NATS_URL: nats://nats:4222
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
-      BETTER_AUTH_URL: http://lokilinux-frontend:3000
+      # Internal fallback: FastAPI fetches JWKS at {BETTER_AUTH_URL}/api/auth/jwks
+      # from inside this container, where "localhost" would point at itself,
+      # not the frontend. BETTER_AUTH_URL (public) stays localhost:3000 for
+      # the frontend service below, which legitimately is that origin.
+      BETTER_AUTH_URL: ${BETTER_AUTH_INTERNAL_URL:-http://lokilinux-frontend:3000}
       API_HOST: 0.0.0.0
       API_PORT: 8000
       CA_CERT_PATH: /etc/lokilinux/certs/ca.crt
@@ -195,7 +199,7 @@ services:
       PLATFORM_URL: ${PUBLIC_URL:-http://localhost:3000}
       FRONTEND_URL: ${PUBLIC_URL:-http://localhost:3000}
       AGENT_DOWNLOAD_BASE: ${AGENT_DOWNLOAD_BASE:-}
-      AGENT_VERSION: ${AGENT_VERSION:-0.35.1}
+      AGENT_VERSION: ${AGENT_VERSION:-0.36.0}
     ports:
       - "8000:8000"
       - "9090:9090"
@@ -336,7 +340,7 @@ services:
       # Client apiBase = relative (same-origin proxy); SSR uses API_INTERNAL_URL.
       NUXT_PUBLIC_API_BASE: /api/v1
       API_INTERNAL_URL: http://lokilinux-api:8000
-      BETTER_AUTH_URL: ${PUBLIC_URL:-http://localhost:3000}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3000}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
       POSTGRES_HOST: pgbouncer
       POSTGRES_PORT: "5432"

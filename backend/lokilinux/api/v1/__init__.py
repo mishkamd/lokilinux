@@ -6,22 +6,22 @@ main.py mounts this at prefix="/api/v1" — no prefix set here.
 
 from fastapi import APIRouter
 
-from .routers.compliance import router as compliance_router
-from .routers.servers import router as servers_router
-from .routers.jobs import router as jobs_router
-from .routers.cves import router as cves_router
-from .routers.policies import router as policies_router
-from .routers.plugins import router as plugins_router
-from .routers.playbooks import router as playbooks_router
-from .routers.playbook_templates import router as playbook_templates_router
-from .routers.ansible_roles import router as ansible_roles_router
-from .routers.ansible_projects import router as ansible_projects_router
-from .routers.alerts import router as alerts_router
 from .routers.admin import router as admin_router
-from .routers.agent_install import router as agent_install_router
 from .routers.agent_install import register_router as agent_register_router
-from .routers.dashboard import router as dashboard_router
+from .routers.agent_install import router as agent_install_router
+from .routers.alerts import router as alerts_router
+from .routers.ansible_projects import router as ansible_projects_router
+from .routers.ansible_roles import router as ansible_roles_router
 from .routers.categories import router as categories_router
+from .routers.compliance import router as compliance_router
+from .routers.cves import router as cves_router
+from .routers.dashboard import router as dashboard_router
+from .routers.jobs import router as jobs_router
+from .routers.playbook_templates import router as playbook_templates_router
+from .routers.playbooks import router as playbooks_router
+from .routers.plugins import router as plugins_router
+from .routers.policies import router as policies_router
+from .routers.servers import router as servers_router
 
 router = APIRouter()
 

@@ -80,39 +80,39 @@ const packageNames = computed<string[] | null>(() => {
         </div>
 
         <dl class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
-          <div><dt class="text-muted-foreground">Tip</dt><dd>{{ job.job_type }}</dd></div>
+          <div><dt class="text-muted-foreground">Type</dt><dd>{{ job.job_type }}</dd></div>
           <div v-if="job.description" class="col-span-2">
-            <dt class="text-muted-foreground">Descriere</dt><dd>{{ job.description }}</dd>
+            <dt class="text-muted-foreground">Description</dt><dd>{{ job.description }}</dd>
           </div>
           <div class="col-span-2">
-            <dt class="text-muted-foreground">Ținte</dt>
+            <dt class="text-muted-foreground">Targets</dt>
             <dd class="font-mono text-xs">
               {{ (job.target_servers?.agent_ids || []).map((id) => hostnameByAgent[id] || id).join(', ') || '—' }}
             </dd>
           </div>
           <div v-if="job.requires_approval">
-            <dt class="text-muted-foreground">Aprobare</dt>
-            <dd>{{ job.approved_by ? `Aprobat ${fmtDate(job.approved_at)}` : 'În așteptare' }}</dd>
+            <dt class="text-muted-foreground">Approval</dt>
+            <dd>{{ job.approved_by ? `Approved ${fmtDate(job.approved_at)}` : 'Pending' }}</dd>
           </div>
         </dl>
 
         <Separator />
 
         <div>
-          <h3 class="text-sm font-medium mb-2">Cronologie</h3>
+          <h3 class="text-sm font-medium mb-2">Timeline</h3>
           <dl class="grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
-            <div><dt class="text-muted-foreground">Creat</dt><dd>{{ fmtDate(job.created_at) }}</dd></div>
-            <div v-if="job.scheduled_time"><dt class="text-muted-foreground">Programat</dt><dd>{{ fmtDate(job.scheduled_time) }}</dd></div>
-            <div><dt class="text-muted-foreground">Pornit</dt><dd>{{ fmtDate(job.started_at) }}</dd></div>
-            <div><dt class="text-muted-foreground">Finalizat</dt><dd>{{ fmtDate(job.completed_at) }}</dd></div>
-            <div><dt class="text-muted-foreground">Durată</dt><dd>{{ duration(job.started_at, job.completed_at) }}</dd></div>
+            <div><dt class="text-muted-foreground">Created</dt><dd>{{ fmtDate(job.created_at) }}</dd></div>
+            <div v-if="job.scheduled_time"><dt class="text-muted-foreground">Scheduled</dt><dd>{{ fmtDate(job.scheduled_time) }}</dd></div>
+            <div><dt class="text-muted-foreground">Started</dt><dd>{{ fmtDate(job.started_at) }}</dd></div>
+            <div><dt class="text-muted-foreground">Completed</dt><dd>{{ fmtDate(job.completed_at) }}</dd></div>
+            <div><dt class="text-muted-foreground">Duration</dt><dd>{{ duration(job.started_at, job.completed_at) }}</dd></div>
           </dl>
         </div>
 
         <template v-if="packageNames">
           <Separator />
           <div>
-            <h3 class="text-sm font-medium mb-2">{{ packageNames.length }} pachete</h3>
+            <h3 class="text-sm font-medium mb-2">{{ packageNames.length }} packages</h3>
             <div class="flex flex-wrap gap-1 max-h-32 overflow-y-auto">
               <Badge v-for="n in packageNames" :key="n" color="gray" size="xs">{{ n }}</Badge>
             </div>
@@ -121,7 +121,7 @@ const packageNames = computed<string[] | null>(() => {
         <template v-else-if="job.parameters">
           <Separator />
           <div>
-            <h3 class="text-sm font-medium mb-2">Parametri</h3>
+            <h3 class="text-sm font-medium mb-2">Parameters</h3>
             <pre class="text-xs bg-muted rounded p-2 overflow-auto max-h-40">{{ JSON.stringify(job.parameters, null, 2) }}</pre>
           </div>
         </template>
@@ -130,15 +130,15 @@ const packageNames = computed<string[] | null>(() => {
 
         <div>
           <div class="flex items-center justify-between mb-2 flex-wrap gap-2">
-            <h3 class="text-sm font-medium">Rezultate per server</h3>
+            <h3 class="text-sm font-medium">Results per server</h3>
             <div class="flex flex-wrap gap-2">
               <Badge v-for="(count, status) in resultSummary" :key="status" :color="statusColor(status)" size="xs">
                 {{ count }} {{ status.toLowerCase() }}
               </Badge>
             </div>
           </div>
-          <p v-if="resultsLoading" class="text-sm text-muted-foreground">Se încarcă…</p>
-          <p v-else-if="!results.length" class="text-sm text-muted-foreground">Niciun rezultat încă.</p>
+          <p v-if="resultsLoading" class="text-sm text-muted-foreground">Loading…</p>
+          <p v-else-if="!results.length" class="text-sm text-muted-foreground">No results yet.</p>
           <div v-else class="space-y-1">
             <details v-for="r in results" :key="r.agent_id" class="rounded border border-border p-2 text-sm" open>
               <summary class="cursor-pointer flex items-center gap-2 flex-wrap">
@@ -149,7 +149,7 @@ const packageNames = computed<string[] | null>(() => {
               </summary>
               <div class="mt-2 space-y-2">
                 <p v-if="r.error_message" class="text-xs text-red-500 bg-red-500/10 rounded p-2">{{ r.error_message }}</p>
-                <pre class="text-xs bg-muted rounded p-2 overflow-auto max-h-96">{{ r.stdout || '(gol)' }}</pre>
+                <pre class="text-xs bg-muted rounded p-2 overflow-auto max-h-96">{{ r.stdout || '(empty)' }}</pre>
               </div>
             </details>
           </div>

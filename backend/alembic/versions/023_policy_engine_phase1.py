@@ -15,8 +15,9 @@ orchestration lands later.
 """
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision = "023"
 down_revision = "022"

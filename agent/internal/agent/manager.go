@@ -33,6 +33,7 @@ type Manager struct {
 	pkgMod           *modules.PackageManagerModule
 	jobExec          *modules.JobExecutor
 	ansibleExec      *modules.AnsibleExecutor
+	remediationExec  *modules.RemediationExecutor
 	complianceRunner *compliance.Runner
 	stop             chan struct{}
 
@@ -88,19 +89,26 @@ func NewManager(cfg *config.Config, log *slog.Logger, version string, logBuf *Lo
 	)
 
 	return &Manager{
-		cfg:              cfg,
-		log:              log,
-		version:          version,
-		logBuf:           logBuf,
-		client:           client,
-		store:            store,
-		sysMod:           modules.NewSystemInfoModule(),
-		pkgMod:           modules.NewPackageManagerModule(),
-		jobExec:          modules.NewJobExecutor(),
-		ansibleExec:      modules.NewAnsibleExecutor(),
-		complianceRunner: compliance.NewRunner(compliance.Registry, store, log),
-		stop:             make(chan struct{}),
-		inFlight:         make(map[string]struct{}),
+		cfg:         cfg,
+		log:         log,
+		version:     version,
+		logBuf:      logBuf,
+		client:      client,
+		store:       store,
+		sysMod:      modules.NewSystemInfoModule(),
+		pkgMod:      modules.NewPackageManagerModule(),
+		jobExec:     modules.NewJobExecutor(),
+		ansibleExec: modules.NewAnsibleExecutor(),
+		remediationExec: modules.NewRemediationExecutor(
+			modules.NewJobExecutor(),
+			modules.NewAnsibleExecutor(),
+			modules.NewPythonExecutor(),
+		),
+		complianceRunner: compliance.NewRunner(
+			compliance.BuildRegistry(cfg.FileIntegrity.WatchPaths, cfg.FileIntegrity.Ignores), store, log,
+		),
+		stop:     make(chan struct{}),
+		inFlight: make(map[string]struct{}),
 	}, nil
 }
 
@@ -209,7 +217,6 @@ func (m *Manager) sendHeartbeat(ctx context.Context) {
 
 	m.resyncMu.Lock()
 	toResync := m.resyncDomains
-	m.resyncDomains = nil
 	m.resyncMu.Unlock()
 	var domainFull map[string]map[string]interface{}
 	if len(toResync) > 0 {
@@ -242,6 +249,16 @@ func (m *Manager) sendHeartbeat(ctx context.Context) {
 		m.resultsMu.Lock()
 		m.pendingResults = m.pendingResults[len(results):]
 		m.resultsMu.Unlock()
+	}
+
+	if len(toResync) > 0 {
+		// Only clear the domains we just reported domain_full for — mirrors
+		// pendingResults above: cleared after a confirmed successful send,
+		// not before, so a failed heartbeat keeps the resync request queued
+		// for the next attempt instead of silently dropping it for a cycle.
+		m.resyncMu.Lock()
+		m.resyncDomains = nil
+		m.resyncMu.Unlock()
 	}
 
 	m.log.Info("heartbeat sent",
@@ -385,7 +402,16 @@ func (m *Manager) runJob(ctx context.Context, jobID, jobType string, params map[
 			m.log.Warn("ansible job has no playbook_content, skipping", "job_id", jobID)
 			return modules.JobResult{JobID: jobID, ExitCode: 1, Error: "missing required parameter: playbook_content"}, true
 		}
-		return m.ansibleExec.Execute(ctx, jobID, playbookContent, extraVars, roles, timeoutSec), true
+		return m.ansibleExec.Execute(ctx, jobID, playbookContent, extraVars, roles, timeoutSec, false), true
+	case "COMPLIANCE_REMEDIATE":
+		actions, err := parseRemediationActions(params)
+		if err != nil {
+			m.log.Warn("compliance_remediate parse error", "job_id", jobID, "error", err)
+			return modules.JobResult{JobID: jobID, ExitCode: 1, Error: err.Error()}, true
+		}
+		operation, _ := params["operation"].(string)
+		dryRun := operation == "DRY_RUN"
+		return m.remediationExec.Execute(ctx, jobID, actions, timeoutSec, dryRun), true
 	default:
 		// Any job_type not matched above (including CUSTOM_COMMAND) falls
 		// here — a bare `command` param is enough regardless of job_type,
@@ -397,4 +423,39 @@ func (m *Manager) runJob(ctx context.Context, jobID, jobType string, params map[
 		}
 		return m.jobExec.Execute(ctx, jobID, command, timeoutSec), true
 	}
+}
+
+// parseRemediationActions extracts the per-agent action list from a
+// COMPLIANCE_REMEDIATE job's parameters. The gRPC layer already filtered
+// the fleet-wide actions map down to this agent's actions, so params["actions"]
+// is a flat list here.
+func parseRemediationActions(params map[string]interface{}) ([]modules.RemediationAction, error) {
+	raw, ok := params["actions"]
+	if !ok {
+		return nil, fmt.Errorf("missing actions parameter")
+	}
+	list, ok := raw.([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("actions parameter is not a list")
+	}
+
+	actions := make([]modules.RemediationAction, 0, len(list))
+	for i, item := range list {
+		m, ok := item.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("action %d is not an object", i)
+		}
+		provider, _ := m["provider"].(string)
+		body, _ := m["rendered_body"].(string)
+		seq := 0
+		if s, ok := m["sequence"].(float64); ok {
+			seq = int(s)
+		}
+		actions = append(actions, modules.RemediationAction{
+			Sequence: seq,
+			Provider: provider,
+			Body:     body,
+		})
+	}
+	return actions, nil
 }

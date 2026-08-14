@@ -1,0 +1,132 @@
+# LokiLinux curated compliance content — sysctl domain.
+#
+# sysctl_collector.go reports flat dotted keys ("net.ipv4.ip_forward") at
+# the top level of the domain's facts document — CEL index syntax required
+# since the key itself contains dots (facts["net.ipv4.ip_forward"]).
+
+- rule_key: SYSCTL-001
+  title: Disable IPv4 forwarding
+  description: The host must not forward IPv4 packets between interfaces unless it is a router.
+  rationale: A host that isn't a router forwarding packets is either misconfigured or has been turned into an unintended pivot point.
+  severity: MEDIUM
+  domain: sysctl
+  check_expr: 'facts["net.ipv4.ip_forward"] == "0"'
+  expected_value: "0"
+  standard_refs:
+    cis: "3.2.1"
+  evidence_paths: ["net.ipv4.ip_forward"]
+  remediation:
+    provider: shell
+    body: |
+      sysctl -w net.ipv4.ip_forward=0
+      grep -q '^net.ipv4.ip_forward' /etc/sysctl.conf && sed -i 's/^net.ipv4.ip_forward.*/net.ipv4.ip_forward = 0/' /etc/sysctl.conf || echo 'net.ipv4.ip_forward = 0' >> /etc/sysctl.conf
+    rollback: |
+      sysctl -w net.ipv4.ip_forward=1
+
+- rule_key: SYSCTL-002
+  title: Disable acceptance of source-routed packets
+  description: The host must not accept IPv4 source-routed packets.
+  rationale: Source routing lets the sender dictate the packet's path, bypassing normal routing/firewall assumptions — a classic network-layer spoofing vector.
+  severity: MEDIUM
+  domain: sysctl
+  check_expr: 'facts["net.ipv4.conf.all.accept_source_route"] == "0"'
+  expected_value: "0"
+  standard_refs:
+    cis: "3.3.1"
+  evidence_paths: ["net.ipv4.conf.all.accept_source_route"]
+  remediation:
+    provider: shell
+    body: |
+      sysctl -w net.ipv4.conf.all.accept_source_route=0
+      grep -q '^net.ipv4.conf.all.accept_source_route' /etc/sysctl.conf && sed -i 's/^net.ipv4.conf.all.accept_source_route.*/net.ipv4.conf.all.accept_source_route = 0/' /etc/sysctl.conf || echo 'net.ipv4.conf.all.accept_source_route = 0' >> /etc/sysctl.conf
+    rollback: null
+
+- rule_key: SYSCTL-003
+  title: Disable acceptance of ICMP redirects
+  description: The host must not accept ICMP redirects.
+  rationale: An attacker on the local network can use ICMP redirects to alter the host's routing table.
+  severity: MEDIUM
+  domain: sysctl
+  check_expr: 'facts["net.ipv4.conf.all.accept_redirects"] == "0"'
+  expected_value: "0"
+  standard_refs:
+    cis: "3.3.2"
+  evidence_paths: ["net.ipv4.conf.all.accept_redirects"]
+  remediation:
+    provider: shell
+    body: |
+      sysctl -w net.ipv4.conf.all.accept_redirects=0
+      grep -q '^net.ipv4.conf.all.accept_redirects' /etc/sysctl.conf && sed -i 's/^net.ipv4.conf.all.accept_redirects.*/net.ipv4.conf.all.accept_redirects = 0/' /etc/sysctl.conf || echo 'net.ipv4.conf.all.accept_redirects = 0' >> /etc/sysctl.conf
+    rollback: null
+
+- rule_key: SYSCTL-004
+  title: Disable sending of ICMP redirects
+  description: The host must not send ICMP redirects.
+  rationale: A non-router host has no legitimate reason to redirect other hosts' routes.
+  severity: MEDIUM
+  domain: sysctl
+  check_expr: 'facts["net.ipv4.conf.all.send_redirects"] == "0"'
+  expected_value: "0"
+  standard_refs:
+    cis: "3.2.2"
+  evidence_paths: ["net.ipv4.conf.all.send_redirects"]
+  remediation:
+    provider: shell
+    body: |
+      sysctl -w net.ipv4.conf.all.send_redirects=0
+      grep -q '^net.ipv4.conf.all.send_redirects' /etc/sysctl.conf && sed -i 's/^net.ipv4.conf.all.send_redirects.*/net.ipv4.conf.all.send_redirects = 0/' /etc/sysctl.conf || echo 'net.ipv4.conf.all.send_redirects = 0' >> /etc/sysctl.conf
+    rollback: null
+
+- rule_key: SYSCTL-005
+  title: Enable logging of martian packets
+  description: The host must log packets with impossible source addresses.
+  rationale: Martian packets are a strong signal of spoofing attempts on the local network — dropping them silently loses a useful detection signal.
+  severity: LOW
+  domain: sysctl
+  check_expr: 'facts["net.ipv4.conf.all.log_martians"] == "1"'
+  expected_value: "1"
+  standard_refs:
+    cis: "3.3.9"
+  evidence_paths: ["net.ipv4.conf.all.log_martians"]
+  remediation:
+    provider: shell
+    body: |
+      sysctl -w net.ipv4.conf.all.log_martians=1
+      grep -q '^net.ipv4.conf.all.log_martians' /etc/sysctl.conf && sed -i 's/^net.ipv4.conf.all.log_martians.*/net.ipv4.conf.all.log_martians = 1/' /etc/sysctl.conf || echo 'net.ipv4.conf.all.log_martians = 1' >> /etc/sysctl.conf
+    rollback: null
+
+- rule_key: SYSCTL-006
+  title: Enable IPv4 reverse path filtering
+  description: The host must apply strict reverse path filtering.
+  rationale: Reverse path filtering rejects packets whose source address couldn't legitimately arrive on the interface they came in on — a cheap, effective anti-spoofing control.
+  severity: MEDIUM
+  domain: sysctl
+  check_expr: 'facts["net.ipv4.conf.all.rp_filter"] == "1"'
+  expected_value: "1"
+  standard_refs:
+    cis: "3.3.8"
+  evidence_paths: ["net.ipv4.conf.all.rp_filter"]
+  remediation:
+    provider: shell
+    body: |
+      sysctl -w net.ipv4.conf.all.rp_filter=1
+      grep -q '^net.ipv4.conf.all.rp_filter' /etc/sysctl.conf && sed -i 's/^net.ipv4.conf.all.rp_filter.*/net.ipv4.conf.all.rp_filter = 1/' /etc/sysctl.conf || echo 'net.ipv4.conf.all.rp_filter = 1' >> /etc/sysctl.conf
+    rollback: null
+
+- rule_key: SYSCTL-007
+  title: Enable kernel ASLR
+  description: The kernel must fully randomize the virtual address space layout (kernel.randomize_va_space = 2).
+  rationale: ASLR makes memory-corruption exploits significantly harder to write reliably.
+  severity: HIGH
+  domain: sysctl
+  check_expr: 'facts["kernel.randomize_va_space"] == "2"'
+  expected_value: "2"
+  standard_refs:
+    cis: "1.6.4"
+  evidence_paths: ["kernel.randomize_va_space"]
+  remediation:
+    provider: shell
+    body: |
+      sysctl -w kernel.randomize_va_space=2
+      grep -q '^kernel.randomize_va_space' /etc/sysctl.conf && sed -i 's/^kernel.randomize_va_space.*/kernel.randomize_va_space = 2/' /etc/sysctl.conf || echo 'kernel.randomize_va_space = 2' >> /etc/sysctl.conf
+    rollback: null

@@ -8,6 +8,14 @@ from .alert import Alert, AlertRule
 from .audit import AuditLog, RoleAssignment, Setting, UserProfile, UserRole
 from .baseline import Baseline, BaselineApproval, BaselineEffective, BaselineVersion
 from .category import Category, Project
+from .compliance_assessment import ComplianceAssessment
+from .compliance_exception import ComplianceException
+from .compliance_framework import (
+    ComplianceControl,
+    ComplianceFramework,
+    ComplianceFrameworkVersion,
+    ComplianceRuleMapping,
+)
 from .compliance_report import ComplianceReport
 from .compliance_rule import (
     ComplianceRule,
@@ -16,6 +24,7 @@ from .compliance_rule import (
     PolicySetRule,
     RemediationTemplate,
 )
+from .compliance_rule_resource import ComplianceRuleResource
 from .cve import CVE, AgentVulnerability, Package, PackageVulnerability
 from .drift import DriftDetail, DriftEvent
 from .file_integrity import FileChange, FileHash
@@ -49,8 +58,18 @@ __all__ = [
     # category
     "Category",
     "Project",
+    # compliance_assessment (compliance module)
+    "ComplianceAssessment",
+    # compliance_exception (compliance module)
+    "ComplianceException",
+    # compliance_framework (compliance module)
+    "ComplianceControl",
+    "ComplianceFramework",
+    "ComplianceFrameworkVersion",
+    "ComplianceRuleMapping",
     # compliance_rule (compliance module)
     "ComplianceRule",
+    "ComplianceRuleResource",
     "PolicyAssignment",
     "PolicySet",
     "PolicySetRule",

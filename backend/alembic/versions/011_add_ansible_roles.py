@@ -9,8 +9,9 @@ they are snapshotted into Job.parameters at execution time.
 """
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision = "011"
 down_revision = "010"

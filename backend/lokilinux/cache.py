@@ -6,10 +6,10 @@ TTL constants (O6 — standardized):
   JOB_STATUS    60 s   — job state changes frequently
   CVE_DATA      3600 s — CVE feed stable within an hour
   SERVER_LIST   86400 s (not used directly; server list uses AGENT_STATUS scope)
+  DASHBOARD     60 s   — aggregate rollups, tolerable staleness for a summary view
 """
 
 import json
-from datetime import timedelta
 from typing import Any, Optional
 
 import redis.asyncio as aioredis
@@ -22,6 +22,7 @@ TTL_AGENT_STATUS: int = 30
 TTL_JOB_STATUS: int = 60
 TTL_CVE_DATA: int = 3600
 TTL_SERVER_LIST: int = 86400
+TTL_DASHBOARD: int = 60
 
 # Key naming convention:
 #   agent:{id}:status | agent:{id}:detail

@@ -1,0 +1,71 @@
+# LokiLinux curated compliance content — mounts domain.
+#
+# mounts_collector.go reports facts.mounts as a list of {source, target,
+# fstype, options: []string} from /proc/mounts. A rule that finds no mount
+# at the target path correctly evaluates FAIL (the expected hardened mount
+# doesn't exist), matching the existing engine_test.go precedent for this
+# exact check shape.
+
+- rule_key: MOUNTS-001
+  title: /tmp mounted noexec
+  description: The /tmp filesystem must be mounted with the noexec option.
+  rationale: /tmp is world-writable; noexec prevents it from being used to execute a dropped binary directly.
+  severity: MEDIUM
+  domain: mounts
+  check_expr: 'facts.mounts.exists(m, m.target == "/tmp" && "noexec" in m.options)'
+  expected_value: true
+  standard_refs:
+    cis: "1.1.2.1"
+  evidence_paths: [mounts]
+  remediation:
+    provider: shell
+    body: mount -o remount,noexec /tmp
+    rollback: mount -o remount,exec /tmp
+
+- rule_key: MOUNTS-002
+  title: /tmp mounted nosuid
+  description: The /tmp filesystem must be mounted with the nosuid option.
+  rationale: nosuid prevents a setuid binary planted in world-writable /tmp from taking effect.
+  severity: MEDIUM
+  domain: mounts
+  check_expr: 'facts.mounts.exists(m, m.target == "/tmp" && "nosuid" in m.options)'
+  expected_value: true
+  standard_refs:
+    cis: "1.1.2.2"
+  evidence_paths: [mounts]
+  remediation:
+    provider: shell
+    body: mount -o remount,nosuid /tmp
+    rollback: mount -o remount,suid /tmp
+
+- rule_key: MOUNTS-003
+  title: /dev/shm mounted noexec
+  description: The /dev/shm filesystem must be mounted with the noexec option.
+  rationale: Shared memory is world-writable; noexec closes the same execute-from-writable-tmpfs path /tmp's rule closes.
+  severity: MEDIUM
+  domain: mounts
+  check_expr: 'facts.mounts.exists(m, m.target == "/dev/shm" && "noexec" in m.options)'
+  expected_value: true
+  standard_refs:
+    cis: "1.1.2.3"
+  evidence_paths: [mounts]
+  remediation:
+    provider: shell
+    body: mount -o remount,noexec /dev/shm
+    rollback: mount -o remount,exec /dev/shm
+
+- rule_key: MOUNTS-004
+  title: /dev/shm mounted nosuid
+  description: The /dev/shm filesystem must be mounted with the nosuid option.
+  rationale: Mirrors the /tmp nosuid rationale for the other commonly world-writable tmpfs mount.
+  severity: MEDIUM
+  domain: mounts
+  check_expr: 'facts.mounts.exists(m, m.target == "/dev/shm" && "nosuid" in m.options)'
+  expected_value: true
+  standard_refs:
+    cis: "1.1.2.4"
+  evidence_paths: [mounts]
+  remediation:
+    provider: shell
+    body: mount -o remount,nosuid /dev/shm
+    rollback: mount -o remount,suid /dev/shm

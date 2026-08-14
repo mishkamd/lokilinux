@@ -14,7 +14,7 @@ standard_refs (not "references" — reserved word in PostgreSQL).
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint, text
+from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -33,7 +33,7 @@ class ComplianceRule(Base):
     domain: Mapped[str] = mapped_column(String(50), nullable=False)
     check_source: Mapped[str] = mapped_column(String(20), default="CEL", nullable=False)  # CEL/OVAL_UNMAPPED/OSCAP_FALLBACK
     check_expr: Mapped[str | None] = mapped_column(Text)
-    expected_value: Mapped[dict | None] = mapped_column(JSONB)
+    expected_value: Mapped[object | None] = mapped_column(JSONB)
     platform_filter: Mapped[list] = mapped_column(JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"))
     standard_refs: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
     remediation_template_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("remediation_templates.id"))
@@ -51,6 +51,7 @@ class RemediationTemplate(Base):
     rule_key: Mapped[str] = mapped_column(String(255), ForeignKey("compliance_rules.rule_key"), nullable=False)
     provider: Mapped[str] = mapped_column(String(20), nullable=False)  # ansible/shell/python/terraform
     body: Mapped[str] = mapped_column(Text, nullable=False)
+    rollback_body: Mapped[str | None] = mapped_column(Text)
     source: Mapped[str] = mapped_column(String(30), default="complianceascode", nullable=False)
     git_path: Mapped[str | None] = mapped_column(String(500))
     version: Mapped[int] = mapped_column(default=1, nullable=False)
@@ -69,6 +70,13 @@ class PolicySet(Base):
     source_profile: Mapped[str | None] = mapped_column(String(255))
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+    # Migration 025 — flat immutable versioning: editing a PUBLISHED set
+    # clones a new row via parent_policy_set_id rather than mutating rules
+    # under an already-published version (§6).
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="PUBLISHED")  # DRAFT/PUBLISHED/ARCHIVED
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    published_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+    parent_policy_set_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("policy_sets.id"))
 
 
 class PolicySetRule(Base):

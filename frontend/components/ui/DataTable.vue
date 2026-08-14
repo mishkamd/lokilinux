@@ -38,7 +38,7 @@ function toggleRow(row: T, checked: boolean) {
 </script>
 
 <template>
-  <div class="rounded-2xl border border-border bg-card overflow-hidden">
+  <div class="rounded-[var(--radius-lg)] border border-border bg-card shadow-[var(--shadow-surface)] overflow-hidden">
     <div v-if="loading" class="flex justify-center items-center py-8">
       <Loader2 class="size-5 animate-spin text-primary" />
     </div>

@@ -5,7 +5,7 @@ import { cn } from '~/utils/cn'
 defineOptions({ inheritAttrs: false })
 
 const variants = cva(
-  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-[16px] text-sm font-medium transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50',
+  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-[var(--radius-lg)] text-sm font-medium transition-all duration-[var(--duration-normal)] ease-[var(--ease-out-expo)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 hover:-translate-y-0.5 active:translate-y-0',
   {
     variants: {
       variant: {
@@ -21,7 +21,7 @@ const variants = cva(
         sm: 'h-7 px-2.5 text-xs',
         lg: 'h-9 px-6',
         icon: 'h-8 w-8',
-        xs: 'h-6 px-2 text-xs rounded-lg',
+        xs: 'h-6 px-2 text-xs rounded-[var(--radius-sm)]',
       },
     },
     defaultVariants: { variant: 'default', size: 'default' },

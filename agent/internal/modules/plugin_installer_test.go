@@ -55,4 +55,21 @@ func TestInstallPlugin(t *testing.T) {
 	if res.ExitCode == 0 {
 		t.Fatal("expected failure on missing download_url")
 	}
+
+	// path traversal in plugin_name/plugin_version must be rejected, not joined onto PluginDir
+	res = InstallPlugin(context.Background(), "job-4", map[string]interface{}{
+		"plugin_name":  "../../etc/systemd/system",
+		"download_url": srv.URL,
+	}, 10)
+	if res.ExitCode == 0 {
+		t.Fatal("expected failure on path-traversal plugin_name")
+	}
+	res = InstallPlugin(context.Background(), "job-5", map[string]interface{}{
+		"plugin_name":    "demo",
+		"plugin_version": "../../evil",
+		"download_url":   srv.URL,
+	}, 10)
+	if res.ExitCode == 0 {
+		t.Fatal("expected failure on path-traversal plugin_version")
+	}
 }

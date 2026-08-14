@@ -1,9 +1,14 @@
-export default defineNuxtRouteMiddleware((to) => {
+export default defineNuxtRouteMiddleware(async (to) => {
   if (import.meta.server) return
   if (to.path.startsWith('/auth/')) return
 
-  const { data: session } = useAuth()
-  if (!session.value) {
+  const { getSession } = useAuth()
+  try {
+    const session = await getSession()
+    if (!session.data) {
+      return navigateTo('/auth/login')
+    }
+  } catch {
     return navigateTo('/auth/login')
   }
 

@@ -2,7 +2,7 @@
 import { Download, Plus, RefreshCw } from 'lucide-vue-next'
 
 const store = useComplianceStore()
-const { policySets, policySetsTotal, policySetsLoading } = storeToRefs(store)
+const { policySets, policySetsTotal, policySetsLoading, policySetsNextCursor } = storeToRefs(store)
 const { canEdit, isAdmin } = useCurrentUser()
 const toast = useToast()
 
@@ -28,11 +28,14 @@ async function submitCreate() {
       name: form.value.name, slug: form.value.slug, framework: form.value.framework,
       version: form.value.version || undefined, description: form.value.description || undefined,
     })
-    toast.add({ title: 'Policy set created' })
+    toast.add({
+      title: 'Policy set created',
+      description: 'It has no rules yet and cannot be published — use "Import from ComplianceAsCode" to populate it.',
+    })
     showCreate.value = false
     form.value = { name: '', slug: '', framework: 'INTERNAL', version: '', description: '' }
-  } catch {
-    toast.add({ title: 'Failed to create policy set', color: 'red' })
+  } catch (err) {
+    toast.add({ title: (err as { data?: { detail?: string } })?.data?.detail ?? 'Failed to create policy set', color: 'red' })
   } finally {
     creating.value = false
   }
@@ -60,8 +63,8 @@ async function submitImport() {
     toast.add({ title: 'Import started', description: `Job ${res.job_id} — running in the background` })
     showImport.value = false
     importForm.value = { profile_id: '', content_version: '', datastream_url: '' }
-  } catch {
-    toast.add({ title: 'Failed to start import', color: 'red' })
+  } catch (err) {
+    toast.add({ title: (err as { data?: { detail?: string } })?.data?.detail ?? 'Failed to start import', color: 'red' })
   } finally {
     importing.value = false
   }
@@ -97,12 +100,18 @@ async function submitImport() {
         <Badge color="gray" size="xs">{{ row.framework }}</Badge>
       </template>
       <template #is_enabled-data="{ row }">
-        <Badge :color="row.is_enabled ? 'green' : 'gray'" size="xs">{{ row.is_enabled ? 'Enabled' : 'Disabled' }}</Badge>
+        <Badge :color="row.status === 'PUBLISHED' ? 'green' : 'gray'" size="xs">{{ row.status }}</Badge>
       </template>
       <template #created_at-data="{ row }">
         <span class="font-mono text-xs">{{ new Date(String(row.created_at)).toLocaleDateString() }}</span>
       </template>
     </DataTable>
+
+    <div v-if="policySetsNextCursor" class="mt-4 flex justify-center">
+      <Button variant="outline" @click="store.fetchPolicySets(policySetsNextCursor!)">
+        Load more
+      </Button>
+    </div>
 
     <Dialog v-model="showCreate" title="New policy set">
       <template #body>

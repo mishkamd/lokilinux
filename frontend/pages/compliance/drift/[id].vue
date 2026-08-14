@@ -15,17 +15,46 @@ onMounted(async () => {
 const SEVERITY_COLORS: Record<string, string> = {
   CRITICAL: 'red', HIGH: 'red', MEDIUM: 'amber', LOW: 'gray',
 }
+const STATUS_COLORS: Record<string, string> = {
+  OPEN: 'red', ACKNOWLEDGED: 'amber', IN_REMEDIATION: 'amber',
+  RESOLVED: 'green', SUPPRESSED: 'gray', EXCEPTION: 'gray',
+}
+const isOpenOrAcked = computed(() =>
+  ['OPEN', 'ACKNOWLEDGED'].includes(String(selectedDriftEvent.value?.status)),
+)
 
-const acknowledging = ref(false)
+const acting = ref(false)
 async function acknowledge() {
-  acknowledging.value = true
+  acting.value = true
   try {
     await store.acknowledgeDrift(eventId)
     toast.add({ title: 'Drift event acknowledged' })
-  } catch {
-    toast.add({ title: 'Failed to acknowledge', color: 'red' })
+  } catch (err) {
+    toast.add({ title: (err as { data?: { detail?: string } })?.data?.detail ?? 'Failed to acknowledge', color: 'red' })
   } finally {
-    acknowledging.value = false
+    acting.value = false
+  }
+}
+async function resolve() {
+  acting.value = true
+  try {
+    await store.resolveDrift(eventId)
+    toast.add({ title: 'Drift event resolved' })
+  } catch (err) {
+    toast.add({ title: (err as { data?: { detail?: string } })?.data?.detail ?? 'Failed to resolve', color: 'red' })
+  } finally {
+    acting.value = false
+  }
+}
+async function suppress() {
+  acting.value = true
+  try {
+    await store.suppressDrift(eventId)
+    toast.add({ title: 'Drift event suppressed' })
+  } catch (err) {
+    toast.add({ title: (err as { data?: { detail?: string } })?.data?.detail ?? 'Failed to suppress', color: 'red' })
+  } finally {
+    acting.value = false
   }
 }
 </script>
@@ -36,19 +65,27 @@ async function acknowledge() {
       <div>
         <h2 class="text-lg font-semibold">{{ selectedDriftEvent.summary }}</h2>
         <p class="text-sm text-muted-foreground font-mono">
-          {{ selectedDriftEvent.domain }} · agent {{ selectedDriftEvent.agent_id }} · {{ new Date(selectedDriftEvent.time).toLocaleString() }}
+          {{ selectedDriftEvent.domain }} · {{ selectedDriftEvent.hostname || selectedDriftEvent.agent_id }} · {{ new Date(selectedDriftEvent.time).toLocaleString() }}
         </p>
       </div>
       <div class="flex items-center gap-2">
         <Badge :color="SEVERITY_COLORS[selectedDriftEvent.severity] ?? 'gray'">{{ selectedDriftEvent.severity }}</Badge>
-        <Badge v-if="selectedDriftEvent.acknowledged_at" color="green">Acknowledged</Badge>
-        <Button v-else-if="canEdit" size="sm" :loading="acknowledging" @click="acknowledge">Acknowledge</Button>
+        <Badge :color="STATUS_COLORS[selectedDriftEvent.status] ?? 'gray'">{{ selectedDriftEvent.status }}</Badge>
+        <template v-if="canEdit && isOpenOrAcked">
+          <Button v-if="selectedDriftEvent.status === 'OPEN'" size="sm" variant="outline" :loading="acting" @click="acknowledge">Acknowledge</Button>
+          <Button size="sm" variant="outline" :loading="acting" @click="resolve">Resolve</Button>
+          <Button size="sm" variant="outline" :loading="acting" @click="suppress">Suppress</Button>
+        </template>
       </div>
     </div>
 
     <dl class="grid grid-cols-2 gap-3 text-sm mb-6">
       <div><dt class="text-muted-foreground">Compared against</dt><dd>{{ selectedDriftEvent.compared_against }}</dd></div>
       <div><dt class="text-muted-foreground">Change type</dt><dd>{{ selectedDriftEvent.change_type }}</dd></div>
+      <div><dt class="text-muted-foreground">Occurrences</dt><dd>{{ selectedDriftEvent.occurrences }}×</dd></div>
+      <div v-if="selectedDriftEvent.first_seen"><dt class="text-muted-foreground">First seen</dt><dd>{{ new Date(selectedDriftEvent.first_seen).toLocaleString() }}</dd></div>
+      <div v-if="selectedDriftEvent.last_seen"><dt class="text-muted-foreground">Last seen</dt><dd>{{ new Date(selectedDriftEvent.last_seen).toLocaleString() }}</dd></div>
+      <div v-if="selectedDriftEvent.resolved_at"><dt class="text-muted-foreground">Resolved at</dt><dd>{{ new Date(selectedDriftEvent.resolved_at).toLocaleString() }}</dd></div>
     </dl>
 
     <h3 class="text-sm font-semibold mb-2">Field-level diff</h3>

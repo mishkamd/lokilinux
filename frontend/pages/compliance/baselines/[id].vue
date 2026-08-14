@@ -51,8 +51,8 @@ async function submitNewVersion() {
     toast.add({ title: 'New draft version created' })
     showNewVersion.value = false
     newVersionForm.value = { expected_state: '{}', change_summary: '' }
-  } catch {
-    toast.add({ title: 'Failed to create version', color: 'red' })
+  } catch (err) {
+    toast.add({ title: (err as { data?: { detail?: string } })?.data?.detail ?? 'Failed to create version', color: 'red' })
   } finally {
     savingVersion.value = false
   }

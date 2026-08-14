@@ -1,0 +1,37 @@
+# LokiLinux curated compliance content — users domain.
+#
+# users_collector.go reports facts.users as a list of {name, uid, gid,
+# home, shell} for local accounts with UID >= 1000 and a real login shell
+# (service/nologin accounts already excluded by the collector itself).
+
+- rule_key: USERS-001
+  title: Interactive users must have a home directory configured
+  description: Every interactive local account must have a non-empty home directory field in /etc/passwd.
+  rationale: An account with no home directory has nowhere to apply per-user umask/profile/ssh-authorized-keys controls, and typically indicates a misconfigured or leftover account.
+  severity: LOW
+  domain: users
+  check_expr: 'facts.users.all(u, u.home != "")'
+  expected_value: true
+  standard_refs:
+    cis: "6.2.9"
+  evidence_paths: [users]
+  resources:
+    - type: FILE
+      path: /etc/passwd
+  remediation: null
+
+- rule_key: USERS-002
+  title: Interactive users must have a login shell configured
+  description: Every interactive local account must have a non-empty shell field in /etc/passwd.
+  rationale: An interactive account (already filtered to exclude nologin/false shells by the collector) with no shell at all is an inconsistent, likely-corrupted passwd entry worth flagging.
+  severity: LOW
+  domain: users
+  check_expr: 'facts.users.all(u, u.shell != "")'
+  expected_value: true
+  standard_refs:
+    cis: "6.2.10"
+  evidence_paths: [users]
+  resources:
+    - type: FILE
+      path: /etc/passwd
+  remediation: null

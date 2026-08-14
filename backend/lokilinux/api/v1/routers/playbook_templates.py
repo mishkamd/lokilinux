@@ -10,8 +10,8 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lokilinux.auth.dependencies import get_current_user, require_role, safe_user_uuid
 from lokilinux.api.v1.routers.playbooks import ANSIBLE_PLUGIN_NAME, require_plugin_enabled
+from lokilinux.auth.dependencies import get_current_user, require_role, safe_user_uuid
 from lokilinux.cache import RedisCache
 from lokilinux.dependencies import get_cache, get_db, get_nats
 from lokilinux.schemas.job import JobResponse

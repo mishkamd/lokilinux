@@ -1,5 +1,5 @@
 <template>
-  <div class="flex h-screen bg-background text-foreground overflow-hidden">
+  <div class="flex h-screen bg-background text-foreground overflow-hidden atmosphere">
     <Toaster rich-colors position="top-center" />
 
     <!-- Mobile backdrop -->
@@ -11,23 +11,23 @@
 
     <!-- Sidebar -->
     <aside
-      class="fixed lg:static inset-y-0 left-0 z-40 w-[232px] flex-shrink-0 flex flex-col bg-sidebar/95 backdrop-blur-xl border-r border-sidebar-border shadow-[4px_0_24px_rgba(0,0,0,0.25)] transition-transform duration-200 -translate-x-full lg:translate-x-0"
+      class="fixed lg:static inset-y-0 left-0 z-40 w-[232px] flex-shrink-0 flex flex-col bg-sidebar border-r border-sidebar-border shadow-[4px_0_32px_rgba(0,0,0,0.35)] transition-transform duration-[var(--duration-slow)] ease-[var(--ease-out-expo)] -translate-x-full lg:translate-x-0"
       :class="{ 'translate-x-0': sidebarOpen, 'lg:hidden': sidebarCollapsed }"
     >
       <!-- Logo -->
-      <div class="relative h-16 flex items-center justify-start px-4 border-b border-sidebar-border">
-        <NuxtLink to="/" class="group flex items-center gap-2.5" @click="sidebarOpen = false">
+      <div class="h-16 flex items-center justify-between gap-2 px-4 border-b border-sidebar-border">
+        <NuxtLink to="/" class="group flex items-center gap-2.5 min-w-0" @click="sidebarOpen = false">
           <span
             role="img"
             :aria-label="companyName"
             class="size-8 shrink-0 bg-sidebar-foreground transition-all duration-300 ease-out group-hover:scale-110 group-hover:-rotate-6 group-hover:bg-primary-active"
             :style="logoMaskStyle"
           />
-          <span class="text-2xl font-display font-semibold text-sidebar-foreground tracking-tight mt-1.5 transition-all duration-300 ease-out group-hover:translate-x-0.5 group-hover:text-primary-active">{{ companyName }}</span>
+          <span class="text-xl font-display font-semibold text-sidebar-foreground tracking-tight mt-1.5 truncate transition-all duration-300 ease-out group-hover:translate-x-0.5 group-hover:text-primary-active">{{ companyName }}</span>
         </NuxtLink>
         <button
           type="button"
-          class="absolute right-4 top-1/2 -translate-y-1/2 inline-flex items-center justify-center size-8 rounded-lg hover:bg-white/[0.05] text-sidebar-foreground/70 lg:hidden"
+          class="shrink-0 inline-flex items-center justify-center size-8 rounded-lg hover:bg-white/[0.05] text-sidebar-foreground/70 lg:hidden"
           aria-label="Close menu"
           @click="sidebarOpen = false"
         >
@@ -142,7 +142,7 @@
 
     <!-- Main content -->
     <div class="flex-1 flex flex-col overflow-hidden">
-      <div class="sticky top-0 z-20 flex-shrink-0 border-b border-border bg-background/80 backdrop-blur-xl">
+      <div class="sticky top-0 z-20 flex-shrink-0 border-b border-border bg-background/90">
         <header class="h-16 flex items-center gap-2 sm:gap-3 px-3 sm:px-4">
           <button
             type="button"
@@ -162,7 +162,7 @@
             <PanelLeftClose v-else class="size-4.5" />
           </button>
 
-          <h1 class="text-sm font-semibold truncate shrink-0">{{ currentPageTitle }}</h1>
+          <h1 class="page-title truncate shrink-0">{{ currentPageTitle }}</h1>
 
           <div class="flex-1 hidden md:flex justify-center">
             <div class="relative w-full max-w-md">
@@ -237,7 +237,7 @@ import {
   LayoutDashboard, Server, Cpu, ClipboardList, ShieldAlert,
   FileText, Puzzle, BellDot, Bell, Users, Settings, UserCircle, LogOut, Search, Menu, X,
   PanelLeft, PanelLeftClose, Bot, Layers, FolderKanban, ShieldCheck,
-  BookCheck, ListChecks, GitCompare, Wrench, FileSearch, FileChartColumn,
+  BookCheck, ListChecks, GitCompare, Wrench, FileSearch, FileChartColumn, ShieldOff,
 } from 'lucide-vue-next'
 import { Toaster } from 'vue-sonner'
 
@@ -263,6 +263,7 @@ watch(() => route.path, () => { sidebarOpen.value = false })
 
 async function handleLogout() {
   await signOut()
+  await clearNuxtData('current-user')
   await navigateTo('/auth/login')
 }
 
@@ -300,6 +301,7 @@ const navSections = computed((): { title: string; links: NavLink[] }[] => [
       { to: '/agents',          label: 'Agents',          icon: Cpu },
       { to: '/jobs',            label: 'Jobs',            icon: ClipboardList },
       { to: '/vulnerabilities', label: 'Vulnerabilities', icon: ShieldAlert },
+      { to: '/vulnerabilities/list', label: 'CVE Catalog', icon: ListChecks },
     ],
   },
   {
@@ -331,6 +333,7 @@ const navSections = computed((): { title: string; links: NavLink[] }[] => [
           { to: '/compliance/drift',          label: 'Drift',         icon: GitCompare },
           { to: '/compliance/file-integrity', label: 'File Integrity', icon: FileSearch },
           { to: '/compliance/remediation',    label: 'Remediation',   icon: Wrench },
+          { to: '/compliance/exceptions',     label: 'Exceptions',    icon: ShieldOff },
           { to: '/compliance/reports',        label: 'Reports',       icon: FileChartColumn },
         ],
       },
@@ -354,7 +357,7 @@ function isActive(to: string): boolean {
   // Exact match for index-style links that are themselves a path-prefix of a
   // sibling nav entry (e.g. "/compliance" vs "/compliance/baselines") —
   // otherwise both would show active at once, same reasoning as "/".
-  if (to === '/' || to === '/compliance') return route.path === to
+  if (to === '/' || to === '/compliance' || to === '/vulnerabilities') return route.path === to
   return route.path.startsWith(to)
 }
 
@@ -364,4 +367,8 @@ const currentPageTitle = computed((): string => {
     ?? adminLinks.find((l) => isActive(l.to))
   return match?.label ?? companyName.value
 })
+
+// Drives the browser tab (via nuxt.config.ts's titleTemplate), reusing the
+// same label already shown in the page header — one source of truth.
+useHead({ title: currentPageTitle })
 </script>

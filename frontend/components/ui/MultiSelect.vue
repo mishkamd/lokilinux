@@ -71,7 +71,7 @@ onClickOutside(containerRef, () => {
     <!-- Selected chips -->
     <div
       :class="cn(
-        'flex min-h-8 w-full flex-wrap gap-1 rounded-lg border border-input bg-card px-2.5 py-1 text-[14px] ring-offset-background transition-colors focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:border-primary',
+        'flex min-h-8 w-full flex-wrap gap-1 rounded-[var(--radius-sm)] border border-input bg-card px-2.5 py-1 text-[14px] ring-offset-background transition-all duration-[var(--duration-fast)] focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:border-primary focus-within:shadow-[0_0_0_3px_color-mix(in_oklch,var(--ring)_15%,transparent)]',
         props.class,
       )"
     >
@@ -104,7 +104,7 @@ onClickOutside(containerRef, () => {
     <!-- Dropdown menu -->
     <div
       v-if="isOpen && filtered.length > 0"
-      class="absolute top-full left-0 right-0 z-50 mt-1 max-h-48 overflow-y-auto rounded-lg border border-input bg-card shadow-lg"
+      class="absolute top-full left-0 right-0 z-50 mt-1 max-h-48 overflow-y-auto rounded-[var(--radius-md)] border border-input bg-card shadow-[var(--shadow-raised)]"
     >
       <button
         v-for="opt in filtered"

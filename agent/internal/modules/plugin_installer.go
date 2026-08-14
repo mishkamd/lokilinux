@@ -34,6 +34,14 @@ func InstallPlugin(ctx context.Context, jobID string, params map[string]interfac
 	if name == "" || url == "" {
 		return fail("plugin install missing plugin_name or download_url")
 	}
+	// plugin_name/plugin_version end up in filepath.Join(PluginDir, ...) below —
+	// reject anything that could escape PluginDir (e.g. "../../etc/systemd/system").
+	if filepath.Base(name) != name {
+		return fail("invalid plugin_name %q", name)
+	}
+	if version != "" && filepath.Base(version) != version {
+		return fail("invalid plugin_version %q", version)
+	}
 
 	if timeoutSec > 0 {
 		var cancel context.CancelFunc

@@ -12,12 +12,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
+	"strings"
 
 	"github.com/google/uuid"
 	"lukechampine.com/blake3"
 
 	"github.com/lokilinux/compliance/internal/drift"
+	"github.com/lokilinux/compliance/internal/policy"
 	"github.com/lokilinux/compliance/internal/rules"
+	"github.com/lokilinux/compliance/internal/scope"
 	"github.com/lokilinux/compliance/internal/scoring"
 	"github.com/lokilinux/compliance/internal/storage"
 )
@@ -118,8 +122,6 @@ func (in *Ingester) Ingest(ctx context.Context, snap Snapshot) (Result, error) {
 
 	// Fetch the previous domain body *before* overwriting anything — this is
 	// the "vs previous snapshot" comparison from docs/compliance/08-DRIFT-FIM.md §1.
-	// ("vs baseline" needs baseline_effective, which nothing populates yet —
-	// see storage.ActiveRulesForDomain's ponytail note for the same honest gap.)
 	var driftDetected bool
 	if hadPrevious && !unchanged {
 		driftDetected, err = in.detectDrift(ctx, snap, previousHash)
@@ -135,6 +137,16 @@ func (in *Ingester) Ingest(ctx context.Context, snap Snapshot) (Result, error) {
 	if err != nil {
 		return Result{}, err
 	}
+
+	// "vs baseline" comparison (08-DRIFT-FIM.md §1) — independent of whether
+	// the state changed since the previous snapshot: a deviation from the
+	// effective baseline is reportable even on the very first snapshot, and
+	// is recorded once per distinct diff state, not once per heartbeat.
+	baselineDrift, err := in.detectBaselineDrift(ctx, snap)
+	if err != nil {
+		return Result{}, err
+	}
+	driftDetected = driftDetected || baselineDrift
 
 	evaluated, err := in.evaluateRules(ctx, snap)
 	if err != nil {
@@ -171,25 +183,45 @@ func (in *Ingester) ingestFileIntegrity(ctx context.Context, snap Snapshot) erro
 	current := parseAgentFileHashes(snap.Facts)
 	changes := diffFileIntegrity(existing, current)
 
+	ignorePatterns, err := in.store.LoadFileIntegrityIgnorePatterns(ctx)
+	if err != nil {
+		return err
+	}
+	changes = filterIgnored(changes, ignorePatterns)
+
+	changedPaths := make([]string, 0, len(changes))
 	for _, c := range changes {
-		if err := in.store.InsertFileChange(ctx, snap.AgentID, c.Path, c.OldHash, c.NewHash, c.ChangeKind); err != nil {
+		meta := storage.FileChangeMetadata{
+			OldMode: c.OldMode, NewMode: c.NewMode,
+			OldUID: c.OldUID, NewUID: c.NewUID,
+			OldGID: c.OldGID, NewGID: c.NewGID,
+		}
+		if err := in.store.InsertFileChange(ctx, snap.AgentID, c.Path, c.OldHash, c.NewHash, c.ChangeKind, meta); err != nil {
 			return err
 		}
 		if c.ChangeKind == "DELETED" {
 			if err := in.store.DeleteFileHash(ctx, snap.AgentID, c.Path); err != nil {
 				return err
 			}
-			continue
-		}
-		if err := in.store.UpsertFileHash(ctx, snap.AgentID, c.Path, "blake3", c.NewHash, c.NewSize); err != nil {
+		} else if err := in.store.UpsertFileHash(
+			ctx, snap.AgentID, c.Path, "blake3", c.NewHash, c.NewSize, c.NewModeVal, c.NewUIDVal, c.NewGIDVal,
+		); err != nil {
 			return err
 		}
+		changedPaths = append(changedPaths, c.Path)
 	}
-	return nil
+
+	// Correlation with the compliance engine (docs/compliance §12): a
+	// monitored config file changing off-cycle re-evaluates exactly the
+	// rules that depend on it, rather than waiting for that domain's next
+	// scheduled snapshot.
+	return in.reevaluateAffectedRules(ctx, snap.AgentID, changedPaths)
 }
 
 // detectDrift compares the new facts against the previous snapshot's
-// decoded body and, if they differ structurally, records a drift_events row.
+// decoded body and, if they differ structurally, records or correlates a
+// drift_events row (docs/compliance §9, §39: one open incident with an
+// occurrences count, never a new row per poll cycle).
 func (in *Ingester) detectDrift(ctx context.Context, snap Snapshot, previousHash string) (bool, error) {
 	previousBody, err := in.store.GetBlobBody(ctx, previousHash)
 	if err != nil {
@@ -204,6 +236,54 @@ func (in *Ingester) detectDrift(ctx context.Context, snap Snapshot, previousHash
 	if event == nil {
 		return false, nil
 	}
+	return in.recordOrCorrelateDrift(ctx, snap.AgentID, event)
+}
+
+// detectBaselineDrift compares the new facts against the agent's effective
+// baseline (docs/compliance/08-DRIFT-FIM.md §1, the BASELINE comparison) and
+// records or correlates a drift_events row when they deviate.
+func (in *Ingester) detectBaselineDrift(ctx context.Context, snap Snapshot) (bool, error) {
+	mergedState, found, err := in.store.GetBaselineEffective(ctx, snap.AgentID)
+	if err != nil {
+		return false, err
+	}
+	if !found {
+		return false, nil
+	}
+	rawBaseline, ok := mergedState[snap.Domain]
+	if !ok {
+		return false, nil // effective baseline doesn't cover this domain
+	}
+	baselineFacts, ok := rawBaseline.(map[string]any)
+	if !ok {
+		return false, nil // domain value isn't an object — nothing to diff
+	}
+
+	event := drift.Detect(snap.Domain, drift.ComparedAgainstBaseline, baselineFacts, snap.Facts)
+	if event == nil {
+		return false, nil
+	}
+	return in.recordOrCorrelateDrift(ctx, snap.AgentID, event)
+}
+
+// recordOrCorrelateDrift is the shared dedup path for both comparison
+// branches (docs/compliance §9: "PermitRootLogin=yes detected 100 times ...
+// one open drift incident with occurrences, not 100 independent
+// violations"). correlationKey identifies "the same deviation" independent
+// of exactly when it was first observed, so an OPEN or ACKNOWLEDGED match
+// increments occurrences/last_seen instead of inserting a new row; a drift
+// already RESOLVED/SUPPRESSED/EXCEPTION correctly starts a fresh incident
+// if the same deviation reappears.
+func (in *Ingester) recordOrCorrelateDrift(ctx context.Context, agentID uuid.UUID, event *drift.Event) (bool, error) {
+	key := correlationKey(event.Domain, event.ComparedAgainst, event.FieldDiffs)
+
+	incremented, err := in.store.IncrementDriftOccurrence(ctx, agentID, key)
+	if err != nil {
+		return false, err
+	}
+	if incremented {
+		return true, nil
+	}
 
 	fieldDiffs := make([]storage.DriftFieldDiff, 0, len(event.FieldDiffs))
 	for _, d := range event.FieldDiffs {
@@ -211,52 +291,250 @@ func (in *Ingester) detectDrift(ctx context.Context, snap Snapshot, previousHash
 		newJSON, _ := json.Marshal(d.NewValue)
 		fieldDiffs = append(fieldDiffs, storage.DriftFieldDiff{FieldPath: d.FieldPath, OldValue: oldJSON, NewValue: newJSON})
 	}
-
-	_, err = in.store.InsertDriftEvent(
-		ctx, snap.AgentID, event.Domain, string(event.ComparedAgainst),
-		string(event.Severity), string(event.ChangeType), event.Summary, fieldDiffs,
-	)
-	if err != nil {
+	if _, err := in.store.InsertDriftEvent(
+		ctx, agentID, event.Domain, string(event.ComparedAgainst),
+		string(event.Severity), string(event.ChangeType), event.Summary, key, fieldDiffs,
+	); err != nil {
 		return false, err
 	}
 	return true, nil
 }
 
+// correlationKey identifies "the same deviation" for dedup purposes: same
+// domain, same comparison basis, same set of changed field paths (sorted —
+// order-independent). Deliberately excludes agent_id from the hash content
+// itself (the query already filters by agent_id) so the same violation
+// pattern across different agents naturally shares a key, useful for future
+// fleet-wide grouping without being relied on for anything today.
+func correlationKey(domain string, comparedAgainst drift.ComparedAgainst, diffs []drift.FieldDiff) string {
+	paths := make([]string, 0, len(diffs))
+	for _, d := range diffs {
+		paths = append(paths, d.FieldPath)
+	}
+	slices.Sort(paths)
+
+	h := blake3.New(32, nil)
+	h.Write([]byte(domain))
+	h.Write([]byte{0})
+	h.Write([]byte(comparedAgainst))
+	h.Write([]byte{0})
+	h.Write([]byte(strings.Join(paths, "\x00")))
+	return hex.EncodeToString(h.Sum(nil))
+}
+
+// evaluateRules resolves which rules apply to this agent/domain (matching
+// policy assignments by scope, docs/compliance/07-POLICY-ENGINE.md) and
+// records one verdict per rule — with structured evidence, platform
+// applicability, and active-exception tagging (docs/compliance §2, §17, §21).
 func (in *Ingester) evaluateRules(ctx context.Context, snap Snapshot) (int, error) {
-	activeRules, err := in.store.ActiveRulesForDomain(ctx, snap.Domain)
+	attrs, err := in.store.LoadAgentAttributes(ctx, snap.AgentID)
+	if err != nil {
+		return 0, fmt.Errorf("loading agent attributes for evaluation: %w", err)
+	}
+
+	matchedSetIDs, err := in.matchedPolicySetIDs(ctx, attrs)
+	if err != nil {
+		return 0, err
+	}
+	if len(matchedSetIDs) == 0 {
+		return 0, nil // no policy set assigned to this agent's scope — nothing to evaluate
+	}
+
+	activeRules, err := in.store.RulesForPolicySetsAndDomain(ctx, matchedSetIDs, snap.Domain)
+	if err != nil {
+		return 0, err
+	}
+	return in.evaluateAndRecord(ctx, snap.AgentID, attrs, activeRules, snap.Facts)
+}
+
+// matchedPolicySetIDs loads active policy_assignments and filters them
+// against attrs — split out so both the per-domain snapshot path
+// (evaluateRules) and the resource-triggered incremental path
+// (reevaluateAffectedRules) resolve scope the same way.
+func (in *Ingester) matchedPolicySetIDs(ctx context.Context, attrs storage.AgentAttributes) ([]uuid.UUID, error) {
+	assignments, err := in.store.LoadActivePolicyAssignments(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return policy.MatchingSetIDs(attrs, assignments), nil
+}
+
+// evaluateAndRecord evaluates activeRules against facts and inserts one
+// rule_evaluations row per rule — the shared core between a fresh domain
+// snapshot's full evaluation and a resource-change-triggered partial
+// re-evaluation (docs/compliance §39, §40). Returns the number of rules
+// evaluated.
+func (in *Ingester) evaluateAndRecord(
+	ctx context.Context,
+	agentID uuid.UUID,
+	attrs storage.AgentAttributes,
+	activeRules []storage.RuleWithPolicySet,
+	facts map[string]any,
+) (int, error) {
+	if len(activeRules) == 0 {
+		return 0, nil
+	}
+	platform := scope.PlatformID(attrs.OsDistro, attrs.OsVersion)
+
+	ruleIDs := make([]uuid.UUID, 0, len(activeRules))
+	for _, r := range activeRules {
+		id, err := uuid.Parse(r.Rule.ID)
+		if err != nil {
+			return 0, fmt.Errorf("rule %s has a non-UUID ID %q: %w", r.RuleKey, r.Rule.ID, err)
+		}
+		ruleIDs = append(ruleIDs, id)
+	}
+	exceptions, err := in.store.LoadActiveExceptionsForRules(ctx, ruleIDs)
 	if err != nil {
 		return 0, err
 	}
 
-	for _, r := range activeRules {
-		verdict := in.evaluator.Evaluate(ctx, r.Rule, snap.Facts)
+	for i, r := range activeRules {
+		verdict := in.evaluator.Evaluate(ctx, r.Rule, facts, platform)
 
-		var actualValueJSON, evidenceJSON []byte
+		var actualValueJSON, evidenceJSON, expectedValueJSON []byte
 		if verdict.ActualValue != nil {
 			actualValueJSON, _ = json.Marshal(verdict.ActualValue)
 		}
 		if verdict.Evidence != nil {
 			evidenceJSON, _ = json.Marshal(verdict.Evidence)
 		}
+		if r.Rule.ExpectedValue != nil {
+			expectedValueJSON, _ = json.Marshal(r.Rule.ExpectedValue)
+		}
 		errMsg := ""
 		if verdict.Err != nil {
 			errMsg = verdict.Err.Error()
 		}
 
-		ruleID, err := uuid.Parse(r.Rule.ID)
-		if err != nil {
-			return len(activeRules), fmt.Errorf("rule %s has a non-UUID ID %q: %w", r.RuleKey, r.Rule.ID, err)
+		var exceptionID *uuid.UUID
+		if verdict.Result == rules.ResultFail {
+			if id, ok := matchException(exceptions, ruleIDs[i], agentID, attrs); ok {
+				exceptionID = &id
+			}
 		}
 
 		if err := in.store.InsertRuleEvaluation(
-			ctx, snap.AgentID, ruleID, r.PolicySetID,
-			string(verdict.Result), actualValueJSON, evidenceJSON, errMsg,
+			ctx, agentID, ruleIDs[i], r.PolicySetID,
+			string(verdict.Result), actualValueJSON, evidenceJSON, expectedValueJSON,
+			errMsg, verdict.EvidenceHash, "lokilinux-agent", exceptionID,
 		); err != nil {
 			return len(activeRules), err
 		}
 	}
 
 	return len(activeRules), nil
+}
+
+// reevaluateAffectedRules is the incremental-evaluation path
+// (docs/compliance §12, §39, §40): given the file paths that just changed
+// on this agent, look up exactly which rules depend on them
+// (compliance_rule_resources, resource_type='FILE') and re-evaluate only
+// those rules — never the whole domain's rule set, and never every domain.
+// A rule's domain (e.g. sshd) generally differs from the file_integrity
+// snapshot's domain, so each affected rule is re-evaluated against that
+// domain's own latest stored snapshot facts, not the FIM snapshot's facts.
+func (in *Ingester) reevaluateAffectedRules(ctx context.Context, agentID uuid.UUID, paths []string) error {
+	if len(paths) == 0 {
+		return nil
+	}
+	affected, err := in.store.RulesForResourcePaths(ctx, "FILE", paths)
+	if err != nil {
+		return err
+	}
+	if len(affected) == 0 {
+		return nil
+	}
+
+	byDomain := make(map[string][]uuid.UUID)
+	for _, a := range affected {
+		byDomain[a.Domain] = append(byDomain[a.Domain], a.RuleID)
+	}
+
+	attrs, err := in.store.LoadAgentAttributes(ctx, agentID)
+	if err != nil {
+		return fmt.Errorf("loading agent attributes for incremental evaluation: %w", err)
+	}
+	matchedSetIDs, err := in.matchedPolicySetIDs(ctx, attrs)
+	if err != nil {
+		return err
+	}
+	if len(matchedSetIDs) == 0 {
+		return nil
+	}
+
+	for domain, wantedIDs := range byDomain {
+		latestHash, found, err := in.store.LatestSnapshotHash(ctx, agentID, domain)
+		if err != nil {
+			return err
+		}
+		if !found {
+			continue // no snapshot collected yet for this domain — nothing to re-evaluate against
+		}
+		body, err := in.store.GetBlobBody(ctx, latestHash)
+		if err != nil {
+			return err
+		}
+		var facts map[string]any
+		if err := json.Unmarshal(body, &facts); err != nil {
+			return fmt.Errorf("decoding latest %s snapshot for incremental evaluation: %w", domain, err)
+		}
+
+		domainRules, err := in.store.RulesForPolicySetsAndDomain(ctx, matchedSetIDs, domain)
+		if err != nil {
+			return err
+		}
+		subset := filterRulesByID(domainRules, wantedIDs)
+		if _, err := in.evaluateAndRecord(ctx, agentID, attrs, subset, facts); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// filterRulesByID keeps only the rules whose ID is in wanted — activeRules
+// (from RulesForPolicySetsAndDomain) already carries every rule for the
+// domain; this narrows it to exactly the resource-affected subset without a
+// second, more complex query.
+func filterRulesByID(activeRules []storage.RuleWithPolicySet, wanted []uuid.UUID) []storage.RuleWithPolicySet {
+	wantSet := make(map[string]struct{}, len(wanted))
+	for _, id := range wanted {
+		wantSet[id.String()] = struct{}{}
+	}
+	var out []storage.RuleWithPolicySet
+	for _, r := range activeRules {
+		if _, ok := wantSet[r.Rule.ID]; ok {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// matchException finds the first active exception covering (ruleID, agentID)
+// — either scoped directly to this agent, or (agent_id NULL) to a broader
+// selector this agent's attributes match. The real FAIL result stays stored
+// by the caller; this only tags which exception waived it
+// (docs/compliance §17: never silently overwrite).
+func matchException(exceptions []storage.ActiveException, ruleID, agentID uuid.UUID, attrs storage.AgentAttributes) (uuid.UUID, bool) {
+	sAttrs := scope.AgentAttributes{
+		OsDistro: attrs.OsDistro, OsVersion: attrs.OsVersion,
+		Category: attrs.Category, Project: attrs.Project,
+	}
+	for _, ex := range exceptions {
+		if ex.RuleID != ruleID {
+			continue
+		}
+		if ex.AgentID != nil {
+			if *ex.AgentID == agentID {
+				return ex.ID, true
+			}
+			continue
+		}
+		if scope.Matches(ex.ScopeSelector, sAttrs) {
+			return ex.ID, true
+		}
+	}
+	return uuid.Nil, false
 }
 
 // categoryScore is one category's computed score sample, ready for

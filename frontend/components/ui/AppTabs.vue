@@ -23,14 +23,18 @@ function select(i: number) {
         :key="item.slot"
         type="button"
         :class="[
-          'px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors',
+          'relative px-4 py-2.5 text-sm font-medium transition-colors duration-[var(--duration-fast)]',
           active === i
-            ? 'border-primary text-foreground'
-            : 'border-transparent text-muted-foreground hover:text-foreground hover:border-border',
+            ? 'text-foreground'
+            : 'text-muted-foreground hover:text-foreground',
         ]"
         @click="select(i)"
       >
         {{ item.label }}
+        <span
+          v-if="active === i"
+          class="absolute inset-x-2 bottom-0 h-0.5 rounded-full bg-primary animate-in fade-in slide-in-from-bottom-1 duration-[var(--duration-normal)]"
+        />
       </button>
     </div>
     <div v-for="(item, i) in items" :key="item.slot" v-show="active === i">

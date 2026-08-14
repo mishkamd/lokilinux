@@ -30,34 +30,34 @@ function iconFor(resourceType: string | null) {
 
 function relativeTime(iso: string): string {
   const diffSec = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000)
-  if (diffSec < 60) return 'acum'
-  if (diffSec < 3600) return `${Math.floor(diffSec / 60)} min`
-  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)} h`
-  return `${Math.floor(diffSec / 86400)} zile`
+  if (diffSec < 60) return 'now'
+  if (diffSec < 3600) return `${Math.floor(diffSec / 60)}m`
+  if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h`
+  return `${Math.floor(diffSec / 86400)}d`
 }
 </script>
 
 <template>
-  <div class="glass-card rounded-xl p-3 flex flex-col">
+  <div class="surface-card rounded-[var(--radius-md)] p-3 flex flex-col">
     <div class="flex items-center justify-between mb-2.5">
       <div class="flex items-center gap-1.5 text-muted-foreground">
         <span class="flex items-center justify-center size-5 rounded-md bg-[color-mix(in_oklch,var(--primary-active)_15%,transparent)] text-primary-active shrink-0">
           <Activity class="size-3" />
         </span>
-        <h2 class="label-caps">Activitate recentă</h2>
+        <h2 class="label-caps">Recent Activity</h2>
       </div>
       <NuxtLink to="/admin/audit" class="flex items-center gap-1 text-[12px] font-medium text-primary shrink-0">
-        Vezi tot
+        View all
         <ArrowRight class="size-3" />
       </NuxtLink>
     </div>
 
-    <div v-if="error" class="text-xs text-red-500">Nu s-a putut încărca activitatea recentă.</div>
+    <div v-if="error" class="text-xs text-red-500">Failed to load recent activity.</div>
     <div v-else-if="pending" class="space-y-1.5">
       <Skeleton v-for="i in 4" :key="i" class="h-7 rounded-md" />
     </div>
     <div v-else-if="!data?.items.length" class="text-xs text-muted-foreground py-2 text-center">
-      Nicio activitate înregistrată.
+      No activity recorded.
     </div>
     <div v-else class="divide-y divide-border/60">
       <div v-for="log in data.items" :key="log.id" class="flex items-center gap-2 py-2 first:pt-0 last:pb-0">

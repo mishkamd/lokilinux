@@ -3,9 +3,23 @@ package modules
 import (
 	"context"
 	"fmt"
-	"strings"
+	"regexp"
 	"time"
 )
+
+// packageNameRe bounds package_names to the charset real package names use
+// (Debian/RPM naming conventions) before they ever reach exec — defense in
+// depth on top of packageUpdateArgv never invoking a shell over them.
+var packageNameRe = regexp.MustCompile(`^[A-Za-z0-9+._:-]+$`)
+
+// isValidPackageName rejects anything packageNameRe wouldn't match, plus a
+// leading hyphen: dnf/yum/zypper receive names without a "--" separator (see
+// packageUpdateArgv), so a value like "--installroot=/tmp/evil" would be
+// parsed as an option, not a package name, even though the charset alone
+// allows it.
+func isValidPackageName(s string) bool {
+	return s != "" && s[0] != '-' && packageNameRe.MatchString(s)
+}
 
 // UpdatePackages installs/upgrades the given packages via the host's detected
 // package manager (apt/dnf/yum/zypper). An empty or absent package_names
@@ -20,13 +34,16 @@ func UpdatePackages(ctx context.Context, jobID string, params map[string]interfa
 	if raw, ok := params["package_names"].([]interface{}); ok {
 		for _, n := range raw {
 			if s, ok := n.(string); ok && s != "" {
+				if !isValidPackageName(s) {
+					return fail("invalid package name: %q", s)
+				}
 				names = append(names, s)
 			}
 		}
 	}
 
 	mgr := detectPackageManager()
-	command, err := packageUpdateCommand(mgr, names)
+	argv, err := packageUpdateArgv(mgr, names)
 	if err != nil {
 		return fail("%v", err)
 	}
@@ -35,29 +52,35 @@ func UpdatePackages(ctx context.Context, jobID string, params map[string]interfa
 	// systemd_run.go. Installing packages means writing into /usr, which
 	// the agent's own mount namespace can never do regardless of
 	// ReadWritePaths.
-	return runViaSystemdRun(ctx, jobID, command, timeoutSec, 4*1024*1024)
+	return runViaSystemdRunArgv(ctx, jobID, argv, "", timeoutSec, 4*1024*1024)
 }
 
-// packageUpdateCommand builds the shell command for the detected package
-// manager. names empty means "update all installed packages".
-func packageUpdateCommand(mgr string, names []string) (string, error) {
+// packageUpdateArgv builds the argv for the detected package manager — never
+// a shell string — so package_names (job-parameter, untrusted) can't be
+// interpreted as shell syntax. names empty means "update all installed
+// packages". apt is the one manager that needs two chained commands
+// (update, then install); package_names there are passed after `--` and
+// referenced via "$@", so the shell only ever expands them as literal
+// positional arguments, never as syntax.
+func packageUpdateArgv(mgr string, names []string) ([]string, error) {
 	switch mgr {
 	case "apt":
 		if len(names) == 0 {
-			return "apt-get update && apt-get upgrade -y", nil
+			return []string{"/bin/sh", "-c", "apt-get update && apt-get upgrade -y"}, nil
 		}
-		return "apt-get update && apt-get install --only-upgrade -y " + strings.Join(names, " "), nil
+		argv := []string{"/bin/sh", "-c", `apt-get update && apt-get install --only-upgrade -y "$@"`, "--"}
+		return append(argv, names...), nil
 	case "dnf", "yum":
 		if len(names) == 0 {
-			return mgr + " upgrade -y", nil
+			return []string{mgr, "upgrade", "-y"}, nil
 		}
-		return mgr + " upgrade -y " + strings.Join(names, " "), nil
+		return append([]string{mgr, "upgrade", "-y"}, names...), nil
 	case "zypper":
 		if len(names) == 0 {
-			return "zypper update -y", nil
+			return []string{"zypper", "update", "-y"}, nil
 		}
-		return "zypper update -y " + strings.Join(names, " "), nil
+		return append([]string{"zypper", "update", "-y"}, names...), nil
 	default:
-		return "", fmt.Errorf("unsupported package manager: %s", mgr)
+		return nil, fmt.Errorf("unsupported package manager: %s", mgr)
 	}
 }

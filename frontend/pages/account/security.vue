@@ -21,12 +21,12 @@ async function changePassword() {
   pwPending.value = true
   try {
     await authClient.changePassword({ currentPassword: pwForm.current, newPassword: pwForm.next })
-    toast.add({ title: 'Parolă schimbată', color: 'green' })
+    toast.add({ title: 'Password changed', color: 'green' })
     pwForm.current = ''
     pwForm.next = ''
   } catch (error: unknown) {
     const err = error as { message?: string }
-    toast.add({ title: 'Nu s-a putut schimba parola', description: err?.message, color: 'red' })
+    toast.add({ title: 'Could not change password', description: err?.message, color: 'red' })
   } finally {
     pwPending.value = false
   }
@@ -51,7 +51,7 @@ async function startEnroll() {
     step.value = 'verify'
   } catch (error: unknown) {
     const err = error as { message?: string }
-    toast.add({ title: 'Nu s-a putut porni înrolarea', description: err?.message, color: 'red' })
+    toast.add({ title: 'Could not start enrollment', description: err?.message, color: 'red' })
   } finally {
     pending.value = false
   }
@@ -61,14 +61,14 @@ async function confirmEnroll() {
   pending.value = true
   try {
     await authClient.twoFactor.verifyTotp({ code: verifyCode.value })
-    toast.add({ title: '2FA activat', color: 'green' })
+    toast.add({ title: '2FA enabled', color: 'green' })
     step.value = 'idle'
     password.value = ''
     verifyCode.value = ''
     await authClient.getSession({ query: { disableCookieCache: true } })
   } catch (error: unknown) {
     const err = error as { message?: string }
-    toast.add({ title: 'Cod invalid', description: err?.message, color: 'red' })
+    toast.add({ title: 'Invalid code', description: err?.message, color: 'red' })
   } finally {
     pending.value = false
   }
@@ -78,12 +78,12 @@ async function disable2FA() {
   pending.value = true
   try {
     await authClient.twoFactor.disable({ password: password.value })
-    toast.add({ title: '2FA dezactivat', color: 'green' })
+    toast.add({ title: '2FA disabled', color: 'green' })
     password.value = ''
     await authClient.getSession({ query: { disableCookieCache: true } })
   } catch (error: unknown) {
     const err = error as { message?: string }
-    toast.add({ title: 'Nu s-a putut dezactiva', description: err?.message, color: 'red' })
+    toast.add({ title: 'Could not disable', description: err?.message, color: 'red' })
   } finally {
     pending.value = false
   }
@@ -92,56 +92,56 @@ async function disable2FA() {
 
 <template>
   <div class="max-w-lg space-y-6">
-    <h2 class="text-lg font-semibold">Securitate cont</h2>
+    <h2 class="text-lg font-semibold">Account Security</h2>
 
     <Card>
-      <template #header>Schimbă parola</template>
+      <template #header>Change password</template>
       <div class="space-y-4">
-        <FormField label="Parolă curentă">
+        <FormField label="Current password">
           <Input v-model="pwForm.current" type="password" placeholder="••••••••" />
         </FormField>
-        <FormField label="Parolă nouă">
+        <FormField label="New password">
           <Input v-model="pwForm.next" type="password" placeholder="••••••••" />
         </FormField>
-        <Button :loading="pwPending" @click="changePassword">Schimbă parola</Button>
+        <Button :loading="pwPending" @click="changePassword">Change password</Button>
       </div>
     </Card>
 
     <Card>
-      <template #header>Autentificare în doi factori (TOTP)</template>
+      <template #header>Two-factor authentication (TOTP)</template>
       <div class="space-y-4">
         <p class="text-sm">
-          Status: <span :class="isEnabled ? 'text-green-500' : 'text-muted-foreground'">{{ isEnabled ? 'Activat' : 'Dezactivat' }}</span>
+          Status: <span :class="isEnabled ? 'text-green-500' : 'text-muted-foreground'">{{ isEnabled ? 'Enabled' : 'Disabled' }}</span>
         </p>
 
         <template v-if="isEnabled">
-          <FormField label="Parolă" help="Necesară pentru dezactivare">
+          <FormField label="Password" help="Required to disable">
             <Input v-model="password" type="password" placeholder="••••••••" />
           </FormField>
-          <Button variant="destructive" :loading="pending" @click="disable2FA">Dezactivează 2FA</Button>
+          <Button variant="destructive" :loading="pending" @click="disable2FA">Disable 2FA</Button>
         </template>
 
         <template v-else-if="step === 'idle'">
-          <FormField label="Parolă" help="Necesară pentru a genera un secret TOTP nou">
+          <FormField label="Password" help="Required to generate a new TOTP secret">
             <Input v-model="password" type="password" placeholder="••••••••" />
           </FormField>
-          <Button :loading="pending" @click="startEnroll">Activează 2FA</Button>
+          <Button :loading="pending" @click="startEnroll">Enable 2FA</Button>
         </template>
 
         <template v-else-if="step === 'verify'">
           <div class="space-y-2">
             <p class="text-sm text-muted-foreground">
-              Adaugă manual cheia asta în aplicația de autentificare (Google Authenticator, Authy etc — nu avem generator de QR aici):
+              Add this key manually to your authenticator app (Google Authenticator, Authy, etc. — no QR generator here):
             </p>
             <code class="block break-all rounded bg-muted p-2 text-xs">{{ totpSecret }}</code>
           </div>
-          <FormField label="Cod din aplicație">
+          <FormField label="Code from app">
             <Input v-model="verifyCode" placeholder="000000" maxlength="6" />
           </FormField>
-          <Button :loading="pending" @click="confirmEnroll">Confirmă</Button>
+          <Button :loading="pending" @click="confirmEnroll">Confirm</Button>
 
           <div v-if="backupCodes.length" class="space-y-1 pt-2 border-t border-border">
-            <p class="text-sm font-medium">Coduri de rezervă — salvează-le acum, nu se mai afișează</p>
+            <p class="text-sm font-medium">Backup codes — save them now, they won't be shown again</p>
             <code class="block rounded bg-muted p-2 text-xs whitespace-pre-wrap">{{ backupCodes.join('\n') }}</code>
           </div>
         </template>

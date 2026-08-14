@@ -18,7 +18,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.gzip import GZipMiddleware
-from fastapi.responses import ORJSONResponse
+from starlette.responses import JSONResponse
 
 from lokilinux.api.v1 import router as api_v1_router
 from lokilinux.cache import RedisCache
@@ -55,6 +55,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.session_factory = session_factory
     logger.info("db.ready")
 
+    # Curated compliance rule content (docs/compliance §3, §43) — idempotent
+    # upsert on every startup, cheap (~25 rules), so the catalog and its
+    # GLOBAL policy assignment always exist without a manual import step.
+    from lokilinux.services.curated_rules_loader import CuratedRulesLoader
+    async with session_factory() as db:
+        try:
+            load_result = await CuratedRulesLoader(db).load_all()
+            logger.info(
+                "compliance.curated_rules_loaded",
+                rules_loaded=load_result.rules_loaded,
+                policy_set_created=load_result.policy_set_created,
+                assignment_created=load_result.assignment_created,
+            )
+        except Exception:
+            logger.error("compliance.curated_rules_load_failed", exc_info=True)
+
     # Redis
     cache = RedisCache(url=settings.redis_url)
     await cache.connect()
@@ -67,16 +83,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("nats.ready", url=settings.nats_url)
 
     # Workers — subscribe after NATS is up
-    from lokilinux.workers.job_executor import JobExecutorWorker
-    from lokilinux.workers.cve_processor import CVEProcessorWorker
     from lokilinux.workers.alert_processor import AlertProcessorWorker
-    from lokilinux.workers.policy_worker import PolicyWorker
-    from lokilinux.workers.policy_scheduler import PolicySchedulerWorker
-    from lokilinux.workers.plugin_worker import PluginWorker
+    from lokilinux.workers.cve_processor import CVEProcessorWorker
     from lokilinux.workers.heartbeat_monitor import HeartbeatMonitorWorker
+    from lokilinux.workers.job_executor import JobExecutorWorker
     from lokilinux.workers.job_timeout import JobTimeoutWorker
-    from lokilinux.workers.retention_cleanup import RetentionCleanupWorker
     from lokilinux.workers.notification_worker import NotificationWorker
+    from lokilinux.workers.plugin_worker import PluginWorker
+    from lokilinux.workers.policy_scheduler import PolicySchedulerWorker
+    from lokilinux.workers.policy_worker import PolicyWorker
+    from lokilinux.workers.retention_cleanup import RetentionCleanupWorker
 
     job_worker = JobExecutorWorker(nc, session_factory, cache)
     await job_worker.start()
@@ -96,11 +112,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await job_timeout_worker.start()
     retention_worker = RetentionCleanupWorker(session_factory)
     await retention_worker.start()
+    from lokilinux.workers.remediation_scheduler import RemediationSchedulerWorker
+    remediation_scheduler_worker = RemediationSchedulerWorker(session_factory, cache, nc)
+    await remediation_scheduler_worker.start()
+    from lokilinux.workers.remediation_verification import RemediationVerificationWorker
+    remediation_verification_worker = RemediationVerificationWorker(session_factory)
+    await remediation_verification_worker.start()
     notification_worker = NotificationWorker(nc, session_factory)
     await notification_worker.start()
+    from lokilinux.workers.cve_enrichment import CVEEnrichmentWorker
+    cve_enrichment_worker = CVEEnrichmentWorker(session_factory, cache)
+    await cve_enrichment_worker.start()
     app.state.workers = [
         job_worker, cve_worker, alert_worker, policy_worker, policy_scheduler_worker, plugin_worker,
-        heartbeat_worker, job_timeout_worker, retention_worker, notification_worker,
+        heartbeat_worker, job_timeout_worker, remediation_scheduler_worker, remediation_verification_worker,
+        retention_worker, notification_worker, cve_enrichment_worker,
     ]
     logger.info("workers.ready")
 
@@ -109,9 +135,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Shutdown — reverse order
     logger.info("lokilinux.shutdown")
     await heartbeat_worker.stop()
+    await remediation_verification_worker.stop()
+    await remediation_scheduler_worker.stop()
     await job_timeout_worker.stop()
     await policy_scheduler_worker.stop()
     await retention_worker.stop()
+    await cve_enrichment_worker.stop()
     await nc.drain()
     await cache.disconnect()
     await engine.dispose()
@@ -124,7 +153,6 @@ app = FastAPI(
     version="0.1.0",
     description="Enterprise Linux fleet management — backend API",
     lifespan=lifespan,
-    default_response_class=ORJSONResponse,
     docs_url="/docs" if settings.debug else None,
     redoc_url=None,
     openapi_url="/openapi.json" if settings.debug else None,
@@ -172,7 +200,7 @@ async def liveness() -> dict[str, str]:
 
 
 @app.get("/ready", tags=["health"])
-async def readiness(request: Request) -> ORJSONResponse:
+async def readiness(request: Request) -> JSONResponse:
     """Kubernetes readiness probe — checks DB and cache."""
     errors: list[str] = []
 
@@ -187,8 +215,8 @@ async def readiness(request: Request) -> ORJSONResponse:
         errors.append("cache: unreachable")
 
     if errors:
-        return ORJSONResponse(status_code=503, content={"status": "not_ready", "errors": errors})
-    return ORJSONResponse({"status": "ready"})
+        return JSONResponse(status_code=503, content={"status": "not_ready", "errors": errors})
+    return JSONResponse({"status": "ready"})
 
 
 # ── Static files (agent packages) ────────────────────────────────────────────
@@ -205,7 +233,6 @@ app.include_router(api_v1_router, prefix="/api/v1")
 # ── Validation error handler ──────────────────────────────────────────────────
 
 from fastapi.exceptions import RequestValidationError  # noqa: E402
-from fastapi.responses import JSONResponse  # noqa: E402
 
 
 @app.exception_handler(RequestValidationError)
