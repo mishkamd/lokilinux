@@ -15,7 +15,7 @@
       :class="{ 'translate-x-0': sidebarOpen, 'lg:hidden': sidebarCollapsed }"
     >
       <!-- Logo -->
-      <div class="h-16 flex items-center justify-between gap-2 px-4 border-b border-sidebar-border">
+      <div class="h-16 flex items-center gap-2 px-4 border-b border-sidebar-border">
         <NuxtLink to="/" class="group flex items-center gap-2.5 min-w-0" @click="sidebarOpen = false">
           <span
             role="img"
@@ -25,15 +25,18 @@
           />
           <span class="text-2xl font-display font-semibold text-sidebar-foreground tracking-tight mt-1.5 truncate transition-all duration-300 ease-out group-hover:translate-x-0.5 group-hover:text-primary-active">{{ companyName }}</span>
         </NuxtLink>
-        <button
-          type="button"
-          class="shrink-0 inline-flex items-center justify-center size-8 rounded-lg hover:bg-white/[0.05] text-sidebar-foreground/70 lg:hidden"
-          aria-label="Close menu"
-          @click="sidebarOpen = false"
-        >
-          <X class="size-4.5" />
-        </button>
       </div>
+
+      <!-- Close button — sits outside the sidebar's right edge, over the
+           backdrop, so it never competes with the logo for header width -->
+      <button
+        type="button"
+        class="absolute -right-11 top-4 inline-flex items-center justify-center size-8 rounded-lg bg-sidebar hover:bg-white/[0.05] text-sidebar-foreground/70 lg:hidden"
+        aria-label="Close menu"
+        @click="sidebarOpen = false"
+      >
+        <X class="size-4.5" />
+      </button>
 
       <!-- Navigation -->
       <nav class="flex-1 overflow-y-auto py-3 px-2 space-y-3" aria-label="Main navigation">
