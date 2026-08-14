@@ -7,28 +7,6 @@ const vulnerabilities = useVulnerabilitiesStore()
 const compliance = useComplianceStore()
 const { hasRole } = useCurrentUser()
 
-const TABS = [
-  { label: 'Overview', slot: 'overview' },
-  { label: 'Infrastructure', slot: 'infrastructure' },
-  { label: 'Security', slot: 'security' },
-  { label: 'Automation', slot: 'automation' },
-  { label: 'Compliance', slot: 'compliance' },
-  { label: 'Observability', slot: 'observability' },
-] as const
-type TabSlot = typeof TABS[number]['slot']
-// AppTabs wants a plain mutable array — .map() gives one without losing
-// each slot's literal type the way `satisfies` (which just widens to
-// `string`) would.
-const tabItems = TABS.map(t => ({ label: t.label, slot: t.slot }))
-
-const activeTab = ref<TabSlot>('overview')
-async function onTabChange(index: number) {
-  const tab = TABS[index]
-  if (!tab) return
-  activeTab.value = tab.slot
-  await dashboard.loadTab(tab.slot)
-}
-
 const RANGE_OPTIONS = [
   { label: 'Last 7 days', value: '7d' },
   { label: 'Last 30 days', value: '30d' },
@@ -36,7 +14,7 @@ const RANGE_OPTIONS = [
 ]
 
 async function retry() {
-  await dashboard.loadTab(activeTab.value, true)
+  await dashboard.loadTab('overview', true)
 }
 
 onMounted(() => dashboard.loadTab('overview'))
@@ -76,8 +54,7 @@ function deltaLabel(points: ChartDataPoint[]): { trend: string; trendUp: boolean
 
 <template>
   <div class="relative -m-3 sm:-m-4 min-h-full p-3 sm:p-4 space-y-3">
-    <div class="flex items-center justify-between gap-2">
-      <AppTabs :items="tabItems" @change="onTabChange" />
+    <div class="flex items-center justify-end gap-2">
       <Select
         :model-value="dashboard.range"
         :options="RANGE_OPTIONS"
@@ -89,8 +66,8 @@ function deltaLabel(points: ChartDataPoint[]): { trend: string; trendUp: boolean
     <DashboardError v-if="dashboard.summaryError" @retry="retry" />
 
     <template v-else>
-      <!-- Overview: full grid, everything on one screen -->
-      <div v-show="activeTab === 'overview'" class="space-y-3">
+      <!-- Everything on one screen — no per-category tabs -->
+      <div class="space-y-3">
         <div class="grid grid-cols-2 xl:grid-cols-4 gap-3">
           <MetricCard
             :icon="Server" label="Servers" to="/servers"
@@ -146,85 +123,6 @@ function deltaLabel(points: ChartDataPoint[]): { trend: string; trendUp: boolean
           <SecurityOverview :summary="vulnerabilities.summary" :trend="vulnerabilities.trend" />
           <ComplianceOverviewCard :overview="compliance.overview" :trend="compliance.trend" />
         </div>
-      </div>
-
-      <!-- Infrastructure: servers + agents + health -->
-      <div v-show="activeTab === 'infrastructure'" class="space-y-3">
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <MetricCard
-            :icon="Server" label="Servers" to="/servers"
-            :value="dashboard.summary?.agents.total ?? 0" :subtitle="`${dashboard.summary?.agents.active ?? 0} active`"
-            :chart-data="serversSpark" chart-color="green"
-            :loading="dashboard.summaryLoading && !dashboard.summary"
-          />
-          <AgentStatusDonut :by-status="dashboard.summary?.agents.by_status ?? {}" />
-        </div>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <OsDistributionDonut :distribution="dashboard.summary?.agents.os_distribution ?? {}" />
-          <InfrastructureHealth :health="dashboard.summary?.health ?? null" />
-        </div>
-        <NuxtLink to="/servers" class="text-xs font-medium text-primary">View full server list →</NuxtLink>
-      </div>
-
-      <!-- Security: vulnerabilities + risk -->
-      <div v-show="activeTab === 'security'" class="space-y-3">
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <MetricCard
-            :icon="ShieldAlert" label="Vulnerabilities" to="/vulnerabilities"
-            :value="dashboard.summary?.vulnerabilities.unresolved_total ?? 0"
-            :badges="dashboard.summary ? severityBadges(dashboard.summary.vulnerabilities.by_severity) : []"
-            empty-badges-text="no open vulnerabilities"
-            :chart-data="vulnsSpark" chart-color="red"
-            :loading="dashboard.summaryLoading && !dashboard.summary"
-          />
-          <SecurityOverview :summary="vulnerabilities.summary" :trend="vulnerabilities.trend" />
-        </div>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <VulnerabilitySeverityDonut :by-severity="dashboard.summary?.vulnerabilities.by_severity ?? {}" />
-          <TopVulnerableServers :resources="vulnerabilities.topResources" :loading="vulnerabilities.topResourcesLoading" />
-        </div>
-        <NuxtLink to="/vulnerabilities" class="text-xs font-medium text-primary">View full vulnerability report →</NuxtLink>
-      </div>
-
-      <!-- Automation: jobs -->
-      <div v-show="activeTab === 'automation'" class="space-y-3">
-        <MetricCard
-          :icon="ClipboardList" label="Jobs" to="/jobs"
-          :value="dashboard.summary?.jobs.total ?? 0" :subtitle="`${dashboard.summary?.jobs.running ?? 0} running`"
-          :badges="dashboard.summary ? statusBadges(dashboard.summary.jobs.by_status) : []"
-          :chart-data="jobsSpark" chart-color="blue"
-          class="max-w-md"
-          :loading="dashboard.summaryLoading && !dashboard.summary"
-        />
-        <JobsTrendChart :points="dashboard.trends?.jobs ?? []" :loading="dashboard.trendsLoading && !dashboard.trends" />
-        <NuxtLink to="/jobs" class="text-xs font-medium text-primary">View full job history →</NuxtLink>
-      </div>
-
-      <!-- Compliance -->
-      <div v-show="activeTab === 'compliance'" class="space-y-3">
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <ComplianceOverviewCard :overview="compliance.overview" :trend="compliance.trend" />
-          <ComplianceTrendChart
-            :points="compliance.trend" :loading="compliance.trendLoading" :range="compliance.trendRange"
-            @update:range="(r) => { compliance.trendRange = r as '7d' | '30d' | '90d' | '1y'; compliance.fetchTrend() }"
-          />
-        </div>
-        <NuxtLink to="/compliance" class="text-xs font-medium text-primary">View full compliance report →</NuxtLink>
-      </div>
-
-      <!-- Observability: alerts + activity -->
-      <div v-show="activeTab === 'observability'" class="space-y-3">
-        <MetricCard
-          :icon="BellDot" label="Alerts" to="/alerts"
-          :value="dashboard.summary?.alerts.active_total ?? 0"
-          :badges="dashboard.summary ? severityBadges(dashboard.summary.alerts.by_severity) : []"
-          empty-badges-text="no active alerts"
-          :chart-data="alertsSpark" chart-color="yellow"
-          class="max-w-md"
-          :loading="dashboard.summaryLoading && !dashboard.summary"
-        />
-        <RecentActivityFeed v-if="hasRole('AUDITOR')" />
-        <NuxtLink to="/alerts" class="text-xs font-medium text-primary">View all alerts →</NuxtLink>
       </div>
     </template>
   </div>
