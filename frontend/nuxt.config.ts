@@ -82,8 +82,16 @@ export default defineNuxtConfig({
       // subsequent request to the same URL, indistinguishable from a real bug.
       headers: { 'Cache-Control': 'no-store' },
     },
-    // Global cache headers for static content.
+    // Default: never cache. Authenticated SSR pages and the Better Auth
+    // session endpoints under /api/auth/** carry request-specific session
+    // data — a public cache here would let one user's browser (or a shared
+    // proxy) serve another user's session/HTML.
     '/**': {
+      headers: { 'Cache-Control': 'no-store' },
+    },
+    // Nuxt's own build output is content-hashed and genuinely immutable —
+    // this narrower, more specific rule overrides the no-store default above.
+    '/_nuxt/**': {
       headers: { 'Cache-Control': 'public, max-age=3600' },
     },
   },
