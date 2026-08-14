@@ -12,6 +12,15 @@ import (
 // depth on top of packageUpdateArgv never invoking a shell over them.
 var packageNameRe = regexp.MustCompile(`^[A-Za-z0-9+._:-]+$`)
 
+// isValidPackageName rejects anything packageNameRe wouldn't match, plus a
+// leading hyphen: dnf/yum/zypper receive names without a "--" separator (see
+// packageUpdateArgv), so a value like "--installroot=/tmp/evil" would be
+// parsed as an option, not a package name, even though the charset alone
+// allows it.
+func isValidPackageName(s string) bool {
+	return s != "" && s[0] != '-' && packageNameRe.MatchString(s)
+}
+
 // UpdatePackages installs/upgrades the given packages via the host's detected
 // package manager (apt/dnf/yum/zypper). An empty or absent package_names
 // param means "update everything".
@@ -25,7 +34,7 @@ func UpdatePackages(ctx context.Context, jobID string, params map[string]interfa
 	if raw, ok := params["package_names"].([]interface{}); ok {
 		for _, n := range raw {
 			if s, ok := n.(string); ok && s != "" {
-				if !packageNameRe.MatchString(s) {
+				if !isValidPackageName(s) {
 					return fail("invalid package name: %q", s)
 				}
 				names = append(names, s)

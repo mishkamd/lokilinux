@@ -50,3 +50,21 @@ func TestPackageNameRe(t *testing.T) {
 		}
 	}
 }
+
+func TestIsValidPackageName(t *testing.T) {
+	valid := []string{"nginx", "libssl-dev", "python3.11", "pkg:amd64", "a+b"}
+	invalid := []string{
+		"nginx; rm -rf /", "curl|sh", "$(whoami)", "pkg && evil", "a b",
+		"--installroot", "--installroot=/tmp/evil", "-y",
+	}
+	for _, n := range valid {
+		if !isValidPackageName(n) {
+			t.Errorf("expected %q to be a valid package name", n)
+		}
+	}
+	for _, n := range invalid {
+		if isValidPackageName(n) {
+			t.Errorf("expected %q to be rejected as a package name", n)
+		}
+	}
+}
