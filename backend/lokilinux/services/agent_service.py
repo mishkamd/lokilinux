@@ -287,6 +287,12 @@ class AgentService:
                     # protected ones (IN_PROGRESS/MITIGATED/ACCEPTED_RISK
                     # were never is_remediated=True to begin with).
                     "is_remediated": False,
+                    # Clear a stale resolved-date from a prior remediation
+                    # cycle — otherwise vulnerability_counts_by_day's
+                    # discovered_at/remediation_date reconstruction reads a
+                    # reopened finding as still closed on today's date
+                    # (confirmed live: 38/100 open findings had this).
+                    "remediation_date": None,
                 },
             )
             await self.db.execute(vuln_stmt)

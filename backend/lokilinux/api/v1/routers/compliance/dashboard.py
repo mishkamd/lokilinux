@@ -135,6 +135,8 @@ class ComplianceOverview(BaseModel):
     servers_evaluated: int
     servers_non_compliant: int
     exceptions_active: int
+    remediation_pct: float
+    resolved_controls: int
 
 
 @router.get("/overview", response_model=ComplianceOverview)
@@ -196,6 +198,38 @@ async def overview(
         await db.execute(text("SELECT count(*) FROM compliance_exceptions WHERE status = 'ACTIVE'"))
     ).scalar() or 0
 
+    # Remediation progress: of the rules currently failing, how many already
+    # have a completed remediation action tracking them — reuses the same
+    # `latest` CTE rather than a second full evaluation scan.
+    remediation_row = (
+        await db.execute(
+            text(
+                f"""
+                WITH {latest_cte},
+                failing_rules AS (
+                    SELECT DISTINCT rule_id FROM latest WHERE result = 'FAIL'
+                ),
+                remediated_rules AS (
+                    SELECT DISTINCT ra.rule_id
+                    FROM remediation_actions ra
+                    JOIN remediation_plans rp ON rp.id = ra.remediation_plan_id
+                    WHERE rp.status = 'COMPLETED'
+                      AND ra.rule_id IN (SELECT rule_id FROM failing_rules)
+                )
+                SELECT
+                    (SELECT count(*) FROM failing_rules) AS failing_total,
+                    (SELECT count(*) FROM remediated_rules) AS resolved_controls
+                """
+            )
+        )
+    ).mappings().one()
+
+    failing_total = remediation_row["failing_total"] or 0
+    resolved_controls = remediation_row["resolved_controls"] or 0
+    remediation_pct = (
+        round(100.0 * resolved_controls / failing_total, 2) if failing_total > 0 else 100.0
+    )
+
     return ComplianceOverview(
         overall_compliance_pct=compliance_pct,
         critical_violations=counts_row["critical"] or 0,
@@ -206,6 +240,8 @@ async def overview(
         servers_evaluated=counts_row["servers_evaluated"] or 0,
         servers_non_compliant=counts_row["servers_non_compliant"] or 0,
         exceptions_active=exceptions_active,
+        remediation_pct=remediation_pct,
+        resolved_controls=resolved_controls,
     )
 
 

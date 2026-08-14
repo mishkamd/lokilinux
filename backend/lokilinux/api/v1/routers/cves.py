@@ -43,16 +43,10 @@ from lokilinux.schemas.remediation import RemediationActionCreate, RemediationPl
 from lokilinux.services.audit_service import AuditService
 from lokilinux.services.job_service import JobService
 from lokilinux.services.remediation_service import RemediationService
+from lokilinux.services.trends import OPEN_VULN_STATUSES as _OPEN_STATUSES
+from lokilinux.services.trends import vulnerability_counts_by_day
 
 router = APIRouter()
-
-# statuses that count as "still exposed" for KPI/trend/top-N purposes —
-# RESOLVED and ACCEPTED_RISK are deliberately excluded (docs/vulnerabilities
-# V4): a resolved finding shouldn't inflate "how exposed is the fleet
-# right now", and an accepted risk is a recorded decision, not an open gap.
-_OPEN_STATUSES = ("OPEN", "PATCH_AVAILABLE", "IN_PROGRESS", "MITIGATED")
-
-_TREND_RANGES = {"7d": (7, "1 day"), "30d": (30, "1 day"), "90d": (90, "1 day"), "1y": (365, "7 days")}
 
 # os_distro -> upgrade-to-latest command. The Go agent picks its package
 # manager by checking which binary actually exists on disk (package_manager.
@@ -186,11 +180,16 @@ async def vulnerability_summary(
     ).scalar_one()
     resources_total = (await db.execute(select(func.count()).select_from(Agent))).scalar_one()
 
+    # Severity comes from cves.cvss_v3_severity (kept current by the NVD
+    # enrichment worker), not the denormalized agent_vulnerabilities.severity
+    # snapshot from scan time — see services/trends.py's module docstring.
     counts = dict(
         (await db.execute(
-            select(AgentVulnerability.severity, func.count())
+            select(CVE.cvss_v3_severity, func.count())
+            .select_from(AgentVulnerability)
+            .join(CVE, AgentVulnerability.cve_id == CVE.cve_id)
             .where(AgentVulnerability.status.in_(_OPEN_STATUSES))
-            .group_by(AgentVulnerability.severity)
+            .group_by(CVE.cvss_v3_severity)
         )).all()
     )
 
@@ -201,23 +200,27 @@ async def vulnerability_summary(
     week_ago, two_weeks_ago = now - timedelta(days=7), now - timedelta(days=14)
     prior_counts = dict(
         (await db.execute(
-            select(AgentVulnerability.severity, func.count())
+            select(CVE.cvss_v3_severity, func.count())
+            .select_from(AgentVulnerability)
+            .join(CVE, AgentVulnerability.cve_id == CVE.cve_id)
             .where(
                 AgentVulnerability.status.in_(_OPEN_STATUSES),
                 AgentVulnerability.discovered_at >= two_weeks_ago,
                 AgentVulnerability.discovered_at < week_ago,
             )
-            .group_by(AgentVulnerability.severity)
+            .group_by(CVE.cvss_v3_severity)
         )).all()
     )
     current_counts = dict(
         (await db.execute(
-            select(AgentVulnerability.severity, func.count())
+            select(CVE.cvss_v3_severity, func.count())
+            .select_from(AgentVulnerability)
+            .join(CVE, AgentVulnerability.cve_id == CVE.cve_id)
             .where(
                 AgentVulnerability.status.in_(_OPEN_STATUSES),
                 AgentVulnerability.discovered_at >= week_ago,
             )
-            .group_by(AgentVulnerability.severity)
+            .group_by(CVE.cvss_v3_severity)
         )).all()
     )
 
@@ -258,28 +261,7 @@ async def vulnerability_trend(
     if hit := await cache.get_cached(cache_key):
         return [VulnerabilityTrendPoint.model_validate(p) for p in hit]
 
-    days, bucket = _TREND_RANGES[range]
-    rows = (
-        await db.execute(
-            text(
-                """
-                SELECT d::date AS day,
-                       count(*) FILTER (WHERE av.severity = 'CRITICAL') AS critical,
-                       count(*) FILTER (WHERE av.severity = 'HIGH') AS high,
-                       count(*) FILTER (WHERE av.severity = 'MEDIUM') AS medium,
-                       count(*) FILTER (WHERE av.severity = 'LOW') AS low
-                FROM generate_series(now() - (:days || ' days')::interval, now(), (:bucket)::interval) d
-                LEFT JOIN agent_vulnerabilities av
-                  ON av.discovered_at <= d
-                 AND (av.remediation_date IS NULL OR av.remediation_date > d)
-                GROUP BY d
-                ORDER BY d
-                """
-            ),
-            {"days": days, "bucket": bucket},
-        )
-    ).mappings().all()
-
+    rows = await vulnerability_counts_by_day(db, range)
     points = [VulnerabilityTrendPoint(**r) for r in rows]
     await cache.set_cached(cache_key, json.loads(json.dumps([p.model_dump(mode="json") for p in points])), ttl=TTL_CVE_DATA)
     return points
@@ -302,13 +284,14 @@ async def top_vulnerable_resources(
                 """
                 SELECT a.id AS agent_id, a.hostname, cat.name AS environment, proj.name AS project,
                        a.os_distro, a.os_version,
-                       count(*) FILTER (WHERE av.severity = 'CRITICAL') AS critical,
-                       count(*) FILTER (WHERE av.severity = 'HIGH') AS high,
-                       count(*) FILTER (WHERE av.severity = 'MEDIUM') AS medium,
-                       count(*) FILTER (WHERE av.severity = 'LOW') AS low,
+                       count(*) FILTER (WHERE c.cvss_v3_severity = 'CRITICAL') AS critical,
+                       count(*) FILTER (WHERE c.cvss_v3_severity = 'HIGH') AS high,
+                       count(*) FILTER (WHERE c.cvss_v3_severity = 'MEDIUM') AS medium,
+                       count(*) FILTER (WHERE c.cvss_v3_severity = 'LOW') AS low,
                        count(*) AS total
                 FROM agent_vulnerabilities av
                 JOIN agents a ON a.id = av.agent_id
+                JOIN cves c ON c.cve_id = av.cve_id
                 LEFT JOIN categories cat ON cat.id = a.category_id
                 LEFT JOIN projects proj ON proj.id = a.project_id
                 WHERE av.status = ANY(:open_statuses)
@@ -463,13 +446,17 @@ async def list_server_vulnerabilities(
     if agent is None:
         raise HTTPException(status_code=404, detail="Server not found")
 
+    # Severity comes from cves.cvss_v3_severity (see services/trends.py's
+    # module docstring) — filter and display both read the same column the
+    # NVD enrichment worker keeps current, not the denormalized snapshot.
     q = (
-        select(AgentVulnerability)
+        select(AgentVulnerability, CVE.cvss_v3_severity)
+        .join(CVE, AgentVulnerability.cve_id == CVE.cve_id)
         .where(AgentVulnerability.agent_id == agent.id)
         .order_by(AgentVulnerability.discovered_at.desc(), AgentVulnerability.id.desc())
     )
     if severity:
-        q = q.where(AgentVulnerability.severity == severity.value)
+        q = q.where(CVE.cvss_v3_severity == severity.value)
     if cursor:
         raw = decode_cursor(cursor)
         try:
@@ -479,16 +466,20 @@ async def list_server_vulnerabilities(
         q = q.where(AgentVulnerability.id < vuln_int)
 
     q = q.limit(limit + 1)
-    rows = (await db.execute(q)).scalars().all()
+    rows = (await db.execute(q)).all()
 
     has_more = len(rows) > limit
     items = rows[:limit]
-    next_cursor = encode_cursor(str(items[-1].id)) if has_more and items else None
+    next_cursor = encode_cursor(str(items[-1][0].id)) if has_more and items else None
 
     page = CursorPage[VulnerabilityResponse](
         items=[
-            VulnerabilityResponse.model_validate(v).model_copy(update={"hostname": agent.hostname})
-            for v in items
+            VulnerabilityResponse.model_validate(v).model_copy(
+                # model_copy skips validation, so coerce to the enum here —
+                # otherwise a raw str sits in a CVESeverity-typed field.
+                update={"hostname": agent.hostname, "severity": CVESeverity(sev) if sev else None}
+            )
+            for v, sev in items
         ],
         next_cursor=next_cursor,
     )

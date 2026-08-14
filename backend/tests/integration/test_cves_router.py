@@ -63,6 +63,40 @@ async def test_list_vulnerabilities_summary_and_total(client: AsyncClient, db_se
 
 
 @pytest.mark.asyncio
+async def test_summary_severity_reads_cve_catalog_not_stale_finding_snapshot(
+    client: AsyncClient, db_session
+):
+    """agent_vulnerabilities.severity is set once at scan time from the
+    distro advisory and never updated when the NVD enrichment worker later
+    corrects cves.cvss_v3_severity — the summary must count by the catalog's
+    current severity, not the stale per-finding column, or a re-classified
+    CRITICAL silently reports as whatever it was before enrichment."""
+    import uuid
+
+    from lokilinux.models.agent import Agent
+    from lokilinux.models.cve import AgentVulnerability
+
+    agent_id = uuid.uuid4()
+    db_session.add(Agent(id=agent_id, agent_id=str(agent_id), hostname="sev-drift-host"))
+    db_session.add(CVE(cve_id="CVE-2026-9000", cvss_v3_severity="CRITICAL"))
+    await db_session.commit()
+
+    db_session.add(AgentVulnerability(
+        # severity="HIGH" is stale here — scan-time value, before enrichment
+        agent_id=agent_id, cve_id="CVE-2026-9000", package_name="kernel",
+        package_version="1.0", severity="HIGH",
+        status="PATCH_AVAILABLE",
+    ))
+    await db_session.commit()
+
+    resp = await client.get("/api/v1/vulnerabilities/summary")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["critical"] == 1
+    assert body["high"] == 0
+
+
+@pytest.mark.asyncio
 async def test_list_vulnerabilities_search(client: AsyncClient, db_session):
     db_session.add(CVE(cve_id="CVE-2026-5000", title="Buffer overflow in libfoo", cvss_v3_severity="HIGH"))
     db_session.add(CVE(cve_id="CVE-2026-5001", title="Unrelated issue", cvss_v3_severity="HIGH"))

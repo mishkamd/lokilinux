@@ -19,6 +19,8 @@
     "@nuxt/fonts": "^0.14.0",
     "@pinia/nuxt": "^0.11.3",
     "@tailwindcss/vite": "^4.3.2",
+    "@unovis/ts": "^1.6.7",
+    "@unovis/vue": "^1.6.7",
     "@vueuse/core": "^14.3.0",
     "@vueuse/nuxt": "^14.3.0",
     "better-auth": "^1.6.22",

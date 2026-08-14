@@ -104,6 +104,10 @@ const topVulnerabilities = computed(() => [...cves.value].slice(0, 10))
         <p class="data-value text-success">{{ summaryLoading ? '…' : (summary?.low ?? 0) }}</p>
       </Card>
     </div>
+    <p class="text-xs text-muted-foreground -mt-3 mb-4">
+      Open exposure on your fleet right now — not the full
+      <NuxtLink to="/vulnerabilities/list" class="text-primary hover:underline">CVE Catalog</NuxtLink>.
+    </p>
 
     <!-- Trend -->
     <div class="mb-4">

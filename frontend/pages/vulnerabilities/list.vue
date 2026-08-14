@@ -75,7 +75,7 @@ function filterBySeverity(sev: string) {
       </div>
     </div>
 
-    <div class="grid grid-cols-4 gap-3 mb-4">
+    <div class="grid grid-cols-4 gap-3 mb-1">
       <Card
         v-for="card in summaryCards" :key="card.label"
         class="cursor-pointer hover:shadow-md transition-shadow"
@@ -89,6 +89,10 @@ function filterBySeverity(sev: string) {
         </div>
       </Card>
     </div>
+    <p class="text-xs text-muted-foreground mb-4">
+      Every CVE ever tracked, fleet-wide — not filtered to current exposure. For that, see
+      <NuxtLink to="/vulnerabilities" class="text-primary hover:underline">Vulnerability Management</NuxtLink>.
+    </p>
 
     <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
       <div class="flex flex-wrap items-center gap-3">

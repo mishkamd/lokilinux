@@ -81,28 +81,28 @@ async function submitRunAssessment() {
 <template>
   <div>
     <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
-      <StatCard
+      <MetricCard
         :icon="Gauge"
         label="Compliance"
         :value="overview ? `${overview.overall_compliance_pct.toFixed(1)}%` : (overviewLoading ? '…' : '—')"
         to="/compliance/rules"
         view-all-label="View"
       />
-      <StatCard
+      <MetricCard
         :icon="ShieldAlert"
         label="Critical violations"
         :value="overview?.critical_violations ?? (overviewLoading ? '…' : '—')"
         to="/compliance/drift"
         view-all-label="View"
       />
-      <StatCard
+      <MetricCard
         :icon="ShieldAlert"
         label="High violations"
         :value="overview?.high_violations ?? (overviewLoading ? '…' : '—')"
         to="/compliance/drift"
         view-all-label="View"
       />
-      <StatCard
+      <MetricCard
         :icon="ShieldCheck"
         label="Baselines"
         :value="overview?.active_baselines ?? (overviewLoading ? '…' : '—')"
@@ -110,7 +110,7 @@ async function submitRunAssessment() {
         to="/compliance/baselines"
         view-all-label="View"
       />
-      <StatCard
+      <MetricCard
         :icon="BookCheck"
         label="Policies"
         :value="overview?.enabled_policies ?? (overviewLoading ? '…' : '—')"
@@ -118,28 +118,28 @@ async function submitRunAssessment() {
         to="/compliance/policies"
         view-all-label="View"
       />
-      <StatCard
+      <MetricCard
         :icon="FileText"
         label="Open drift"
         :value="overview?.open_drift ?? (overviewLoading ? '…' : '—')"
         to="/compliance/drift"
         view-all-label="View"
       />
-      <StatCard
+      <MetricCard
         :icon="ShieldCheck"
         label="Servers evaluated"
         :value="overview?.servers_evaluated ?? (overviewLoading ? '…' : '—')"
         to="/servers"
         view-all-label="View"
       />
-      <StatCard
+      <MetricCard
         :icon="ShieldAlert"
         label="Non-compliant"
         :value="overview?.servers_non_compliant ?? (overviewLoading ? '…' : '—')"
         to="/servers"
         view-all-label="View"
       />
-      <StatCard
+      <MetricCard
         :icon="ShieldOff"
         label="Exceptions"
         :value="overview?.exceptions_active ?? (overviewLoading ? '…' : '—')"

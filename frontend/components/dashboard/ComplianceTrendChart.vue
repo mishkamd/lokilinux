@@ -1,6 +1,9 @@
 <script setup lang="ts">
 import { TrendingUp } from 'lucide-vue-next'
+import { CurveType } from '@unovis/ts'
+import { VisArea } from '@unovis/vue'
 import type { TrendPoint } from '~/stores/compliance'
+import type { ChartConfig } from '~/components/ui/chart/types'
 
 const props = defineProps<{ points: TrendPoint[]; loading: boolean; range: string }>()
 const emit = defineEmits<{ 'update:range': [value: string] }>()
@@ -12,33 +15,12 @@ const RANGES = [
   { label: '1y', value: '1y' },
 ]
 
-const WIDTH = 600
-const HEIGHT = 120
-const PAD = 8
+const chartConfig: ChartConfig = {
+  compliance_pct: { label: 'Compliance', color: 'var(--chart-1)' },
+}
 
-// min/max clamp keeps a flat 100%-everywhere trend from collapsing to a
-// zero-height line — a few points of vertical range are still legible.
-const bounds = computed(() => {
-  const values = props.points.map((p) => p.compliance_pct)
-  if (values.length === 0) return { min: 0, max: 100 }
-  const min = Math.min(...values)
-  const max = Math.max(...values)
-  return max - min < 5 ? { min: Math.max(0, min - 5), max: Math.min(100, max + 5) } : { min, max }
-})
-
-const linePath = computed(() => {
-  const n = props.points.length
-  if (n < 2) return ''
-  const { min, max } = bounds.value
-  const span = max - min || 1
-  return props.points
-    .map((p, i) => {
-      const x = PAD + (i / (n - 1)) * (WIDTH - PAD * 2)
-      const y = HEIGHT - PAD - ((p.compliance_pct - min) / span) * (HEIGHT - PAD * 2)
-      return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`
-    })
-    .join(' ')
-})
+const x = (_d: TrendPoint, i: number) => i
+const y = (d: TrendPoint) => d.compliance_pct
 
 const latest = computed(() => props.points.at(-1)?.compliance_pct ?? null)
 </script>
@@ -68,8 +50,9 @@ const latest = computed(() => props.points.at(-1)?.compliance_pct ?? null)
     <p v-else-if="points.length < 2" class="text-xs text-muted-foreground py-8 text-center">
       Not enough history yet — trend appears once compliance scores accumulate.
     </p>
-    <svg v-else :viewBox="`0 0 ${WIDTH} ${HEIGHT}`" class="w-full h-24" preserveAspectRatio="none">
-      <path :d="linePath" fill="none" stroke="var(--chart-1)" stroke-width="2" vector-effect="non-scaling-stroke" />
-    </svg>
+    <ChartContainer v-else :config="chartConfig" :data="props.points" :height="96">
+      <VisArea :x="x" :y="y" color="var(--chart-1)" :opacity="0.12" :line="true" line-color="var(--chart-1)" :line-width="2" :curve-type="CurveType.Natural" />
+      <ChartTooltip :x="x" label-key="day" :value-formatter="(v) => `${v.toFixed(1)}%`" />
+    </ChartContainer>
   </div>
 </template>

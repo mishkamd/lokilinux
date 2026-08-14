@@ -12,6 +12,7 @@ from lokilinux.models.agent import Agent
 from lokilinux.models.compliance_rule import ComplianceRule
 from lokilinux.models.drift import DriftEvent
 from lokilinux.models.file_integrity import FileChange
+from lokilinux.models.remediation import RemediationAction, RemediationPlan
 from lokilinux.models.rule_evaluation import RuleEvaluation
 
 
@@ -211,3 +212,60 @@ async def test_top_changed_files_ranks_by_frequency(
     assert files[0]["change_count"] == 4
     assert files[1]["path"] == "/etc/hosts"
     assert files[1]["change_count"] == 1
+
+
+@pytest.mark.asyncio
+async def test_overview_empty_fleet_reports_full_remediation(client: AsyncClient):
+    resp = await client.get("/api/v1/compliance/overview")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["overall_compliance_pct"] == 0.0
+    # nothing failing means nothing left to remediate
+    assert body["remediation_pct"] == 100.0
+    assert body["resolved_controls"] == 0
+
+
+@pytest.mark.asyncio
+async def test_overview_remediation_pct_counts_completed_plans_for_failing_rules(
+    client: AsyncClient, db_session: AsyncSession
+):
+    await _clean(db_session)
+    agent_id = uuid.uuid4()
+    fixed_rule = ComplianceRule(
+        id=uuid.uuid4(), rule_key="fixed_rule", title="Fixed rule", severity="HIGH",
+        domain="sshd", check_source="CEL", check_expr="true",
+    )
+    unfixed_rule = ComplianceRule(
+        id=uuid.uuid4(), rule_key="unfixed_rule", title="Unfixed rule", severity="CRITICAL",
+        domain="sysctl", check_source="CEL", check_expr="true",
+    )
+    db_session.add_all([_agent(agent_id), fixed_rule, unfixed_rule])
+    await db_session.commit()
+
+    now = datetime.now(timezone.utc)
+    policy_set_id = uuid.uuid4()
+    db_session.add_all([
+        RuleEvaluation(time=now, agent_id=agent_id, rule_id=fixed_rule.id,
+                        policy_set_id=policy_set_id, result="FAIL"),
+        RuleEvaluation(time=now, agent_id=agent_id, rule_id=unfixed_rule.id,
+                        policy_set_id=policy_set_id, result="FAIL"),
+    ])
+
+    plan = RemediationPlan(
+        id=uuid.uuid4(), name="fix sshd", status="COMPLETED", trigger_type="MANUAL",
+    )
+    db_session.add(plan)
+    await db_session.commit()
+    db_session.add(
+        RemediationAction(
+            id=uuid.uuid4(), remediation_plan_id=plan.id, rule_id=fixed_rule.id,
+            agent_id=agent_id, provider="ansible", rendered_body="- name: fix",
+        )
+    )
+    await db_session.commit()
+
+    resp = await client.get("/api/v1/compliance/overview")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["resolved_controls"] == 1
+    assert body["remediation_pct"] == 50.0

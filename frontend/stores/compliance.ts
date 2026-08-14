@@ -287,6 +287,8 @@ export interface ComplianceOverview {
   servers_evaluated: number
   servers_non_compliant: number
   exceptions_active: number
+  remediation_pct: number
+  resolved_controls: number
 }
 
 export interface TrendPoint {
