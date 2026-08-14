@@ -469,3 +469,15 @@ h1, h2, h3, h4, h5, h6 {
   background-color: color-mix(in oklch, var(--primary) 30%, transparent);
   color: var(--foreground);
 }
+
+/* ─── Unovis tooltips ────────────────────────────────────────────
+ * Unovis's own tooltip wrapper ships a white background + padding
+ * (--vis-tooltip-background-color defaults to rgba(255,255,255,.95)).
+ * Every chart here renders its own styled box inside that wrapper,
+ * so the default box just shows as a white halo behind ours. Zero
+ * it out and let the inner template own all visuals. */
+[data-vis-tooltip] {
+  --vis-tooltip-background-color: transparent;
+  --vis-tooltip-padding: 0;
+  --vis-tooltip-box-shadow: none;
+}
