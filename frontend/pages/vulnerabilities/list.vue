@@ -68,12 +68,6 @@ function filterBySeverity(sev: string) {
 
 <template>
   <div>
-    <div class="flex items-center justify-between mb-4">
-      <div>
-        <h1 class="page-title">CVE Catalog</h1>
-      </div>
-    </div>
-
     <div class="grid grid-cols-4 gap-3 mb-4">
       <Card
         v-for="card in summaryCards" :key="card.label"

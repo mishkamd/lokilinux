@@ -58,10 +58,7 @@ const topVulnerabilities = computed(() => [...cves.value].slice(0, 10))
 
 <template>
   <div>
-    <div class="flex items-center justify-between mb-1">
-      <div>
-        <h1 class="page-title">Vulnerability Management</h1>
-      </div>
+    <div class="flex items-center justify-end mb-1">
       <Button variant="outline" to="/vulnerabilities/list">Browse catalog</Button>
     </div>
 
