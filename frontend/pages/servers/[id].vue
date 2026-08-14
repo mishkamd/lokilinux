@@ -296,7 +296,7 @@ const SEVERITY_COLORS: Record<string, string> = {
             </template>
           </DataTable>
           <p v-if="!store.packagesLoading && !store.packages.length" class="text-xs text-muted-foreground mt-2">
-            No packages reported yet — appears after first heartbeat with inventory from agent.
+            No packages reported yet. This appears after the first heartbeat with inventory from the agent.
           </p>
         </div>
       </template>
@@ -317,7 +317,7 @@ const SEVERITY_COLORS: Record<string, string> = {
             </template>
           </DataTable>
           <p v-if="!store.vulnerabilitiesLoading && !store.vulnerabilities.length" class="text-xs text-muted-foreground mt-2">
-            No vulnerabilities reported — appears after CVE scan processing for this server's packages.
+            No vulnerabilities reported. This appears after CVE scan processing for this server's packages.
           </p>
         </div>
       </template>
@@ -346,7 +346,7 @@ const SEVERITY_COLORS: Record<string, string> = {
             <li v-for="u in server.system_users" :key="u" class="text-[13px] font-mono">{{ u }}</li>
           </ul>
           <p v-else class="text-xs text-muted-foreground">
-            No users reported yet — appears after first heartbeat from agent.
+            No users reported yet. This appears after the first heartbeat from the agent.
           </p>
         </Card>
       </template>
@@ -375,7 +375,7 @@ const SEVERITY_COLORS: Record<string, string> = {
             >{{ server.recent_logs.lines.join('\n') }}</pre>
           </div>
           <p v-else class="text-xs text-muted-foreground">
-            No logs reported yet — appears after first heartbeat from agent.
+            No logs reported yet. This appears after the first heartbeat from the agent.
           </p>
         </Card>
       </template>
