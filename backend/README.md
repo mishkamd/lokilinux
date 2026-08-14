@@ -159,10 +159,10 @@ Definită în `lokilinux/main.py`, executată o singură dată la pornirea proce
 1. **Baza de date.** `build_engine(settings.database_url)` → `build_session_factory(engine)` → stocate în `app.state.db_engine` și `app.state.session_factory`.
 2. **Redis.** `RedisCache(url=settings.redis_url).connect()` → `app.state.cache`.
 3. **NATS.** `nats.connect(settings.nats_url)` → `app.state.nats`.
-4. **11 workeri** porniți după ce NATS este disponibil:
-   - `JobExecutorWorker`, `CVEProcessorWorker`, `AlertProcessorWorker`, `PolicyWorker`, `PolicySchedulerWorker`, `PluginWorker`, `HeartbeatMonitorWorker`, `JobTimeoutWorker`, `RemediationCleanupWorker` (stocat ca `retention_worker`), `RetentionCleanupWorker`, `NotificationWorker`.
+4. **13 workeri** porniți după ce NATS este disponibil:
+   - `JobExecutorWorker`, `CVEProcessorWorker`, `AlertProcessorWorker`, `PolicyWorker`, `PolicySchedulerWorker`, `PluginWorker`, `HeartbeatMonitorWorker`, `JobTimeoutWorker`, `RetentionCleanupWorker`, `RemediationSchedulerWorker`, `RemediationVerificationWorker`, `NotificationWorker`, `CVEEnrichmentWorker`.
 5. **Servește cereri.**
-6. **Shutdown** —ordine inversă: `stop()` pe `HeartbeatMonitorWorker`, `RemediationSchedulerWorker`, `JobTimeoutWorker`, `RetentionCleanupWorker`; apoi `nc.drain()` (NATS), `cache.disconnect()` (Redis), `engine.dispose()` (DB). `PolicySchedulerWorker` este pornit dar **nu** are un `stop()` explicit în `main.py` — subscriberii săi NATS sunt eliberați de drain.
+6. **Shutdown** — ordine inversă: `stop()` explicit pe `HeartbeatMonitorWorker`, `RemediationVerificationWorker`, `RemediationSchedulerWorker`, `JobTimeoutWorker`, `PolicySchedulerWorker`, `RetentionCleanupWorker`, `CVEEnrichmentWorker` (cele 7 workeri pe buclă `asyncio`, fără subscriere NATS); apoi `nc.drain()` (NATS), `cache.disconnect()` (Redis), `engine.dispose()` (DB). Ceilalți 6 workeri (`JobExecutorWorker`, `CVEProcessorWorker`, `AlertProcessorWorker`, `PolicyWorker`, `PluginWorker`, `NotificationWorker`) sunt subscriberi NATS — nu au `stop()` explicit, sunt eliberați de `nc.drain()`.
 
 ### Fluxul unei cereri HTTP
 
@@ -216,7 +216,7 @@ Implementarea din `auth/jwks_validator.py` și `auth/dependencies.py`:
 - **`require_role(*roles)`** → 403 dacă rolul nu este în listă; **ADMIN trece mereu**, indiferent de rolurile cerute.
 - **`safe_user_uuid()`** → încearcă `UUID(user["id"])`; returnează `None` dacă Better Auth returnează un nanoid care nu parsează ca UUID (caz frecvent) — coloanele de audit `created_by`/`acknowledged_by` (UUID) primesc `None` în loc să eșueze.
 
-> **Notă:** Comentariile din `config.py` menționează „JWKS" și „RS256", dar implementarea curentă **nu** face validare JWKS locală. Autentificarea deleghează la `GET {BETTER_AUTH_URL}/api/auth/get-session` cu header-ul `Authorization: Bearer <token>` al clientului. `BETTER_AUTH_SECRET` este cerut de `Settings` și de Compose, dar backend-ul nu-l folosește pentru semnare/verificare locală de token-uri.
+> **Notă:** Comentariile din `config.py` menționează „JWKS” și „RS256”, dar implementarea curentă **nu** face validare JWKS locală. Autentificarea deleghează la `GET {BETTER_AUTH_URL}/api/auth/get-session` cu header-ul `Authorization: Bearer <token>` al clientului. `BETTER_AUTH_SECRET` este cerut de `Settings` și de Compose, dar backend-ul nu-l folosește pentru semnare/verificare locală de token-uri.
 
 ---
 
@@ -414,7 +414,7 @@ pytest -q
 | `AGENT_CERT_DIR` | Default: `/etc/lokilinux/certs` |
 | `FRONTEND_URL` | Default: `http://localhost:3000` (CORS origin) |
 | `PLATFORM_URL` | Default: `http://localhost:8000` |
-| `AGENT_VERSION` | Default în `config.py`: `0.1.0`; Compose: `0.35.1` — **configurație-driven**, sursa de adevăr depinde de contextul de deployment |
+| `AGENT_VERSION` | Default în `config.py`: `0.1.0`; Compose: `0.36.0` — **configurație-driven**, sursa de adevăr depinde de contextul de deployment |
 | `AGENT_PACKAGE_DIR` | Default: `/opt/lokilinux/packages` |
 
 ---
@@ -423,15 +423,15 @@ pytest -q
 
 Acest document reflectă starea **curentă a sursei**, nu comentarii sau documente învecinate care pot fi învechite. Discrepanțe concrete față de alte surse:
 
-1. **Autentificare:** codul curent apelează `GET {BETTER_AUTH_URL}/api/auth/get-session` pentru validare sesiune, în ciuda referințelor „JWKS" / „RS256" din comentariile `config.py`. `BETTER_AUTH_SECRET` este cerut de `Settings` și Compose, dar backend-ul nu-l folosește pentru semnare sau verificare locală de token-uri.
+1. **Autentificare:** codul curent apelează `GET {BETTER_AUTH_URL}/api/auth/get-session` pentru validare sesiune, în ciuda referințelor „JWKS” / „RS256” din comentariile `config.py`. `BETTER_AUTH_SECRET` este cerut de `Settings` și Compose, dar backend-ul nu-l folosește pentru semnare sau verificare locală de token-uri.
 
 2. **gRPC codec:** serverul gRPC curent folosește **JSON serializers** (`json.dumps`/`json.loads` cu `SimpleNamespace`). Fișierul `../proto/lokilinux.proto` există la nivel de repository ca referință de schemă, dar wire-ul runtime nu folosește protobuf binary.
 
-3. **Workeri:** `main.py` pornește curent **11 workeri** (inclusiv `RemediationSchedulerWorker`). Nu repetați rezumatele învechite de „10 workeri".
+3. **Workeri:** `main.py` pornește curent **11 workeri** (inclusiv `RemediationSchedulerWorker`). Nu repetați rezumatele învechite de „10 workeri”.
 
 4. **Port 9090 / Prometheus:** Compose expune portul `9090` pentru `lokilinux-api`, dar **nu există** o rută `/metrics` definită în sursa backend curentă. Nu confundați `/servers/{agent_id}/metrics` (endpoint de date pentru metricile agentului) cu un endpoint Prometheus.
 
-5. **Versiune agent:** `config.py` definește `agent_version: str = "0.1.0"` ca default, în timp ce Compose setează `AGENT_VERSION: ${AGENT_VERSION:-0.35.1}`. Versiunea este **configurație-driven** — sursa de adevăr depinde de contextul de deployment (env var în producție, default Python în development direct).
+5. **Versiune agent:** `config.py` definește `agent_version: str = "0.1.0"` ca default, în timp ce Compose setează `AGENT_VERSION: ${AGENT_VERSION:-0.36.0}`. Versiunea este **configurație-driven** — sursa de adevăr depinde de contextul de deployment (env var în producție, default Python în development direct).
 
 ---
 

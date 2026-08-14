@@ -184,7 +184,7 @@ backend/lokilinux/
 ├── models/              # 27 SQLAlchemy ORM models across 20 files
 ├── schemas/             # 16 Pydantic schema modules
 ├── services/            # 17 business logic service classes
-└── workers/             # 10 background workers (NATS + asyncio loop)
+└── workers/             # 13 background workers (NATS + asyncio loop)
 ```
 
 ### 3.2 REST API — Router Groups
@@ -231,7 +231,7 @@ All endpoints require JWT validation via `get_current_user` and optional role en
 | **ComplianceIngestService** | `compliance_ingest_service.py` | Domain hash diff, NATS publish for Go service |
 | **ComplianceAsCodeImporter** | `complianceascode_importer.py` | XCCDF 1.2 datastream parsing, rule/policy-set upsert |
 
-### 3.4 Background Workers (10 Workers)
+### 3.4 Background Workers (13 Workers)
 
 **NATS Subscribers (6):**
 
@@ -244,7 +244,7 @@ All endpoints require JWT validation via `get_current_user` and optional role en
 | CVEProcessorWorker | `CVE_DATABASE_UPDATED` | Cache invalidation |
 | NotificationWorker | `ALERT_CREATED` | SMTP/Slack delivery (via `asyncio.to_thread`) |
 
-**Asyncio Loop Workers (4):**
+**Asyncio Loop Workers (7):**
 
 | Worker | Interval | Action |
 |--------|----------|--------|
@@ -252,6 +252,9 @@ All endpoints require JWT validation via `get_current_user` and optional role en
 | HeartbeatMonitorWorker | 60s sweep | Marks stale ACTIVE agents INACTIVE, publishes AGENT_UNHEALTHY |
 | JobTimeoutWorker | 60s sweep | Marks stale QUEUED jobs TIMEOUT with dedup-free SQL |
 | RetentionCleanupWorker | 3600s sweep | Deletes audit_logs past retention_days |
+| RemediationSchedulerWorker | 30s tick | Dispatches APPROVED remediation plans whose maintenance window is open |
+| RemediationVerificationWorker | 30s tick | Re-checks VERIFYING plans' actual state, closes the loop past exit-code-only success |
+| CVEEnrichmentWorker | 10s tick | Fills CVSS/title/description/CWE from NVD, exploited/KEV date from CISA |
 
 ### 3.5 Database — 27 ORM Models
 
