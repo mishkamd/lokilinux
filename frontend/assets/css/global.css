@@ -471,14 +471,20 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 /* ─── Unovis tooltips ────────────────────────────────────────────
- * Unovis's own tooltip wrapper ships a white background + padding
- * (--vis-tooltip-background-color defaults to rgba(255,255,255,.95),
- * set globally via Emotion's runtime-injected `:root` rule). Every
- * chart here renders its own styled box inside that wrapper, so the
- * default box shows through as a white halo behind ours. !important
- * because the halo persisted with a plain override in testing —
- * belt-and-suspenders against Emotion's own injected specificity. */
-[data-vis-tooltip] {
+ * Unovis's floating tooltip popup is NOT appended into the
+ * `[data-vis-tooltip]` placeholder div the Vue wrapper renders —
+ * SingleContainer/XYContainer.updateContainer() calls
+ * tooltip.setContainer(this._container), where `_container` is the
+ * chart's own root element (`[data-vis-single-container]` for
+ * donuts, `[data-vis-xy-container]` for XY charts). The popup ends
+ * up a direct child of THAT, sibling to `[data-vis-tooltip]` — so a
+ * rule scoped to `[data-vis-tooltip]` never actually reaches it.
+ * Its default background (rgba(255,255,255,.95), from Emotion's
+ * runtime-injected `:root` rule in @unovis/ts/components/tooltip)
+ * showed through as a white halo behind our own styled dark box.
+ * !important: same specificity as that :root rule, and injection
+ * order isn't guaranteed. */
+[data-vis-single-container], [data-vis-xy-container] {
   --vis-tooltip-background-color: transparent !important;
   --vis-tooltip-padding: 0 !important;
   --vis-tooltip-box-shadow: none !important;
