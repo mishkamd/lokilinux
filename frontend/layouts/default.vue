@@ -15,19 +15,19 @@
       :class="{ 'translate-x-0': sidebarOpen, 'lg:hidden': sidebarCollapsed }"
     >
       <!-- Logo -->
-      <div class="relative h-16 flex items-center justify-start px-4 border-b border-sidebar-border">
-        <NuxtLink to="/" class="group flex items-center gap-2.5" @click="sidebarOpen = false">
+      <div class="h-16 flex items-center justify-between gap-2 px-4 border-b border-sidebar-border">
+        <NuxtLink to="/" class="group flex items-center gap-2.5 min-w-0" @click="sidebarOpen = false">
           <span
             role="img"
             :aria-label="companyName"
             class="size-8 shrink-0 bg-sidebar-foreground transition-all duration-300 ease-out group-hover:scale-110 group-hover:-rotate-6 group-hover:bg-primary-active"
             :style="logoMaskStyle"
           />
-          <span class="text-2xl font-display font-semibold text-sidebar-foreground tracking-tight mt-1.5 transition-all duration-300 ease-out group-hover:translate-x-0.5 group-hover:text-primary-active">{{ companyName }}</span>
+          <span class="text-2xl font-display font-semibold text-sidebar-foreground tracking-tight mt-1.5 truncate transition-all duration-300 ease-out group-hover:translate-x-0.5 group-hover:text-primary-active">{{ companyName }}</span>
         </NuxtLink>
         <button
           type="button"
-          class="absolute right-4 top-1/2 -translate-y-1/2 inline-flex items-center justify-center size-8 rounded-lg hover:bg-white/[0.05] text-sidebar-foreground/70 lg:hidden"
+          class="shrink-0 inline-flex items-center justify-center size-8 rounded-lg hover:bg-white/[0.05] text-sidebar-foreground/70 lg:hidden"
           aria-label="Close menu"
           @click="sidebarOpen = false"
         >
