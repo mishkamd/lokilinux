@@ -263,6 +263,7 @@ watch(() => route.path, () => { sidebarOpen.value = false })
 
 async function handleLogout() {
   await signOut()
+  await clearNuxtData('current-user')
   await navigateTo('/auth/login')
 }
 

@@ -15,12 +15,17 @@ async function onSubmit() {
 
   pending.value = true
   try {
-    if (id.includes('@')) {
-      await signIn.email({ email: id, password: form.password })
-    } else {
-      await signIn.username({ username: id, password: form.password })
+    const result = id.includes('@')
+      ? await signIn.email({ email: id, password: form.password })
+      : await signIn.username({ username: id, password: form.password })
+
+    if (!result.data || result.error) {
+      toast.add({ title: 'Autentificare eșuată', description: result.error?.message, color: 'red' })
+      return
     }
+
     await refreshAuthToken()
+    await refreshNuxtData('current-user')
     await router.push('/')
   } catch (error: unknown) {
     const err = error as { code?: string; message?: string }

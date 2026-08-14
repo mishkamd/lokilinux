@@ -89,6 +89,7 @@ describe('auth/login.vue — email/username dispatch', () => {
         password: 'wrongpass',
       })
       expect(signInMocks.username).not.toHaveBeenCalled()
+      expect(routerMocks.push).not.toHaveBeenCalled()
     })
   })
 
