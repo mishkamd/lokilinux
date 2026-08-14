@@ -156,7 +156,15 @@ async def test_update_heartbeat_upserts_vulnerabilities(db_session, fake_cache):
     assert rows[0].package_name == "openssl" and rows[0].is_remediated is False
 
     # Fixed now (no longer reported) — reconcile marks it remediated, doesn't delete it.
-    await svc.update_heartbeat("agent-vuln", {"vulnerabilities": []})
+    # `packages` must be non-empty here: update_heartbeat only trusts an empty
+    # `vulnerabilities` list enough to reconcile when this heartbeat's package
+    # collection demonstrably succeeded (see its scan_succeeded comment) —
+    # otherwise an empty list is indistinguishable from a transient collection
+    # failure, and reconciliation is deliberately skipped.
+    await svc.update_heartbeat(
+        "agent-vuln",
+        {"packages": [{"name": "openssl", "version": "1.0"}], "vulnerabilities": []},
+    )
 
     rows = (
         await db_session.execute(

@@ -9,6 +9,7 @@ plus JobService's dedup key prevent double-dispatch across replicas.
 """
 
 import asyncio
+import contextlib
 from datetime import datetime, timezone
 
 import structlog
@@ -41,8 +42,12 @@ class RemediationSchedulerWorker:
         logger.info("RemediationSchedulerWorker started")
 
     async def stop(self) -> None:
-        if self._task:
-            self._task.cancel()
+        task = self._task
+        self._task = None
+        if task:
+            task.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await task
 
     async def _loop(self) -> None:
         while True:
@@ -102,6 +107,15 @@ class RemediationSchedulerWorker:
         agents = (
             await db.execute(select(Agent).where(Agent.id.in_(agent_ids)))
         ).scalars().all()
+
+        found_agent_ids = {agent.id for agent in agents}
+        if found_agent_ids != agent_ids:
+            logger.warning(
+                "remediation_scheduler.missing_agents",
+                plan_id=str(plan.id),
+                missing_agent_ids=[str(agent_id) for agent_id in agent_ids - found_agent_ids],
+            )
+            return  # a target no longer exists, plan stays APPROVED
 
         # Load category/project names for scope matching
         category_ids = {a.category_id for a in agents if a.category_id}
