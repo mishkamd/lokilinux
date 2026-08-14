@@ -472,12 +472,15 @@ h1, h2, h3, h4, h5, h6 {
 
 /* ─── Unovis tooltips ────────────────────────────────────────────
  * Unovis's own tooltip wrapper ships a white background + padding
- * (--vis-tooltip-background-color defaults to rgba(255,255,255,.95)).
- * Every chart here renders its own styled box inside that wrapper,
- * so the default box just shows as a white halo behind ours. Zero
- * it out and let the inner template own all visuals. */
+ * (--vis-tooltip-background-color defaults to rgba(255,255,255,.95),
+ * set globally via Emotion's runtime-injected `:root` rule). Every
+ * chart here renders its own styled box inside that wrapper, so the
+ * default box shows through as a white halo behind ours. !important
+ * because the halo persisted with a plain override in testing —
+ * belt-and-suspenders against Emotion's own injected specificity. */
 [data-vis-tooltip] {
-  --vis-tooltip-background-color: transparent;
-  --vis-tooltip-padding: 0;
-  --vis-tooltip-box-shadow: none;
+  --vis-tooltip-background-color: transparent !important;
+  --vis-tooltip-padding: 0 !important;
+  --vis-tooltip-box-shadow: none !important;
+  --vis-tooltip-border-color: transparent !important;
 }
