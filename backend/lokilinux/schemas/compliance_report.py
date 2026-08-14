@@ -16,6 +16,9 @@ class ReportType(str, Enum):
     POLICY_SET = "POLICY_SET"
     DATACENTER = "DATACENTER"
     CUSTOM = "CUSTOM"
+    FRAMEWORK = "FRAMEWORK"
+    EXCEPTION = "EXCEPTION"
+    EXECUTIVE_SUMMARY = "EXECUTIVE_SUMMARY"
 
 
 class ReportFormat(str, Enum):

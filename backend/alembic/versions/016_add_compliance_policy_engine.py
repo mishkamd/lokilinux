@@ -22,8 +22,9 @@ docs/compliance/01-DATA-MODEL.md).
 """
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision = "016"
 down_revision = "015"

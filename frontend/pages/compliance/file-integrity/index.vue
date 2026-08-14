@@ -6,11 +6,24 @@ const store = useComplianceStore()
 const serversStore = useServersStore()
 const {
   fileHashes, fileHashesLoading, fileHashPathPrefix,
-  fileChanges, fileChangesTotal, fileChangesLoading, fileChangeFilters,
+  fileChanges, fileChangesTotal, fileChangesLoading, fileChangesNextCursor, fileChangeFilters,
+  fileChangePathDetail, fileChangePathDetailLoading,
 } = storeToRefs(store)
+
+const showPathDetail = ref(false)
+async function openPathDetail(path: string) {
+  showPathDetail.value = true
+  await store.fetchFileChangesByPath(path)
+}
+
+const DRIFT_SEVERITY_COLORS: Record<string, string> = {
+  CRITICAL: 'red', HIGH: 'red', MEDIUM: 'amber', LOW: 'gray',
+}
 
 const agentOptions = ref<{ label: string; value: string }[]>([])
 const selectedAgentId = ref('')
+
+const route = useRoute()
 
 onMounted(async () => {
   agentOptions.value = await serversStore.fetchAgentsForSelect()
@@ -19,6 +32,11 @@ onMounted(async () => {
     await store.fetchFileHashes(selectedAgentId.value)
   }
   await store.fetchFileChanges()
+
+  const pathParam = route.query.path
+  if (typeof pathParam === 'string' && pathParam) {
+    await openPathDetail(pathParam)
+  }
 })
 
 async function onAgentChange() {
@@ -26,9 +44,22 @@ async function onAgentChange() {
 }
 
 const CHANGE_KIND_COLORS: Record<FileChangeKind, string> = {
-  CREATED: 'green', MODIFIED: 'amber', DELETED: 'red', PERMISSION_CHANGED: 'amber',
+  CREATED: 'green', MODIFIED: 'amber', DELETED: 'red', PERMISSION_CHANGED: 'amber', OWNER_CHANGED: 'amber',
 }
-const CHANGE_KINDS: FileChangeKind[] = ['CREATED', 'MODIFIED', 'DELETED', 'PERMISSION_CHANGED']
+const CHANGE_KINDS: FileChangeKind[] = ['CREATED', 'MODIFIED', 'DELETED', 'PERMISSION_CHANGED', 'OWNER_CHANGED']
+
+function formatModeChange(row: { old_mode: number | null; new_mode: number | null }) {
+  if (row.old_mode === null && row.new_mode === null) return null
+  const old = row.old_mode !== null ? row.old_mode.toString(8) : '—'
+  const next = row.new_mode !== null ? row.new_mode.toString(8) : '—'
+  return old === next ? null : `${old} → ${next}`
+}
+function formatOwnerChange(row: { old_uid: number | null; new_uid: number | null; old_gid: number | null; new_gid: number | null }) {
+  if (row.old_uid === row.new_uid && row.old_gid === row.new_gid) return null
+  const old = `${row.old_uid ?? '—'}:${row.old_gid ?? '—'}`
+  const next = `${row.new_uid ?? '—'}:${row.new_gid ?? '—'}`
+  return `${old} → ${next}`
+}
 
 const tabs = [
   { label: 'Current State', slot: 'current' },
@@ -47,6 +78,7 @@ const changeColumns = [
   { key: 'agent_id', label: 'Server' },
   { key: 'path', label: 'Path' },
   { key: 'change_kind', label: 'Change' },
+  { key: 'details', label: 'Details' },
 ]
 </script>
 
@@ -99,16 +131,90 @@ const changeColumns = [
           <template #time-data="{ row }">
             <span class="font-mono text-xs">{{ new Date(String(row.time)).toLocaleString() }}</span>
           </template>
+          <template #agent_id-data="{ row }">
+            <span class="font-mono text-xs">{{ row.hostname || row.agent_id }}</span>
+          </template>
           <template #path-data="{ row }">
-            <span class="font-mono text-xs">{{ row.path }}</span>
+            <button class="font-mono text-xs text-primary hover:underline text-left" @click="openPathDetail(String(row.path))">
+              {{ row.path }}
+            </button>
           </template>
           <template #change_kind-data="{ row }">
             <Badge :color="CHANGE_KIND_COLORS[row.change_kind as FileChangeKind] ?? 'gray'" size="xs">
               {{ row.change_kind }}
             </Badge>
           </template>
+          <template #details-data="{ row }">
+            <span v-if="row.change_kind === 'PERMISSION_CHANGED'" class="font-mono text-xs text-muted-foreground">
+              {{ formatModeChange(row) }}
+            </span>
+            <span v-else-if="row.change_kind === 'OWNER_CHANGED'" class="font-mono text-xs text-muted-foreground">
+              {{ formatOwnerChange(row) }}
+            </span>
+            <span v-else class="text-muted-foreground">—</span>
+          </template>
         </DataTable>
+
+        <div v-if="fileChangesNextCursor" class="mt-4 flex justify-center">
+          <Button variant="outline" @click="store.fetchFileChanges(fileChangesNextCursor!)">
+            Load more
+          </Button>
+        </div>
       </template>
     </AppTabs>
+
+    <Dialog v-model="showPathDetail" :title="fileChangePathDetail?.path ?? 'File detail'">
+      <template #body>
+        <Skeleton v-if="fileChangePathDetailLoading" class="h-48 w-full" />
+        <div v-else-if="fileChangePathDetail" class="space-y-4">
+          <div>
+            <p class="label-caps mb-1">Servers</p>
+            <p class="text-sm text-muted-foreground">{{ fileChangePathDetail.servers.length }} server(s) with a recorded change to this path</p>
+          </div>
+
+          <div>
+            <p class="label-caps mb-1">Related rules</p>
+            <p v-if="fileChangePathDetail.related_rules.length === 0" class="text-sm text-muted-foreground">
+              No compliance rules depend on this exact path.
+            </p>
+            <div v-else class="flex flex-wrap gap-1">
+              <NuxtLink
+                v-for="r in fileChangePathDetail.related_rules" :key="r.rule_id"
+                :to="`/compliance/rules/${r.rule_id}`" class="text-xs"
+              >
+                <Badge color="gray" size="xs">{{ r.rule_key }}</Badge>
+              </NuxtLink>
+            </div>
+          </div>
+
+          <div>
+            <p class="label-caps mb-1">Related open drift</p>
+            <p v-if="fileChangePathDetail.related_drift.length === 0" class="text-sm text-muted-foreground">
+              No open drift on the domains this file feeds.
+            </p>
+            <ul v-else class="divide-y divide-border">
+              <li v-for="d in fileChangePathDetail.related_drift" :key="String(d.id)" class="py-1.5 flex items-center justify-between gap-2">
+                <span class="text-xs truncate">{{ d.summary }}</span>
+                <Badge :color="DRIFT_SEVERITY_COLORS[String(d.severity)] ?? 'gray'" size="xs">{{ d.severity }}</Badge>
+              </li>
+            </ul>
+          </div>
+
+          <div>
+            <p class="label-caps mb-1">Timeline</p>
+            <ul class="divide-y divide-border">
+              <li v-for="(c, i) in fileChangePathDetail.timeline" :key="i" class="py-1.5 flex items-center justify-between gap-2 text-xs">
+                <span class="font-mono text-muted-foreground">{{ new Date(c.time).toLocaleString() }} · {{ c.hostname || c.agent_id.slice(0, 8) + '…' }}</span>
+                <Badge :color="CHANGE_KIND_COLORS[c.change_kind] ?? 'gray'" size="xs">{{ c.change_kind }}</Badge>
+              </li>
+            </ul>
+            <p v-if="fileChangePathDetail.timeline.length === 0" class="text-sm text-muted-foreground">No changes recorded.</p>
+          </div>
+        </div>
+      </template>
+      <template #footer>
+        <Button variant="ghost" @click="showPathDetail = false">Close</Button>
+      </template>
+    </Dialog>
   </div>
 </template>

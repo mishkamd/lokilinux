@@ -6,14 +6,31 @@ const store = useComplianceStore()
 const api = useApi()
 const toast = useToast()
 const { canEdit } = useCurrentUser()
-const { reports, reportsTotal, reportsLoading } = storeToRefs(store)
+const { reports, reportsTotal, reportsLoading, reportsNextCursor } = storeToRefs(store)
 
-onMounted(() => store.fetchReports())
+onMounted(() => {
+  store.fetchReports()
+  fetchPolicySetPicks()
+})
+
+// local fetch, not store.fetchPolicySets() — this is a one-off picker for
+// the create dialog, no reason to couple it to the Policy Sets page's own state.
+const policySetPicks = ref<{ id: string; name: string }[]>([])
+async function fetchPolicySetPicks() {
+  const data = await api.get<{ items: { id: string; name: string }[] }>('/compliance/policy-sets?limit=100')
+  policySetPicks.value = data.items
+}
+const policySetOptions = computed(() => [
+  { value: '', label: 'Select policy set…' },
+  ...policySetPicks.value.map((p) => ({ value: p.id, label: p.name })),
+])
 
 const STATUS_COLORS: Record<ReportStatus, string> = {
   PENDING: 'gray', GENERATING: 'amber', COMPLETED: 'green', FAILED: 'red',
 }
-const REPORT_TYPES: ReportType[] = ['FLEET_SUMMARY', 'POLICY_SET', 'DATACENTER', 'CUSTOM']
+const REPORT_TYPES: ReportType[] = [
+  'FLEET_SUMMARY', 'POLICY_SET', 'DATACENTER', 'CUSTOM', 'FRAMEWORK', 'EXCEPTION', 'EXECUTIVE_SUMMARY',
+]
 const REPORT_FORMATS: ReportFormat[] = ['JSON', 'CSV', 'XLSX', 'PDF']
 
 const columns = [
@@ -25,17 +42,30 @@ const columns = [
 ]
 
 const showCreate = ref(false)
-const form = ref({ report_type: 'FLEET_SUMMARY' as ReportType, format: 'JSON' as ReportFormat })
+const form = ref({ report_type: 'FLEET_SUMMARY' as ReportType, format: 'JSON' as ReportFormat, framework: '', policy_set_id: '' })
 const creating = ref(false)
+const createError = ref<string | null>(null)
 
 async function submitCreate() {
+  createError.value = null
+  if (form.value.report_type === 'FRAMEWORK' && !form.value.framework) {
+    createError.value = 'Framework key is required (e.g. cis, nist, stig).'
+    return
+  }
+  if (form.value.report_type === 'POLICY_SET' && !form.value.policy_set_id) {
+    createError.value = 'Policy set is required.'
+    return
+  }
   creating.value = true
   try {
-    await store.createReport({ report_type: form.value.report_type, format: form.value.format })
+    const params = form.value.report_type === 'FRAMEWORK' ? { framework: form.value.framework }
+      : form.value.report_type === 'POLICY_SET' ? { policy_set_id: form.value.policy_set_id }
+      : {}
+    await store.createReport({ report_type: form.value.report_type, format: form.value.format, params })
     toast.add({ title: 'Report requested', description: 'Generating in the background — refresh to check status.' })
     showCreate.value = false
-  } catch {
-    toast.add({ title: 'Failed to request report', color: 'red' })
+  } catch (err) {
+    toast.add({ title: (err as { data?: { detail?: string } })?.data?.detail ?? 'Failed to request report', color: 'red' })
   } finally {
     creating.value = false
   }
@@ -55,8 +85,8 @@ async function downloadReport(id: string, format: ReportFormat) {
     a.click()
     a.remove()
     URL.revokeObjectURL(url)
-  } catch {
-    toast.add({ title: 'Download failed', color: 'red' })
+  } catch (err) {
+    toast.add({ title: (err as { data?: { detail?: string } })?.data?.detail ?? 'Download failed', color: 'red' })
   } finally {
     downloading.value = null
   }
@@ -99,15 +129,28 @@ async function downloadReport(id: string, format: ReportFormat) {
       </template>
     </DataTable>
 
+    <div v-if="reportsNextCursor" class="mt-4 flex justify-center">
+      <Button variant="outline" @click="store.fetchReports(reportsNextCursor!)">
+        Load more
+      </Button>
+    </div>
+
     <Dialog v-model="showCreate" title="Generate report">
       <template #body>
         <div class="space-y-4">
           <FormField label="Report type" required>
             <Select v-model="form.report_type" :options="REPORT_TYPES" />
           </FormField>
+          <FormField v-if="form.report_type === 'FRAMEWORK'" label="Framework" required help="e.g. cis, nist, stig">
+            <Input v-model="form.framework" placeholder="cis" />
+          </FormField>
+          <FormField v-if="form.report_type === 'POLICY_SET'" label="Policy set" required>
+            <Select v-model="form.policy_set_id" :options="policySetOptions" />
+          </FormField>
           <FormField label="Format" required>
             <Select v-model="form.format" :options="REPORT_FORMATS" />
           </FormField>
+          <Alert v-if="createError" color="red">{{ createError }}</Alert>
         </div>
       </template>
       <template #footer>

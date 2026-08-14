@@ -1,0 +1,17 @@
+# LokiLinux curated compliance content — firewall domain.
+#
+# firewall_collector.go reports facts.backend ("firewalld"/"nftables"/
+# "iptables"/"not_applicable") and facts.ruleset (raw backend-specific text).
+
+- rule_key: FIREWALL-001
+  title: Host firewall must be active
+  description: A host-based firewall backend (firewalld, nftables, or iptables) must be present and running.
+  rationale: A host with no active firewall backend has no last line of defense if a network-level control is misconfigured or bypassed — matches this project's own severity default (firewall disabled = CRITICAL).
+  severity: CRITICAL
+  domain: firewall
+  check_expr: 'facts.backend != "not_applicable"'
+  expected_value: true
+  standard_refs:
+    cis: "4.1"
+  evidence_paths: [backend]
+  remediation: null

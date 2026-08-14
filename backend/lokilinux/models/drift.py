@@ -11,7 +11,7 @@ detectDrift), read here.
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, Text
+from sqlalchemy import DateTime, Integer, String, Text, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -35,6 +35,18 @@ class DriftEvent(Base):
     root_cause: Mapped[dict | None] = mapped_column(JSONB)
     acknowledged_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Lifecycle + dedup (migration 025) — see services/compliance ingest.go's
+    # correlation_key computation for how occurrences/first_seen/last_seen
+    # are maintained instead of inserting a new row per poll cycle.
+    status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default=text("'OPEN'")
+    )  # OPEN/ACKNOWLEDGED/IN_REMEDIATION/RESOLVED/SUPPRESSED/EXCEPTION
+    occurrences: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("1"))
+    first_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_seen: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    correlation_key: Mapped[str | None] = mapped_column(String(64))
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    suppressed_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
 
 
 class DriftDetail(Base):

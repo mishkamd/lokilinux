@@ -17,22 +17,22 @@ import (
 
 // SystemInfo holds the snapshot sent in every heartbeat.
 type SystemInfo struct {
-	Hostname      string
-	FQDN          string
-	OSFamily      string
-	OSDistro      string
-	OSVersion     string
-	KernelVersion string
-	Arch          string
-	CPUCount      int
-	TotalMemoryKB uint64
-	FreeMemoryKB  uint64
-	SwapTotalKB   uint64
-	SwapFreeKB    uint64
-	Disks         []DiskInfo
-	SystemUsers   []string
-	NetworkIfaces []NetworkIfaceInfo
-	BlockDevices  []BlockDeviceInfo
+	Hostname       string
+	FQDN           string
+	OSFamily       string
+	OSDistro       string
+	OSVersion      string
+	KernelVersion  string
+	Arch           string
+	CPUCount       int
+	TotalMemoryKB  uint64
+	FreeMemoryKB   uint64
+	SwapTotalKB    uint64
+	SwapFreeKB     uint64
+	Disks          []DiskInfo
+	SystemUsers    []string
+	NetworkIfaces  []NetworkIfaceInfo
+	BlockDevices   []BlockDeviceInfo
 	ListeningPorts []ListeningPortInfo
 }
 
@@ -91,18 +91,18 @@ func (m *SystemInfoModule) Collect() (*SystemInfo, error) {
 	mem := parseMemInfo()
 
 	return &SystemInfo{
-		Hostname:      hostname,
-		FQDN:          fqdn(hostname),
-		OSFamily:      "linux",
-		OSDistro:      osInfo["ID"],
-		OSVersion:     osInfo["VERSION_ID"],
-		KernelVersion: kernelVersion(),
-		Arch:          runtime.GOARCH,
-		CPUCount:      runtime.NumCPU(),
-		TotalMemoryKB: mem["MemTotal"],
-		FreeMemoryKB:  mem["MemAvailable"],
-		SwapTotalKB:   mem["SwapTotal"],
-		SwapFreeKB:    mem["SwapFree"],
+		Hostname:       hostname,
+		FQDN:           fqdn(hostname),
+		OSFamily:       "linux",
+		OSDistro:       osInfo["ID"],
+		OSVersion:      osInfo["VERSION_ID"],
+		KernelVersion:  kernelVersion(),
+		Arch:           runtime.GOARCH,
+		CPUCount:       runtime.NumCPU(),
+		TotalMemoryKB:  mem["MemTotal"],
+		FreeMemoryKB:   mem["MemAvailable"],
+		SwapTotalKB:    mem["SwapTotal"],
+		SwapFreeKB:     mem["SwapFree"],
 		Disks:          allDisks(),
 		SystemUsers:    systemUsers(),
 		NetworkIfaces:  networkInterfaces(),
@@ -283,8 +283,8 @@ func kernelVersion() string {
 
 // Health is a lightweight resource snapshot attached to each heartbeat.
 type Health struct {
-	CPUUsagePercent    float64
-	CPUCount           int
+	CPUUsagePercent float64
+	CPUCount        int
 
 	MemoryUsagePercent float64
 	MemoryTotalBytes   uint64

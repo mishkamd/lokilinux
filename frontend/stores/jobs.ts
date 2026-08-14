@@ -53,6 +53,8 @@ export const useJobsStore = defineStore('jobs', () => {
       )
       jobs.value = data.items
       total.value = data.total ?? 0
+    } catch {
+      // swallow — global onResponseError already surfaces a toast; keep last-known-good list
     } finally {
       loading.value = false
     }

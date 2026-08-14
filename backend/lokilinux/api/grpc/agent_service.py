@@ -11,6 +11,8 @@ Heartbeat flow:
 
 import logging
 
+import grpc
+
 from lokilinux.services.agent_service import AgentService
 from lokilinux.services.compliance_ingest_service import (
     diff_domain_hashes,
@@ -38,6 +40,26 @@ def _as_dict(obj):
         return [_as_dict(v) if _needs_recursion(v) else v for v in obj]
     return {k: _as_dict(v) if _needs_recursion(v) else v for k, v in vars(obj).items()}
 
+def _parameters_for_agent(job, agent_id) -> dict:
+    """Filter job parameters per-agent for COMPLIANCE_REMEDIATE jobs.
+
+    For non-remediation jobs, returns parameters unchanged.
+    For COMPLIANCE_REMEDIATE, extracts only this agent's actions from the
+    fleet-wide actions map, so the agent never sees other agents' payloads.
+    """
+    params = job.parameters or {}
+    if job.job_type != "COMPLIANCE_REMEDIATE":
+        return params
+
+    actions_map = params.get("actions", {})
+    agent_key = str(agent_id)
+    agent_actions = actions_map.get(agent_key, [])
+
+    return {
+        "remediation_plan_id": params.get("remediation_plan_id"),
+        "operation": params.get("operation"),
+        "actions": agent_actions,
+    }
 
 class AgentServicer:
     def __init__(self, db_factory, cache, nats) -> None:
@@ -67,23 +89,34 @@ class AgentServicer:
 
                 async with self.db_factory() as db:
                     svc = AgentService(db, self.cache)
-                    agent = await svc.update_heartbeat(
-                        request.agent_id,
-                        {
-                            "ip_address": ip_address,
-                            "system_status": _as_dict(system_status),
-                            "packages": [_as_dict(p) for p in (packages or [])],
-                            "packages_checksum": getattr(request, "packages_checksum", None),
-                            "health": _as_dict(health),
-                            "job_results": [_as_dict(r) for r in (job_results or [])],
-                            "vulnerabilities": [_as_dict(v) for v in (vulnerabilities or [])],
-                            "agent_version": getattr(request, "agent_version", None),
-                            "recent_logs": getattr(request, "recent_logs", None),
-                            "log_connections": getattr(request, "log_connections", None),
-                            "log_informative": getattr(request, "log_informative", None),
-                            "log_critical": getattr(request, "log_critical", None),
-                        },
-                    )
+                    try:
+                        agent = await svc.update_heartbeat(
+                            request.agent_id,
+                            {
+                                "ip_address": ip_address,
+                                "system_status": _as_dict(system_status),
+                                "packages": [_as_dict(p) for p in (packages or [])],
+                                "packages_checksum": getattr(request, "packages_checksum", None),
+                                "health": _as_dict(health),
+                                "job_results": [_as_dict(r) for r in (job_results or [])],
+                                "vulnerabilities": [_as_dict(v) for v in (vulnerabilities or [])],
+                                "agent_version": getattr(request, "agent_version", None),
+                                "recent_logs": getattr(request, "recent_logs", None),
+                                "log_connections": getattr(request, "log_connections", None),
+                                "log_informative": getattr(request, "log_informative", None),
+                                "log_critical": getattr(request, "log_critical", None),
+                            },
+                        )
+                    except ValueError as exc:
+                        # Orphaned agent (row deleted, e.g. deregistered) that keeps
+                        # reconnecting — an expected condition, not a bug. Rejecting
+                        # the stream with a real status tells a well-behaved client
+                        # to stop retrying; logging at warning (no traceback) instead
+                        # of letting it fall to the except Exception below avoids an
+                        # ERROR-level stack trace on every single heartbeat forever.
+                        logger.warning("HeartbeatStream: %s", exc)
+                        await context.abort(grpc.StatusCode.NOT_FOUND, str(exc))
+                        return
                     pending_jobs = await svc.get_pending_jobs(agent.id)
                     job_timeouts = {
                         j.id: await get_job_timeout_seconds(db, j) for j in pending_jobs
@@ -116,7 +149,7 @@ class AgentServicer:
                         {
                             "job_id": str(j.id),
                             "job_type": j.job_type,
-                            "parameters": j.parameters or {},
+                            "parameters": _parameters_for_agent(j, agent.id),
                             **({"timeout_seconds": job_timeouts[j.id]} if job_timeouts.get(j.id) else {}),
                         }
                         for j in pending_jobs

@@ -16,7 +16,7 @@ interface AllSettings {
   }
   fleet: { heartbeat_timeout_minutes: number; job_stale_timeout_minutes: number }
   retention: { metrics_days: number }
-  cve: { feed_source_url: string; sync_interval_hours: number }
+  cve: { feed_source_url: string; sync_interval_hours: number; nvd_api_key: string }
   branding: { company_name: string; logo_url: string }
   plugins: { marketplace_url: string }
   repo: { default_mirror_url: string }
@@ -37,7 +37,7 @@ const form = reactive<AllSettings>({
   notifications: { smtp_host: '', smtp_port: 587, smtp_user: '', smtp_password: '', smtp_from: '', slack_webhook_url: '' },
   fleet: { heartbeat_timeout_minutes: 5, job_stale_timeout_minutes: 60 },
   retention: { metrics_days: 365 },
-  cve: { feed_source_url: '', sync_interval_hours: 24 },
+  cve: { feed_source_url: '', sync_interval_hours: 24, nvd_api_key: '' },
   branding: { company_name: 'LokiLinux', logo_url: '/logo.svg' },
   plugins: { marketplace_url: '' },
   repo: { default_mirror_url: '' },
@@ -63,9 +63,9 @@ async function saveGroup(group: keyof AllSettings) {
   saving[group] = true
   try {
     await api.put('/admin/settings', { [group]: form[group] })
-    toast.add({ title: 'Setări salvate', color: 'green' })
+    toast.add({ title: 'Settings saved', color: 'green' })
   } catch {
-    toast.add({ title: 'Salvarea a eșuat', color: 'red' })
+    toast.add({ title: 'Save failed', color: 'red' })
   } finally {
     saving[group] = false
   }
@@ -75,9 +75,9 @@ async function saveGroups(...groups: (keyof AllSettings)[]) {
   for (const g of groups) saving[g] = true
   try {
     await api.put('/admin/settings', Object.fromEntries(groups.map((g) => [g, form[g]])))
-    toast.add({ title: 'Setări salvate', color: 'green' })
+    toast.add({ title: 'Settings saved', color: 'green' })
   } catch {
-    toast.add({ title: 'Salvarea a eșuat', color: 'red' })
+    toast.add({ title: 'Save failed', color: 'red' })
   } finally {
     for (const g of groups) saving[g] = false
   }
@@ -126,10 +126,10 @@ async function saveGroups(...groups: (keyof AllSettings)[]) {
               <Switch v-model="form.security.ldap_use_ssl" />
             </div>
             <p class="text-xs text-muted-foreground">
-              Configurare stocată — bind-ul real către server nu e conectat încă (are nevoie de un server LDAP real de test).
+              Configuration stored — real bind to server not connected yet (needs a real LDAP server for testing).
             </p>
             <div class="flex justify-end gap-2 pt-1">
-              <Button variant="outline" disabled title="Necesită bind LDAP funcțional">Test connection</Button>
+              <Button variant="outline" disabled title="Requires working LDAP bind">Test connection</Button>
               <Button :loading="saving.security" @click="saveGroup('security')">Save</Button>
             </div>
           </div>
@@ -140,30 +140,30 @@ async function saveGroups(...groups: (keyof AllSettings)[]) {
           <div class="space-y-4">
             <div class="flex items-center justify-between">
               <div>
-                <span class="text-sm">Obligă 2FA pentru toți utilizatorii</span>
-                <p class="text-xs text-muted-foreground">Soft enforcement — redirecționează la înrolare TOTP la login dacă nu e activat.</p>
+                <span class="text-sm">Require 2FA for all users</span>
+                <p class="text-xs text-muted-foreground">Soft enforcement — redirects to TOTP enrollment at login if not enabled.</p>
               </div>
               <Switch v-model="form.security.require_2fa" />
             </div>
             <div class="flex items-center justify-between">
-              <span class="text-sm">Rate limiting activ</span>
+              <span class="text-sm">Rate limiting enabled</span>
               <Switch v-model="form.security.rate_limit_enabled" />
             </div>
             <div class="grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-4">
-              <FormField label="Durată sesiune (zile)">
+              <FormField label="Session duration (days)">
                 <Input v-model.number="form.security.session_expiry_days" type="number" />
               </FormField>
-              <FormField label="Rolling refresh (ore)">
+              <FormField label="Rolling refresh (hours)">
                 <Input v-model.number="form.security.session_update_age_hours" type="number" />
               </FormField>
-              <FormField label="Lungime minimă parolă">
+              <FormField label="Minimum password length">
                 <Input v-model.number="form.security.password_min_length" type="number" />
               </FormField>
-              <FormField label="Cereri / minut / IP">
+              <FormField label="Requests / minute / IP">
                 <Input v-model.number="form.security.rate_limit_per_minute" type="number" />
               </FormField>
             </div>
-            <p class="text-xs text-muted-foreground">Sesiunea și lungimea parolei necesită restart backend Nuxt (citite la boot).</p>
+            <p class="text-xs text-muted-foreground">Session and password length require Nuxt backend restart (read at boot).</p>
             <div class="flex justify-end pt-1">
               <Button :loading="saving.security" @click="saveGroup('security')">Save</Button>
             </div>
@@ -228,17 +228,20 @@ async function saveGroups(...groups: (keyof AllSettings)[]) {
           <template #header>Retention & CVE Feed</template>
           <div class="space-y-4">
             <div class="grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-4">
-              <FormField label="Retenție audit log (zile)">
+              <FormField label="Audit log retention (days)">
                 <Input v-model.number="form.security.audit_log_retention_days" type="number" />
               </FormField>
-              <FormField label="Retenție metrici (zile)" help="Doar informativ — nu modifică TimescaleDB">
+              <FormField label="Metrics retention (days)" help="Informational only — does not modify TimescaleDB">
                 <Input v-model.number="form.retention.metrics_days" type="number" />
               </FormField>
-              <FormField label="Sursă feed CVE" help="Rezervat — sincronizare NVD viitoare">
+              <FormField label="CVE feed source" help="NVD 2.0 API base URL">
                 <Input v-model="form.cve.feed_source_url" placeholder="https://services.nvd.nist.gov/rest/json/cves/2.0" />
               </FormField>
-              <FormField label="Interval sync (ore)">
+              <FormField label="Sync interval (hours)">
                 <Input v-model.number="form.cve.sync_interval_hours" type="number" />
+              </FormField>
+              <FormField label="NVD API key" help="Optional — raises the rate limit from 5 to 50 requests/30s">
+                <Input v-model="form.cve.nvd_api_key" type="password" placeholder="Leave blank for unauthenticated rate limit" />
               </FormField>
             </div>
             <div class="flex justify-end pt-1">
@@ -251,10 +254,10 @@ async function saveGroups(...groups: (keyof AllSettings)[]) {
           <template #header>Fleet Defaults</template>
           <div class="space-y-4">
             <div class="grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
-              <FormField label="Heartbeat timeout (minute)" help="Agent INACTIVE după atâtea minute fără heartbeat">
+              <FormField label="Heartbeat timeout (minutes)" help="Agent becomes INACTIVE after this many minutes without heartbeat">
                 <Input v-model.number="form.fleet.heartbeat_timeout_minutes" type="number" />
               </FormField>
-              <FormField label="Job stale timeout (minute)" help="Job blocat (QUEUED/RUNNING) e marcat TIMEOUT după atâtea minute">
+              <FormField label="Job stale timeout (minutes)" help="Stuck job (QUEUED/RUNNING) marked TIMEOUT after this many minutes">
                 <Input v-model.number="form.fleet.job_stale_timeout_minutes" type="number" />
               </FormField>
             </div>
@@ -268,7 +271,7 @@ async function saveGroups(...groups: (keyof AllSettings)[]) {
           <template #header>Branding</template>
           <div class="space-y-4">
             <div class="grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
-              <FormField label="Nume companie">
+              <FormField label="Company name">
                 <Input v-model="form.branding.company_name" placeholder="LokiLinux" />
               </FormField>
               <FormField label="Logo URL">
@@ -285,10 +288,10 @@ async function saveGroups(...groups: (keyof AllSettings)[]) {
           <template #header>Plugins & Repositories</template>
           <div class="space-y-4">
             <div class="grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
-              <FormField label="URL marketplace plugin-uri" help="Rezervat — fără discovery încă">
+              <FormField label="Plugin marketplace URL" help="Reserved — no discovery yet">
                 <Input v-model="form.plugins.marketplace_url" />
               </FormField>
-              <FormField label="Repo mirror implicit" help="Rezervat — tabela repositories inexistentă">
+              <FormField label="Default repo mirror" help="Reserved — repositories table does not exist">
                 <Input v-model="form.repo.default_mirror_url" />
               </FormField>
             </div>

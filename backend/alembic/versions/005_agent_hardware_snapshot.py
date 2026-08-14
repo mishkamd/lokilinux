@@ -9,8 +9,9 @@ system_users/recent_logs JSONB columns.
 """
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision = "005"
 down_revision = "004"

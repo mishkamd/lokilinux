@@ -11,6 +11,7 @@ instead of just a bare percentage.
 """
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision = "013"

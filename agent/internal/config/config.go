@@ -8,12 +8,13 @@ import (
 
 // Config mirrors /etc/lokilinux/agent.yaml
 type Config struct {
-	Platform     PlatformConfig `yaml:"platform"`
-	Identity     IdentityConfig `yaml:"identity"`
-	Heartbeat    HeartbeatConfig `yaml:"heartbeat"`
-	Cache        CacheConfig    `yaml:"cache"`
-	JobExecution JobExecConfig  `yaml:"job_execution"`
-	Logging      LoggingConfig  `yaml:"logging"`
+	Platform      PlatformConfig      `yaml:"platform"`
+	Identity      IdentityConfig      `yaml:"identity"`
+	Heartbeat     HeartbeatConfig     `yaml:"heartbeat"`
+	Cache         CacheConfig         `yaml:"cache"`
+	JobExecution  JobExecConfig       `yaml:"job_execution"`
+	Logging       LoggingConfig       `yaml:"logging"`
+	FileIntegrity FileIntegrityConfig `yaml:"file_integrity"`
 }
 
 type PlatformConfig struct {
@@ -50,6 +51,16 @@ type JobExecConfig struct {
 type LoggingConfig struct {
 	Level  string `yaml:"level"`
 	Output string `yaml:"output"`
+}
+
+// FileIntegrityConfig lets an operator override the compiled-in FIM watch
+// list (agent/internal/compliance/file_integrity_collector.go's
+// fileIntegrityWatchPaths) without a rebuild — docs/compliance §11's
+// "monitor"/"ignore" lists, applied agent-side. Both empty means "use the
+// built-in default watch list, no ignores" (compliance.BuildRegistry).
+type FileIntegrityConfig struct {
+	WatchPaths []string `yaml:"watch_paths"`
+	Ignores    []string `yaml:"ignore_paths"`
 }
 
 // Load reads and parses the YAML config file at path.

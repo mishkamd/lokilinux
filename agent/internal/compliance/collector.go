@@ -65,3 +65,20 @@ var Registry = []Collector{
 	NewContainerRuntimeCollector(),
 	NewFileIntegrityCollector(),
 }
+
+// BuildRegistry returns the same collector set as Registry, but with the
+// FileIntegrityCollector built from operator-configured watch/ignore paths
+// (agent/internal/config's FileIntegrityConfig) instead of the compiled-in
+// default — the only collector with per-deployment-configurable behavior
+// today. Everything else stays identical to Registry.
+func BuildRegistry(fileIntegrityWatchPaths, fileIntegrityIgnores []string) []Collector {
+	out := make([]Collector, 0, len(Registry))
+	for _, c := range Registry {
+		if _, ok := c.(*FileIntegrityCollector); ok {
+			out = append(out, NewFileIntegrityCollectorWithConfig(fileIntegrityWatchPaths, fileIntegrityIgnores))
+			continue
+		}
+		out = append(out, c)
+	}
+	return out
+}

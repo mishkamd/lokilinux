@@ -21,8 +21,9 @@ file_changes, not here.
 """
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision = "017"
 down_revision = "016"

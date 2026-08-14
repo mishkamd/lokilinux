@@ -7,8 +7,17 @@ const {
 } = useServers()
 const toast = useToast()
 
-fetchCategories()
-fetchProjects()
+// Client-only fetch (matches pages/jobs/index.vue): the last_seen_at column
+// below renders new Date(...).toLocaleString(), which formats differently
+// server vs. client (locale/timezone) — SSR-fetching real rows here would
+// hydration-mismatch on every row's timestamp. Rendering empty on the
+// server and populating after mount avoids that; onMounted only ever runs
+// client-side, so there is nothing to await during SSR.
+onMounted(() => {
+  fetchServers()
+  fetchCategories()
+  fetchProjects()
+})
 
 const columns = [
   { key: 'hostname', label: 'Hostname' },

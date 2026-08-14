@@ -1,34 +1,70 @@
 package modules
 
-import "testing"
+import (
+	"reflect"
+	"testing"
+)
 
-func TestPackageUpdateCommand(t *testing.T) {
+func TestPackageUpdateArgv(t *testing.T) {
 	cases := []struct {
 		mgr     string
 		names   []string
-		want    string
+		want    []string
 		wantErr bool
 	}{
-		{"apt", nil, "apt-get update && apt-get upgrade -y", false},
-		{"apt", []string{"nginx", "curl"}, "apt-get update && apt-get install --only-upgrade -y nginx curl", false},
-		{"dnf", []string{"nginx"}, "dnf upgrade -y nginx", false},
-		{"yum", nil, "yum upgrade -y", false},
-		{"zypper", []string{"nginx"}, "zypper update -y nginx", false},
-		{"unknown", nil, "", true},
+		{"apt", nil, []string{"/bin/sh", "-c", "apt-get update && apt-get upgrade -y"}, false},
+		{"apt", []string{"nginx", "curl"}, []string{"/bin/sh", "-c", `apt-get update && apt-get install --only-upgrade -y "$@"`, "--", "nginx", "curl"}, false},
+		{"dnf", []string{"nginx"}, []string{"dnf", "upgrade", "-y", "nginx"}, false},
+		{"yum", nil, []string{"yum", "upgrade", "-y"}, false},
+		{"zypper", []string{"nginx"}, []string{"zypper", "update", "-y", "nginx"}, false},
+		{"unknown", nil, nil, true},
 	}
 	for _, c := range cases {
-		got, err := packageUpdateCommand(c.mgr, c.names)
+		got, err := packageUpdateArgv(c.mgr, c.names)
 		if c.wantErr {
 			if err == nil {
-				t.Errorf("packageUpdateCommand(%q, %v): expected error, got nil", c.mgr, c.names)
+				t.Errorf("packageUpdateArgv(%q, %v): expected error, got nil", c.mgr, c.names)
 			}
 			continue
 		}
 		if err != nil {
-			t.Errorf("packageUpdateCommand(%q, %v): unexpected error: %v", c.mgr, c.names, err)
+			t.Errorf("packageUpdateArgv(%q, %v): unexpected error: %v", c.mgr, c.names, err)
 		}
-		if got != c.want {
-			t.Errorf("packageUpdateCommand(%q, %v) = %q, want %q", c.mgr, c.names, got, c.want)
+		if !reflect.DeepEqual(got, c.want) {
+			t.Errorf("packageUpdateArgv(%q, %v) = %q, want %q", c.mgr, c.names, got, c.want)
+		}
+	}
+}
+
+func TestPackageNameRe(t *testing.T) {
+	valid := []string{"nginx", "libssl-dev", "python3.11", "pkg:amd64", "a+b"}
+	invalid := []string{"nginx; rm -rf /", "curl|sh", "$(whoami)", "pkg && evil", "a b"}
+	for _, n := range valid {
+		if !packageNameRe.MatchString(n) {
+			t.Errorf("expected %q to be a valid package name", n)
+		}
+	}
+	for _, n := range invalid {
+		if packageNameRe.MatchString(n) {
+			t.Errorf("expected %q to be rejected as a package name", n)
+		}
+	}
+}
+
+func TestIsValidPackageName(t *testing.T) {
+	valid := []string{"nginx", "libssl-dev", "python3.11", "pkg:amd64", "a+b"}
+	invalid := []string{
+		"nginx; rm -rf /", "curl|sh", "$(whoami)", "pkg && evil", "a b",
+		"--installroot", "--installroot=/tmp/evil", "-y",
+	}
+	for _, n := range valid {
+		if !isValidPackageName(n) {
+			t.Errorf("expected %q to be a valid package name", n)
+		}
+	}
+	for _, n := range invalid {
+		if isValidPackageName(n) {
+			t.Errorf("expected %q to be rejected as a package name", n)
 		}
 	}
 }

@@ -7,6 +7,7 @@ Overview tab — see docs/AGENT.md#troubleshooting).
 """
 
 import uuid
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from sqlalchemy import select
@@ -32,7 +33,7 @@ async def _make_agent(db_session, **overrides) -> Agent:
 
 @pytest.mark.asyncio
 async def test_update_heartbeat_activates_agent_and_sets_ip(db_session, fake_cache):
-    agent = await _make_agent(db_session, agent_id="agent-abc")
+    await _make_agent(db_session, agent_id="agent-abc")
     svc = AgentService(db_session, fake_cache)
 
     updated = await svc.update_heartbeat("agent-abc", {"ip_address": "10.0.0.5"})
@@ -46,7 +47,7 @@ async def test_update_heartbeat_activates_agent_and_sets_ip(db_session, fake_cac
 async def test_update_heartbeat_persists_fqdn_and_agent_version(db_session, fake_cache):
     """Regression: Overview tab showed FQDN/Agent Version as '—' — verify the
     heartbeat write path stores both when the agent reports them."""
-    agent = await _make_agent(db_session, agent_id="agent-fqdn")
+    await _make_agent(db_session, agent_id="agent-fqdn")
     svc = AgentService(db_session, fake_cache)
 
     updated = await svc.update_heartbeat(
@@ -64,7 +65,7 @@ async def test_update_heartbeat_persists_fqdn_and_agent_version(db_session, fake
 @pytest.mark.asyncio
 async def test_update_heartbeat_ignores_empty_system_status_values(db_session, fake_cache):
     """Falsy values (empty string) must not clobber a previously known field."""
-    agent = await _make_agent(db_session, agent_id="agent-keep", fqdn="already-set.example.com")
+    await _make_agent(db_session, agent_id="agent-keep", fqdn="already-set.example.com")
     svc = AgentService(db_session, fake_cache)
 
     updated = await svc.update_heartbeat(
@@ -84,7 +85,7 @@ async def test_update_heartbeat_unknown_agent_raises(db_session, fake_cache):
 
 @pytest.mark.asyncio
 async def test_update_heartbeat_syncs_recent_logs_shape(db_session, fake_cache):
-    agent = await _make_agent(db_session, agent_id="agent-logs")
+    await _make_agent(db_session, agent_id="agent-logs")
     svc = AgentService(db_session, fake_cache)
 
     updated = await svc.update_heartbeat(
@@ -155,7 +156,15 @@ async def test_update_heartbeat_upserts_vulnerabilities(db_session, fake_cache):
     assert rows[0].package_name == "openssl" and rows[0].is_remediated is False
 
     # Fixed now (no longer reported) — reconcile marks it remediated, doesn't delete it.
-    await svc.update_heartbeat("agent-vuln", {"vulnerabilities": []})
+    # `packages` must be non-empty here: update_heartbeat only trusts an empty
+    # `vulnerabilities` list enough to reconcile when this heartbeat's package
+    # collection demonstrably succeeded (see its scan_succeeded comment) —
+    # otherwise an empty list is indistinguishable from a transient collection
+    # failure, and reconciliation is deliberately skipped.
+    await svc.update_heartbeat(
+        "agent-vuln",
+        {"packages": [{"name": "openssl", "version": "1.0"}], "vulnerabilities": []},
+    )
 
     rows = (
         await db_session.execute(
@@ -167,6 +176,50 @@ async def test_update_heartbeat_upserts_vulnerabilities(db_session, fake_cache):
     assert len(rows) == 1
     assert rows[0].is_remediated is True
     assert rows[0].remediation_date is not None
+
+
+@pytest.mark.asyncio
+async def test_update_heartbeat_reopen_clears_stale_remediation_date(db_session, fake_cache):
+    """A finding resolved in a prior cycle (remediation_date set) that gets
+    re-detected must reopen fully, including clearing remediation_date —
+    otherwise vulnerability_counts_by_day (services/trends.py) reads it as
+    still closed today via its discovered_at/remediation_date
+    reconstruction, undercounting open findings (confirmed live: 38/100 open
+    findings on the real fleet carried a stale remediation_date this way).
+
+    Sets up the "previously resolved" state directly via ORM rather than by
+    replaying the empty-heartbeat reconcile flow, which has an unrelated
+    pre-existing bug (scan_succeeded requires a "packages" key the
+    reconcile-only path here doesn't send)."""
+    agent = await _make_agent(db_session, agent_id="agent-reopen")
+    db_session.add(CVE(cve_id="CVE-2026-2", cvss_v3_severity="HIGH"))
+    await db_session.commit()
+    db_session.add(AgentVulnerability(
+        agent_id=agent.id, cve_id="CVE-2026-2", package_name="openssl", package_version="1.0",
+        severity="HIGH", status="RESOLVED", is_remediated=True,
+        remediation_date=datetime.now(timezone.utc) - timedelta(days=2),
+    ))
+    await db_session.commit()
+
+    svc = AgentService(db_session, fake_cache)
+    await svc.update_heartbeat(
+        "agent-reopen",
+        {"vulnerabilities": [
+            {"cve_id": "CVE-2026-2", "package_name": "openssl", "installed_version": "1.0", "severity": "HIGH"},
+        ]},
+    )
+
+    rows = (
+        await db_session.execute(
+            select(AgentVulnerability)
+            .where(AgentVulnerability.agent_id == agent.id)
+            .execution_options(populate_existing=True)
+        )
+    ).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].status == "PATCH_AVAILABLE"
+    assert rows[0].is_remediated is False
+    assert rows[0].remediation_date is None
 
 
 @pytest.mark.asyncio

@@ -99,10 +99,10 @@ const jobColumns = [
 const selectedJob = ref<(typeof jobs.value)[0] | null>(null)
 
 const packageColumns = [
-  { key: 'name', label: 'Nume' },
-  { key: 'version', label: 'Versiune instalată' },
-  { key: 'latest_version', label: 'Disponibilă' },
-  { key: 'architecture', label: 'Arhitectură' },
+  { key: 'name', label: 'Name' },
+  { key: 'version', label: 'Installed version' },
+  { key: 'latest_version', label: 'Available' },
+  { key: 'architecture', label: 'Architecture' },
   { key: 'update_status', label: 'Update' },
 ]
 
@@ -114,21 +114,20 @@ async function submitPackageUpdate(names?: string[]) {
   updatingPackages.value = true
   try {
     await useJobsStore().createJob({
-      name: names ? `Update pachete (${names.length})` : 'Update all packages',
+      name: names ? `Update packages (${names.length})` : 'Update all packages',
       job_type: 'PACKAGE_UPDATE',
       target_servers: { agent_ids: [route.params.id as string] },
-      priority: 50,
       parameters: names ? { package_names: names } : null,
     })
     selectedPackageIds.value = []
-    toast.add({ title: 'Job de update creat', color: 'green' })
+    toast.add({ title: 'Update job created', color: 'green' })
   } catch (err) {
     const status = (err as { response?: { status?: number }; statusCode?: number })?.response?.status
       ?? (err as { statusCode?: number })?.statusCode
     toast.add(
       status === 409
-        ? { title: 'Există deja un job identic în coadă pentru acest server', color: 'orange' }
-        : { title: 'Nu s-a putut crea job-ul de update', color: 'red' },
+        ? { title: 'Identical job already queued for this server', color: 'orange' }
+        : { title: 'Failed to create update job', color: 'red' },
     )
   } finally {
     updatingPackages.value = false
@@ -146,10 +145,10 @@ const { statusColor: jobStatusColor } = useJobs()
 
 const vulnerabilityColumns = [
   { key: 'cve_id', label: 'CVE' },
-  { key: 'package_name', label: 'Pachet' },
-  { key: 'severity', label: 'Severitate' },
+  { key: 'package_name', label: 'Package' },
+  { key: 'severity', label: 'Severity' },
   { key: 'cvss_score', label: 'CVSS' },
-  { key: 'fix_available', label: 'Fix disponibil' },
+  { key: 'fix_available', label: 'Fix available' },
 ]
 
 const SEVERITY_COLORS: Record<string, string> = {
@@ -271,12 +270,12 @@ const SEVERITY_COLORS: Record<string, string> = {
       <template #packages>
         <div class="mt-4">
           <div class="flex items-center gap-2 mb-3">
-            <Badge v-if="selectedPackageIds.length" color="green">{{ selectedPackageIds.length }} selectate</Badge>
+            <Badge v-if="selectedPackageIds.length" color="green">{{ selectedPackageIds.length }} selected</Badge>
             <Button size="xs" :disabled="!selectedPackageIds.length || updatingPackages" @click="updateSelectedPackages">
-              Actualizează selectate
+              Update selected
             </Button>
             <Button variant="outline" size="xs" :disabled="updatingPackages" @click="submitPackageUpdate()">
-              Actualizează tot
+              Update all
             </Button>
           </div>
           <DataTable
@@ -297,7 +296,7 @@ const SEVERITY_COLORS: Record<string, string> = {
             </template>
           </DataTable>
           <p v-if="!store.packagesLoading && !store.packages.length" class="text-xs text-muted-foreground mt-2">
-            Niciun pachet raportat încă — apare după primul heartbeat cu inventar de la agent.
+            No packages reported yet. This appears after the first heartbeat with inventory from the agent.
           </p>
         </div>
       </template>
@@ -313,12 +312,12 @@ const SEVERITY_COLORS: Record<string, string> = {
               {{ row.cvss_score ?? '—' }}
             </template>
             <template #fix_available-data="{ row }">
-              <Badge v-if="row.fix_available" color="green" size="xs">da</Badge>
-              <span v-else class="text-muted-foreground text-xs">nu</span>
+              <Badge v-if="row.fix_available" color="green" size="xs">yes</Badge>
+              <span v-else class="text-muted-foreground text-xs">no</span>
             </template>
           </DataTable>
           <p v-if="!store.vulnerabilitiesLoading && !store.vulnerabilities.length" class="text-xs text-muted-foreground mt-2">
-            Nicio vulnerabilitate raportată — apare după procesarea scanării CVE pentru pachetele acestui server.
+            No vulnerabilities reported. This appears after CVE scan processing for this server's packages.
           </p>
         </div>
       </template>
@@ -336,7 +335,7 @@ const SEVERITY_COLORS: Record<string, string> = {
               {{ row.completed_at ? new Date(String(row.completed_at)).toLocaleString() : '—' }}
             </template>
           </DataTable>
-          <p class="text-xs text-muted-foreground mt-2">Click pe un job pentru output-ul complet (stdout/stderr).</p>
+          <p class="text-xs text-muted-foreground mt-2">Click a job for full output (stdout/stderr).</p>
         </div>
       </template>
 
@@ -347,7 +346,7 @@ const SEVERITY_COLORS: Record<string, string> = {
             <li v-for="u in server.system_users" :key="u" class="text-[13px] font-mono">{{ u }}</li>
           </ul>
           <p v-else class="text-xs text-muted-foreground">
-            Niciun user raportat încă — apare după primul heartbeat de la agent.
+            No users reported yet. This appears after the first heartbeat from the agent.
           </p>
         </Card>
       </template>
@@ -359,7 +358,7 @@ const SEVERITY_COLORS: Record<string, string> = {
             <div class="flex gap-4">
               <div class="flex items-center gap-2">
                 <Badge color="green">{{ server.recent_logs.connections }}</Badge>
-                <span class="text-xs text-muted-foreground">Conexiuni</span>
+                <span class="text-xs text-muted-foreground">Connections</span>
               </div>
               <div class="flex items-center gap-2">
                 <Badge color="gray">{{ server.recent_logs.informative }}</Badge>
@@ -367,7 +366,7 @@ const SEVERITY_COLORS: Record<string, string> = {
               </div>
               <div class="flex items-center gap-2">
                 <Badge color="red">{{ server.recent_logs.critical }}</Badge>
-                <span class="text-xs text-muted-foreground">Critice</span>
+                <span class="text-xs text-muted-foreground">Critical</span>
               </div>
             </div>
             <pre
@@ -376,7 +375,7 @@ const SEVERITY_COLORS: Record<string, string> = {
             >{{ server.recent_logs.lines.join('\n') }}</pre>
           </div>
           <p v-else class="text-xs text-muted-foreground">
-            Niciun log raportat încă — apare după primul heartbeat de la agent.
+            No logs reported yet. This appears after the first heartbeat from the agent.
           </p>
         </Card>
       </template>
@@ -387,10 +386,10 @@ const SEVERITY_COLORS: Record<string, string> = {
           <div class="flex items-center justify-between">
             <div>
               <p class="text-[13px] font-medium">
-                Status curent: <Badge :color="statusColor(String(server.status))">{{ server.status }}</Badge>
+                Current status: <Badge :color="statusColor(String(server.status))">{{ server.status }}</Badge>
               </p>
               <p class="text-xs text-muted-foreground mt-1">
-                Modul mentenanță suspendă alertele și marchează serverul ca fiind indisponibil intenționat.
+                Maintenance mode suspends alerts and marks the server as intentionally unavailable.
               </p>
             </div>
             <Button
@@ -399,7 +398,7 @@ const SEVERITY_COLORS: Record<string, string> = {
               :disabled="maintenanceToggling"
               @click="handleToggleMaintenance"
             >
-              {{ server.status === 'MAINTENANCE' ? 'Dezactivează mentenanța' : 'Activează mentenanța' }}
+              {{ server.status === 'MAINTENANCE' ? 'Disable maintenance' : 'Enable maintenance' }}
             </Button>
           </div>
         </Card>

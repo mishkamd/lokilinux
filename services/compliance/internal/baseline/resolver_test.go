@@ -93,7 +93,7 @@ func TestSelectorMatches_NonStringValueNeverMatches(t *testing.T) {
 func TestDeepMergeOverwrite_PerKeyNotPerDocument(t *testing.T) {
 	dst := map[string]any{
 		"sshd": map[string]any{
-			"PermitRootLogin": "no",
+			"PermitRootLogin":        "no",
 			"PasswordAuthentication": "no",
 		},
 	}
@@ -201,7 +201,7 @@ func TestMergeForAgent_NoMatchingBaselineGivesEmptyState(t *testing.T) {
 
 func TestCanonicalHash_Deterministic(t *testing.T) {
 	state := map[string]any{
-		"sshd": map[string]any{"PermitRootLogin": "no", "PasswordAuthentication": "no"},
+		"sshd":   map[string]any{"PermitRootLogin": "no", "PasswordAuthentication": "no"},
 		"sysctl": map[string]any{"kernel.hostname": "x"},
 	}
 	h1, err := canonicalHash(state)
@@ -220,7 +220,7 @@ func TestCanonicalHash_Deterministic(t *testing.T) {
 	}
 
 	other := map[string]any{
-		"sshd": map[string]any{"PermitRootLogin": "yes", "PasswordAuthentication": "no"},
+		"sshd":   map[string]any{"PermitRootLogin": "yes", "PasswordAuthentication": "no"},
 		"sysctl": map[string]any{"kernel.hostname": "x"},
 	}
 	h3, err := canonicalHash(other)

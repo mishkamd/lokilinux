@@ -21,8 +21,9 @@ recipe already proven in 001_initial_schema.py.
 """
 
 import sqlalchemy as sa
-from alembic import op
 from sqlalchemy.dialects import postgresql
+
+from alembic import op
 
 revision = "015"
 down_revision = "013"

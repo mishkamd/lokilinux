@@ -90,6 +90,7 @@ async function confirmCancel() {
 }
 
 onMounted(async () => {
+  store.fetchJobs()
   agentOptions.value = await serversStore.fetchAgentsForSelect()
 })
 </script>

@@ -4,6 +4,7 @@ LokiLinux — Compliance Policy Engine Pydantic schemas.
 
 from datetime import datetime
 from enum import Enum
+from typing import Any
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -27,7 +28,8 @@ class ComplianceRuleResponse(BaseModel):
     domain: str
     check_source: CheckSource
     check_expr: str | None = None
-    expected_value: dict | None = None
+    # JSONB — curated content stores scalars (e.g. "no", true), not just objects
+    expected_value: Any | None = None
     platform_filter: list[str]
     standard_refs: dict
     remediation_template_id: UUID | None = None
@@ -40,6 +42,29 @@ class ComplianceRuleResponse(BaseModel):
 
 
 ComplianceRuleListResponse = CursorPage[ComplianceRuleResponse]
+
+
+class FrameworkMapping(BaseModel):
+    framework_key: str
+    framework_name: str
+    framework_version: str
+    control_id: str
+    control_title: str
+
+
+class FailingAgent(BaseModel):
+    agent_id: UUID
+    hostname: str | None = None
+
+
+class RuleDetailResponse(ComplianceRuleResponse):
+    """Extends the catalog row (docs/compliance §37) with framework
+    mappings, live coverage, and which agents are currently failing —
+    everything a rule detail page needs in one call."""
+
+    framework_mappings: list[FrameworkMapping] = []
+    coverage: dict[str, int] = {}
+    failing_agents: list[FailingAgent] = []
 
 
 class RuleCoverageResponse(BaseModel):
@@ -57,6 +82,7 @@ class RemediationTemplateResponse(BaseModel):
     rule_key: str
     provider: str
     body: str
+    rollback_body: str | None = None
     source: str
     git_path: str | None = None
     version: int
@@ -83,6 +109,10 @@ class PolicySetResponse(BaseModel):
     source_profile: str | None = None
     is_enabled: bool
     created_at: datetime
+    status: str = "PUBLISHED"
+    published_at: datetime | None = None
+    published_version: int = 1
+    parent_policy_set_id: UUID | None = None
 
     model_config = {"from_attributes": True}
 

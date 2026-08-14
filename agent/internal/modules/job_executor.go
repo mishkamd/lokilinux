@@ -33,6 +33,22 @@ func (e *JobExecutor) Execute(ctx context.Context, jobID, command string, timeou
 	return runViaSystemdRun(ctx, jobID, command, timeoutSec, e.maxOutputBytes)
 }
 
+// CheckSyntax validates command without running it — `sh -n -c <command>`
+// parses the script and reports syntax errors, executing nothing (POSIX -n:
+// "Read commands and check them for syntax errors, but do not execute
+// them"). command is passed as a single argv element via
+// runViaSystemdRunArgv, not interpolated into a shell string, so this has
+// the same injection-safety as Execute itself — it just never runs anything.
+// This is the shell half of remediation dry-run (docs/compliance §13, §14):
+// a real syntax check, not a no-op stand-in.
+func (e *JobExecutor) CheckSyntax(ctx context.Context, jobID, command string, timeoutSec int) JobResult {
+	if err := validateCommand(command); err != nil {
+		return JobResult{JobID: jobID, ExitCode: 1, Error: err.Error()}
+	}
+	argv := []string{"sh", "-n", "-c", command}
+	return runViaSystemdRunArgv(ctx, jobID, argv, "", timeoutSec, e.maxOutputBytes)
+}
+
 func validateCommand(command string) error {
 	if strings.TrimSpace(command) == "" {
 		return fmt.Errorf("empty command")

@@ -19,7 +19,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from lokilinux.auth.dependencies import get_current_user, require_role
 from lokilinux.dependencies import get_db
 from lokilinux.models.category import Category, Project
-from lokilinux.schemas.category import CategoryCreate, CategoryResponse, ProjectCreate, ProjectResponse
+from lokilinux.schemas.category import (
+    CategoryCreate,
+    CategoryResponse,
+    ProjectCreate,
+    ProjectResponse,
+)
 
 router = APIRouter()
 

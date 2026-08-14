@@ -10,7 +10,7 @@ const toast = useToast()
 
 const isEdit = computed(() => !!props.policy)
 
-const STEPS = ['General', 'Ținte', 'Trigger', 'Acțiune', 'Review']
+const STEPS = ['General', 'Targets', 'Trigger', 'Action', 'Review']
 
 const POLICY_TYPES = ['', 'UPDATE', 'SECURITY', 'COMPLIANCE', 'MAINTENANCE', 'PLUGIN']
 const SEVERITIES = ['', 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL']
@@ -77,21 +77,21 @@ function onContinue() {
 function validateStep(stepIndex: number): string | null {
   switch (STEPS[stepIndex]) {
     case 'General':
-      if (!form.value.name.trim()) return 'Numele este obligatoriu'
+      if (!form.value.name.trim()) return 'Name is required'
       return null
-    case 'Ținte':
+    case 'Targets':
       if (form.value.targetMode === 'agents' && form.value.agent_ids.length === 0)
-        return 'Selectează cel puțin un server'
+        return 'Select at least one server'
       if (form.value.targetMode === 'filters' && !form.value.filter_os_distro && !form.value.filter_category_id && !form.value.filter_project_id)
-        return 'Setează cel puțin un filtru'
+        return 'Set at least one filter'
       return null
     case 'Trigger':
       if (form.value.trigger_type === 'SCHEDULE' && !form.value.cron_expr.trim())
-        return 'Expresia cron este obligatorie pentru trigger programat'
+        return 'Cron expression is required for scheduled triggers'
       return null
-    case 'Acțiune':
+    case 'Action':
       if (form.value.action_type === 'CUSTOM_COMMAND' && !form.value.command.trim())
-        return 'Comanda este obligatorie'
+        return 'Command is required'
       return null
     default:
       return null
@@ -148,15 +148,15 @@ async function submit() {
     const payload = buildPayload()
     if (isEdit.value && props.policy) {
       await api.patch(`/policies/${props.policy.id}`, payload)
-      toast.add({ title: 'Politică actualizată', color: 'green' })
+      toast.add({ title: 'Policy updated', color: 'green' })
     } else {
       await api.post('/policies', payload)
-      toast.add({ title: 'Politică creată', color: 'green' })
+      toast.add({ title: 'Policy created', color: 'green' })
     }
     emit('saved')
   } catch (e) {
     const detail = (e as { data?: { detail?: string } })?.data?.detail
-    toast.add({ title: 'Eroare', description: detail || 'Salvarea politicii a eșuat', color: 'red' })
+    toast.add({ title: 'Error', description: detail || 'Failed to save policy', color: 'red' })
   } finally {
     submitting.value = false
   }
@@ -166,7 +166,7 @@ async function submit() {
 <template>
   <Dialog
     :model-value="true"
-    :title="isEdit ? 'Editează politica' : 'Politică nouă'"
+    :title="isEdit ? 'Edit policy' : 'New policy'"
     size="xl"
     @update:model-value="(open: boolean) => { if (!open) emit('close') }"
   >
@@ -179,120 +179,120 @@ async function submit() {
 
           <!-- General -->
           <div v-if="stepper.current.value === 'General'" class="space-y-4">
-            <FormField label="Nume" required>
+            <FormField label="Name" required>
               <Input v-model="form.name" placeholder="ex: Monthly Security Update" />
             </FormField>
-            <FormField label="Descriere">
-              <Textarea v-model="form.description" placeholder="Ce face această politică..." />
+            <FormField label="Description">
+              <Textarea v-model="form.description" placeholder="What this policy does..." />
             </FormField>
             <div class="grid grid-cols-2 gap-4">
-              <FormField label="Categorie">
-                <Select v-model="form.policy_type" :options="POLICY_TYPES" placeholder="Fără categorie" />
+              <FormField label="Category">
+                <Select v-model="form.policy_type" :options="POLICY_TYPES" placeholder="No category" />
               </FormField>
-              <FormField label="Severitate">
-                <Select v-model="form.severity" :options="SEVERITIES" placeholder="Fără severitate" />
+              <FormField label="Severity">
+                <Select v-model="form.severity" :options="SEVERITIES" placeholder="No severity" />
               </FormField>
-              <FormField label="Prioritate" help="Mai mic = executat primul în listă">
+              <FormField label="Priority" help="Lower = executed first">
                 <Input v-model.number="form.priority" type="number" />
               </FormField>
-              <FormField label="Etichete" help="separate prin virgulă">
+              <FormField label="Tags" help="comma-separated">
                 <Input v-model="form.tags" placeholder="prod, patching" />
               </FormField>
             </div>
             <div class="flex items-center gap-2">
               <Switch v-model="form.is_enabled" />
-              <span class="text-[13px]">Activă</span>
+              <span class="text-[13px]">Active</span>
             </div>
           </div>
 
-          <!-- Ținte -->
-          <div v-else-if="stepper.current.value === 'Ținte'" class="space-y-4">
-            <FormField label="Servere țintă">
+          <!-- Targets -->
+          <div v-else-if="stepper.current.value === 'Targets'" class="space-y-4">
+            <FormField label="Target servers">
               <Select
                 v-model="form.targetMode"
-                :options="[{ label: 'Toate serverele', value: 'all' }, { label: 'Servere individuale', value: 'agents' }, { label: 'Filtru (OS / categorie / proiect)', value: 'filters' }]"
+                :options="[{ label: 'All servers', value: 'all' }, { label: 'Individual servers', value: 'agents' }, { label: 'Filter (OS / category / project)', value: 'filters' }]"
               />
             </FormField>
-            <FormField v-if="form.targetMode === 'agents'" label="Selectează servere" required>
-              <MultiSelect v-model="form.agent_ids" :options="agentOptions" placeholder="Selectează servere..." />
+            <FormField v-if="form.targetMode === 'agents'" label="Select servers" required>
+              <MultiSelect v-model="form.agent_ids" :options="agentOptions" placeholder="Select servers..." />
             </FormField>
             <div v-else-if="form.targetMode === 'filters'" class="grid grid-cols-2 gap-4">
-              <FormField label="Distribuție OS">
-                <Input v-model="form.filter_os_distro" placeholder="ex: rocky" />
+              <FormField label="OS Distribution">
+                <Input v-model="form.filter_os_distro" placeholder="e.g. rocky" />
               </FormField>
-              <FormField label="Categorie">
-                <Select v-model="form.filter_category_id" :options="[{ label: 'Orice categorie', value: '' }, ...categoryOptions]" />
+              <FormField label="Category">
+                <Select v-model="form.filter_category_id" :options="[{ label: 'Any category', value: '' }, ...categoryOptions]" />
               </FormField>
-              <FormField label="Proiect">
-                <Select v-model="form.filter_project_id" :options="[{ label: 'Orice proiect', value: '' }, ...projectOptions]" />
+              <FormField label="Project">
+                <Select v-model="form.filter_project_id" :options="[{ label: 'Any project', value: '' }, ...projectOptions]" />
               </FormField>
             </div>
           </div>
 
           <!-- Trigger -->
           <div v-else-if="stepper.current.value === 'Trigger'" class="space-y-4">
-            <FormField label="Tip declanșator">
+            <FormField label="Trigger type">
               <Select
                 v-model="form.trigger_type"
-                :options="[{ label: 'Manual', value: 'MANUAL' }, { label: 'Programat (cron)', value: 'SCHEDULE' }]"
+                :options="[{ label: 'Manual', value: 'MANUAL' }, { label: 'Scheduled (cron)', value: 'SCHEDULE' }]"
               />
             </FormField>
             <FormField
               v-if="form.trigger_type === 'SCHEDULE'"
-              label="Expresie cron"
+              label="Cron expression"
               required
-              help="ex: 0 2 * * * — zilnic la 02:00 UTC"
+              help="e.g. 0 2 * * * — daily at 02:00 UTC"
             >
               <Input v-model="form.cron_expr" placeholder="0 2 * * *" class="font-mono" />
             </FormField>
           </div>
 
-          <!-- Acțiune -->
-          <div v-else-if="stepper.current.value === 'Acțiune'" class="space-y-4">
-            <FormField label="Tip acțiune">
+          <!-- Action -->
+          <div v-else-if="stepper.current.value === 'Action'" class="space-y-4">
+            <FormField label="Action type">
               <Select
                 v-model="form.action_type"
-                :options="[{ label: 'Actualizare pachete', value: 'PACKAGE_UPDATE' }, { label: 'Comandă shell', value: 'CUSTOM_COMMAND' }]"
+                :options="[{ label: 'Package update', value: 'PACKAGE_UPDATE' }, { label: 'Shell command', value: 'CUSTOM_COMMAND' }]"
               />
             </FormField>
             <template v-if="form.action_type === 'PACKAGE_UPDATE'">
-              <FormField label="Pachete" help="gol = toate pachetele; altfel listă separată prin virgulă">
+              <FormField label="Packages" help="empty = all packages; otherwise comma-separated list">
                 <Input v-model="form.package_names" placeholder="curl, openssl" />
               </FormField>
               <div class="flex items-center gap-2">
                 <Switch v-model="form.security_only" />
-                <span class="text-[13px]">Doar actualizări de securitate</span>
+                <span class="text-[13px]">Security updates only</span>
               </div>
             </template>
-            <FormField v-else label="Comandă shell" required help="rulează ca root pe fiecare server țintă">
+            <FormField v-else label="Shell command" required help="runs as root on each target server">
               <Textarea v-model="form.command" placeholder="systemctl restart nginx" :rows="4" />
             </FormField>
             <div class="flex items-center gap-2">
               <Switch v-model="form.requires_approval" />
-              <span class="text-[13px]">Necesită aprobare înainte de execuție</span>
+              <span class="text-[13px]">Requires approval before execution</span>
             </div>
           </div>
 
           <!-- Review -->
           <div v-else class="space-y-3 text-sm">
             <dl class="grid grid-cols-2 gap-x-6 gap-y-2">
-              <div><dt class="text-muted-foreground">Nume</dt><dd class="font-medium">{{ form.name }}</dd></div>
-              <div><dt class="text-muted-foreground">Declanșator</dt><dd>{{ form.trigger_type === 'SCHEDULE' ? `cron: ${form.cron_expr}` : 'Manual' }}</dd></div>
-              <div><dt class="text-muted-foreground">Ținte</dt>
+              <div><dt class="text-muted-foreground">Name</dt><dd class="font-medium">{{ form.name }}</dd></div>
+              <div><dt class="text-muted-foreground">Trigger</dt><dd>{{ form.trigger_type === 'SCHEDULE' ? `cron: ${form.cron_expr}` : 'Manual' }}</dd></div>
+              <div><dt class="text-muted-foreground">Targets</dt>
                 <dd>
-                  {{ form.targetMode === 'all' ? 'Toate serverele' : form.targetMode === 'agents' ? `${form.agent_ids.length} servere selectate` : 'Filtru' }}
+                  {{ form.targetMode === 'all' ? 'All servers' : form.targetMode === 'agents' ? `${form.agent_ids.length} servers selected` : 'Filter' }}
                 </dd>
               </div>
-              <div><dt class="text-muted-foreground">Acțiune</dt><dd>{{ form.action_type === 'PACKAGE_UPDATE' ? 'Actualizare pachete' : 'Comandă shell' }}</dd></div>
+              <div><dt class="text-muted-foreground">Action</dt><dd>{{ form.action_type === 'PACKAGE_UPDATE' ? 'Package update' : 'Shell command' }}</dd></div>
             </dl>
           </div>
         </div>
       </Stepper>
     </template>
     <template #footer>
-      <Button variant="ghost" :disabled="stepperRef?.stepper.isFirst.value" @click="stepperRef.stepper.goToPrevious()">Înapoi</Button>
-      <Button v-if="!stepperRef?.stepper.isLast.value" @click="onContinue">Continuă</Button>
-      <Button v-else :loading="submitting" @click="submit">{{ isEdit ? 'Salvează' : 'Creează politica' }}</Button>
+      <Button variant="ghost" :disabled="stepperRef?.stepper.isFirst.value" @click="stepperRef.stepper.goToPrevious()">Back</Button>
+      <Button v-if="!stepperRef?.stepper.isLast.value" @click="onContinue">Continue</Button>
+      <Button v-else :loading="submitting" @click="submit">{{ isEdit ? 'Save' : 'Create policy' }}</Button>
     </template>
   </Dialog>
 </template>

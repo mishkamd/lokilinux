@@ -33,14 +33,14 @@ const segments = computed<Segment[]>(() => {
 </script>
 
 <template>
-  <div class="glass-card rounded-xl p-3">
+  <div class="surface-card rounded-[var(--radius-md)] p-3">
     <div class="flex items-center gap-1.5 text-muted-foreground mb-2.5">
       <span class="flex items-center justify-center size-5 rounded-md bg-[color-mix(in_oklch,var(--primary-active)_15%,transparent)] text-primary-active shrink-0">
         <PieChart class="size-3" />
       </span>
-      <h2 class="label-caps">Distribuție OS</h2>
+      <h2 class="label-caps">OS Distribution</h2>
     </div>
-    <div v-if="total === 0" class="text-xs text-muted-foreground py-4 text-center">Niciun server înregistrat.</div>
+    <div v-if="total === 0" class="text-xs text-muted-foreground py-4 text-center">No servers registered.</div>
     <div v-else class="flex flex-col sm:flex-row items-center gap-3">
       <div class="relative shrink-0 size-16">
         <svg viewBox="0 0 160 160" class="size-16 -rotate-90">

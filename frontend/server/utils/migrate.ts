@@ -1,6 +1,6 @@
 /**
- * Script de migrare Better Auth — rulează în container pentru a crea tabelele.
- * Se execută cu: npx tsx server/utils/migrate.ts
+ * Better Auth migration script — runs in the container to create the tables.
+ * Run with: npx tsx server/utils/migrate.ts
  */
 import { getMigrations } from "better-auth/db/migration"
 import { auth } from "./auth"

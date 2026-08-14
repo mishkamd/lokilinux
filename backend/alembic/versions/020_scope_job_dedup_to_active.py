@@ -21,6 +21,7 @@ two agree; the index still prevents genuine concurrent duplicates.
 """
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision = "020"

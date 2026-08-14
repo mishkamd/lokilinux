@@ -77,5 +77,12 @@ class JobTimeoutWorker:
 
             await db.commit()
 
+            # Sync remediation plans for timed-out jobs
+            from lokilinux.services.job_service import sync_remediation_plan
+            for job in stale:
+                if job.job_type == "COMPLIANCE_REMEDIATE":
+                    await sync_remediation_plan(db, job.id)
+            await db.commit()
+
             for job in stale:
                 await self.cache.invalidate(f"job:{job.id}:status")

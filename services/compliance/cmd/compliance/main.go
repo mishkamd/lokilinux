@@ -160,6 +160,12 @@ func main() {
 
 	dispatcher := scheduler.NewDispatcher(elector, store, log)
 	go dispatcher.Run(ctx, 10*time.Second)
+
+	expirer := scheduler.NewExpirer(elector, store, log)
+	go expirer.Run(ctx, time.Minute)
+
+	assessmentPoller := scheduler.NewAssessmentPoller(elector, store, ingester, log)
+	go assessmentPoller.Run(ctx, 5*time.Second)
 	log.Info("scheduler started", "node_id", nodeID, "leader_ttl", leaderTTL)
 
 	// Registers this service's counters on the default Prometheus registry

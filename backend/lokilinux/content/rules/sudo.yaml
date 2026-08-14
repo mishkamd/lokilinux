@@ -1,0 +1,23 @@
+# LokiLinux curated compliance content — sudo domain.
+#
+# sudo_collector.go returns facts.sudoers as a []string of trimmed,
+# comment-stripped, non-blank raw lines from /etc/sudoers (facts.sudoers_d
+# also exists but only when /etc/sudoers.d has readable files — deliberately
+# not referenced here to avoid an ERROR verdict on hosts where that key is
+# simply absent).
+
+- rule_key: SUDO-001
+  title: No unrestricted passwordless sudo
+  description: /etc/sudoers must not contain an unrestricted "NOPASSWD ALL" grant.
+  rationale: A NOPASSWD:ALL line lets that account (or anyone with its session) run any command as root with no re-authentication — the single riskiest line a sudoers file can contain.
+  severity: CRITICAL
+  domain: sudo
+  check_expr: '!facts.sudoers.exists(l, l.contains("NOPASSWD: ALL") || l.contains("NOPASSWD:ALL"))'
+  expected_value: false
+  standard_refs:
+    cis: "5.3.3"
+  evidence_paths: [sudoers]
+  resources:
+    - type: FILE
+      path: /etc/sudoers
+  remediation: null

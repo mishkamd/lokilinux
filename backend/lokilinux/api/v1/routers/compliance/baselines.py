@@ -12,7 +12,7 @@ from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.auth.dependencies import get_current_user, require_role, safe_user_uuid
@@ -65,9 +65,16 @@ async def list_baselines(
         last = items[-1]
         next_cursor = encode_cursor(f"{last.created_at.isoformat()}:{last.id}")
 
+    # total count (no cursor filter — lightweight approximate, mirrors servers.py)
+    count_q = select(func.count()).select_from(Baseline)
+    if scope_type:
+        count_q = count_q.where(Baseline.scope_type == scope_type)
+    total = (await db.execute(count_q)).scalar()
+
     return CursorPage[BaselineResponse](
         items=[BaselineResponse.model_validate(b) for b in items],
         next_cursor=next_cursor,
+        total=total,
     )
 
 
@@ -194,8 +201,10 @@ async def get_effective_baseline(
         await db.execute(select(BaselineEffective).where(BaselineEffective.agent_id == agent_id))
     ).scalar_one_or_none()
     if row is None:
-        # Honest gap, not a bug: baseline_effective is computed by lokilinux-compliance
-        # (docs/compliance/02-GO-SERVICE.md), which does not exist yet as of this
-        # migration slice — nothing has ever populated this row for any agent.
+        # baseline_effective is computed by lokilinux-compliance on every
+        # COMPLIANCE_BASELINE_PUBLISHED event (fleet-wide recompute,
+        # services/compliance/internal/baseline) — a missing row means no
+        # baseline has been published since this agent registered, not an
+        # engine failure.
         raise HTTPException(status_code=404, detail="Effective baseline not yet computed for this agent")
     return EffectiveBaselineResponse.model_validate(row)

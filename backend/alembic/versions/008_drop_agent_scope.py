@@ -8,6 +8,7 @@ job/policy targeting code actually read it. Removed entirely.
 """
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision = "008"

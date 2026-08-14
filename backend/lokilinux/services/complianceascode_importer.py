@@ -29,6 +29,7 @@ compliance_rules.check_source.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from dataclasses import dataclass, field
 from urllib.parse import urlparse
@@ -38,6 +39,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.models.compliance_rule import ComplianceRule, PolicySet, PolicySetRule
+from lokilinux.services.framework_mapping import backfill_framework_mappings, preload_framework_cache
 
 XCCDF_NS = "http://checklists.nist.gov/xccdf/1.2"
 
@@ -175,6 +177,28 @@ class ImportResult:
     rules_imported: int = 0
     rules_updated: int = 0
     policy_sets_imported: int = 0
+    # Diff summary (docs/compliance §41) — added/modified/removed/unchanged
+    # against whatever complianceascode-sourced rules existed before this
+    # run. rules_removed is a count only: matching §41's "never
+    # automatically destroy old rule versions," nothing is deleted or
+    # disabled, the rule row simply wasn't present in the new datastream.
+    rules_added: int = 0
+    rules_modified: int = 0
+    rules_unchanged: int = 0
+    rules_removed: int = 0
+
+
+def _rule_content_hash(title: str, description: str | None, rationale: str | None, severity: str, standard_refs: dict) -> str:
+    """Stable fingerprint of the fields import_datastream can change on an
+    existing row — used to tell "re-imported identical" (unchanged) apart
+    from "content actually changed" (modified) for the diff summary."""
+    import json
+
+    body = json.dumps(
+        {"title": title, "description": description, "rationale": rationale, "severity": severity, "standard_refs": standard_refs},
+        sort_keys=True,
+    )
+    return hashlib.sha256(body.encode()).hexdigest()
 
 
 class ComplianceAsCodeImporter:
@@ -201,12 +225,29 @@ class ComplianceAsCodeImporter:
         result = ImportResult()
         rule_key_to_id = {}
 
+        # Diff baseline: every rule_key this source previously imported,
+        # before this run touches anything (docs/compliance §41).
+        previously_imported_keys = set(
+            (
+                await self.db.execute(
+                    select(ComplianceRule.rule_key).where(ComplianceRule.source == "complianceascode")
+                )
+            )
+            .scalars()
+            .all()
+        )
+        new_keys = {r.rule_key for r in rules}
+        result.rules_removed = len(previously_imported_keys - new_keys)
+
+        framework_cache = await preload_framework_cache(self.db)
+
         for r in rules:
             existing = (
                 await self.db.execute(
                     select(ComplianceRule).where(ComplianceRule.rule_key == r.rule_key)
                 )
             ).scalar_one_or_none()
+            content_hash = _rule_content_hash(r.title, r.description, r.rationale, r.severity, r.standard_refs)
 
             if existing is None:
                 row = ComplianceRule(
@@ -225,7 +266,11 @@ class ComplianceAsCodeImporter:
                 await self.db.flush()
                 rule_key_to_id[r.rule_key] = row.id
                 result.rules_imported += 1
+                result.rules_added += 1
             else:
+                existing_hash = _rule_content_hash(
+                    existing.title, existing.description, existing.rationale, existing.severity, existing.standard_refs
+                )
                 existing.title = r.title
                 existing.description = r.description
                 existing.rationale = r.rationale
@@ -234,6 +279,14 @@ class ComplianceAsCodeImporter:
                 existing.source_version = content_version
                 rule_key_to_id[r.rule_key] = existing.id
                 result.rules_updated += 1
+                if existing_hash == content_hash:
+                    result.rules_unchanged += 1
+                else:
+                    result.rules_modified += 1
+
+            await backfill_framework_mappings(
+                self.db, framework_cache, rule_key_to_id[r.rule_key], r.standard_refs, content_version
+            )
 
         for p in profiles:
             policy_set = (

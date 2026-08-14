@@ -5,15 +5,27 @@ const { signIn } = useAuth()
 const router = useRouter()
 const toast = useToast()
 
-const form = reactive({ username: '', password: '', code: '' })
+const form = reactive({ identifier: '', password: '', code: '' })
 const pending = ref(false)
 const requires2FA = ref(false)
 
 async function onSubmit() {
+  const id = form.identifier.trim()
+  if (!id || !form.password) return
+
   pending.value = true
   try {
-    await signIn.username({ username: form.username, password: form.password })
+    const result = id.includes('@')
+      ? await signIn.email({ email: id, password: form.password })
+      : await signIn.username({ username: id, password: form.password })
+
+    if (!result.data || result.error) {
+      toast.add({ title: 'Autentificare eșuată', description: result.error?.message, color: 'red' })
+      return
+    }
+
     await refreshAuthToken()
+    await refreshNuxtData('current-user')
     await router.push('/')
   } catch (error: unknown) {
     const err = error as { code?: string; message?: string }
@@ -36,11 +48,11 @@ async function onSubmit() {
     </div>
 
     <form class="space-y-4" @submit.prevent="onSubmit">
-      <FormField label="Utilizator" name="username">
+      <FormField label="Email sau utilizator" name="identifier">
         <Input
-          id="username"
-          v-model="form.username"
-          placeholder="username"
+          id="identifier"
+          v-model="form.identifier"
+          placeholder="admin@lokilinux.local"
           autocomplete="username"
         />
       </FormField>

@@ -9,6 +9,7 @@ computes this checksum every heartbeat but the backend never used it.
 """
 
 import sqlalchemy as sa
+
 from alembic import op
 
 revision = "004"
