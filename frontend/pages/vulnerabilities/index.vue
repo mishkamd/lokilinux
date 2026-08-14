@@ -61,7 +61,6 @@ const topVulnerabilities = computed(() => [...cves.value].slice(0, 10))
     <div class="flex items-center justify-between mb-1">
       <div>
         <h1 class="page-title">Vulnerability Management</h1>
-        <p class="text-sm text-muted-foreground">Security posture and vulnerability exposure across your Linux fleet</p>
       </div>
       <Button variant="outline" to="/vulnerabilities/list">Browse catalog</Button>
     </div>
@@ -104,10 +103,6 @@ const topVulnerabilities = computed(() => [...cves.value].slice(0, 10))
         <p class="data-value text-success">{{ summaryLoading ? '…' : (summary?.low ?? 0) }}</p>
       </Card>
     </div>
-    <p class="text-xs text-muted-foreground -mt-3 mb-4">
-      Open exposure on your fleet right now — not the full
-      <NuxtLink to="/vulnerabilities/list" class="text-primary hover:underline">CVE Catalog</NuxtLink>.
-    </p>
 
     <!-- Trend -->
     <div class="mb-4">
