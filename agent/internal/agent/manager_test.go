@@ -88,3 +88,34 @@ func TestRunJob_CommandFallbackStillWorks(t *testing.T) {
 		t.Fatal("runJob returned ok=false for a well-formed command job")
 	}
 }
+
+// TestNudge_CoalescesBurst locks the non-blocking-send shape: several jobs
+// finishing back to back must coalesce into a single pending wake, not one
+// per job (the heartbeat loop only ever drains one per tick, and a job's
+// finish goroutine must never block on the send).
+func TestNudge_CoalescesBurst(t *testing.T) {
+	m := &Manager{nudge: make(chan struct{}, 1)}
+
+	send := func() {
+		select {
+		case m.nudge <- struct{}{}:
+		default:
+		}
+	}
+
+	send()
+	send()
+	send()
+
+	select {
+	case <-m.nudge:
+	default:
+		t.Fatal("nudge channel empty after 3 sends — want at least one pending wake")
+	}
+
+	select {
+	case <-m.nudge:
+		t.Fatal("nudge channel had a second pending item — burst did not coalesce")
+	default:
+	}
+}

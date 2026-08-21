@@ -58,12 +58,8 @@ const topVulnerabilities = computed(() => [...cves.value].slice(0, 10))
 
 <template>
   <div>
-    <div class="flex items-center justify-end mb-1">
-      <Button variant="outline" to="/vulnerabilities/list">Browse catalog</Button>
-    </div>
-
     <!-- KPI cards -->
-    <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 my-4">
+    <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
       <Card>
         <p class="label-caps">Resources scanned</p>
         <p class="data-value">{{ summaryLoading ? '…' : (summary?.resources_scanned ?? 0) }}<span class="text-sm text-muted-foreground font-normal"> / {{ summary?.resources_total ?? 0 }}</span></p>

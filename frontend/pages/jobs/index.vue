@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { RefreshCw, Plus, Eye, Trash2, Check } from 'lucide-vue-next'
+import { ACTIVE_STATUSES } from '~/stores/jobs'
 
 const store = useJobsStore()
 const serversStore = useServersStore()
@@ -93,6 +94,15 @@ onMounted(async () => {
   store.fetchJobs()
   agentOptions.value = await serversStore.fetchAgentsForSelect()
 })
+
+// Mirrors pages/plugins/index.vue's install-status poll — statuses don't
+// move on their own client-side, so the list has to ask again.
+const hasActive = computed(() => jobs.value.some((j) => ACTIVE_STATUSES.includes(j.status)))
+let poll: ReturnType<typeof setInterval> | undefined
+onMounted(() => {
+  poll = setInterval(() => { if (hasActive.value) store.fetchJobs() }, 5000)
+})
+onUnmounted(() => clearInterval(poll))
 </script>
 
 <template>

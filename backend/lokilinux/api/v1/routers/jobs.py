@@ -125,6 +125,7 @@ async def create_job(
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
 
+    await cache.invalidate_pattern("job:list:*")
     return JobResponse.model_validate(job)
 
 
@@ -224,3 +225,4 @@ async def cancel_job(
         await sync_remediation_plan(db, row.id)
     await db.commit()
     await cache.invalidate(f"job:{job_id}:status")
+    await cache.invalidate_pattern("job:list:*")

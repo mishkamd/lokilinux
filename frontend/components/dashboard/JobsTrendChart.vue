@@ -34,7 +34,7 @@ function tickFormat(i: number) {
         </span>
         <h2 class="label-caps">Job Execution</h2>
       </div>
-      <NuxtLink to="/jobs" class="text-[12px] font-medium text-primary shrink-0">View All</NuxtLink>
+      <NuxtLink to="/jobs" class="text-[12px] font-medium text-primary dark:text-primary-active shrink-0">View all</NuxtLink>
     </div>
 
     <Skeleton v-if="props.loading" class="h-40 w-full" />
@@ -48,8 +48,8 @@ function tickFormat(i: number) {
         <VisLine :x="x" :y="yRunning" color="var(--info)" :curve-type="CurveType.MonotoneX" :line-width="2" />
         <VisAxis type="x" :tick-format="tickFormat" :num-ticks="5" />
         <ChartTooltip :x="x" label-key="day" />
+        <ChartLegend />
       </ChartContainer>
-      <ChartLegend />
     </template>
   </div>
 </template>

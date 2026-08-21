@@ -379,6 +379,8 @@ class AgentService:
 
         for jid in touched_job_ids:
             await self.cache.invalidate(f"job:{jid}:status")
+        if touched_job_ids:
+            await self.cache.invalidate_pattern("job:list:*")
 
     async def get_pending_jobs(self, agent_id: UUID) -> list:
         """Return Jobs assigned to this agent whose JobResult status is PENDING.
@@ -436,6 +438,10 @@ class AgentService:
                 .values(status=JobStatus.RUNNING, started_at=now)
             )
             await self.db.commit()
+
+            for jid in job_ids:
+                await self.cache.invalidate(f"job:{jid}:status")
+            await self.cache.invalidate_pattern("job:list:*")
 
         return jobs
 

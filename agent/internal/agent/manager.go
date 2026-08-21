@@ -46,6 +46,13 @@ type Manager struct {
 	resultsMu      sync.Mutex
 	pendingResults []modules.JobResult
 
+	// nudge wakes the heartbeat loop early when a job finishes, instead of
+	// letting the result sit in pendingResults until the next scheduled
+	// tick (up to a full heartbeat interval later). Buffered 1 + a
+	// non-blocking send: a burst of jobs finishing together coalesces into
+	// a single early heartbeat rather than queuing one per job.
+	nudge chan struct{}
+
 	// resyncMu guards resyncDomains: set by handleResponse from the
 	// server's resync_domains, drained by sendHeartbeat into the *next*
 	// outgoing heartbeat's domain_full (docs/compliance/04-PROTOCOL.md §3).
@@ -108,6 +115,7 @@ func NewManager(cfg *config.Config, log *slog.Logger, version string, logBuf *Lo
 			compliance.BuildRegistry(cfg.FileIntegrity.WatchPaths, cfg.FileIntegrity.Ignores), store, log,
 		),
 		stop:     make(chan struct{}),
+		nudge:    make(chan struct{}, 1),
 		inFlight: make(map[string]struct{}),
 	}, nil
 }
@@ -138,6 +146,9 @@ func (m *Manager) Run(ctx context.Context) {
 		case <-m.stop:
 			return
 		case <-timer.C:
+			m.sendHeartbeat(ctx)
+			timer.Reset(m.nextDelay(interval))
+		case <-m.nudge:
 			m.sendHeartbeat(ctx)
 			timer.Reset(m.nextDelay(interval))
 		}
@@ -377,6 +388,11 @@ func (m *Manager) handleResponse(ctx context.Context, resp map[string]interface{
 			m.resultsMu.Lock()
 			m.pendingResults = append(m.pendingResults, result)
 			m.resultsMu.Unlock()
+
+			select {
+			case m.nudge <- struct{}{}:
+			default: // heartbeat loop already has a pending nudge queued
+			}
 		}(jobID, jobType, params, timeoutSec)
 	}
 }

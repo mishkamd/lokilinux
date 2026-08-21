@@ -2,9 +2,18 @@
 import { ServerCog, ArrowRight } from 'lucide-vue-next'
 import type { TopVulnerableResource } from '~/stores/vulnerabilities'
 
-const props = defineProps<{ resources: TopVulnerableResource[]; loading?: boolean }>()
+const props = defineProps<{ resources: TopVulnerableResource[]; loading?: boolean; error?: boolean }>()
 
 const maxTotal = computed(() => Math.max(1, ...props.resources.map(r => r.total)))
+
+// Worst severity actually present on the resource — same precedence as the
+// dashboard's own severity badges, just derived per-row instead of from a summary.
+function worstSeverity(r: TopVulnerableResource): { label: string; color: string } {
+  if (r.critical > 0) return { label: 'Critical', color: 'red' }
+  if (r.high > 0) return { label: 'High', color: 'orange' }
+  if (r.medium > 0) return { label: 'Medium', color: 'amber' }
+  return { label: 'Low', color: 'gray' }
+}
 </script>
 
 <template>
@@ -16,13 +25,16 @@ const maxTotal = computed(() => Math.max(1, ...props.resources.map(r => r.total)
         </span>
         <h2 class="label-caps">Top Vulnerable Servers</h2>
       </div>
-      <NuxtLink to="/vulnerabilities" class="flex items-center gap-1 text-[12px] font-medium text-primary shrink-0">
-        View All
+      <NuxtLink to="/vulnerabilities" class="flex items-center gap-1 text-[12px] font-medium text-primary dark:text-primary-active shrink-0">
+        View all
         <ArrowRight class="size-3" />
       </NuxtLink>
     </div>
 
-    <div v-if="props.loading" class="space-y-3">
+    <div v-if="props.error" class="text-xs text-red-500 py-4 text-center">
+      Failed to load vulnerable servers.
+    </div>
+    <div v-else-if="props.loading" class="space-y-3">
       <Skeleton v-for="i in 3" :key="i" class="h-10 rounded-md" />
     </div>
     <div v-else-if="!props.resources.length" class="text-xs text-muted-foreground py-4 text-center">
@@ -34,9 +46,12 @@ const maxTotal = computed(() => Math.max(1, ...props.resources.map(r => r.total)
         :to="`/servers/${r.agent_id}`"
         class="block group"
       >
-        <div class="flex items-center justify-between text-xs mb-1">
-          <span class="font-medium truncate group-hover:text-primary transition-colors">{{ r.hostname ?? r.agent_id }}</span>
-          <span class="text-muted-foreground shrink-0">{{ r.total }} vulnerabilities</span>
+        <div class="flex items-center justify-between text-xs mb-1 gap-2">
+          <span class="min-w-0 truncate font-medium group-hover:text-primary dark:group-hover:text-primary-active transition-colors">{{ r.hostname ?? r.agent_id }}</span>
+          <span class="flex shrink-0 items-center gap-2">
+            <span class="text-muted-foreground">{{ r.total }} vulnerabilities</span>
+            <Badge size="xs" :color="worstSeverity(r).color">{{ worstSeverity(r).label }}</Badge>
+          </span>
         </div>
         <Progress :model-value="r.total" :max="maxTotal" class="h-1.5" indicator-class="bg-destructive" />
       </NuxtLink>

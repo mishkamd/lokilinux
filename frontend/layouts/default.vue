@@ -16,14 +16,14 @@
     >
       <!-- Logo -->
       <div class="h-16 flex items-center justify-between gap-2 px-4 border-b border-sidebar-border">
-        <NuxtLink to="/" class="group flex items-center gap-2.5 min-w-0" @click="sidebarOpen = false">
+        <NuxtLink to="/" class="group flex items-center gap-2.5 min-w-0 rounded-lg focus:outline-none focus-visible:ring-2 focus-visible:ring-ring" @click="sidebarOpen = false">
           <span
             role="img"
             :aria-label="companyName"
             class="size-8 shrink-0 bg-sidebar-foreground transition-all duration-300 ease-out group-hover:scale-110 group-hover:-rotate-6 group-hover:bg-primary-active"
             :style="logoMaskStyle"
           />
-          <span class="text-xl font-display font-semibold text-sidebar-foreground tracking-tight mt-1.5 truncate transition-all duration-300 ease-out group-hover:translate-x-0.5 group-hover:text-primary-active">{{ companyName }}</span>
+          <span class="text-2xl font-display font-light text-sidebar-foreground tracking-tight mt-1 truncate transition-all duration-300 ease-out group-hover:translate-x-0.5 group-hover:text-primary-active">{{ companyName }}</span>
         </NuxtLink>
         <button
           type="button"

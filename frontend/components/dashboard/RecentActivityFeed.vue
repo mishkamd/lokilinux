@@ -46,7 +46,7 @@ function relativeTime(iso: string): string {
         </span>
         <h2 class="label-caps">Recent Activity</h2>
       </div>
-      <NuxtLink to="/admin/audit" class="flex items-center gap-1 text-[12px] font-medium text-primary shrink-0">
+      <NuxtLink to="/admin/audit" class="flex items-center gap-1 text-[12px] font-medium text-primary dark:text-primary-active shrink-0">
         View all
         <ArrowRight class="size-3" />
       </NuxtLink>
@@ -62,7 +62,7 @@ function relativeTime(iso: string): string {
     <div v-else class="divide-y divide-border/60">
       <div v-for="log in data.items" :key="log.id" class="flex items-center gap-2 py-2 first:pt-0 last:pb-0">
         <component :is="iconFor(log.resource_type)" class="size-3.5 text-muted-foreground shrink-0" />
-        <span class="text-xs font-medium truncate">{{ log.action }}</span>
+        <span class="min-w-0 truncate text-xs font-medium">{{ log.action }}</span>
         <Badge v-if="log.resource_type" size="xs" color="gray" class="shrink-0">{{ log.resource_type }}</Badge>
         <span class="ml-auto shrink-0 text-[11px] text-muted-foreground">{{ log.actor_name ?? 'system' }} · {{ relativeTime(log.timestamp) }}</span>
       </div>

@@ -13,7 +13,7 @@
             />
           </span>
         </div>
-        <h1 class="text-4xl font-display font-semibold text-foreground tracking-tight">{{ companyName }}</h1>
+        <h1 class="text-4xl font-display font-light text-foreground tracking-tight">{{ companyName }}</h1>
         <p class="text-sm text-muted-foreground mt-1">Enterprise Linux Fleet Management</p>
       </div>
       <Card class="w-full">

@@ -12,11 +12,19 @@ const CHART_COLOR_VAR: Record<string, string> = {
   yellow: 'var(--warning)',
 }
 
+const DOT_COLOR_VAR: Record<string, string> = {
+  green: 'var(--success)',
+  red: 'var(--destructive)',
+  blue: 'var(--info)',
+  yellow: 'var(--warning)',
+}
+
 const props = withDefaults(defineProps<{
   icon: Component
   label: string
   value: number | string
   subtitle?: string
+  subtitleDot?: 'green' | 'red' | 'blue' | 'yellow'
   to: string
   badges?: StatBadge[]
   emptyBadgesText?: string
@@ -27,8 +35,11 @@ const props = withDefaults(defineProps<{
   chartData?: ChartDataPoint[]
   chartColor?: 'green' | 'red' | 'blue' | 'yellow'
   loading?: boolean
+  /** Large, low-opacity brand icon in the card's empty corner — reuses
+   * `icon` by default rather than requiring every caller to pass a second one. */
+  decor?: boolean
 }>(), {
-  viewAllLabel: 'Vezi tot',
+  viewAllLabel: 'View all',
   chartColor: 'green',
 })
 
@@ -42,16 +53,21 @@ const hasChart = computed(() => !!props.chartData?.length)
 <template>
   <NuxtLink
     :to="props.to"
-    class="group relative flex min-h-[104px] flex-col gap-2 overflow-hidden rounded-[var(--radius-md)] border border-[color-mix(in_oklch,var(--foreground)_6%,transparent)] bg-card p-4 shadow-[var(--shadow-surface)] transition-all duration-[var(--duration-normal)] ease-[var(--ease-out-expo)] hover:-translate-y-0.5 hover:shadow-[var(--shadow-raised)] hover:border-[color-mix(in_oklch,var(--border),var(--primary)_20%)]"
+    class="group relative flex min-h-[104px] flex-col gap-2 overflow-hidden rounded-[var(--radius-md)] border border-[color-mix(in_oklch,var(--foreground)_6%,transparent)] bg-card p-3 shadow-[var(--shadow-surface)] transition-all duration-[var(--duration-normal)] ease-[var(--ease-out-expo)] hover:-translate-y-0.5 hover:shadow-[var(--shadow-raised)] hover:border-[color-mix(in_oklch,var(--border),var(--primary)_20%)]"
   >
+    <component
+      :is="props.icon" v-if="props.decor"
+      class="pointer-events-none absolute -right-2 top-1/2 size-16 -translate-y-1/2 text-primary-active opacity-[0.07]"
+      aria-hidden="true"
+    />
     <div class="relative flex items-center justify-between gap-2">
       <div class="flex min-w-0 items-center gap-2 text-muted-foreground">
         <span class="flex size-6 shrink-0 items-center justify-center rounded-md bg-[color-mix(in_oklch,var(--primary-active)_15%,transparent)] text-primary-active transition-transform duration-200 ease-out group-hover:scale-110 group-hover:rotate-6">
           <component :is="props.icon" class="size-3.5" />
         </span>
-        <span class="label-caps truncate text-[12px]">{{ props.label }}</span>
+        <span class="label-caps truncate">{{ props.label }}</span>
       </div>
-      <span class="flex shrink-0 items-center gap-1 text-[12px] font-medium text-primary">
+      <span class="flex shrink-0 items-center gap-1 text-[12px] font-medium text-primary dark:text-primary-active">
         {{ props.viewAllLabel }}
         <ArrowRight class="size-3 transition-transform duration-200 ease-out group-hover:translate-x-0.5" />
       </span>
@@ -81,7 +97,12 @@ const hasChart = computed(() => !!props.chartData?.length)
           {{ props.trend }}
           <span v-if="props.trendLabel" class="text-muted-foreground">{{ props.trendLabel }}</span>
         </span>
-        <span v-else-if="props.subtitle" class="shrink-0 text-[12px] text-muted-foreground">
+        <span v-else-if="props.subtitle" class="flex shrink-0 items-center gap-1.5 text-[12px] text-muted-foreground">
+          <span
+            v-if="props.subtitleDot"
+            class="size-1.5 shrink-0 rounded-full"
+            :style="{ backgroundColor: DOT_COLOR_VAR[props.subtitleDot] }"
+          />
           {{ props.subtitle }}
         </span>
         <span v-else-if="props.emptyBadgesText" class="shrink-0 text-[12px] text-muted-foreground">

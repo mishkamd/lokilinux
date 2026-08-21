@@ -1,29 +1,60 @@
 <script setup lang="ts">
-import type { Job, JobResult } from '~/stores/jobs'
+import { ACTIVE_STATUSES, type Job, type JobResult } from '~/stores/jobs'
 
 const props = defineProps<{ job: Job | null }>()
 const emit = defineEmits<{ close: [] }>()
 
 const { statusColor } = useJobs()
+const jobsStore = useJobsStore()
 
 const isOpen = computed({
   get: () => !!props.job,
   set: (v: boolean) => { if (!v) emit('close') },
 })
 
+// The prop is a reference into the jobs store array; fetchJobs() replaces
+// that array wholesale, leaving the prop pointing at a detached, frozen
+// object. Mirroring into a local ref — refreshed by id, not by the prop
+// object — is what lets the panel poll its own updates.
+const liveJob = ref<Job | null>(null)
 const results = ref<JobResult[]>([])
 const resultsLoading = ref(false)
 
+let poll: ReturnType<typeof setInterval> | undefined
+function stopPoll() {
+  clearInterval(poll)
+  poll = undefined
+}
+
+async function refresh(id: string) {
+  const [freshJob, freshResults] = await Promise.all([
+    jobsStore.fetchJob(id),
+    jobsStore.fetchJobResults(id),
+  ])
+  liveJob.value = freshJob
+  results.value = freshResults
+  if (!ACTIVE_STATUSES.includes(freshJob.status)) stopPoll()
+}
+
 watch(() => props.job, async (job) => {
+  stopPoll()
+  liveJob.value = job
   results.value = []
   if (!job) return
+
   resultsLoading.value = true
   try {
-    results.value = await useJobsStore().fetchJobResults(String(job.id))
+    results.value = await jobsStore.fetchJobResults(String(job.id))
   } finally {
     resultsLoading.value = false
   }
+
+  if (ACTIVE_STATUSES.includes(job.status)) {
+    poll = setInterval(() => refresh(String(job.id)), 5000)
+  }
 })
+
+onUnmounted(stopPoll)
 
 const resultSummary = computed(() =>
   results.value.reduce((acc, r) => {
@@ -31,6 +62,9 @@ const resultSummary = computed(() =>
     return acc
   }, {} as Record<string, number>),
 )
+
+const doneCount = computed(() => results.value.filter((r) => !['PENDING', 'RUNNING'].includes(r.status)).length)
+const totalCount = computed(() => liveJob.value?.target_servers?.agent_ids?.length || results.value.length)
 
 // Only resolved where a JobResult row already exists (agent has reported
 // back at least once) — a QUEUED job's targets that haven't run yet have
@@ -65,7 +99,7 @@ function duration(startedAt?: string | null, completedAt?: string | null): strin
 // "what did this job actually do" for the most common job type, and wasn't
 // rendered anywhere before this component existed.
 const packageNames = computed<string[] | null>(() => {
-  const names = (props.job?.parameters as Record<string, unknown> | null)?.package_names
+  const names = (liveJob.value?.parameters as Record<string, unknown> | null)?.package_names
   return Array.isArray(names) ? names as string[] : null
 })
 </script>
@@ -73,39 +107,53 @@ const packageNames = computed<string[] | null>(() => {
 <template>
   <Dialog v-model="isOpen" size="xl">
     <template #body>
-      <div v-if="job" class="space-y-4">
+      <div v-if="liveJob" class="space-y-4">
         <div class="flex items-center gap-3">
-          <h2 class="text-lg font-bold flex-1">{{ job.name }}</h2>
-          <Badge :color="statusColor(String(job.status))">{{ job.status }}</Badge>
+          <h2 class="text-lg font-bold flex-1">{{ liveJob.name }}</h2>
+          <Badge :color="statusColor(String(liveJob.status))">{{ liveJob.status }}</Badge>
         </div>
 
         <dl class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
-          <div><dt class="text-muted-foreground">Type</dt><dd>{{ job.job_type }}</dd></div>
-          <div v-if="job.description" class="col-span-2">
-            <dt class="text-muted-foreground">Description</dt><dd>{{ job.description }}</dd>
+          <div><dt class="text-muted-foreground">Type</dt><dd>{{ liveJob.job_type }}</dd></div>
+          <div v-if="liveJob.description" class="col-span-2">
+            <dt class="text-muted-foreground">Description</dt><dd>{{ liveJob.description }}</dd>
           </div>
           <div class="col-span-2">
             <dt class="text-muted-foreground">Targets</dt>
             <dd class="font-mono text-xs">
-              {{ (job.target_servers?.agent_ids || []).map((id) => hostnameByAgent[id] || id).join(', ') || '—' }}
+              {{ (liveJob.target_servers?.agent_ids || []).map((id) => hostnameByAgent[id] || id).join(', ') || '—' }}
             </dd>
           </div>
-          <div v-if="job.requires_approval">
+          <div v-if="liveJob.requires_approval">
             <dt class="text-muted-foreground">Approval</dt>
-            <dd>{{ job.approved_by ? `Approved ${fmtDate(job.approved_at)}` : 'Pending' }}</dd>
+            <dd>{{ liveJob.approved_by ? `Approved ${fmtDate(liveJob.approved_at)}` : 'Pending' }}</dd>
           </div>
         </dl>
+
+        <template v-if="ACTIVE_STATUSES.includes(liveJob.status)">
+          <Separator />
+          <div>
+            <div class="flex items-center justify-between mb-1.5">
+              <h3 class="text-sm font-medium">Progress</h3>
+              <span class="text-xs text-muted-foreground font-mono">{{ doneCount }} / {{ totalCount }} servers</span>
+            </div>
+            <Progress :model-value="doneCount" :max="totalCount || 1" />
+            <p v-if="liveJob.status === 'QUEUED' || liveJob.status === 'SCHEDULED'" class="text-xs text-muted-foreground mt-1.5">
+              Waiting for the agent to pick this up — checks in about every 60s.
+            </p>
+          </div>
+        </template>
 
         <Separator />
 
         <div>
           <h3 class="text-sm font-medium mb-2">Timeline</h3>
           <dl class="grid grid-cols-2 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
-            <div><dt class="text-muted-foreground">Created</dt><dd>{{ fmtDate(job.created_at) }}</dd></div>
-            <div v-if="job.scheduled_time"><dt class="text-muted-foreground">Scheduled</dt><dd>{{ fmtDate(job.scheduled_time) }}</dd></div>
-            <div><dt class="text-muted-foreground">Started</dt><dd>{{ fmtDate(job.started_at) }}</dd></div>
-            <div><dt class="text-muted-foreground">Completed</dt><dd>{{ fmtDate(job.completed_at) }}</dd></div>
-            <div><dt class="text-muted-foreground">Duration</dt><dd>{{ duration(job.started_at, job.completed_at) }}</dd></div>
+            <div><dt class="text-muted-foreground">Created</dt><dd>{{ fmtDate(liveJob.created_at) }}</dd></div>
+            <div v-if="liveJob.scheduled_time"><dt class="text-muted-foreground">Scheduled</dt><dd>{{ fmtDate(liveJob.scheduled_time) }}</dd></div>
+            <div><dt class="text-muted-foreground">Started</dt><dd>{{ fmtDate(liveJob.started_at) }}</dd></div>
+            <div><dt class="text-muted-foreground">Completed</dt><dd>{{ fmtDate(liveJob.completed_at) }}</dd></div>
+            <div><dt class="text-muted-foreground">Duration</dt><dd>{{ duration(liveJob.started_at, liveJob.completed_at) }}</dd></div>
           </dl>
         </div>
 
@@ -118,11 +166,11 @@ const packageNames = computed<string[] | null>(() => {
             </div>
           </div>
         </template>
-        <template v-else-if="job.parameters">
+        <template v-else-if="liveJob.parameters">
           <Separator />
           <div>
             <h3 class="text-sm font-medium mb-2">Parameters</h3>
-            <pre class="text-xs bg-muted rounded p-2 overflow-auto max-h-40">{{ JSON.stringify(job.parameters, null, 2) }}</pre>
+            <pre class="text-xs bg-muted rounded p-2 overflow-auto max-h-40">{{ JSON.stringify(liveJob.parameters, null, 2) }}</pre>
           </div>
         </template>
 

@@ -23,7 +23,7 @@ const y = (d: ChartDataPoint) => d.value
 function template(d: ChartDataPoint): string {
   if (!d) return ''
   return `
-    <div style="background:var(--popover);color:var(--popover-foreground);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 8px;box-shadow:var(--shadow-overlay);font-size:11px;">
+    <div style="background:var(--popover);color:var(--popover-foreground);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 8px;box-shadow:var(--shadow-overlay);font-size:12px;">
       <div style="color:var(--muted-foreground);">${d.date}</div>
       <div style="font-weight:600;font-variant-numeric:tabular-nums;">${d.value.toLocaleString()}</div>
     </div>
