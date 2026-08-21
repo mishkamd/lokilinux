@@ -16,14 +16,19 @@ function select(i: number) {
 </script>
 
 <template>
-  <div>
-    <div class="flex border-b border-border gap-1">
+  <div class="min-w-0">
+    <div class="flex border-b border-border gap-1 overflow-x-auto" role="tablist">
       <button
         v-for="(item, i) in items"
+        :id="`tab-${item.slot}`"
         :key="item.slot"
         type="button"
+        role="tab"
+        :aria-selected="active === i"
+        :aria-controls="`tabpanel-${item.slot}`"
+        :tabindex="active === i ? 0 : -1"
         :class="[
-          'relative px-4 py-2.5 text-sm font-medium transition-colors duration-[var(--duration-fast)]',
+          'relative shrink-0 px-4 py-2.5 text-sm font-medium transition-colors duration-[var(--duration-fast)]',
           active === i
             ? 'text-foreground'
             : 'text-muted-foreground hover:text-foreground',
@@ -37,7 +42,10 @@ function select(i: number) {
         />
       </button>
     </div>
-    <div v-for="(item, i) in items" :key="item.slot" v-show="active === i">
+    <div
+      v-for="(item, i) in items" :id="`tabpanel-${item.slot}`" :key="item.slot" v-show="active === i"
+      role="tabpanel" :aria-labelledby="`tab-${item.slot}`"
+    >
       <slot :name="item.slot" />
     </div>
   </div>

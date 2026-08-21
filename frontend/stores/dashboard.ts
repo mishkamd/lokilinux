@@ -2,7 +2,6 @@ import { useComplianceStore } from './compliance'
 import { useVulnerabilitiesStore } from './vulnerabilities'
 
 export type DashboardRange = '7d' | '30d' | '90d'
-export type DashboardTab = 'overview' | 'infrastructure' | 'security' | 'automation' | 'compliance' | 'observability'
 
 export interface DashboardHealth {
   cpu_usage: number | null
@@ -39,6 +38,14 @@ export interface DashboardTrends {
   alerts: AlertTrendPoint[]
 }
 
+export interface RecentFailedJob {
+  id: string
+  name: string
+  job_type: string
+  status: string
+  completed_at: string | null
+}
+
 export const useDashboardStore = defineStore('dashboard', () => {
   const api = useApi()
 
@@ -51,7 +58,29 @@ export const useDashboardStore = defineStore('dashboard', () => {
   const trendsError = ref(false)
 
   const range = ref<DashboardRange>('30d')
-  const loadedTabs = ref(new Set<DashboardTab>())
+  const loaded = ref(false)
+
+  // Own fetch, own state — deliberately not routed through useJobsStore().
+  // That store's `jobs` ref is a single shared array also driving /jobs and
+  // the server-detail Jobs tab; reusing it here would let this widget's
+  // status=FAILED&limit=5 request clobber whatever those pages are showing.
+  const recentFailedJobs = ref<RecentFailedJob[]>([])
+  const recentFailedJobsLoading = ref(false)
+  const recentFailedJobsError = ref(false)
+
+  async function loadRecentFailedJobs() {
+    recentFailedJobsLoading.value = true
+    recentFailedJobsError.value = false
+    try {
+      const data = await api.get<{ items: RecentFailedJob[] }>('/jobs?status=FAILED&limit=5')
+      recentFailedJobs.value = data.items
+    } catch {
+      recentFailedJobs.value = []
+      recentFailedJobsError.value = true
+    } finally {
+      recentFailedJobsLoading.value = false
+    }
+  }
 
   async function loadSummary() {
     summaryLoading.value = true
@@ -84,21 +113,19 @@ export const useDashboardStore = defineStore('dashboard', () => {
   async function setRange(next: DashboardRange) {
     if (range.value === next) return
     range.value = next
-    const vulnerabilities = useVulnerabilitiesStore()
     const compliance = useComplianceStore()
     compliance.trendRange = next
     await Promise.all([
       loadTrends(),
-      vulnerabilities.fetchTrend(next),
       compliance.fetchTrend(),
     ])
   }
 
-  /** Lazily loads whatever a tab needs, once — repeat visits to an already
-   * loaded tab are a no-op unless `force` (used by error-state Retry). */
-  async function loadTab(tab: DashboardTab, force = false) {
-    if (loadedTabs.value.has(tab) && !force) return
-    loadedTabs.value.add(tab)
+  /** Loads everything the (single) dashboard view needs, once — repeat
+   * calls are a no-op unless `force` (used by error-state Retry). */
+  async function loadOverview(force = false) {
+    if (loaded.value && !force) return
+    loaded.value = true
 
     const vulnerabilities = useVulnerabilitiesStore()
     const compliance = useComplianceStore()
@@ -107,14 +134,10 @@ export const useDashboardStore = defineStore('dashboard', () => {
     if (!summary.value || force) tasks.push(loadSummary())
     if (!trends.value || force) tasks.push(loadTrends())
 
-    if (tab === 'overview' || tab === 'security') {
-      tasks.push(vulnerabilities.fetchSummary(), vulnerabilities.fetchTopResources())
-      if (!vulnerabilities.trend.length || force) tasks.push(vulnerabilities.fetchTrend(range.value))
-    }
-    if (tab === 'overview' || tab === 'compliance') {
-      tasks.push(compliance.fetchOverview())
-      if (!compliance.trend.length || force) tasks.push(compliance.fetchTrend())
-    }
+    tasks.push(vulnerabilities.fetchTopResources())
+    tasks.push(vulnerabilities.fetchPatchable(), loadRecentFailedJobs())
+
+    tasks.push(compliance.fetchOverview())
 
     await Promise.all(tasks)
   }
@@ -122,7 +145,8 @@ export const useDashboardStore = defineStore('dashboard', () => {
   return {
     summary, summaryLoading, summaryError, loadSummary,
     trends, trendsLoading, trendsError, loadTrends,
+    recentFailedJobs, recentFailedJobsLoading, recentFailedJobsError,
     range, setRange,
-    loadTab,
+    loadOverview,
   }
 })

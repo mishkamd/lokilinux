@@ -47,8 +47,7 @@ export default defineNuxtConfig({
   fonts: {
     families: [
       { name: 'Inter', provider: 'google' },
-      { name: 'IBM Plex Mono', provider: 'google' },
-      { name: 'Bitcount Single', provider: 'google' },
+      { name: 'Iceberg', provider: 'google' },
     ],
   },
 

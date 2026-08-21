@@ -1,13 +1,24 @@
 <script setup lang="ts">
 import { ShieldCheck } from 'lucide-vue-next'
-import type { ComplianceOverview, TrendPoint } from '~/stores/compliance'
+import { VisDonut, VisSingleContainer } from '@unovis/vue'
+import type { ComplianceOverview } from '~/stores/compliance'
 
 const props = defineProps<{
   overview: ComplianceOverview | null
-  trend: TrendPoint[]
 }>()
 
-const sparkline = computed(() => props.trend.map(p => ({ date: p.day, value: p.compliance_pct })))
+interface Segment { name: string; count: number }
+
+// A single-metric ring (compliant share vs remainder) — same VisDonut
+// primitive AgentStatusDonut uses, just with one derived pair instead of
+// a real by-status breakdown, since overall_compliance_pct is the only
+// aggregate the backend exposes (no per-framework split — see index.vue notes).
+const segments = computed<Segment[]>(() => {
+  const pct = props.overview?.overall_compliance_pct ?? 0
+  return [{ name: 'Compliant', count: pct }, { name: 'Remaining', count: 100 - pct }]
+})
+const value = (d: Segment) => d.count
+const color = (d: Segment) => d.name === 'Compliant' ? 'var(--success)' : 'var(--muted-foreground)'
 </script>
 
 <template>
@@ -19,39 +30,37 @@ const sparkline = computed(() => props.trend.map(p => ({ date: p.day, value: p.c
         </span>
         <h2 class="label-caps">Compliance</h2>
       </div>
-      <NuxtLink to="/compliance" class="text-[12px] font-medium text-primary shrink-0">View full report →</NuxtLink>
+      <NuxtLink to="/compliance" class="text-[12px] font-medium text-primary dark:text-primary-active shrink-0">View full report →</NuxtLink>
     </div>
 
-    <div v-if="!overview" class="space-y-2">
-      <Skeleton class="h-6 w-20" />
+    <div v-if="!overview" class="flex flex-col items-center gap-3">
+      <Skeleton class="size-24 rounded-full shrink-0" />
       <Skeleton class="h-16 w-full" />
     </div>
-    <template v-else>
-      <div class="flex items-center justify-between mb-3">
-        <span class="text-xs text-muted-foreground">Overall Score</span>
-        <span class="text-lg font-bold font-mono tabular-nums text-primary-active">{{ overview.overall_compliance_pct }}%</span>
+    <div v-else class="flex flex-col items-center gap-3">
+      <div class="relative shrink-0 size-24">
+        <VisSingleContainer :data="segments" :height="96" :width="96">
+          <VisDonut :value="value" :color="color" :arc-width="16" :corner-radius="2" :central-label="`${Math.round(overview.overall_compliance_pct)}%`" central-sub-label="COMPLIANT" />
+        </VisSingleContainer>
       </div>
-
-      <div class="space-y-1.5 mb-3 text-xs">
-        <div class="flex items-center justify-between">
-          <span class="text-muted-foreground">Servers evaluated</span>
-          <span class="font-medium tabular-nums">{{ overview.servers_evaluated }}</span>
+      <div class="w-full space-y-1.5 text-xs">
+        <div class="flex items-center justify-between gap-2">
+          <span class="min-w-0 truncate text-muted-foreground">Servers evaluated</span>
+          <span class="shrink-0 font-medium tabular-nums">{{ overview.servers_evaluated }}</span>
         </div>
-        <div class="flex items-center justify-between">
-          <span class="text-muted-foreground">Non-compliant</span>
-          <span class="font-medium tabular-nums text-destructive">{{ overview.servers_non_compliant }}</span>
+        <div class="flex items-center justify-between gap-2">
+          <span class="min-w-0 truncate text-muted-foreground">Non-compliant</span>
+          <span class="shrink-0 font-medium tabular-nums text-destructive">{{ overview.servers_non_compliant }}</span>
         </div>
-        <div class="flex items-center justify-between">
-          <span class="text-muted-foreground">Exceptions</span>
-          <span class="font-medium tabular-nums">{{ overview.exceptions_active }}</span>
+        <div class="flex items-center justify-between gap-2">
+          <span class="min-w-0 truncate text-muted-foreground">Exceptions</span>
+          <span class="shrink-0 font-medium tabular-nums">{{ overview.exceptions_active }}</span>
         </div>
-        <div class="flex items-center justify-between">
-          <span class="text-muted-foreground">Remediation</span>
-          <span class="font-medium tabular-nums">{{ overview.remediation_pct }}% ({{ overview.resolved_controls }} resolved)</span>
+        <div class="flex items-center justify-between gap-2">
+          <span class="min-w-0 truncate text-muted-foreground">Remediation</span>
+          <span class="shrink-0 font-medium tabular-nums">{{ overview.remediation_pct }}% ({{ overview.resolved_controls }} resolved)</span>
         </div>
       </div>
-
-      <MetricAreaChart v-if="sparkline.length >= 2" :data="sparkline" color="var(--chart-1)" :height="40" />
-    </template>
+    </div>
   </div>
 </template>

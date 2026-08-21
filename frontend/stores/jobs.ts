@@ -17,6 +17,10 @@ export interface Job {
   approved_at: string | null
 }
 
+// Non-terminal statuses — a job in one of these can still change on its own,
+// so the UI polls while any job in the current view is in this set.
+export const ACTIVE_STATUSES: Job['status'][] = ['QUEUED', 'SCHEDULED', 'PENDING', 'RUNNING']
+
 export interface JobResult {
   agent_id: string
   hostname: string | null
@@ -86,5 +90,9 @@ export const useJobsStore = defineStore('jobs', () => {
     return await api.get<JobResult[]>(`/jobs/${jobId}/results`)
   }
 
-  return { jobs, total, loading, filters, fetchJobs, createJob, cancelJob, approveJob, fetchJobResults }
+  async function fetchJob(id: string) {
+    return await api.get<Job>(`/jobs/${id}`)
+  }
+
+  return { jobs, total, loading, filters, fetchJobs, createJob, cancelJob, approveJob, fetchJobResults, fetchJob }
 })

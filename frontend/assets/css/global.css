@@ -76,8 +76,8 @@
 
   /* Typography — three-face system */
   --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --font-mono: "IBM Plex Mono", "Geist Mono", ui-monospace, SFMono-Regular, monospace;
-  --font-display: "Bitcount Single", "Inter", ui-sans-serif, sans-serif;
+  --font-mono: "Inter", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-display: "Iceberg", "Inter", ui-sans-serif, sans-serif;
 }
 
 /* ─── Color Schemes ──────────────────────────────────────────── */
@@ -192,24 +192,31 @@ body {
 
 /* ─── Typography ─────────────────────────────────────────────── */
 
-h1, h2, h3, h4, h5, h6 {
-  font-weight: 600;
-  line-height: 1.25;
+/* @layer base: everything else in this file after "@import tailwindcss" is
+ * unlayered and would otherwise beat any Tailwind utility (e.g. font-light
+ * on an <h1>) regardless of specificity — Tailwind's own utilities layer
+ * only outranks its own base layer, not unlayered CSS. */
+@layer base {
+  h1, h2, h3, h4, h5, h6 {
+    font-weight: 600;
+    line-height: 1.25;
+  }
 }
 
-/* Page titles — Bitcount Single for distinctive character */
+/* Page titles — Exo 2 for distinctive character */
 .page-title {
   font-family: var(--font-display);
   font-size: 1.25rem;
-  font-weight: 600;
+  font-weight: 300;
   letter-spacing: -0.02em;
   line-height: 1.2;
+  margin-top: 3px; /* Iceberg sits visually high in its line box — nudge down to optically center in the h-16 header */
 }
 
 .section-title {
   font-family: var(--font-display);
   font-size: 0.9375rem;
-  font-weight: 600;
+  font-weight: 300;
   letter-spacing: -0.01em;
 }
 
@@ -423,11 +430,6 @@ h1, h2, h3, h4, h5, h6 {
   to { opacity: 1; transform: scale(1); }
 }
 
-@keyframes pulse-glow {
-  0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklch, var(--primary) 30%, transparent); }
-  50% { box-shadow: 0 0 0 4px color-mix(in oklch, var(--primary) 15%, transparent); }
-}
-
 /* Page content stagger — each child fades in with a delay */
 .animate-stagger > * {
   opacity: 0;
@@ -489,4 +491,34 @@ h1, h2, h3, h4, h5, h6 {
   --vis-tooltip-padding: 0 !important;
   --vis-tooltip-box-shadow: none !important;
   --vis-tooltip-border-color: transparent !important;
+}
+
+/* ─── Reduced Motion ─────────────────────────────────────────────
+ * Every animation in this file is decorative feedback (hover lift,
+ * stagger fade-in, dialog enter/exit) — none carries information a
+ * user would lose by seeing it instantly instead of animated, so a
+ * near-zero duration is the correct fix here, not a compromise.
+ * Two things beyond duration still need an explicit override:
+ * looping animations (`animate-pulse` on Skeleton/plugin-installing)
+ * must stop outright, not just speed up, and the stagger's per-child
+ * delays must collapse to 0 or content would visibly cascade in one
+ * item at a time even at a near-zero animation-duration. */
+@media (prefers-reduced-motion: reduce) {
+  *, ::before, ::after {
+    animation-duration: 1ms !important;
+    transition-duration: 1ms !important;
+    scroll-behavior: auto !important;
+  }
+  .animate-pulse {
+    animation: none !important;
+  }
+  .animate-stagger > * {
+    animation-delay: 0ms !important;
+  }
+  .surface-card:hover,
+  .group:hover .group-hover\:scale-110,
+  .group:hover .group-hover\:-rotate-6,
+  .group:hover .group-hover\:translate-x-0\.5 {
+    transform: none !important;
+  }
 }

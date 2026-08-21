@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ArrowLeft } from 'lucide-vue-next'
+import { ACTIVE_STATUSES } from '~/stores/jobs'
 
 const route = useRoute()
 const store = useServersStore()
@@ -10,7 +11,6 @@ await store.fetchServer(route.params.id as string)
 const server = computed(() => store.selectedServer)
 
 const { jobs, loading: jobsLoading } = useJobs()
-const jobsLoaded = ref(false)
 const packagesLoaded = ref(false)
 const metricsLoaded = ref(false)
 
@@ -69,9 +69,8 @@ function onTabChange(index: number) {
     store.fetchVulnerabilities(route.params.id as string)
     vulnerabilitiesLoaded.value = true
   }
-  if (index === 4 && !jobsLoaded.value) {
+  if (index === 4) {
     useJobsStore().fetchJobs(route.params.id as string)
-    jobsLoaded.value = true
   }
 }
 
@@ -79,6 +78,28 @@ onMounted(() => {
   store.fetchMetrics(route.params.id as string)
   metricsLoaded.value = true
 })
+
+// CPU/RAM/disk usage on the Overview tab changes every agent heartbeat
+// (~60s server-side) but was only ever fetched once on page load — 30s
+// matches the /servers/{id}/metrics cache TTL (TTL_AGENT_STATUS), so most
+// polls land right as the cached value expires instead of wasting requests.
+let metricsPoll: ReturnType<typeof setInterval> | undefined
+onMounted(() => {
+  metricsPoll = setInterval(() => store.fetchMetrics(route.params.id as string), 30000)
+})
+onUnmounted(() => clearInterval(metricsPoll))
+
+// Same poll pattern as pages/jobs/index.vue and JobDetail.vue — jobs on
+// this server's Jobs tab don't move on their own client-side either, and
+// this tab has no manual Refresh button.
+const hasActiveJobs = computed(() => jobs.value.some((j) => ACTIVE_STATUSES.includes(j.status)))
+let jobsPoll: ReturnType<typeof setInterval> | undefined
+onMounted(() => {
+  jobsPoll = setInterval(() => {
+    if (hasActiveJobs.value) useJobsStore().fetchJobs(route.params.id as string)
+  }, 5000)
+})
+onUnmounted(() => clearInterval(jobsPoll))
 
 async function handleToggleMaintenance() {
   maintenanceToggling.value = true
@@ -119,6 +140,7 @@ async function submitPackageUpdate(names?: string[]) {
       target_servers: { agent_ids: [route.params.id as string] },
       parameters: names ? { package_names: names } : null,
     })
+    await useJobsStore().fetchJobs(route.params.id as string)
     selectedPackageIds.value = []
     toast.add({ title: 'Update job created', color: 'green' })
   } catch (err) {

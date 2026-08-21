@@ -16,7 +16,16 @@ provide(ChartConfigKey, props.config)
 </script>
 
 <template>
-  <div :class="cn('aspect-auto w-full', props.class)" :style="{ height: `${props.height}px` }">
+  <div
+    :class="cn('aspect-auto w-full', props.class)"
+    :style="{
+      height: `${props.height}px`,
+      '--vis-axis-grid-color': 'var(--border)',
+      '--vis-dark-axis-grid-color': 'var(--border)',
+      '--vis-axis-tick-color': 'var(--border)',
+      '--vis-dark-axis-tick-color': 'var(--border)',
+    }"
+  >
     <VisXYContainer :data="props.data" :height="props.height">
       <slot />
     </VisXYContainer>

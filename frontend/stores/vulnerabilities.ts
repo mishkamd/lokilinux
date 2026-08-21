@@ -160,6 +160,7 @@ export const useVulnerabilitiesStore = defineStore('vulnerabilities', () => {
   const trendRange = ref('30d')
   const topResources = ref<TopVulnerableResource[]>([])
   const topResourcesLoading = ref(false)
+  const topResourcesError = ref(false)
   const patchable = ref<PatchableVulnerability[]>([])
   const patchableLoading = ref(false)
 
@@ -188,10 +189,11 @@ export const useVulnerabilitiesStore = defineStore('vulnerabilities', () => {
 
   async function fetchTopResources(limit = 10) {
     topResourcesLoading.value = true
+    topResourcesError.value = false
     try {
       topResources.value = await api.get<TopVulnerableResource[]>(`/vulnerabilities/top-resources?limit=${limit}`)
     } catch {
-      // swallow
+      topResourcesError.value = true
     } finally {
       topResourcesLoading.value = false
     }
@@ -228,7 +230,7 @@ export const useVulnerabilitiesStore = defineStore('vulnerabilities', () => {
     cves, cvesTotal, cvesLoading, cvesNextCursor, cveFilters, cveSummaryBySeverity, fetchCves,
     selectedCve, selectedCveResources, fetchCve, fetchCveResources,
     summary, summaryLoading, trend, trendLoading, trendRange, fetchSummary, fetchTrend,
-    topResources, topResourcesLoading, fetchTopResources,
+    topResources, topResourcesLoading, topResourcesError, fetchTopResources,
     patchable, patchableLoading, fetchPatchable,
     remediateCve, acceptRisk, rescanCve,
   }

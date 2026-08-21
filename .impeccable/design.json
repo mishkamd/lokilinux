@@ -1,0 +1,187 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-20T13:57:51Z",
+  "title": "Design System: LokiLinux",
+  "extensions": {
+    "colorMeta": {
+      "tactical-forest": {
+        "role": "primary",
+        "displayName": "Tactical Forest",
+        "canonical": "#2D6A4F",
+        "tonalRamp": ["oklch(18% 0.04 152)", "oklch(26% 0.05 152)", "oklch(34% 0.06 152)", "oklch(42% 0.07 152)", "oklch(50% 0.08 152)", "oklch(60% 0.09 152)", "oklch(74% 0.07 152)", "oklch(90% 0.03 152)"]
+      },
+      "signal-green": {
+        "role": "primary-active",
+        "displayName": "Signal Green",
+        "canonical": "#4FAF74",
+        "tonalRamp": ["oklch(20% 0.05 150)", "oklch(30% 0.07 150)", "oklch(40% 0.09 150)", "oklch(50% 0.11 150)", "oklch(60% 0.13 150)", "oklch(68% 0.14 150)", "oklch(80% 0.10 150)", "oklch(92% 0.05 150)"]
+      },
+      "blackout": {
+        "role": "neutral-bg",
+        "displayName": "Blackout",
+        "canonical": "#050507",
+        "tonalRamp": ["oklch(2% 0.003 285)", "oklch(6% 0.004 285)", "oklch(12% 0.004 285)", "oklch(20% 0.005 285)", "oklch(32% 0.006 285)", "oklch(48% 0.006 285)", "oklch(68% 0.004 285)", "oklch(88% 0.003 285)"]
+      },
+      "panel-black": {
+        "role": "surface",
+        "displayName": "Panel Black",
+        "canonical": "#111117",
+        "tonalRamp": ["oklch(4% 0.005 280)", "oklch(9% 0.006 280)", "oklch(15% 0.007 280)", "oklch(22% 0.008 280)", "oklch(34% 0.007 280)", "oklch(50% 0.006 280)", "oklch(70% 0.004 280)", "oklch(90% 0.003 280)"]
+      },
+      "threat-red": {
+        "role": "destructive",
+        "displayName": "Threat Red",
+        "canonical": "#D34D4D",
+        "tonalRamp": ["oklch(18% 0.05 25)", "oklch(28% 0.09 25)", "oklch(38% 0.13 25)", "oklch(48% 0.17 25)", "oklch(58% 0.19 25)", "oklch(66% 0.17 25)", "oklch(78% 0.11 25)", "oklch(90% 0.05 25)"]
+      },
+      "caution-amber": {
+        "role": "warning",
+        "displayName": "Caution Amber",
+        "canonical": "#D6A44D",
+        "tonalRamp": ["oklch(20% 0.04 75)", "oklch(30% 0.07 75)", "oklch(40% 0.10 75)", "oklch(52% 0.13 75)", "oklch(64% 0.14 75)", "oklch(72% 0.13 75)", "oklch(82% 0.09 75)", "oklch(92% 0.04 75)"]
+      },
+      "recon-blue": {
+        "role": "info",
+        "displayName": "Recon Blue",
+        "canonical": "#5A8DFF",
+        "tonalRamp": ["oklch(20% 0.05 260)", "oklch(30% 0.09 260)", "oklch(40% 0.14 260)", "oklch(50% 0.18 260)", "oklch(62% 0.19 260)", "oklch(72% 0.15 260)", "oklch(82% 0.09 260)", "oklch(92% 0.04 260)"]
+      },
+      "signal-violet": {
+        "role": "chart",
+        "displayName": "Signal Violet",
+        "canonical": "#8B5CF6",
+        "tonalRamp": ["oklch(20% 0.06 295)", "oklch(30% 0.10 295)", "oklch(40% 0.15 295)", "oklch(50% 0.20 295)", "oklch(62% 0.22 295)", "oklch(72% 0.17 295)", "oklch(82% 0.10 295)", "oklch(92% 0.05 295)"]
+      },
+      "signal-orange": {
+        "role": "warning-high",
+        "displayName": "Signal Orange",
+        "canonical": "#f97316",
+        "tonalRamp": ["oklch(20% 0.05 45)", "oklch(30% 0.09 45)", "oklch(40% 0.14 45)", "oklch(52% 0.18 45)", "oklch(64% 0.19 45)", "oklch(72% 0.17 45)", "oklch(82% 0.11 45)", "oklch(92% 0.05 45)"]
+      }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display (Iceberg)", "purpose": "Page titles only — never body text." },
+      "display-wordmark": { "displayName": "Display — Wordmark (Iceberg)", "purpose": "The sidebar 'LokiLinux' logo specifically — one step larger than Display." },
+      "title": { "displayName": "Section Title (Iceberg)", "purpose": "Card and panel section headings." },
+      "body": { "displayName": "Body (Inter)", "purpose": "All working UI text — buttons, inputs, table cells, prose." },
+      "label": { "displayName": "Label Caps (Inter)", "purpose": "Uppercase eyebrow labels above metric values." },
+      "field-value": { "displayName": "Field Value (Inter)", "purpose": "Compact read-only data fields — server detail attributes, package versions, user lists." },
+      "tooltip": { "displayName": "Tooltip (Inter)", "purpose": "Chart/donut hover tooltip text." },
+      "badge-micro": { "displayName": "Badge Micro (Inter)", "purpose": "MetricCard's status-badge row only — smallest step, fits multiple badges on one line." },
+      "widget-body": { "displayName": "Widget Body (Inter)", "purpose": "Dense internal rows inside dashboard widgets — labels, list values, stat breakdowns." },
+      "metadata": { "displayName": "Metadata (Inter)", "purpose": "Plain secondary text — percentages, timestamps, sub-captions. Not uppercase/tracked like Label." },
+      "widget-link": { "displayName": "Widget Link (Inter)", "purpose": "The 'View All →' pattern, reused verbatim across 6 dashboard widgets." },
+      "widget-stat": { "displayName": "Widget Stat (Inter)", "purpose": "Secondary-tier headline stat inside the system-status grid — smaller than a primary MetricCard headline." }
+    },
+    "shadows": [
+      { "name": "surface", "value": "0 0 0 1px rgba(255,255,255,0.03)", "purpose": "Resting state for every card, table, and container — barely a shadow, more a hairline edge." },
+      { "name": "raised", "value": "0 4px 12px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.05)", "purpose": "Hover state for cards and interactive surfaces." },
+      { "name": "overlay", "value": "0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.06)", "purpose": "Toasts and floating popovers." },
+      { "name": "dialog", "value": "0 12px 48px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.08)", "purpose": "Modals — the deepest shadow in the system." }
+    ],
+    "motion": [
+      { "name": "ease-out-expo", "value": "cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "Default easing for nearly every transition and hover lift." },
+      { "name": "ease-in-out-expo", "value": "cubic-bezier(0.87, 0, 0.13, 1)", "purpose": "Used for symmetric enter/exit motion." },
+      { "name": "duration-fast", "value": "150ms", "purpose": "Micro-interactions (input focus)." },
+      { "name": "duration-normal", "value": "200ms", "purpose": "Standard hover/transition duration — the system default." },
+      { "name": "duration-slow", "value": "300ms", "purpose": "Sidebar drawer slide, staggered page-load fade-in." }
+    ],
+    "breakpoints": [
+      { "name": "md", "value": "768px" },
+      { "name": "lg", "value": "1024px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The default call-to-action button — Tactical Forest fill, used for primary actions across the app.",
+      "html": "<button class=\"ds-btn-primary\">Update selected</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; justify-content: center; gap: 8px; white-space: nowrap; border-radius: var(--radius-lg, 16px); height: 32px; padding: 0 12px; font-size: 14px; font-weight: 500; background: var(--color-primary, #2D6A4F); color: var(--color-primary-foreground, #FAFAFA); border: none; transition: all 200ms cubic-bezier(0.16, 1, 0.3, 1); cursor: pointer; } .ds-btn-primary:hover { background: var(--color-primary-hover, #3A7D5D); transform: translateY(-2px); } .ds-btn-primary:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-ring, #4FAF74); } .ds-btn-primary:active { transform: translateY(0); }"
+    },
+    {
+      "name": "Destructive Button",
+      "kind": "button",
+      "refersTo": "button-destructive",
+      "description": "Threat Red fill for irreversible/destructive actions (cancel job, delete).",
+      "html": "<button class=\"ds-btn-destructive\">Cancel Job</button>",
+      "css": ".ds-btn-destructive { display: inline-flex; align-items: center; justify-content: center; gap: 8px; white-space: nowrap; border-radius: var(--radius-lg, 16px); height: 32px; padding: 0 12px; font-size: 14px; font-weight: 500; background: var(--color-destructive, #D34D4D); color: #ffffff; border: none; transition: all 200ms cubic-bezier(0.16, 1, 0.3, 1); cursor: pointer; } .ds-btn-destructive:hover { background: color-mix(in oklch, var(--color-destructive, #D34D4D) 90%, black); transform: translateY(-2px); } .ds-btn-destructive:focus-visible { outline: none; box-shadow: 0 0 0 2px var(--color-destructive, #D34D4D); }"
+    },
+    {
+      "name": "Badge — Soft",
+      "kind": "chip",
+      "refersTo": "badge-soft",
+      "description": "Default severity/status pill — a translucent tint of the status color, used in every table row.",
+      "html": "<span class=\"ds-badge-soft\">HIGH</span>",
+      "css": ".ds-badge-soft { display: inline-flex; align-items: center; border-radius: 9999px; font-family: var(--font-mono, Inter, sans-serif); font-weight: 500; letter-spacing: -0.01em; padding: 2px 8px; font-size: 12px; background: color-mix(in oklch, var(--color-destructive, #D34D4D) 16%, transparent); color: #f87171; }"
+    },
+    {
+      "name": "Badge — Solid",
+      "kind": "chip",
+      "refersTo": "badge-solid",
+      "description": "Full-strength status color for emphasis — used sparingly, e.g. an active/critical count.",
+      "html": "<span class=\"ds-badge-solid\">CRITICAL</span>",
+      "css": ".ds-badge-solid { display: inline-flex; align-items: center; border-radius: 9999px; font-family: var(--font-mono, Inter, sans-serif); font-weight: 500; letter-spacing: -0.01em; padding: 2px 8px; font-size: 12px; background: var(--color-destructive, #D34D4D); color: #ffffff; }"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "The base surface container — Panel Black, hairline border, flat at rest, lifts on hover.",
+      "html": "<div class=\"ds-card\"><p class=\"ds-card-label\">Resources scanned</p><p class=\"ds-card-value\">2<span class=\"ds-card-value-sub\"> / 2</span></p></div>",
+      "css": ".ds-card { border-radius: var(--radius-md, 12px); border: 1px solid var(--color-border, rgba(255,255,255,0.07)); background: var(--color-card, #111117); color: var(--color-card-foreground, #FAFAFA); box-shadow: 0 0 0 1px rgba(255,255,255,0.03); padding: 16px; transition: all 200ms cubic-bezier(0.16, 1, 0.3, 1); } .ds-card:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.05); border-color: color-mix(in oklch, var(--color-border, rgba(255,255,255,0.07)), var(--color-primary, #2D6A4F) 20%); } .ds-card-label { font-family: Inter, sans-serif; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-muted-foreground, #A1A1AA); margin: 0 0 6px 0; } .ds-card-value { font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; font-size: 28px; font-weight: 600; margin: 0; } .ds-card-value-sub { font-size: 14px; font-weight: 400; color: var(--color-muted-foreground, #A1A1AA); }"
+    },
+    {
+      "name": "Input Field",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Text input — Panel Black surface, hairline border, accent-colored focus glow.",
+      "html": "<input class=\"ds-input\" placeholder=\"Search servers, jobs, CVEs...\" />",
+      "css": ".ds-input { display: flex; height: 32px; width: 100%; border-radius: var(--radius-sm, 10px); border: 1px solid var(--color-input, rgba(255,255,255,0.07)); background: var(--color-card, #111117); color: var(--color-foreground, #FAFAFA); padding: 4px 10px; font-size: 14px; transition: all 150ms; } .ds-input::placeholder { color: var(--color-muted-foreground, #A1A1AA); } .ds-input:focus-visible { outline: none; border-color: var(--color-primary, #2D6A4F); box-shadow: 0 0 0 2px var(--color-ring, #4FAF74), 0 0 0 5px color-mix(in oklch, var(--color-ring, #4FAF74) 15%, transparent); }"
+    },
+    {
+      "name": "Icon-in-Tinted-Square",
+      "kind": "custom",
+      "refersTo": "icon-tinted-square",
+      "description": "The system's one recurring iconography move — a small semantic-color icon inside a 15%-tinted rounded square, always paired with an uppercase label. Used in every dashboard widget header.",
+      "html": "<div class=\"ds-icon-header\"><span class=\"ds-icon-square\"><svg viewBox=\"0 0 24 24\" width=\"12\" height=\"12\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z\"/></svg></span><h2 class=\"ds-icon-label\">Vulnerability trend by severity</h2></div>",
+      "css": ".ds-icon-header { display: flex; align-items: center; gap: 6px; color: var(--color-muted-foreground, #A1A1AA); } .ds-icon-square { display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 6px; flex-shrink: 0; background: color-mix(in oklch, var(--color-destructive, #D34D4D) 15%, transparent); color: var(--color-destructive, #D34D4D); } .ds-icon-label { font-family: Inter, sans-serif; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-muted-foreground, #A1A1AA); margin: 0; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "Precision Terminal",
+    "overview": "LokiLinux is a command-center dashboard, not a marketing surface — its users are IT/DevOps admins scanning a Linux fleet daily for problems: unpatched CVEs, drifted compliance, failed jobs. Every design decision defers to that job. The system runs dark-by-default (near-black canvas, `initialValue: 'dark'` in the color-mode config) with a single, disciplined forest-green accent that appears only where something needs a decision or a status. Typography carries the operational weight: a distinctive light-weight display face (Iceberg) marks page identity and section titles, everything else is set in Inter, and numeric data uses tabular figures so columns of packages, CVEs, and metrics line up like a real instrument panel.\n\nNothing here reaches for glassmorphism, gradients, skeuomorphism, or playful SaaS ornamentation — the codebase's own comment on its card surface states the intent directly: \"Terminal-precision surface: no glass/blur, just crisp borders + subtle shadow.\" Depth is structural, not decorative — a component sits flush at rest and lifts 1px only as feedback (hover, elevation, an open overlay), never as passive polish.",
+    "keyCharacteristics": [
+      "Dark-by-default, near-black canvas with a single disciplined green accent",
+      "Crisp hairline borders and 1px-lift feedback — no blur, no glass, no gradients",
+      "A light-weight display face (Iceberg) marks identity and structure; Inter carries every working word",
+      "Tabular numerals everywhere data is compared — packages, CVEs, metrics, timestamps",
+      "Density over whitespace: this is a daily instrument, not an onboarding surface"
+    ],
+    "rules": [
+      { "name": "The One Accent Rule", "body": "Tactical Forest/Signal Green is the only color that means \"brand.\" Every other hue on screen (red, amber, blue, violet) is load-bearing status information, never decoration.", "section": "colors" },
+      { "name": "The Hairline Rule", "body": "Borders are never a flat gray. They are always rgba(255,255,255,0.07) over the dark neutral surfaces — translucent, so they read as an edge in the material rather than a drawn line.", "section": "colors" },
+      { "name": "The Tabular Numerals Rule", "body": "Anywhere a number can be compared to another number in the same view, font-variant-numeric: tabular-nums is set. Digits must line up; this is an ops tool, not prose.", "section": "typography" },
+      { "name": "The One Display Face Rule", "body": "Iceberg never appears below section-title size and never at a weight heavier than 300. Emphasis at body scale comes from Inter at a heavier weight, not a bigger display face.", "section": "typography" },
+      { "name": "The Flat-By-Default Rule", "body": "Surfaces are flat (Surface shadow only) at rest. Raised/Overlay/Dialog shadows appear exclusively in response to state — hover, open, or floating — never as a static decorative treatment.", "section": "elevation" },
+      { "name": "The Reduced-Motion Rule", "body": "@media (prefers-reduced-motion: reduce) collapses every animation/transition duration to near-zero and stops looping animations outright. Every motion in this system is decorative feedback, not information-carrying, so this is correct, not a compromise.", "section": "elevation" },
+      { "name": "The One Radius Family Rule", "body": "Every corner value is calc(var(--radius) ± Npx) from the single --radius base — never a radius invented in isolation for one component.", "section": "shapes" },
+      { "name": "The Text-Contrast Rule", "body": "Tactical Forest and Signal Green each pass WCAG AA text contrast on only one theme (Tactical Forest: 6.0-6.4:1 light, 3.19:1 dark; Signal Green: 7.48:1 dark, 2.6-2.7:1 light). Any link or text-colored accent uses text-primary dark:text-primary-active, never bare text-primary. bg-primary button fills are unaffected — the 3:1 UI-component floor applies there, not 4.5:1.", "section": "colors" }
+    ],
+    "dos": [
+      "Do keep the accent color rare — Tactical Forest/Signal Green earns attention because it appears almost nowhere else on screen.",
+      "Do use font-variant-numeric: tabular-nums on any number that sits in a column or gets compared to another number.",
+      "Do derive every corner radius from calc(var(--radius) ± Npx) — never invent a one-off radius value.",
+      "Do treat elevation as a state response (hover, open, floating) — a resting surface stays at the barely-there Surface shadow.",
+      "Do use the soft-tint badge style (14–16% status color background) as the default way to show severity/status in a table row; reserve solid badges for real emphasis."
+    ],
+    "donts": [
+      "Don't add glass, blur, or gradient fills to any surface — the system's own code comments state this explicitly as a rejected direction.",
+      "Don't use Iceberg below section-title size or heavier than weight 300 — it is an identity mark, not a general headline face.",
+      "Don't introduce a second accent color. Every non-neutral hue besides Tactical Forest/Signal Green is semantic status information, not brand decoration.",
+      "Don't draw a border as a flat solid gray — dark-mode borders are always the translucent rgba(255,255,255,0.07) hairline over Panel Black.",
+      "Don't relax density or hairline precision on mobile; the drawer and stacked layout change, the visual language does not."
+    ]
+  }
+}
