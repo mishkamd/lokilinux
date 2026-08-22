@@ -1,11 +1,15 @@
 <script setup lang="ts">
-import { Server, ShieldAlert, ClipboardList, BellDot } from 'lucide-vue-next'
+import { Server, ShieldAlert, ClipboardList, BellDot, ShieldCheck, BookCheck, CheckCircle2, WifiOff } from 'lucide-vue-next'
 import type { ChartDataPoint } from '~/components/ui/chart/types'
 
 const dashboard = useDashboardStore()
 const vulnerabilities = useVulnerabilitiesStore()
 const compliance = useComplianceStore()
 const { hasRole } = useCurrentUser()
+const { severityColor, severityLabel } = useSeverity()
+const { categories, fetchCategories } = useServers()
+
+onMounted(() => fetchCategories())
 
 const RANGE_OPTIONS = [
   { label: 'Last 7 days', value: '7d' },
@@ -19,21 +23,14 @@ async function retry() {
 
 onMounted(() => dashboard.loadOverview())
 
-// Mirrors VulnerabilitySeverityDonut.vue's severity scale as closely as
-// Badge.vue's fixed palette allows — Badge has no blue/info variant, so LOW
-// (Recon Blue on the donut) falls back to gray here rather than a mismatched hue.
-const SEVERITY_COLOR: Record<string, string> = {
-  CRITICAL: 'red', HIGH: 'orange', MEDIUM: 'amber', LOW: 'gray', INFO: 'gray',
-}
-
 function titleCase(word: string): string {
   return word.charAt(0) + word.slice(1).toLowerCase()
 }
 
 const severityBadges = (bySeverity: Record<string, number>) =>
-  ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']
+  ['CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']
     .filter(sev => (bySeverity[sev] ?? 0) > 0)
-    .map(sev => ({ label: `${bySeverity[sev]} ${titleCase(sev)}`, color: SEVERITY_COLOR[sev] }))
+    .map(sev => ({ label: `${bySeverity[sev]} ${severityLabel(sev)}`, color: severityColor(sev) }))
 
 // Appended to the Vulnerabilities KPI card specifically — real data
 // (GET /vulnerabilities/patchable, already fetched by dashboard.loadTab)
@@ -48,7 +45,10 @@ const vulnerabilityBadges = computed(() => {
 })
 
 const JOB_STATUS_COLOR: Record<string, string> = {
-  COMPLETED: 'green', FAILED: 'red', CANCELLED: 'gray', TIMEOUT: 'amber', RUNNING: 'orange',
+  COMPLETED: 'green', FAILED: 'red', CANCELLED: 'gray', TIMEOUT: 'amber',
+  // 'blue' (--info), not 'orange' — orange is reserved for HIGH severity
+  // on the vulnerability scale and would collide in meaning here.
+  RUNNING: 'blue', QUEUED: 'gray', SCHEDULED: 'gray', PENDING: 'gray',
 }
 
 const statusBadges = (byStatus: Record<string, number>) =>
@@ -67,6 +67,7 @@ const serversSpark = computed(() => sparkline(dashboard.trends?.servers, (p) => 
 const vulnsSpark = computed(() => sparkline(dashboard.trends?.vulnerabilities, (p) => p.critical + p.high + p.medium + p.low))
 const jobsSpark = computed(() => sparkline(dashboard.trends?.jobs, (p) => p.successful + p.failed + p.running))
 const alertsSpark = computed(() => sparkline(dashboard.trends?.alerts, (p) => p.created))
+const complianceSpark = computed(() => sparkline(compliance.trend, (p) => p.compliance_pct))
 
 function deltaLabel(points: ChartDataPoint[]): { trend: string; trendUp: boolean } | null {
   const first = points.at(0)
@@ -75,12 +76,21 @@ function deltaLabel(points: ChartDataPoint[]): { trend: string; trendUp: boolean
   const delta = Math.round(((last.value - first.value) / first.value) * 100)
   return { trend: `${delta > 0 ? '+' : ''}${delta}%`, trendUp: delta >= 0 }
 }
+
+// Healthy/Critical-analog split — agents.by_status has no historical table,
+// so these carry a share-of-fleet subtitle instead of a manufactured delta.
+const inactiveAgents = computed(() => dashboard.summary?.agents.by_status.INACTIVE ?? 0)
+function pctOfFleet(count: number): string {
+  const total = dashboard.summary?.agents.total ?? 0
+  return total > 0 ? `${Math.round((count / total) * 100)}% of fleet` : '—'
+}
 </script>
 
 <template>
   <div class="relative -m-3 sm:-m-4 min-h-full p-3 sm:p-4 space-y-6">
-    <div class="flex flex-wrap items-start justify-between gap-3">
-      <h1 class="text-xl font-semibold tracking-tight">Dashboard</h1>
+    <!-- The layout's topbar already shows the page title ("Dashboard") —
+         no second copy here, just the page's one real control. -->
+    <div class="flex justify-end">
       <Select
         :model-value="dashboard.range"
         :options="RANGE_OPTIONS"
@@ -92,19 +102,20 @@ function deltaLabel(points: ChartDataPoint[]): { trend: string; trendUp: boolean
     <DashboardError v-if="dashboard.summaryError" @retry="retry" />
 
     <template v-else>
-      <!-- Operational health: the KPI row. Four equal cells — each carries
-           its own badge/subtitle row plus a trend sparkline, so none reads
-           as thinner than its neighbors despite covering different data. -->
+      <!-- Operational health: the KPI row. Eight equal cells — each carries
+           its own badge/subtitle row plus a trend sparkline where history
+           exists, so none reads as thinner than its neighbors. -->
       <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
         <MetricCard
-          :icon="Server" label="Servers" to="/servers" decor
+          :icon="Server" label="Servers" to="/servers"
           :value="dashboard.summary?.agents.total ?? 0"
           :subtitle="`${dashboard.summary?.agents.active ?? 0} Active`" subtitle-dot="green"
           :chart-data="serversSpark" chart-color="green"
+          v-bind="deltaLabel(serversSpark) ?? {}"
           :loading="dashboard.summaryLoading && !dashboard.summary"
         />
         <MetricCard
-          :icon="ShieldAlert" label="Vulnerabilities" to="/vulnerabilities" decor
+          :icon="ShieldAlert" label="Vulnerabilities" to="/vulnerabilities"
           :value="dashboard.summary?.vulnerabilities.unresolved_total ?? 0"
           :badges="vulnerabilityBadges"
           empty-badges-text="No open vulnerabilities"
@@ -113,21 +124,55 @@ function deltaLabel(points: ChartDataPoint[]): { trend: string; trendUp: boolean
           :loading="dashboard.summaryLoading && !dashboard.summary"
         />
         <MetricCard
-          :icon="ClipboardList" label="Jobs" to="/jobs" decor
+          :icon="ClipboardList" label="Jobs" to="/jobs"
           :value="dashboard.summary?.jobs.total ?? 0"
           :badges="dashboard.summary ? statusBadges(dashboard.summary.jobs.by_status) : []"
           :chart-data="jobsSpark" chart-color="blue"
+          v-bind="deltaLabel(jobsSpark) ?? {}"
           :loading="dashboard.summaryLoading && !dashboard.summary"
         />
         <MetricCard
-          :icon="BellDot" label="Alerts" to="/alerts" decor
+          :icon="BellDot" label="Alerts" to="/alerts"
           :value="dashboard.summary?.alerts.active_total ?? 0"
           :badges="dashboard.summary ? severityBadges(dashboard.summary.alerts.by_severity) : []"
           empty-badges-text="No active alerts"
           :chart-data="alertsSpark" chart-color="yellow"
+          v-bind="deltaLabel(alertsSpark) ?? {}"
+          :loading="dashboard.summaryLoading && !dashboard.summary"
+        />
+        <MetricCard
+          :icon="ShieldCheck" label="Compliance" to="/compliance"
+          :value="compliance.overview ? `${compliance.overview.overall_compliance_pct.toFixed(1)}%` : '—'"
+          :subtitle="`${compliance.overview?.servers_evaluated ?? 0} evaluated`"
+          :chart-data="complianceSpark" chart-color="green"
+          v-bind="deltaLabel(complianceSpark) ?? {}"
+          :loading="compliance.overviewLoading && !compliance.overview"
+        />
+        <MetricCard
+          :icon="BookCheck" label="Policies" to="/compliance/policies"
+          :value="dashboard.summary?.policies.enabled ?? 0"
+          :subtitle="`of ${dashboard.summary?.policies.total ?? 0} total`"
+          :loading="dashboard.summaryLoading && !dashboard.summary"
+        />
+        <MetricCard
+          :icon="CheckCircle2" label="Active Agents" to="/servers"
+          :value="dashboard.summary?.agents.active ?? 0"
+          :subtitle="pctOfFleet(dashboard.summary?.agents.active ?? 0)" subtitle-dot="green"
+          :loading="dashboard.summaryLoading && !dashboard.summary"
+        />
+        <MetricCard
+          :icon="WifiOff" label="Inactive Agents" to="/servers"
+          :value="inactiveAgents"
+          :subtitle="pctOfFleet(inactiveAgents)" subtitle-dot="red"
           :loading="dashboard.summaryLoading && !dashboard.summary"
         />
       </div>
+
+      <!-- Active incidents: the one open, unresolved-right-now table. -->
+      <ActiveIncidents
+        :incidents="dashboard.activeIncidents" :inventory="dashboard.inventory"
+        :loading="dashboard.activeIncidentsLoading" :error="dashboard.activeIncidentsError"
+      />
 
       <!-- Attention required: the two actionable, ranked lists — who to fix
            and what broke. Both use real, previously-unsurfaced-on-dashboard
@@ -140,6 +185,20 @@ function deltaLabel(points: ChartDataPoint[]): { trend: string; trendUp: boolean
         <RecentFailedJobs
           :jobs="dashboard.recentFailedJobs" :loading="dashboard.recentFailedJobsLoading"
           :error="dashboard.recentFailedJobsError"
+        />
+      </div>
+
+      <!-- Operations: the fleet table (with its own environment filter) and
+           what's running right now. -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-3 items-start">
+        <InfrastructureInventory
+          class="lg:col-span-2"
+          :servers="dashboard.inventory" :categories="categories"
+          :loading="dashboard.inventoryLoading" :error="dashboard.inventoryError"
+        />
+        <RunningJobs
+          :jobs="dashboard.runningJobs" :loading="dashboard.runningJobsLoading"
+          :error="dashboard.runningJobsError"
         />
       </div>
 

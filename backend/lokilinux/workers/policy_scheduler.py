@@ -17,6 +17,7 @@ import structlog
 from sqlalchemy import select, update
 
 from lokilinux.models.policy import Policy
+from lokilinux.models.workflow import Workflow
 from lokilinux.services.policy_service import compute_next_run_at, run_policy
 
 logger = structlog.get_logger()
@@ -49,12 +50,21 @@ class PolicySchedulerWorker:
     async def _tick(self) -> None:
         async with self.db_factory() as db:
             now = datetime.now(timezone.utc)
+            # Migration plan §15 stage C: a policy imported via
+            # POST /policies/{id}/migrate (services/policy_migration.py)
+            # has a Workflow row pointing back at it through
+            # migrated_from_policy_id — WorkflowSchedulerWorker now owns its
+            # cron, so this worker skips it rather than double-firing. No
+            # extra column needed: the Workflow side already carries the
+            # link, and this subquery is the one place anything reads it.
+            migrated_policy_ids = select(Workflow.migrated_from_policy_id).where(Workflow.migrated_from_policy_id.isnot(None))
             due = (await db.execute(
                 select(Policy).where(
                     Policy.is_enabled.is_(True),
                     Policy.trigger_type == "SCHEDULE",
                     Policy.next_run_at.isnot(None),
                     Policy.next_run_at <= now,
+                    Policy.id.notin_(migrated_policy_ids),
                 )
             )).scalars().all()
 

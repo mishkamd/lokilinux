@@ -28,6 +28,8 @@ from lokilinux.schemas.policy import (
     PolicyUpdate,
     TriggerType,
 )
+from lokilinux.schemas.workflow import WorkflowResponse
+from lokilinux.services.policy_migration import PolicyMigrationError, import_policy_as_workflow
 from lokilinux.services.policy_service import compute_next_run_at, run_policy
 
 router = APIRouter()
@@ -239,6 +241,28 @@ async def run_policy_now(
 
     job_ids, matched = await run_policy(db, row, cache, triggered_by="manual")
     return PolicyRunResponse(job_ids=job_ids, matched_agents=matched)
+
+
+# ── Migrate to Workflow ──────────────────────────────────────────────────────
+# Plan §15 Phase 9 stage B — one-way, idempotent import. Deliberately does
+# NOT touch this policy row (trigger_type/is_enabled stay as-is — stage C,
+# not yet done, is what would make PolicySchedulerWorker start skipping it).
+
+@router.post("/{policy_id}/migrate", response_model=WorkflowResponse)
+async def migrate_policy_to_workflow(
+    policy_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(require_role("ADMIN", "OPERATOR")),
+) -> WorkflowResponse:
+    row = (await db.execute(select(Policy).where(Policy.id == policy_id))).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Policy not found")
+
+    try:
+        workflow = await import_policy_as_workflow(db, row, created_by=safe_user_uuid(current_user))
+    except PolicyMigrationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    return WorkflowResponse.model_validate(workflow)
 
 
 # ── Audit trail ───────────────────────────────────────────────────────────────

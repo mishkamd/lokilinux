@@ -1,5 +1,6 @@
 import { useComplianceStore } from './compliance'
 import { useVulnerabilitiesStore } from './vulnerabilities'
+import { useJobsStore } from './jobs'
 
 export type DashboardRange = '7d' | '30d' | '90d'
 
@@ -46,6 +47,38 @@ export interface RecentFailedJob {
   completed_at: string | null
 }
 
+export interface Alert {
+  id: string
+  title: string
+  description: string | null
+  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFO'
+  status: 'ACTIVE' | 'ACKNOWLEDGED' | 'RESOLVED' | 'EXPIRED'
+  alert_type: string | null
+  agent_id: string | null
+  triggered_at: string
+  created_at: string
+}
+
+export interface InventoryServer {
+  id: string
+  hostname: string
+  os_name: string | null
+  status: string
+  ip_address: string | null
+  category_id: string | null
+  last_seen_at: string | null
+  cve_count: number
+}
+
+export interface RunningJob {
+  id: string
+  name: string
+  job_type: string
+  target_servers: { agent_ids: string[] }
+  started_at: string | null
+  progress: number | null
+}
+
 export const useDashboardStore = defineStore('dashboard', () => {
   const api = useApi()
 
@@ -79,6 +112,83 @@ export const useDashboardStore = defineStore('dashboard', () => {
       recentFailedJobsError.value = true
     } finally {
       recentFailedJobsLoading.value = false
+    }
+  }
+
+  // Own state too — /alerts?status=ACTIVE is a different query than the
+  // alerts page's own (unpaginated, unfiltered) fetch, and duplicating the
+  // request here is cheaper than routing this widget's fetch through a page
+  // that doesn't expose one.
+  const activeIncidents = ref<Alert[]>([])
+  const activeIncidentsLoading = ref(false)
+  const activeIncidentsError = ref(false)
+
+  async function loadActiveIncidents() {
+    activeIncidentsLoading.value = true
+    activeIncidentsError.value = false
+    try {
+      const data = await api.get<{ items: Alert[] }>('/alerts?status=ACTIVE&limit=5')
+      activeIncidents.value = data.items
+    } catch {
+      activeIncidents.value = []
+      activeIncidentsError.value = true
+    } finally {
+      activeIncidentsLoading.value = false
+    }
+  }
+
+  // Same isolation reasoning as recentFailedJobs — /servers?limit=10 must
+  // not clobber the /servers page's own filtered, cursor-paginated list.
+  const inventory = ref<InventoryServer[]>([])
+  const inventoryLoading = ref(false)
+  const inventoryError = ref(false)
+
+  async function loadInventory() {
+    inventoryLoading.value = true
+    inventoryError.value = false
+    try {
+      const data = await api.get<{ items: InventoryServer[] }>('/servers?limit=10')
+      inventory.value = data.items
+    } catch {
+      inventory.value = []
+      inventoryError.value = true
+    } finally {
+      inventoryLoading.value = false
+    }
+  }
+
+  const RESULT_TERMINAL_STATUSES = new Set(['COMPLETED', 'FAILED', 'TIMEOUT', 'CANCELLED'])
+
+  const runningJobs = ref<RunningJob[]>([])
+  const runningJobsLoading = ref(false)
+  const runningJobsError = ref(false)
+
+  // N+1 by design, tightly bounded: at most 5 jobs (already capped by the
+  // list query), fetched in parallel, and only called at all when
+  // summary.jobs.running > 0 (see loadOverview) — running jobs are rare, and
+  // without per-agent results this widget would show a bare list, no progress.
+  async function loadRunningJobs() {
+    runningJobsLoading.value = true
+    runningJobsError.value = false
+    try {
+      const data = await api.get<{ items: RunningJob[] }>('/jobs?status=RUNNING&limit=5')
+      const jobsStore = useJobsStore()
+      runningJobs.value = await Promise.all(data.items.map(async (job) => {
+        const total = job.target_servers.agent_ids.length
+        if (total === 0) return { ...job, progress: null }
+        try {
+          const results = await jobsStore.fetchJobResults(job.id)
+          const done = results.filter((r) => RESULT_TERMINAL_STATUSES.has(r.status)).length
+          return { ...job, progress: Math.round((done / total) * 100) }
+        } catch {
+          return { ...job, progress: null }
+        }
+      }))
+    } catch {
+      runningJobs.value = []
+      runningJobsError.value = true
+    } finally {
+      runningJobsLoading.value = false
     }
   }
 
@@ -131,21 +241,43 @@ export const useDashboardStore = defineStore('dashboard', () => {
     const compliance = useComplianceStore()
 
     const tasks: Promise<unknown>[] = []
-    if (!summary.value || force) tasks.push(loadSummary())
+    tasks.push(!summary.value || force ? loadSummary() : Promise.resolve())
     if (!trends.value || force) tasks.push(loadTrends())
 
     tasks.push(vulnerabilities.fetchTopResources())
     tasks.push(vulnerabilities.fetchPatchable(), loadRecentFailedJobs())
 
     tasks.push(compliance.fetchOverview())
+    tasks.push(compliance.fetchTrend())
+    tasks.push(loadActiveIncidents())
+    tasks.push(loadInventory())
 
     await Promise.all(tasks)
+
+    // Gated on the just-loaded summary — running jobs are rare, so most
+    // loads skip the N+1 progress fetch entirely (see loadRunningJobs).
+    if ((summary.value?.jobs.running ?? 0) > 0) {
+      await loadRunningJobs()
+    } else {
+      runningJobs.value = []
+    }
+  }
+
+  /** Cheap, cross-page load for the topbar's status/critical pills — just
+   * /dashboard/summary (60s server-side cache), not the full loadOverview
+   * fan-out. No-op once summary is already populated by either path. */
+  async function ensureSummary() {
+    if (summary.value) return
+    await loadSummary()
   }
 
   return {
-    summary, summaryLoading, summaryError, loadSummary,
+    summary, summaryLoading, summaryError, loadSummary, ensureSummary,
     trends, trendsLoading, trendsError, loadTrends,
     recentFailedJobs, recentFailedJobsLoading, recentFailedJobsError,
+    activeIncidents, activeIncidentsLoading, activeIncidentsError,
+    inventory, inventoryLoading, inventoryError,
+    runningJobs, runningJobsLoading, runningJobsError,
     range, setRange,
     loadOverview,
   }

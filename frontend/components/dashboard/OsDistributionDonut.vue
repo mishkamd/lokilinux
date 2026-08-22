@@ -42,8 +42,8 @@ const segments = computed<Segment[]>(() => {
     </div>
     <div v-if="total === 0" class="flex-1 flex items-center justify-center text-xs text-muted-foreground">No servers registered.</div>
     <div v-else class="flex flex-col sm:flex-row items-center gap-3">
-      <div class="relative shrink-0 size-16">
-        <svg viewBox="0 0 160 160" class="size-16 -rotate-90">
+      <div class="relative shrink-0 size-24">
+        <svg viewBox="0 0 160 160" class="size-24 -rotate-90">
           <circle cx="80" cy="80" :r="RADIUS" fill="none" stroke="var(--border)" :stroke-width="STROKE" />
           <circle
             v-for="seg in segments"

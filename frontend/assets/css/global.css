@@ -21,12 +21,6 @@
   --radius-2xl: calc(var(--radius) + 8px);   /* 24px — special containers */
   --radius-full: 9999px;
 
-  /* Elevation shadows — consistent depth hierarchy */
-  --shadow-surface: 0 0 0 1px rgba(255, 255, 255, 0.03);
-  --shadow-raised: 0 4px 12px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.05);
-  --shadow-overlay: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.06);
-  --shadow-dialog: 0 12px 48px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.08);
-
   /* Animation */
   --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
   --ease-in-out-expo: cubic-bezier(0.87, 0, 0.13, 1);
@@ -123,9 +117,30 @@
   --sidebar-accent-foreground: oklch(0.21 0.006 285.885);
   --sidebar-border: oklch(0.92 0.004 286.32);
   --sidebar-ring: #2D6A4F;
+
+  /* Severity scale — HIGH sits between the primary success/warning/
+   * destructive triad, so it needs its own token rather than a literal
+   * hex repeated at every call site. Same hue in both themes. */
+  --severity-high: #f97316;
+
+  /* Elevation shadows — light: soft, dark-tinted, low-alpha; the hairline
+   * ring is barely visible against white so it leans on the shadow
+   * itself for definition rather than a bright edge. */
+  --shadow-surface: 0 1px 2px rgba(16, 24, 32, 0.04), 0 0 0 1px rgba(16, 24, 32, 0.04);
+  --shadow-raised: 0 4px 12px rgba(16, 24, 32, 0.1), 0 0 0 1px rgba(16, 24, 32, 0.06);
+  --shadow-overlay: 0 8px 32px rgba(16, 24, 32, 0.14), 0 0 0 1px rgba(16, 24, 32, 0.07);
+  --shadow-dialog: 0 12px 48px rgba(16, 24, 32, 0.18), 0 0 0 1px rgba(16, 24, 32, 0.08);
 }
 
 .dark {
+  --severity-high: #f97316;
+
+  /* Elevation shadows — dark: a bright hairline ring carries the edge,
+   * black drop shadows carry the depth. */
+  --shadow-surface: 0 0 0 1px rgba(255, 255, 255, 0.03);
+  --shadow-raised: 0 4px 12px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  --shadow-overlay: 0 8px 32px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.06);
+  --shadow-dialog: 0 12px 48px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.08);
   color-scheme: dark;
   --background: #050507;
   --foreground: #FAFAFA;
@@ -239,54 +254,6 @@ body {
   font-family: var(--font-mono);
 }
 
-/* ─── Background Texture ────────────────────────────────────────
- *  Subtle noise + grid overlay on the background surface.
- *  Barely perceptible — adds atmospheric depth without distraction. */
-
-.bg-noise {
-  position: relative;
-}
-
-.bg-noise::before {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  opacity: 0.03;
-  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-  background-repeat: repeat;
-  background-size: 256px 256px;
-  pointer-events: none;
-}
-
-.bg-noise.dark::before,
-.dark .bg-noise::before {
-  opacity: 0.04;
-}
-
-/* Subtle grid — horizontal + vertical 1px lines at 64px spacing */
-.bg-grid {
-  position: relative;
-}
-
-.bg-grid::after {
-  content: '';
-  position: fixed;
-  inset: 0;
-  z-index: -1;
-  opacity: 0.02;
-  background-image:
-    linear-gradient(to right, currentColor 1px, transparent 1px),
-    linear-gradient(to bottom, currentColor 1px, transparent 1px);
-  background-size: 64px 64px;
-  pointer-events: none;
-  color: var(--foreground);
-}
-
-.dark .bg-grid::after {
-  opacity: 0.015;
-}
-
 /* Combined atmospheric backdrop — noise + grid on darkest layer */
 .atmosphere {
   position: relative;
@@ -305,7 +272,7 @@ body {
   position: fixed;
   inset: 0;
   z-index: -1;
-  opacity: 0.03;
+  opacity: 0.018;
   background-image:
     linear-gradient(to right, currentColor 1px, transparent 1px),
     linear-gradient(to bottom, currentColor 1px, transparent 1px),
@@ -317,44 +284,6 @@ body {
 
 .dark .atmosphere::after {
   opacity: 0.025;
-}
-
-/* ─── Status Colors ──────────────────────────────────────────── */
-
-.status-active {
-  color: #15803d;
-  background-color: #dcfce7;
-  &:is(.dark *) {
-    color: #4FAF74;
-    background-color: rgb(79 175 116 / 0.15);
-  }
-}
-
-.status-inactive {
-  color: #4b5563;
-  background-color: #f3f4f6;
-  &:is(.dark *) {
-    color: #A1A1AA;
-    background-color: rgb(161 161 170 / 0.1);
-  }
-}
-
-.status-error {
-  color: #b91c1c;
-  background-color: #fee2e2;
-  &:is(.dark *) {
-    color: #D34D4D;
-    background-color: rgb(211 77 77 / 0.15);
-  }
-}
-
-.status-warning {
-  color: #a16207;
-  background-color: #fef9c3;
-  &:is(.dark *) {
-    color: #D6A44D;
-    background-color: rgb(214 164 77 / 0.15);
-  }
 }
 
 /* ─── Surface / Container Patterns ───────────────────────────── */
@@ -374,12 +303,6 @@ body {
   transform: translateY(-1px);
   box-shadow: var(--shadow-raised);
   border-color: color-mix(in oklch, var(--border), var(--primary) 20%);
-}
-
-.surface-elevated {
-  background-color: var(--card-elevated);
-  border: 1px solid var(--border);
-  box-shadow: var(--shadow-raised);
 }
 
 .surface-dialog {

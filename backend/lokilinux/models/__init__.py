@@ -34,6 +34,7 @@ from .plugin import Plugin, PluginInstallation, PluginStatus
 from .policy import Policy, PolicyAudit
 from .remediation import MaintenanceWindow, RemediationAction, RemediationJob, RemediationPlan
 from .rule_evaluation import ComplianceScore, RuleEvaluation
+from .workflow import Workflow, WorkflowAudit, WorkflowRun, WorkflowStepRun, WorkflowVersion
 
 __all__ = [
     # agent
@@ -110,4 +111,10 @@ __all__ = [
     # rule_evaluation (compliance module)
     "ComplianceScore",
     "RuleEvaluation",
+    # workflow
+    "Workflow",
+    "WorkflowAudit",
+    "WorkflowRun",
+    "WorkflowStepRun",
+    "WorkflowVersion",
 ]

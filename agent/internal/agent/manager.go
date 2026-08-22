@@ -23,19 +23,20 @@ const complianceTickInterval = time.Minute
 
 // Manager orchestrates all agent subsystems and drives the heartbeat cycle.
 type Manager struct {
-	cfg              *config.Config
-	log              *slog.Logger
-	version          string
-	logBuf           *LogRingBuffer
-	client           *communication.GRPCClient
-	store            *storage.Store
-	sysMod           *modules.SystemInfoModule
-	pkgMod           *modules.PackageManagerModule
-	jobExec          *modules.JobExecutor
-	ansibleExec      *modules.AnsibleExecutor
-	remediationExec  *modules.RemediationExecutor
-	complianceRunner *compliance.Runner
-	stop             chan struct{}
+	cfg               *config.Config
+	log               *slog.Logger
+	version           string
+	logBuf            *LogRingBuffer
+	client            *communication.GRPCClient
+	store             *storage.Store
+	sysMod            *modules.SystemInfoModule
+	pkgMod            *modules.PackageManagerModule
+	jobExec           *modules.JobExecutor
+	ansibleExec       *modules.AnsibleExecutor
+	remediationExec   *modules.RemediationExecutor
+	workflowStepsExec *modules.WorkflowStepsExecutor
+	complianceRunner  *compliance.Runner
+	stop              chan struct{}
 
 	failCount int // consecutive heartbeat failures, drives backoff
 
@@ -110,6 +111,10 @@ func NewManager(cfg *config.Config, log *slog.Logger, version string, logBuf *Lo
 			modules.NewJobExecutor(),
 			modules.NewAnsibleExecutor(),
 			modules.NewPythonExecutor(),
+		),
+		workflowStepsExec: modules.NewWorkflowStepsExecutor(
+			modules.NewAnsibleExecutor(),
+			modules.NewJobExecutor(),
 		),
 		complianceRunner: compliance.NewRunner(
 			compliance.BuildRegistry(cfg.FileIntegrity.WatchPaths, cfg.FileIntegrity.Ignores), store, log,
@@ -404,8 +409,31 @@ func (m *Manager) handleResponse(ctx context.Context, resp map[string]interface{
 // TIMEOUT up to an hour later with zero explanation. A policy engine that
 // generates jobs automatically needs failures to surface in ~1 heartbeat,
 // not look like a hang.
+// REBOOT/SERVICE/FILE/WORKFLOW_STEPS below are Faza 10's native modules —
+// written, unit-tested, and dispatchable, but the backend workflow engine
+// does not emit these job_types yet (services/workflow_engine.py's
+// _dispatch_step still compiles service/system/file/package to
+// CUSTOM_COMMAND shell, deliberately: there's no version/capability
+// negotiation in the heartbeat protocol today, so a backend that started
+// emitting these against an agent fleet running an older binary would have
+// older agents silently fail via the `default:` branch below, since none
+// of these job_types carry a `command` param). Wiring the backend to prefer
+// these once a version gate exists is future work, not part of this change.
 func (m *Manager) runJob(ctx context.Context, jobID, jobType string, params map[string]interface{}, timeoutSec int) (modules.JobResult, bool) {
 	switch jobType {
+	case "REBOOT":
+		return modules.Reboot(ctx, jobID, params, timeoutSec), true
+	case "SERVICE":
+		return modules.Service(ctx, jobID, params, timeoutSec), true
+	case "FILE":
+		return modules.File(ctx, jobID, params, timeoutSec), true
+	case "WORKFLOW_STEPS":
+		steps, err := parseWorkflowSteps(params)
+		if err != nil {
+			m.log.Warn("workflow_steps parse error", "job_id", jobID, "error", err)
+			return modules.JobResult{JobID: jobID, ExitCode: 1, Error: err.Error()}, true
+		}
+		return m.workflowStepsExec.Execute(ctx, jobID, steps, timeoutSec), true
 	case "PLUGIN_INSTALL":
 		return modules.InstallPlugin(ctx, jobID, params, timeoutSec), true
 	case "PACKAGE_UPDATE":
@@ -474,4 +502,38 @@ func parseRemediationActions(params map[string]interface{}) ([]modules.Remediati
 		})
 	}
 	return actions, nil
+}
+
+// parseWorkflowSteps extracts the coalesced step list from a WORKFLOW_STEPS
+// job's parameters — same shape as parseRemediationActions above, one
+// abstraction level up (whole job types instead of remediation providers).
+func parseWorkflowSteps(params map[string]interface{}) ([]modules.WorkflowStep, error) {
+	raw, ok := params["steps"]
+	if !ok {
+		return nil, fmt.Errorf("missing steps parameter")
+	}
+	list, ok := raw.([]interface{})
+	if !ok {
+		return nil, fmt.Errorf("steps parameter is not a list")
+	}
+
+	steps := make([]modules.WorkflowStep, 0, len(list))
+	for i, item := range list {
+		m, ok := item.(map[string]interface{})
+		if !ok {
+			return nil, fmt.Errorf("step %d is not an object", i)
+		}
+		stepType, _ := m["type"].(string)
+		stepParams, _ := m["params"].(map[string]interface{})
+		seq := 0
+		if s, ok := m["sequence"].(float64); ok {
+			seq = int(s)
+		}
+		steps = append(steps, modules.WorkflowStep{
+			Sequence: seq,
+			Type:     stepType,
+			Params:   stepParams,
+		})
+	}
+	return steps, nil
 }

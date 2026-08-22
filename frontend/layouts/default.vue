@@ -11,7 +11,7 @@
 
     <!-- Sidebar -->
     <aside
-      class="fixed lg:static inset-y-0 left-0 z-40 w-[232px] flex-shrink-0 flex flex-col bg-sidebar border-r border-sidebar-border shadow-[4px_0_32px_rgba(0,0,0,0.35)] transition-transform duration-[var(--duration-slow)] ease-[var(--ease-out-expo)] -translate-x-full lg:translate-x-0"
+      class="fixed lg:static inset-y-0 left-0 z-40 w-[232px] flex-shrink-0 flex flex-col bg-sidebar border-r border-sidebar-border shadow-[4px_0_32px_rgba(16,24,32,0.08)] dark:shadow-[4px_0_32px_rgba(0,0,0,0.35)] transition-transform duration-[var(--duration-slow)] ease-[var(--ease-out-expo)] -translate-x-full lg:translate-x-0"
       :class="{ 'translate-x-0': sidebarOpen, 'lg:hidden': sidebarCollapsed }"
     >
       <!-- Logo -->
@@ -27,7 +27,7 @@
         </NuxtLink>
         <button
           type="button"
-          class="shrink-0 inline-flex items-center justify-center size-8 rounded-lg hover:bg-white/[0.05] text-sidebar-foreground/70 lg:hidden"
+          class="shrink-0 inline-flex items-center justify-center size-8 rounded-lg hover:bg-sidebar-accent text-sidebar-foreground/70 lg:hidden"
           aria-label="Close menu"
           @click="sidebarOpen = false"
         >
@@ -44,7 +44,7 @@
               <!-- Collapsible parent (e.g. "Ansible" under Automation Engine) -->
               <details v-if="link.children" :open="link.children.some((c) => isActive(c.to))">
                 <summary
-                  class="group relative flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[14px] font-medium transition-colors duration-200 cursor-pointer list-none text-sidebar-foreground/70 hover:bg-white/[0.05] hover:text-sidebar-foreground"
+                  class="group relative flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[14px] font-medium transition-colors duration-200 cursor-pointer list-none text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
                 >
                   <span class="flex items-center justify-center size-5 rounded-md shrink-0 text-sidebar-foreground/60 group-hover:text-sidebar-foreground">
                     <component :is="link.icon" class="size-3.5" />
@@ -59,7 +59,7 @@
                       class="group relative flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[14px] font-medium transition-colors duration-200"
                       :class="isActive(child.to)
                         ? 'bg-[color-mix(in_oklch,var(--primary-active)_15%,transparent)] text-primary-active'
-                        : 'text-sidebar-foreground/70 hover:bg-white/[0.05] hover:text-sidebar-foreground'"
+                        : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground'"
                     >
                       <span
                         class="flex items-center justify-center size-5 rounded-md shrink-0 transition-colors"
@@ -79,7 +79,7 @@
                 class="group relative flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[14px] font-medium transition-colors duration-200"
                 :class="isActive(link.to)
                   ? 'bg-[color-mix(in_oklch,var(--primary-active)_15%,transparent)] text-primary-active'
-                  : 'text-sidebar-foreground/70 hover:bg-white/[0.05] hover:text-sidebar-foreground'"
+                  : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground'"
               >
                 <span
                   class="flex items-center justify-center size-5 rounded-md shrink-0 transition-colors"
@@ -103,7 +103,7 @@
                 class="group relative flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[14px] font-medium transition-colors duration-200"
                 :class="isActive(link.to)
                   ? 'bg-[color-mix(in_oklch,var(--primary-active)_15%,transparent)] text-primary-active'
-                  : 'text-sidebar-foreground/70 hover:bg-white/[0.05] hover:text-sidebar-foreground'"
+                  : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground'"
               >
                 <span
                   class="flex items-center justify-center size-5 rounded-md shrink-0 transition-colors"
@@ -126,11 +126,12 @@
           @click="showUserModal = true"
           :aria-label="`Settings for ${currentUser?.name ?? (currentUser as Record<string, unknown>)?.username ?? 'User'}`"
         >
-          <Avatar size="sm">
-            <UserCircle class="size-5" />
-          </Avatar>
-          <span class="text-[14px] text-sidebar-foreground truncate flex-1 min-w-0">
-            {{ currentUser?.name ?? (currentUser as Record<string, unknown>)?.username ?? 'User' }}
+          <Avatar size="sm" :fallback="userInitial" />
+          <span class="flex-1 min-w-0">
+            <span class="block text-[14px] text-sidebar-foreground truncate">
+              {{ currentUser?.name ?? (currentUser as Record<string, unknown>)?.username ?? 'User' }}
+            </span>
+            <span v-if="userRoleLabel" class="block text-[11px] text-sidebar-foreground/60 truncate">{{ userRoleLabel }}</span>
           </span>
           <LogOut class="size-4 text-sidebar-foreground/50 hover:text-sidebar-foreground shrink-0" @click.stop="handleLogout" />
         </button>
@@ -139,6 +140,20 @@
 
     <!-- User Settings Modal -->
     <UserSettingsModal v-model="showUserModal" />
+
+    <!-- Help -->
+    <Dialog v-model="showHelp" title="Help" size="sm">
+      <div class="space-y-3 text-sm">
+        <div class="flex items-center justify-between">
+          <span class="text-muted-foreground">Focus search</span>
+          <kbd class="text-[11px] font-medium text-muted-foreground border border-border rounded-md px-1.5 py-0.5">⌘K</kbd>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-muted-foreground">Toggle theme</span>
+          <span class="text-xs text-muted-foreground">Sun/moon icon, top right</span>
+        </div>
+      </div>
+    </Dialog>
 
     <!-- Main content -->
     <div class="flex-1 flex flex-col overflow-hidden">
@@ -163,6 +178,23 @@
           </button>
 
           <h1 class="page-title truncate shrink-0">{{ currentPageTitle }}</h1>
+
+          <div class="hidden lg:flex items-center gap-1.5 shrink-0">
+            <span
+              class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-medium"
+              :class="systemDegraded ? 'bg-[color-mix(in_oklch,var(--destructive)_15%,transparent)] text-destructive' : 'bg-[color-mix(in_oklch,var(--success)_15%,transparent)] text-success'"
+            >
+              <span class="size-1.5 rounded-full" :class="systemDegraded ? 'bg-destructive' : 'bg-success'" />
+              {{ systemDegraded ? 'System Degraded' : 'System Healthy' }}
+            </span>
+            <NuxtLink
+              v-if="criticalAlerts > 0"
+              to="/alerts"
+              class="inline-flex items-center rounded-full px-2.5 py-1 text-[12px] font-medium bg-[color-mix(in_oklch,var(--destructive)_15%,transparent)] text-destructive"
+            >
+              {{ criticalAlerts }} Critical
+            </NuxtLink>
+          </div>
 
           <div class="flex-1 hidden md:flex justify-center">
             <div class="relative w-full max-w-md">
@@ -192,11 +224,25 @@
             </button>
             <NuxtLink
               to="/alerts"
-              class="inline-flex items-center justify-center size-9 rounded-xl text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+              class="relative inline-flex items-center justify-center size-9 rounded-xl text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
               aria-label="Alerts"
             >
               <Bell class="size-4.5" />
+              <span
+                v-if="activeAlerts > 0"
+                class="absolute top-1.5 right-1.5 flex size-4 items-center justify-center rounded-full bg-destructive text-[9px] font-medium text-white"
+              >
+                {{ activeAlerts > 9 ? '9+' : activeAlerts }}
+              </span>
             </NuxtLink>
+            <button
+              type="button"
+              class="inline-flex items-center justify-center size-9 rounded-xl text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+              aria-label="Help"
+              @click="showHelp = true"
+            >
+              <CircleHelp class="size-4.5" />
+            </button>
             <ColorModeButton />
             <button
               type="button"
@@ -237,7 +283,8 @@ import {
   LayoutDashboard, Server, Cpu, ClipboardList, ShieldAlert,
   FileText, Puzzle, BellDot, Bell, Users, Settings, UserCircle, LogOut, Search, Menu, X,
   PanelLeft, PanelLeftClose, Bot, Layers, FolderKanban, ShieldCheck,
-  BookCheck, ListChecks, GitCompare, Wrench, FileSearch, FileChartColumn, ShieldOff,
+  BookCheck, ListChecks, GitCompare, Wrench, FileSearch, FileChartColumn, ShieldOff, CircleHelp,
+  Workflow,
 } from 'lucide-vue-next'
 import { Toaster } from 'vue-sonner'
 
@@ -252,8 +299,33 @@ const route = useRoute()
 const { user: currentUser, isAdmin } = useCurrentUser()
 const { signOut } = useAuth()
 const { companyName, logoMaskStyle } = useBranding()
+const dashboard = useDashboardStore()
 const showUserModal = ref(false)
+const showHelp = ref(false)
 const searchQuery = ref('')
+
+onMounted(() => dashboard.ensureSummary())
+
+const criticalAlerts = computed(() => dashboard.summary?.alerts.by_severity.CRITICAL ?? 0)
+const activeAlerts = computed(() => dashboard.summary?.alerts.active_total ?? 0)
+// Degraded when there are open critical alerts, or more than 10% of the
+// fleet is offline — both real signals from /dashboard/summary, no
+// fabricated "warning" state (agents.status never carries UNHEALTHY).
+const systemDegraded = computed(() => {
+  const s = dashboard.summary
+  if (!s) return false
+  const inactive = s.agents.by_status.INACTIVE ?? 0
+  return criticalAlerts.value > 0 || (s.agents.total > 0 && inactive / s.agents.total > 0.1)
+})
+
+const userInitial = computed(() => {
+  const name = currentUser.value?.name ?? (currentUser.value as Record<string, unknown> | null)?.username as string | undefined
+  return name?.trim()?.charAt(0)?.toUpperCase() || '?'
+})
+const userRoleLabel = computed(() => {
+  const role = (currentUser.value as Record<string, unknown> | null)?.role as string | undefined
+  return role ? role.charAt(0).toUpperCase() + role.slice(1) : ''
+})
 const searchInput = ref<HTMLInputElement | null>(null)
 const sidebarOpen = ref(false)
 const sidebarCollapsed = useLocalStorage('sidebar-collapsed', false)
@@ -307,6 +379,7 @@ const navSections = computed((): { title: string; links: NavLink[] }[] => [
   {
     title: 'Automation Engine',
     links: [
+      { to: '/workflows', label: 'Workflows', icon: Workflow },
       { to: '/policies', label: 'Policies', icon: FileText },
       { to: '/plugins',  label: 'Plugins',  icon: Puzzle },
       ...(ansibleEnabled.value ? [{
