@@ -92,6 +92,7 @@ export interface ServerVulnerability {
   severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | null
   fix_available: boolean
   is_remediated: boolean
+  status: 'OPEN' | 'PATCH_AVAILABLE' | 'IN_PROGRESS' | 'MITIGATED' | 'RESOLVED' | 'ACCEPTED_RISK'
   discovered_at: string
 }
 
@@ -171,10 +172,12 @@ export const useServersStore = defineStore('servers', () => {
     }
   }
 
-  async function fetchVulnerabilities(id: string) {
+  async function fetchVulnerabilities(id: string, includeResolved = false) {
     vulnerabilitiesLoading.value = true
     try {
-      const data = await api.get<{ items: ServerVulnerability[] }>(`/vulnerabilities/servers/${id}`)
+      const params = new URLSearchParams()
+      if (includeResolved) params.set('include_resolved', 'true')
+      const data = await api.get<{ items: ServerVulnerability[] }>(`/vulnerabilities/servers/${id}?${params}`)
       vulnerabilities.value = data.items
     } finally {
       vulnerabilitiesLoading.value = false

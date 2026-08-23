@@ -180,13 +180,6 @@
           <h1 class="page-title truncate shrink-0">{{ currentPageTitle }}</h1>
 
           <div class="hidden lg:flex items-center gap-1.5 shrink-0">
-            <span
-              class="inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[12px] font-medium"
-              :class="systemDegraded ? 'bg-[color-mix(in_oklch,var(--destructive)_15%,transparent)] text-destructive' : 'bg-[color-mix(in_oklch,var(--success)_15%,transparent)] text-success'"
-            >
-              <span class="size-1.5 rounded-full" :class="systemDegraded ? 'bg-destructive' : 'bg-success'" />
-              {{ systemDegraded ? 'System Degraded' : 'System Healthy' }}
-            </span>
             <NuxtLink
               v-if="criticalAlerts > 0"
               to="/alerts"
@@ -308,15 +301,6 @@ onMounted(() => dashboard.ensureSummary())
 
 const criticalAlerts = computed(() => dashboard.summary?.alerts.by_severity.CRITICAL ?? 0)
 const activeAlerts = computed(() => dashboard.summary?.alerts.active_total ?? 0)
-// Degraded when there are open critical alerts, or more than 10% of the
-// fleet is offline — both real signals from /dashboard/summary, no
-// fabricated "warning" state (agents.status never carries UNHEALTHY).
-const systemDegraded = computed(() => {
-  const s = dashboard.summary
-  if (!s) return false
-  const inactive = s.agents.by_status.INACTIVE ?? 0
-  return criticalAlerts.value > 0 || (s.agents.total > 0 && inactive / s.agents.total > 0.1)
-})
 
 const userInitial = computed(() => {
   const name = currentUser.value?.name ?? (currentUser.value as Record<string, unknown> | null)?.username as string | undefined

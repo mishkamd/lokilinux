@@ -123,6 +123,61 @@ async def test_list_vulnerabilities_exploited_only(client: AsyncClient, db_sessi
 
 
 @pytest.mark.asyncio
+async def test_server_vulnerabilities_returns_cvss_score_from_catalog(client: AsyncClient, db_session):
+    """Regression: agent_vulnerabilities.cvss_score is a snapshot column
+    nothing ever populates (confirmed live: 0/2068 rows had it set) — the
+    per-server endpoint must read cves.cvss_v3_score instead, the same
+    column the NVD enrichment worker keeps current, or the CVSS column in
+    the UI renders "—" forever."""
+    agent = Agent(agent_id="agent-cvss", status=AgentStatus.ACTIVE, hostname="cvss-host")
+    db_session.add(agent)
+    db_session.add(CVE(cve_id="CVE-2026-8000", cvss_v3_score=8.2, cvss_v3_severity="HIGH"))
+    await db_session.flush()
+    db_session.add(AgentVulnerability(
+        agent_id=agent.id, cve_id="CVE-2026-8000", package_name="openssl", package_version="1.0",
+        # cvss_score deliberately left unset — matches every real row.
+    ))
+    await db_session.commit()
+
+    resp = await client.get(f"/api/v1/vulnerabilities/servers/{agent.id}")
+    assert resp.status_code == 200
+    item = resp.json()["items"][0]
+    assert item["cvss_score"] == 8.2
+
+
+@pytest.mark.asyncio
+async def test_server_vulnerabilities_defaults_to_open_only(client: AsyncClient, db_session):
+    """Regression: the tab used to show every finding ever recorded,
+    RESOLVED included (confirmed live: 1566 rows for one host, 82 actually
+    open) — default must be open-only, matching /vulnerabilities/summary's
+    own counting rule, with include_resolved=true as the escape hatch."""
+    agent = Agent(agent_id="agent-resolved-mix", status=AgentStatus.ACTIVE, hostname="resolved-host")
+    db_session.add(agent)
+    db_session.add(CVE(cve_id="CVE-2026-8100", cvss_v3_severity="HIGH"))
+    db_session.add(CVE(cve_id="CVE-2026-8101", cvss_v3_severity="HIGH"))
+    await db_session.flush()
+    db_session.add(AgentVulnerability(
+        agent_id=agent.id, cve_id="CVE-2026-8100", package_name="openssl", package_version="1.0",
+        status="PATCH_AVAILABLE",
+    ))
+    db_session.add(AgentVulnerability(
+        agent_id=agent.id, cve_id="CVE-2026-8101", package_name="curl", package_version="1.0",
+        status="RESOLVED",
+    ))
+    await db_session.commit()
+
+    resp = await client.get(f"/api/v1/vulnerabilities/servers/{agent.id}")
+    assert resp.status_code == 200
+    items = resp.json()["items"]
+    assert len(items) == 1
+    assert items[0]["cve_id"] == "CVE-2026-8100"
+
+    resp_all = await client.get(f"/api/v1/vulnerabilities/servers/{agent.id}", params={"include_resolved": True})
+    assert resp_all.status_code == 200
+    assert len(resp_all.json()["items"]) == 2
+
+
+@pytest.mark.asyncio
 async def test_list_vulnerabilities_affected_count(client: AsyncClient, db_session):
     """Regression: the same CVE hitting two packages on one host (real,
     confirmed live: CVE-2026-59858 via both vim-minimal and vim-filesystem

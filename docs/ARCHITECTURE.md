@@ -4,6 +4,8 @@
 **Last updated:** 2026-08-06  
 **Status:** Live — reflects deployed code at commit `9e77abb`
 
+> **Notă (aug 2026):** de la acest snapshot codul a evoluat (Workflow Builder engine v0.3.0, commit `77c4220`). Documentația per modul, actualizată la starea curentă a codului, se află în [`docs/modules/`](modules/) — index: [`docs/modules/00-index.md`](modules/00-index.md).
+
 ---
 
 ## Table of Contents

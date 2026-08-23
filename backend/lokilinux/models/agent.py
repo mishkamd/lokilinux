@@ -83,7 +83,6 @@ class Agent(Base):
     plugin_policy_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("policies.id", use_alter=True, name="fk_agent_plugin_policy"))
 
     # Denormalized counters for fast dashboard reads
-    cve_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     cve_last_scan: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     updates_available: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
 

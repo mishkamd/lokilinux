@@ -43,20 +43,21 @@ describe('servers/[id].vue — Vulnerabilities & Settings tabs', () => {
     apiMocks.get.mockImplementation((path: string) => {
       if (path === '/servers/srv-1') return Promise.resolve({ ...baseServer })
       if (path.startsWith('/vulnerabilities/servers/')) {
-        return Promise.resolve({ items: [{ id: 1, cve_id: 'CVE-2026-0001', severity: 'HIGH', fix_available: true }], next_cursor: null })
+        return Promise.resolve({ items: [{ id: 1, cve_id: 'CVE-2026-0001', severity: 'HIGH', fix_available: true, status: 'PATCH_AVAILABLE' }], next_cursor: null })
       }
       return Promise.resolve({ items: [], next_cursor: null })
     })
 
     const wrapper = await mountSuspended(ServerDetailPage)
 
-    expect(apiMocks.get).not.toHaveBeenCalledWith('/vulnerabilities/servers/srv-1')
+    expect(apiMocks.get).not.toHaveBeenCalledWith('/vulnerabilities/servers/srv-1?')
 
     // Vulnerabilities is the 4th tab (index 3)
     const tabButtons = wrapper.findAll('button')
     await tabButtons[3]!.trigger('click')
 
-    expect(apiMocks.get).toHaveBeenCalledWith('/vulnerabilities/servers/srv-1')
+    // Default filter is open-only — no include_resolved param on first load.
+    expect(apiMocks.get).toHaveBeenCalledWith('/vulnerabilities/servers/srv-1?')
     expect(wrapper.text()).toContain('CVE-2026-0001')
   })
 

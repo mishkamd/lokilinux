@@ -62,10 +62,19 @@ describe('useServersStore', () => {
 
     await store.fetchVulnerabilities('srv-1')
 
-    expect(apiMocks.get).toHaveBeenCalledWith('/vulnerabilities/servers/srv-1')
+    expect(apiMocks.get).toHaveBeenCalledWith('/vulnerabilities/servers/srv-1?')
     expect(store.vulnerabilities).toHaveLength(1)
     expect(store.vulnerabilities![0]!.cve_id).toBe('CVE-2026-0001')
     expect(store.vulnerabilitiesLoading).toBe(false)
+  })
+
+  it('fetchVulnerabilities(id, true) requests include_resolved', async () => {
+    apiMocks.get.mockResolvedValueOnce({ items: [], next_cursor: null })
+    const store = useServersStore()
+
+    await store.fetchVulnerabilities('srv-1', true)
+
+    expect(apiMocks.get).toHaveBeenCalledWith('/vulnerabilities/servers/srv-1?include_resolved=true')
   })
 
   it('toggleMaintenance updates both the list entry and the selected server', async () => {

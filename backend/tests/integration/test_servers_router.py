@@ -85,6 +85,37 @@ async def test_toggle_maintenance(client: AsyncClient, db_session):
 
 
 @pytest.mark.asyncio
+async def test_server_cve_count_reflects_open_findings_not_total(client: AsyncClient, db_session):
+    """Regression: agents.cve_count was a denormalized column nothing ever
+    wrote to (confirmed live: every row read 0). It's now computed from
+    agent_vulnerabilities per response — and must count OPEN findings, not
+    every row ever recorded (a RESOLVED finding shouldn't inflate the
+    badge)."""
+    agent = await _make_agent(db_session, hostname="cve-count-host")
+    db_session.add(CVE(cve_id="CVE-2026-9200", cvss_v3_severity="HIGH"))
+    db_session.add(CVE(cve_id="CVE-2026-9201", cvss_v3_severity="HIGH"))
+    await db_session.flush()
+    db_session.add(AgentVulnerability(
+        agent_id=agent.id, cve_id="CVE-2026-9200", package_name="openssl", package_version="1.0",
+        status="PATCH_AVAILABLE",
+    ))
+    db_session.add(AgentVulnerability(
+        agent_id=agent.id, cve_id="CVE-2026-9201", package_name="curl", package_version="1.0",
+        status="RESOLVED",
+    ))
+    await db_session.commit()
+
+    list_resp = await client.get("/api/v1/servers")
+    assert list_resp.status_code == 200
+    item = next(i for i in list_resp.json()["items"] if i["id"] == str(agent.id))
+    assert item["cve_count"] == 1
+
+    detail_resp = await client.get(f"/api/v1/servers/{agent.id}")
+    assert detail_resp.status_code == 200
+    assert detail_resp.json()["cve_count"] == 1
+
+
+@pytest.mark.asyncio
 async def test_server_vulnerabilities_uses_pk_not_agent_id(client: AsyncClient, db_session):
     """Bugfix regression: this endpoint used to look up Agent.agent_id (the
     identity string), while the frontend always sends the DB PK — causing a

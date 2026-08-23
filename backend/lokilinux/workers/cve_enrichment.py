@@ -27,6 +27,17 @@ Two passes per tick, cheapest first:
 
 CISA KEV is a separate, much cheaper fetch (one ~1MB JSON, no per-CVE
 calls) run on a longer cadence via its own tick counter.
+
+Without an NVD API key (settings key cve.nvd_api_key unset, the default in
+this deployment), requests are throttled to _THROTTLE_SECONDS apart — NVD's
+unauthenticated tier is 5 req/30s, and requests firing back-to-back exceed
+that even at this worker's already-small batch sizes. Confirmed live: 17
+real CVEs got permanently parked in enrichment_status='ERROR' this way — an
+NVD overload response under no key isn't a clean 429 to back off on, it's
+an inconsistent 404 indistinguishable from "this CVE ID doesn't exist"
+(one of the 17, CVE-2026-9547, returns a real 200 with full data on a
+standalone, unthrottled request). With a key (50 req/30s), no throttling
+is applied.
 """
 
 import asyncio
@@ -43,9 +54,19 @@ from lokilinux.settings_schema import get_setting_value
 logger = structlog.get_logger()
 
 _TICK_SECONDS = 10
-_BACKFILL_BATCH = 3  # per tick — 3 req / 10s stays under NVD's unauthenticated 5 req/30s
+_BACKFILL_BATCH = 3  # per tick, THROTTLED (see _throttle) to stay under NVD's unauthenticated 5 req/30s
 _STALE_AFTER = timedelta(days=30)
-_STALE_REFRESH_BATCH = 1  # small — this runs after backfill in the same rate-limit budget
+_STALE_REFRESH_BATCH = 1  # small — runs after backfill in the same rate-limit budget
+# NVD's unauthenticated public tier is 5 requests / 30s (50/30s with an API
+# key). 6s between requests is exactly 5/30s — confirmed live: without this,
+# _BACKFILL_BATCH(3) + _STALE_REFRESH_BATCH(1) fired 4 requests back-to-back
+# every 10s tick (12 req/30s, well over the limit), and NVD's overload
+# response under no key isn't a clean 429 to back off on — it's an
+# inconsistent 404 that looks exactly like "this CVE ID doesn't exist" and
+# parks the row in ERROR permanently, even though the CVE is real (verified:
+# CVE-2026-9547, one of 17 parked this way, returns a real 200 with data on
+# a standalone request).
+_THROTTLE_SECONDS = 6
 _KEV_EVERY_N_TICKS = 720  # ~2 hours at a 10s tick
 _ADVISORY_LOCK_KEY = 0x4C4B4C7645 & 0x7FFFFFFFFFFFFFFF  # "LKLVE" — arbitrary, just needs to be stable and unique in this app
 _NVD_BASE = "https://services.nvd.nist.gov/rest/json/cves/2.0"
@@ -86,7 +107,14 @@ class CVEEnrichmentWorker:
             try:
                 api_key = await get_setting_value(db, "cve.nvd_api_key") or None
                 async with httpx.AsyncClient(timeout=15) as client:
-                    await self._backfill_pending(db, client, api_key)
+                    made_requests = await self._backfill_pending(db, client, api_key)
+                    if made_requests and not api_key:
+                        # Same throttle gap as between requests within one
+                        # phase — otherwise backfill's last request and
+                        # stale-refresh's first fire back-to-back across the
+                        # phase boundary, the exact burst pattern that
+                        # parked 17 real CVEs in ERROR (see _THROTTLE_SECONDS).
+                        await asyncio.sleep(_THROTTLE_SECONDS)
                     await self._refresh_stale(db, client, api_key)
                     if self._tick_count % _KEV_EVERY_N_TICKS == 0:
                         await self._sync_kev(db, client)
@@ -94,19 +122,22 @@ class CVEEnrichmentWorker:
                 await db.execute(text("SELECT pg_advisory_unlock(:key)"), {"key": _ADVISORY_LOCK_KEY})
                 await db.commit()
 
-    async def _backfill_pending(self, db, client: httpx.AsyncClient, api_key: str | None) -> None:
+    async def _backfill_pending(self, db, client: httpx.AsyncClient, api_key: str | None) -> bool:
         pending = (
             await db.execute(
                 select(CVE.cve_id).where(CVE.enrichment_status == "PENDING").limit(_BACKFILL_BATCH)
             )
         ).scalars().all()
         if not pending:
-            return
+            return False
 
         svc = CVEService(db, self.cache)
-        for cve_id in pending:
+        for i, cve_id in enumerate(pending):
+            if i > 0 and not api_key:
+                await asyncio.sleep(_THROTTLE_SECONDS)
             outcome = await self._enrich_one(db, client, svc, cve_id, api_key)
             logger.info("cve_enrichment.backfill", cve_id=cve_id, outcome=outcome)
+        return True
 
     async def _refresh_stale(self, db, client: httpx.AsyncClient, api_key: str | None) -> None:
         cutoff = datetime.now(timezone.utc) - _STALE_AFTER
@@ -122,7 +153,9 @@ class CVEEnrichmentWorker:
             return
 
         svc = CVEService(db, self.cache)
-        for cve_id in stale:
+        for i, cve_id in enumerate(stale):
+            if i > 0 and not api_key:
+                await asyncio.sleep(_THROTTLE_SECONDS)
             outcome = await self._enrich_one(db, client, svc, cve_id, api_key)
             logger.info("cve_enrichment.stale_refresh", cve_id=cve_id, outcome=outcome)
 
@@ -146,10 +179,19 @@ class CVEEnrichmentWorker:
             await asyncio.sleep(6)
             return "RATE_LIMITED"
 
+        if resp.status_code >= 500:
+            # NVD-side failure — transient like the network-error branch
+            # above, not a verdict on the CVE ID itself. Leave PENDING so
+            # it's retried next tick instead of parking permanently in
+            # ERROR (confirmed live: a burst of 5xx responses on 2026-08-18
+            # parked 17 CVEs in ERROR forever, since only PENDING rows are
+            # ever re-queried).
+            logger.warning("cve_enrichment.server_error", cve_id=cve_id, status=resp.status_code)
+            return "RETRY"
+
         if resp.status_code != 200:
-            # Anything else (malformed request, NVD-side error) — mark
-            # ERROR rather than retrying forever on a CVE ID NVD will never
-            # accept.
+            # Anything else (malformed request, a 4xx NVD will never accept
+            # for this ID) — mark ERROR rather than retrying forever.
             row = (await db.execute(select(CVE).where(CVE.cve_id == cve_id))).scalar_one_or_none()
             if row:
                 row.enrichment_status = "ERROR"

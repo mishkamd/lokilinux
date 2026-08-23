@@ -60,13 +60,21 @@ function diskPercent(d: { used_size: number; total_size: number }): number {
 const vulnerabilitiesLoaded = ref(false)
 const maintenanceToggling = ref(false)
 
+// Default open-only (matches the badge count on the dashboard and the
+// /vulnerabilities/summary KPI) — RESOLVED findings shouldn't dominate the
+// tab. "All" is the escape hatch for someone who actually wants history.
+const vulnFilter = ref<'open' | 'all'>('open')
+function onVulnFilterChange() {
+  store.fetchVulnerabilities(route.params.id as string, vulnFilter.value === 'all')
+}
+
 function onTabChange(index: number) {
   if (index === 2 && !packagesLoaded.value) {
     store.fetchPackages(route.params.id as string)
     packagesLoaded.value = true
   }
   if (index === 3 && !vulnerabilitiesLoaded.value) {
-    store.fetchVulnerabilities(route.params.id as string)
+    store.fetchVulnerabilities(route.params.id as string, vulnFilter.value === 'all')
     vulnerabilitiesLoaded.value = true
   }
   if (index === 4) {
@@ -171,6 +179,7 @@ const vulnerabilityColumns = [
   { key: 'severity', label: 'Severity' },
   { key: 'cvss_score', label: 'CVSS' },
   { key: 'fix_available', label: 'Fix available' },
+  { key: 'status', label: 'Status' },
 ]
 
 const SEVERITY_COLORS: Record<string, string> = {
@@ -179,6 +188,20 @@ const SEVERITY_COLORS: Record<string, string> = {
   MEDIUM: 'gray',
   LOW: 'gray',
 }
+
+const VULN_STATUS_COLORS: Record<string, string> = {
+  OPEN: 'red',
+  PATCH_AVAILABLE: 'amber',
+  IN_PROGRESS: 'blue',
+  MITIGATED: 'gray',
+  RESOLVED: 'green',
+  ACCEPTED_RISK: 'gray',
+}
+
+const VULN_FILTER_OPTIONS = [
+  { label: 'Open', value: 'open' },
+  { label: 'All', value: 'all' },
+]
 </script>
 
 <template>
@@ -325,6 +348,10 @@ const SEVERITY_COLORS: Record<string, string> = {
 
       <template #vulnerabilities>
         <div class="mt-4">
+          <div class="mb-3 flex items-center justify-end gap-2">
+            <span class="text-xs text-muted-foreground">Status</span>
+            <Select v-model="vulnFilter" :options="VULN_FILTER_OPTIONS" class="w-28" @update:model-value="onVulnFilterChange" />
+          </div>
           <DataTable :rows="store.vulnerabilities" :columns="vulnerabilityColumns" :loading="store.vulnerabilitiesLoading">
             <template #severity-data="{ row }">
               <Badge v-if="row.severity" :color="SEVERITY_COLORS[row.severity] ?? 'gray'" size="xs">{{ row.severity }}</Badge>
@@ -337,9 +364,12 @@ const SEVERITY_COLORS: Record<string, string> = {
               <Badge v-if="row.fix_available" color="green" size="xs">yes</Badge>
               <span v-else class="text-muted-foreground text-xs">no</span>
             </template>
+            <template #status-data="{ row }">
+              <Badge :color="VULN_STATUS_COLORS[row.status] ?? 'gray'" size="xs">{{ row.status }}</Badge>
+            </template>
           </DataTable>
           <p v-if="!store.vulnerabilitiesLoading && !store.vulnerabilities.length" class="text-xs text-muted-foreground mt-2">
-            No vulnerabilities reported. This appears after CVE scan processing for this server's packages.
+            {{ vulnFilter === 'open' ? 'No open vulnerabilities. Switch to “All” to see resolved findings.' : 'No vulnerabilities reported. This appears after CVE scan processing for this server\'s packages.' }}
           </p>
         </div>
       </template>

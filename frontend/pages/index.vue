@@ -168,40 +168,6 @@ function pctOfFleet(count: number): string {
         />
       </div>
 
-      <!-- Active incidents: the one open, unresolved-right-now table. -->
-      <ActiveIncidents
-        :incidents="dashboard.activeIncidents" :inventory="dashboard.inventory"
-        :loading="dashboard.activeIncidentsLoading" :error="dashboard.activeIncidentsError"
-      />
-
-      <!-- Attention required: the two actionable, ranked lists — who to fix
-           and what broke. Both use real, previously-unsurfaced-on-dashboard
-           data (RecentFailedJobs is new; TopVulnerableServers already existed). -->
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-3 items-start">
-        <TopVulnerableServers
-          :resources="vulnerabilities.topResources" :loading="vulnerabilities.topResourcesLoading"
-          :error="vulnerabilities.topResourcesError"
-        />
-        <RecentFailedJobs
-          :jobs="dashboard.recentFailedJobs" :loading="dashboard.recentFailedJobsLoading"
-          :error="dashboard.recentFailedJobsError"
-        />
-      </div>
-
-      <!-- Operations: the fleet table (with its own environment filter) and
-           what's running right now. -->
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-3 items-start">
-        <InfrastructureInventory
-          class="lg:col-span-2"
-          :servers="dashboard.inventory" :categories="categories"
-          :loading="dashboard.inventoryLoading" :error="dashboard.inventoryError"
-        />
-        <RunningJobs
-          :jobs="dashboard.runningJobs" :loading="dashboard.runningJobsLoading"
-          :error="dashboard.runningJobsError"
-        />
-      </div>
-
       <!-- Fleet posture: four single-visualization facets of the same
            question ("what does the fleet look like right now") — OS mix,
            vuln severity mix, agent online/offline, compliance. -->
@@ -212,12 +178,44 @@ function pctOfFleet(count: number): string {
         <ComplianceOverviewCard :overview="compliance.overview" />
       </div>
 
+      <!-- Active incidents: the one open, unresolved-right-now table, paired
+           with what's running right now beside it. -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3 items-start">
+        <ActiveIncidents
+          :incidents="dashboard.activeIncidents" :inventory="dashboard.inventory"
+          :loading="dashboard.activeIncidentsLoading" :error="dashboard.activeIncidentsError"
+        />
+        <RunningJobs
+          :jobs="dashboard.runningJobs" :loading="dashboard.runningJobsLoading"
+          :error="dashboard.runningJobsError"
+        />
+      </div>
+
+      <!-- Attention required + operations: side by side only once there's
+           room for InfrastructureInventory's columns (lg, 1024px+) — at md
+           the table clips and its own header controls get truncated. -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 items-start">
+        <TopVulnerableServers
+          :resources="vulnerabilities.topResources" :loading="vulnerabilities.topResourcesLoading"
+          :error="vulnerabilities.topResourcesError"
+        />
+        <InfrastructureInventory
+          :servers="dashboard.inventory" :categories="categories"
+          :loading="dashboard.inventoryLoading" :error="dashboard.inventoryError"
+        />
+      </div>
+
       <!-- Trends: one chart, not a wall of them. -->
       <JobsTrendChart :points="dashboard.trends?.jobs ?? []" :loading="dashboard.trendsLoading && !dashboard.trends" />
 
-      <!-- Recent activity: history, intentionally last — it's context, not
-           something requiring action right now. -->
+      <!-- Recent activity: history, not something requiring action right now. -->
       <RecentActivityFeed v-if="hasRole('AUDITOR')" />
+
+      <!-- What broke: intentionally last on the page. -->
+      <RecentFailedJobs
+        :jobs="dashboard.recentFailedJobs" :loading="dashboard.recentFailedJobsLoading"
+        :error="dashboard.recentFailedJobsError"
+      />
     </template>
   </div>
 </template>

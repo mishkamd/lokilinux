@@ -431,11 +431,12 @@ async def list_server_vulnerabilities(
     cursor: str | None = Query(None),
     limit: int = Query(20, ge=1, le=100),
     severity: CVESeverity | None = Query(None),
+    include_resolved: bool = Query(False, description="Include RESOLVED/ACCEPTED_RISK findings — default is open-only, matching the summary/trends counts."),
     db: AsyncSession = Depends(get_db),
     cache: RedisCache = Depends(get_cache),
     _: dict = Depends(get_current_user),
 ) -> CursorPage[VulnerabilityResponse]:
-    cache_key = f"vulnerability:{agent_id}:list:{severity}:{cursor}:{limit}"
+    cache_key = f"vulnerability:{agent_id}:list:{severity}:{include_resolved}:{cursor}:{limit}"
     if hit := await cache.get_cached(cache_key):
         return CursorPage[VulnerabilityResponse].model_validate(hit)
 
@@ -446,15 +447,18 @@ async def list_server_vulnerabilities(
     if agent is None:
         raise HTTPException(status_code=404, detail="Server not found")
 
-    # Severity comes from cves.cvss_v3_severity (see services/trends.py's
-    # module docstring) — filter and display both read the same column the
-    # NVD enrichment worker keeps current, not the denormalized snapshot.
+    # Severity AND cvss_score both come from cves.* (see services/trends.py's
+    # module docstring) — the NVD enrichment worker keeps these current;
+    # agent_vulnerabilities.cvss_score is a write-once-never snapshot column
+    # nothing populates, so reading it directly always renders as "—".
     q = (
-        select(AgentVulnerability, CVE.cvss_v3_severity)
+        select(AgentVulnerability, CVE.cvss_v3_severity, CVE.cvss_v3_score)
         .join(CVE, AgentVulnerability.cve_id == CVE.cve_id)
         .where(AgentVulnerability.agent_id == agent.id)
         .order_by(AgentVulnerability.discovered_at.desc(), AgentVulnerability.id.desc())
     )
+    if not include_resolved:
+        q = q.where(AgentVulnerability.status.in_(_OPEN_STATUSES))
     if severity:
         q = q.where(CVE.cvss_v3_severity == severity.value)
     if cursor:
@@ -477,9 +481,9 @@ async def list_server_vulnerabilities(
             VulnerabilityResponse.model_validate(v).model_copy(
                 # model_copy skips validation, so coerce to the enum here —
                 # otherwise a raw str sits in a CVESeverity-typed field.
-                update={"hostname": agent.hostname, "severity": CVESeverity(sev) if sev else None}
+                update={"hostname": agent.hostname, "severity": CVESeverity(sev) if sev else None, "cvss_score": score}
             )
-            for v, sev in items
+            for v, sev, score in items
         ],
         next_cursor=next_cursor,
     )
