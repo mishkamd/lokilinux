@@ -22,6 +22,7 @@ from .routers.playbooks import router as playbooks_router
 from .routers.plugins import router as plugins_router
 from .routers.policies import router as policies_router
 from .routers.servers import router as servers_router
+from .routers.workflows import router as workflows_router
 
 router = APIRouter()
 
@@ -41,3 +42,4 @@ router.include_router(alerts_router, prefix="/alerts", tags=["alerts"])
 router.include_router(admin_router, prefix="/admin", tags=["admin"])
 router.include_router(agent_install_router, prefix="/agent", tags=["agent-install"])
 router.include_router(agent_register_router, prefix="/agents", tags=["agent-install"])
+router.include_router(workflows_router, prefix="/workflows", tags=["workflows"])

@@ -33,17 +33,17 @@ const color = (d: Segment) => d.name === 'Compliant' ? 'var(--success)' : 'var(-
       <NuxtLink to="/compliance" class="text-[12px] font-medium text-primary dark:text-primary-active shrink-0">View full report →</NuxtLink>
     </div>
 
-    <div v-if="!overview" class="flex flex-col items-center gap-3">
+    <div v-if="!overview" class="flex flex-col sm:flex-row items-center gap-3">
       <Skeleton class="size-24 rounded-full shrink-0" />
       <Skeleton class="h-16 w-full" />
     </div>
-    <div v-else class="flex flex-col items-center gap-3">
+    <div v-else class="flex flex-col sm:flex-row items-center gap-3">
       <div class="relative shrink-0 size-24">
         <VisSingleContainer :data="segments" :height="96" :width="96">
-          <VisDonut :value="value" :color="color" :arc-width="16" :corner-radius="2" :central-label="`${Math.round(overview.overall_compliance_pct)}%`" central-sub-label="COMPLIANT" />
+          <VisDonut :value="value" :color="color" :arc-width="16" :corner-radius="2" :central-label="`${Math.round(overview.overall_compliance_pct)}%`" />
         </VisSingleContainer>
       </div>
-      <div class="w-full space-y-1.5 text-xs">
+      <div class="flex-1 w-full space-y-1.5 text-xs">
         <div class="flex items-center justify-between gap-2">
           <span class="min-w-0 truncate text-muted-foreground">Servers evaluated</span>
           <span class="shrink-0 font-medium tabular-nums">{{ overview.servers_evaluated }}</span>
@@ -58,7 +58,7 @@ const color = (d: Segment) => d.name === 'Compliant' ? 'var(--success)' : 'var(-
         </div>
         <div class="flex items-center justify-between gap-2">
           <span class="min-w-0 truncate text-muted-foreground">Remediation</span>
-          <span class="shrink-0 font-medium tabular-nums">{{ overview.remediation_pct }}% ({{ overview.resolved_controls }} resolved)</span>
+          <span class="shrink-0 font-medium tabular-nums" :title="`${overview.resolved_controls} resolved`">{{ overview.remediation_pct }}%</span>
         </div>
       </div>
     </div>

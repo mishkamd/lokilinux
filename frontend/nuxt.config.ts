@@ -54,6 +54,7 @@ export default defineNuxtConfig({
   components: [
     { path: '~/components/ui', pathPrefix: false },
     { path: '~/components/dashboard', pathPrefix: false },
+    { path: '~/components/workflow', pathPrefix: false },
     '~/components',
   ],
 
@@ -93,6 +94,12 @@ export default defineNuxtConfig({
     '/_nuxt/**': {
       headers: { 'Cache-Control': 'public, max-age=3600' },
     },
+    // Vue Flow measures the DOM at mount (pan/zoom transforms, node/handle
+    // bounding boxes) — nothing useful to render server-side, and SSR-ing
+    // it would just mean hydration re-measuring everything anyway. Also
+    // keeps the ~45KB gz canvas bundle out of every other route's payload
+    // (dynamic-imported from pages/workflows/[id].vue).
+    '/workflows/**': { ssr: false },
   },
 
   nitro: {

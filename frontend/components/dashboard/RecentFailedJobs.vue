@@ -38,17 +38,22 @@ function relativeTime(iso: string | null): string {
     <div v-else-if="!props.jobs.length" class="flex-1 flex items-center justify-center text-xs text-muted-foreground">
       No failed jobs — automation is healthy.
     </div>
-    <div v-else class="space-y-2.5">
+    <div v-else class="space-y-2">
       <NuxtLink
         v-for="job in props.jobs.slice(0, 5)" :key="job.id"
         to="/jobs"
-        class="flex items-center justify-between gap-2 text-xs group"
+        class="flex items-center gap-2.5 rounded-[var(--radius-sm)] border border-border/60 p-2 text-xs group"
       >
-        <div class="min-w-0">
-          <p class="min-w-0 truncate font-medium group-hover:text-primary dark:group-hover:text-primary-active transition-colors">{{ job.name }}</p>
-          <p class="text-[11px] text-muted-foreground">{{ job.job_type }}</p>
+        <span class="flex size-7 shrink-0 items-center justify-center rounded-full bg-[color-mix(in_oklch,var(--destructive)_15%,transparent)] text-destructive">
+          <XCircle class="size-3.5" />
+        </span>
+        <div class="min-w-0 flex-1 flex items-center justify-between gap-2">
+          <div class="min-w-0">
+            <p class="min-w-0 truncate font-medium group-hover:text-primary dark:group-hover:text-primary-active transition-colors">{{ job.name }}</p>
+            <p class="text-[11px] text-muted-foreground">{{ job.job_type }}</p>
+          </div>
+          <span class="shrink-0 text-muted-foreground">{{ relativeTime(job.completed_at) }}</span>
         </div>
-        <span class="shrink-0 text-muted-foreground">{{ relativeTime(job.completed_at) }}</span>
       </NuxtLink>
     </div>
   </div>

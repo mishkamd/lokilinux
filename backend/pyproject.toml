@@ -1,6 +1,6 @@
 [project]
 name = "lokilinux"
-version = "0.1.0"
+version = "0.3.0"
 description = "Enterprise Linux fleet management platform"
 requires-python = ">=3.11"
 

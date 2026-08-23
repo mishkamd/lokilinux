@@ -17,14 +17,6 @@ colors:
   signal-violet: "#8B5CF6"
   neutral-gray: "#71717A"
   signal-orange: "#f97316"
-  status-active-text-light: "#15803d"
-  status-active-bg-light: "#dcfce7"
-  status-inactive-text-light: "#4b5563"
-  status-inactive-bg-light: "#f3f4f6"
-  status-error-text-light: "#b91c1c"
-  status-error-bg-light: "#fee2e2"
-  status-warning-text-light: "#a16207"
-  status-warning-bg-light: "#fef9c3"
 typography:
   display:
     fontFamily: "Iceberg, Inter, ui-sans-serif, sans-serif"
@@ -128,6 +120,11 @@ components:
     textColor: "{colors.threat-red}"
     rounded: "{rounded.full}"
     padding: "2px 8px"
+  badge-blue:
+    backgroundColor: "color-mix(oklch, {colors.recon-blue} 16%, transparent)"
+    textColor: "{colors.recon-blue}"
+    rounded: "{rounded.full}"
+    padding: "2px 8px"
   card:
     backgroundColor: "{colors.panel-black}"
     rounded: "{rounded.md}"
@@ -174,7 +171,7 @@ Quiet and exact: one accent, four semantic status colors, and a near-black neutr
 - **Threat Red** (`#D34D4D`) — destructive actions, critical severity, failed jobs.
 - **Caution Amber** (`#D6A44D`) — warnings, medium severity, pending states.
 - **Recon Blue** (`#5A8DFF`) — informational, running/in-progress states, one chart series.
-- **Signal Orange** (`#f97316`) — HIGH severity specifically, one step down from Threat Red on the vulnerability severity scale (LOW → Recon Blue, MEDIUM → Caution Amber, HIGH → Signal Orange, CRITICAL → Threat Red — verified directly against `VulnerabilitySeverityDonut.vue`'s `SEVERITY_COLOR` map). Chosen to match the badge component's `orange` variant since no `--chart-*` token exists for it. Note: `Badge.vue` has no blue/info variant, so anywhere severity renders as a `Badge` (not a chart segment) LOW falls back to gray rather than a mismatched hue — a real component-palette constraint, not drift.
+- **Signal Orange** (`#f97316`, token `--severity-high`) — HIGH severity specifically, one step down from Threat Red on the vulnerability severity scale (LOW → Recon Blue, MEDIUM → Caution Amber, HIGH → Signal Orange, CRITICAL → Threat Red — verified directly against `VulnerabilitySeverityDonut.vue`'s `SEVERITY_COLOR` map). Same hex in both themes; promoted from a repeated literal to a real token so no call site hardcodes it. `Badge.vue` now has a `blue` color (mapped to `--info`) so LOW renders in its real Recon Blue instead of falling back to gray. This scale is centralized in `composables/useSeverity.ts` (`severityColor`/`severityLabel`) — the canonical source; `pages/alerts/index.vue`, `pages/index.vue`, and `TopVulnerableServers.vue` all read from it instead of restating their own map.
 - **Signal Violet** (`#8B5CF6`) — reserved for chart data only (the 4th trend series); never used as a UI/status color.
 
 ### Neutral
@@ -185,16 +182,7 @@ Quiet and exact: one accent, four semantic status colors, and a near-black neutr
 - **Faded Gray** (`#A1A1AA`): secondary/muted text — labels, captions, timestamps, placeholder text.
 - **Hairline** (`rgba(255,255,255,0.07)`): every border and input outline in dark mode. Never a solid neutral gray — always this translucent white hairline over Panel Black.
 
-A parallel light-mode palette exists (`:root`, unprefixed) built from Tailwind's neutral OKLCH scale rather than named Blackout/Panel tokens, toggled via a `.dark` class swap (`storageKey: 'lokilinux-color-mode'`). Dark is the product's default and primary identity; light mode is a supported alternate, not the design's home base.
-
-### Light Mode Status (used only outside `.dark`)
-The four `.status-*` utility classes (`status-active`, `status-inactive`, `status-error`, `status-warning`) carry their own light-mode-only text/background pairs, distinct from the badge/semantic hex values above — a separate, older status-pill vocabulary that predates the Signal/Threat/Caution naming and was never ported to light mode's OKLCH scale:
-- **Active**: text `#15803d` on background `#dcfce7`.
-- **Inactive**: text `#4b5563` on background `#f3f4f6`.
-- **Error**: text `#b91c1c` on background `#fee2e2`.
-- **Warning**: text `#a16207` on background `#fef9c3`.
-
-Each class swaps to the dark-mode Signal/Threat/Caution/Faded-Gray equivalents via `&:is(.dark *)`.
+A parallel light-mode palette exists (`:root`, unprefixed) built from Tailwind's neutral OKLCH scale rather than named Blackout/Panel tokens, toggled via a `.dark` class swap (`storageKey: 'lokilinux-color-mode'`). Dark is the product's default (the boot script still seeds `dark` on first visit, deliberately not following OS preference) — but light is now a fully first-class alternate, not a half-finished fallback: every card's resting/hover elevation, the sidebar/table hover states, and every chart color are correct in both themes. The four `.status-*` classes (a pre-`.dark`-era status-pill vocabulary, unreferenced anywhere in the app) were removed rather than ported.
 
 ### Named Rules
 **The One Accent Rule.** Tactical Forest/Signal Green is the only color that means "brand." Every other hue on screen (red, amber, blue, violet) is load-bearing status information, never decoration — if a color appears, it is telling the admin something is true about their fleet.
@@ -240,13 +228,15 @@ The header row (page tabs + range/filter controls, `flex items-center justify-be
 
 ## Elevation & Depth
 
-Flat at rest, lifted only as feedback — not ambient decoration. Every raised surface starts at `--shadow-surface`, which is barely a shadow at all (`0 0 0 1px rgba(255,255,255,.03)`, functioning as a hairline more than a drop shadow). Depth escalates in three concrete steps only when a surface actually changes state: hover, an open dialog, or a toast/overlay.
+Flat at rest, lifted only as feedback — not ambient decoration. Every raised surface starts at `--shadow-surface`. Depth escalates in three concrete steps only when a surface actually changes state: hover, an open dialog, or a toast/overlay.
+
+The four shadow tokens are theme-scoped (`:root` + `.dark`, not global) — dark leans on a bright hairline ring for edge definition plus black drop shadows for depth; light inverts that: the hairline is nearly invisible on a white surface, so light-mode shadows lean on a soft, low-alpha, dark-tinted shadow alone for both edge and depth.
 
 ### Shadow Vocabulary
-- **Surface** (`0 0 0 1px rgba(255,255,255,0.03)`): resting state for every card, table, and container — effectively a soft edge, not a lift.
-- **Raised** (`0 4px 12px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.05)`): hover state for cards and interactive surfaces — a real but restrained lift, paired with a 1px `translateY` in code.
-- **Overlay** (`0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.06)`): toasts and floating popovers.
-- **Dialog** (`0 12px 48px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.08)`): modals — the deepest, rarest shadow in the system, reserved for the one surface that's meant to feel like it's interrupting everything else.
+- **Surface** — dark `0 0 0 1px rgba(255,255,255,0.03)` (a hairline, barely a shadow); light `0 1px 2px rgba(16,24,32,0.04), 0 0 0 1px rgba(16,24,32,0.04)`. Resting state for every card, table, and container.
+- **Raised** — dark `0 4px 12px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.05)`; light `0 4px 12px rgba(16,24,32,0.1), 0 0 0 1px rgba(16,24,32,0.06)`. Hover state for cards and interactive surfaces, paired with a 1px `translateY` in code.
+- **Overlay** — dark `0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.06)`; light `0 8px 32px rgba(16,24,32,0.14), 0 0 0 1px rgba(16,24,32,0.07)`. Toasts and floating popovers.
+- **Dialog** — dark `0 12px 48px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.08)`; light `0 12px 48px rgba(16,24,32,0.18), 0 0 0 1px rgba(16,24,32,0.08)`. Modals — the deepest, rarest shadow in the system.
 
 ### Named Rules
 **The Flat-By-Default Rule.** Surfaces are flat (Surface shadow only) at rest. Raised/Overlay/Dialog shadows appear exclusively in response to state — hover, open, or floating above the page — never as a static "card looks fancy" treatment.
@@ -282,10 +272,11 @@ Buttons, cards, and inputs share one restrained material language: dark panel su
 - **Hover / Focus:** every variant lifts 1px on hover and returns to flush on `active`; focus shows a 2px ring in the accent color. Motion always runs on `--ease-out-expo` at `--duration-normal` (200ms).
 
 ### Badges
-- **Shape:** fully rounded pill (`rounded-full`), never the button/card corner tier.
+- **Shape:** fully rounded pill (`rounded-full`) for `soft`/`solid`; the `plain` variant drops the pill shape entirely (bold colored text, no fill, no border) for badges packed into a KPI card's number row where a background would compete with the headline figure.
 - **Soft variant (default):** a 14–16% tint of the status color as background, the full-strength status color as text — this is how severity/status reads in every table row.
 - **Solid variant:** full-strength status color as background, white text — used for emphasis, sparingly.
-- **Sizes:** `xs`/`sm` (12px text, tight padding) share one visual size; `md` steps up for standalone use.
+- **Colors:** `red`/`green`/`gray`/`amber`/`orange` (Signal Orange, HIGH severity) plus `blue` (Recon Blue, `--info`) — added so LOW severity and RUNNING-adjacent info states render in their real hue instead of falling back to gray.
+- **Sizes:** `xs` (10px text, tightest padding), `sm` (12px text) — visually distinct now, not aliased to the same size.
 
 ### Cards / Containers
 - **Corner Style:** `12px` (`--radius-md`).
@@ -293,7 +284,7 @@ Buttons, cards, and inputs share one restrained material language: dark panel su
 - **Shadow Strategy:** Surface at rest, Raised + 1px lift on hover (see Elevation & Depth).
 - **Internal Padding — two legitimate roles, not a single value:**
   - `Card.vue` primitive (used standalone, e.g. KPI cards outside the dashboard grid): `16px` body, `10px/16px` (vertical/horizontal) header and footer strips when present, each divided by a hairline border.
-  - Dashboard-widget `.surface-card` pattern (all 10 widgets on the main dashboard — `MetricCard`, both donuts, `JobsTrendChart`, `RecentActivityFeed`, `TopVulnerableServers`, `AgentStatusDonut`, `InfrastructureHealth`, `SecurityOverview`, `ComplianceOverviewCard`): `12px` uniformly. Denser than the standalone `Card.vue` primitive on purpose — these widgets tile a 13-widget-dense screen where DESIGN.md's own "density over whitespace" principle applies most literally.
+  - Dashboard-widget `.surface-card` pattern (every widget on the main dashboard — `MetricCard`, `OsDistributionDonut`, `VulnerabilitySeverityDonut`, `AgentStatusDonut`, `JobsTrendChart`, `RecentActivityFeed`, `TopVulnerableServers`, `RecentFailedJobs`, `ComplianceOverviewCard`): `12px` uniformly, including `MetricCard` itself — it now shares the class directly rather than hand-rolling its own border/shadow/hover in Tailwind. Denser than the standalone `Card.vue` primitive on purpose.
 
 ### Inputs / Fields
 - **Style:** Panel Black background, hairline border, `10px` radius (`--radius-sm`), `32px` height, `14px` text.
@@ -303,11 +294,27 @@ Buttons, cards, and inputs share one restrained material language: dark panel su
 ### DataTable (signature component)
 The central instrument of the whole product — every fleet, CVE, job, and package list runs through it. Outer frame at `16px` radius (button/table tier, not card tier) with a hairline border and Surface shadow, `overflow-hidden` so the header row's corners stay crisp. Loading state replaces the entire table with a centered spinner rather than skeleton rows. Optional row-selection checkboxes and a `rows-clickable` cursor state are the table's only interactive embellishments — everything else is plain, dense rows of tabular data.
 
+### Table-in-Widget (signature pattern)
+Dashboard widgets that need a real table (`ActiveIncidents`, `InfrastructureInventory`) never wrap `DataTable.vue` — its outer frame is already a card (border, shadow, `16px` radius), and nesting it inside a `.surface-card` would stack two card frames, which the system forbids (see Cards / Containers). Instead they compose the raw `Table`/`TableHeader`/`TableRow`/`TableHead`/`TableBody`/`TableCell` primitives directly inside the standard `.surface-card` widget shell (icon-in-tinted-square header, `label-caps` title, "View all →" link, error → loading `Skeleton` → empty → content), with the table itself in a plain `overflow-x-auto` wrapper for narrow viewports — one card frame total, not two.
+
 ### Icon-in-Tinted-Square (signature pattern)
-Every dashboard widget and card header pairs a small Lucide icon inside a `size-5` rounded square tinted at 15% opacity of its semantic color (`bg-[color-mix(in_oklch,var(--x)_15%,transparent)]`) with an uppercase `.label-caps` heading beside it. This is the system's one recurring "iconography" move — small, muted, color-coded by meaning (destructive red for security widgets, info blue for job widgets, primary green as the default) — never a large illustrative icon.
+Every dashboard widget and card header pairs a small Lucide icon inside a rounded square tinted at 15% opacity of its semantic color (`bg-[color-mix(in_oklch,var(--x)_15%,transparent)]`) with an uppercase `.label-caps` heading beside it — small, muted, color-coded by meaning, never a large illustrative icon. Two deliberate sizes, not one:
+- **Widget-header tier** (`size-5` square, `size-3` glyph): every card/list header, and each per-row icon inside `TopVulnerableServers`/`RecentFailedJobs` (`size-7` square, `size-3.5` glyph — one step up, since a list row reads as its own small unit).
+- **KPI-hero tier** (`size-10` square, `size-5` glyph): `MetricCard` only, one per top-row KPI. Larger and, unlike every other widget, colored **per card** via its `chartColor` (green/red/blue/yellow) rather than a fixed tint — the four top-row cards are meant to read as distinct at a glance before their numbers are even parsed.
+
+### Workflow Builder (signature pattern)
+The visual DAG editor (`components/workflow/*`) layers its own naming conventions on top of the shared system — five named rules, all enforced in code, not just convention:
+- **The One Node Shell Rule.** Every node type renders through `WorkflowNodeBase.vue`, driven by a `NodeDefinition` (`utils/workflow/registry.ts`) — icon-in-tinted-square + label + status ring. `WorkflowNodeCondition.vue`/`WorkflowNodeApproval.vue` are the only exceptions, because their SHAPE differs (two labeled outputs; a gate visual), not their color or icon. A new node type is a registry entry, never a new `.vue` component.
+- **The Honest Palette Rule.** A palette entry either maps to a type the engine can genuinely dispatch, or it doesn't appear at all — no "PRESET" badge dressing up a shortcut, no silently-broken entry. `NodeDefinition.executable` mirrors the backend's real dispatch coverage exactly; an entry not yet wired shows a muted `soon` tag instead of pretending to work.
+- **The Layout-Is-Cosmetic Rule.** Dragging a node writes exclusively to the YAML's `layout:` block; pinning which side an edge enters/exits (Partea II) writes exclusively to `view:`. Neither ever touches `spec:` — a diff that touches `spec:` always means a semantic change, never a cosmetic one. This is what makes a workflow YAML reviewable in a PR.
+- **The Invalid-YAML Freeze Rule.** While the YAML tab holds unparseable text, the canvas goes read-only and the model is never partially applied — the alternative (reconciling two diverging edit streams once the text becomes valid again) has no correct answer.
+- **The Compile-Down Rule.** A Linux/Check node (`service`/`system`/`file`/`check`, `package`'s non-native actions) declares intent — an `action`/`type` discriminant plus parameters — never a shell string. Translation into the actual command lives exclusively server-side (`_compile_*` in `workflow_engine.py`), so the visual language stays stable even as the execution target changes underneath it (shell today, a native agent module later). The one interaction surface this creates: `showIf` on `FieldSpec` hides every field that doesn't apply to the current discriminant value, so a 9-variant node like `check` never shows more than the 2-4 fields relevant to whichever `type` is selected.
+
+Canvas interaction specifics (Partea II): nodes expose all **four sides** as connection handles (`ConnectionMode.Loose`), visible on hover only — not permanent chrome, to keep the resting canvas quiet. A dropped or reconnected edge defaults to `bottom → top` unless manually re-pinned, so no existing workflow's rendering changes on upgrade. Edge selection opens the same right-side properties slot a node selection would (`on`/`label`/delete) — one slot, one occupant, never both a node panel and an edge panel at once.
 
 ### Navigation
 - **Style:** sidebar sections grouped under `.label-caps` eyebrows (Infrastructure, Automation Engine, Compliance, Observability, Administration); active item gets a Tactical Forest tinted background and green text, inactive items are muted-foreground with a hover accent background.
+- **User profile card** (sidebar footer): two lines, not one — display name on top, role label beneath in a smaller muted line. Avatar shows the user's first-initial (`Avatar`'s `fallback` prop), not a generic person icon.
 - **Mobile:** the sidebar becomes a `-translate-x-full` drawer sliding in over a `bg-black/60` backdrop, same visual treatment as desktop otherwise — density and hairline styling do not relax for touch.
 
 ## Do's and Don'ts

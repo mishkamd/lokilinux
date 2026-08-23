@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowRight } from 'lucide-vue-next'
+import { ArrowRight, ArrowUp, ArrowDown } from 'lucide-vue-next'
 import type { Component } from 'vue'
 import type { ChartDataPoint } from '~/components/ui/chart/types'
 
@@ -19,6 +19,16 @@ const DOT_COLOR_VAR: Record<string, string> = {
   yellow: 'var(--warning)',
 }
 
+// The icon tint follows the same green/red/blue/yellow palette as
+// chartColor/subtitleDot — every caller already picks one of these per
+// card, so the icon tone reuses chartColor rather than a redundant prop.
+const TONE_BG: Record<string, string> = {
+  green: 'bg-[color-mix(in_oklch,var(--success)_15%,transparent)] text-success',
+  red: 'bg-[color-mix(in_oklch,var(--destructive)_15%,transparent)] text-destructive',
+  blue: 'bg-[color-mix(in_oklch,var(--info)_15%,transparent)] text-info',
+  yellow: 'bg-[color-mix(in_oklch,var(--warning)_15%,transparent)] text-warning',
+}
+
 const props = withDefaults(defineProps<{
   icon: Component
   label: string
@@ -35,9 +45,6 @@ const props = withDefaults(defineProps<{
   chartData?: ChartDataPoint[]
   chartColor?: 'green' | 'red' | 'blue' | 'yellow'
   loading?: boolean
-  /** Large, low-opacity brand icon in the card's empty corner — reuses
-   * `icon` by default rather than requiring every caller to pass a second one. */
-  decor?: boolean
 }>(), {
   viewAllLabel: 'View all',
   chartColor: 'green',
@@ -53,17 +60,15 @@ const hasChart = computed(() => !!props.chartData?.length)
 <template>
   <NuxtLink
     :to="props.to"
-    class="group relative flex min-h-[104px] flex-col gap-2 overflow-hidden rounded-[var(--radius-md)] border border-[color-mix(in_oklch,var(--foreground)_6%,transparent)] bg-card p-3 shadow-[var(--shadow-surface)] transition-all duration-[var(--duration-normal)] ease-[var(--ease-out-expo)] hover:-translate-y-0.5 hover:shadow-[var(--shadow-raised)] hover:border-[color-mix(in_oklch,var(--border),var(--primary)_20%)]"
+    class="surface-card group relative flex min-h-[104px] flex-col gap-2 overflow-hidden rounded-[var(--radius-md)] p-3"
   >
-    <component
-      :is="props.icon" v-if="props.decor"
-      class="pointer-events-none absolute -right-2 top-1/2 size-16 -translate-y-1/2 text-primary-active opacity-[0.07]"
-      aria-hidden="true"
-    />
     <div class="relative flex items-center justify-between gap-2">
-      <div class="flex min-w-0 items-center gap-2 text-muted-foreground">
-        <span class="flex size-6 shrink-0 items-center justify-center rounded-md bg-[color-mix(in_oklch,var(--primary-active)_15%,transparent)] text-primary-active transition-transform duration-200 ease-out group-hover:scale-110 group-hover:rotate-6">
-          <component :is="props.icon" class="size-3.5" />
+      <div class="flex min-w-0 items-center gap-2.5 text-muted-foreground">
+        <span
+          class="flex size-10 shrink-0 items-center justify-center rounded-[var(--radius-sm)] transition-transform duration-200 ease-out group-hover:scale-110 group-hover:rotate-6"
+          :class="TONE_BG[props.chartColor]"
+        >
+          <component :is="props.icon" class="size-5" />
         </span>
         <span class="label-caps truncate">{{ props.label }}</span>
       </div>
@@ -93,10 +98,6 @@ const hasChart = computed(() => !!props.chartData?.length)
             {{ badge.label }}
           </Badge>
         </div>
-        <span v-else-if="hasTrend" class="shrink-0 text-[12px]" :class="props.trendUp === false ? 'text-destructive' : 'text-success'">
-          {{ props.trend }}
-          <span v-if="props.trendLabel" class="text-muted-foreground">{{ props.trendLabel }}</span>
-        </span>
         <span v-else-if="props.subtitle" class="flex shrink-0 items-center gap-1.5 text-[12px] text-muted-foreground">
           <span
             v-if="props.subtitleDot"
@@ -109,6 +110,13 @@ const hasChart = computed(() => !!props.chartData?.length)
           {{ props.emptyBadgesText }}
         </span>
       </div>
+
+      <span v-if="hasTrend" class="relative flex items-center gap-1 text-[12px]" :class="props.trendUp === false ? 'text-destructive' : 'text-success'">
+        <ArrowDown v-if="props.trendUp === false" class="size-3" />
+        <ArrowUp v-else class="size-3" />
+        <span class="font-medium">{{ props.trend }}</span>
+        <span v-if="props.trendLabel" class="text-muted-foreground">{{ props.trendLabel }}</span>
+      </span>
 
       <MetricAreaChart v-if="hasChart" :data="props.chartData!" :color="CHART_COLOR_VAR[props.chartColor]" class="-mx-1" />
     </template>

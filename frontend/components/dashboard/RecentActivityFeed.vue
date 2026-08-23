@@ -59,12 +59,22 @@ function relativeTime(iso: string): string {
     <div v-else-if="!data?.items.length" class="text-xs text-muted-foreground py-2 text-center">
       No activity recorded.
     </div>
-    <div v-else class="divide-y divide-border/60">
-      <div v-for="log in data.items" :key="log.id" class="flex items-center gap-2 py-2 first:pt-0 last:pb-0">
-        <component :is="iconFor(log.resource_type)" class="size-3.5 text-muted-foreground shrink-0" />
-        <span class="min-w-0 truncate text-xs font-medium">{{ log.action }}</span>
-        <Badge v-if="log.resource_type" size="xs" color="gray" class="shrink-0">{{ log.resource_type }}</Badge>
-        <span class="ml-auto shrink-0 text-[11px] text-muted-foreground">{{ log.actor_name ?? 'system' }} · {{ relativeTime(log.timestamp) }}</span>
+    <div v-else class="relative">
+      <div class="absolute left-[7px] top-1 bottom-1 w-px bg-border" />
+      <div
+        v-for="log in data.items" :key="log.id"
+        class="relative flex items-start gap-3 py-2 first:pt-0 last:pb-0"
+      >
+        <span class="relative z-10 flex size-3.5 shrink-0 items-center justify-center rounded-full bg-[color-mix(in_oklch,var(--primary-active)_15%,transparent)] text-primary-active mt-0.5">
+          <component :is="iconFor(log.resource_type)" class="size-2.5" />
+        </span>
+        <div class="min-w-0 flex-1">
+          <div class="flex items-center gap-2">
+            <span class="min-w-0 truncate text-xs font-medium">{{ log.action }}</span>
+            <Badge v-if="log.resource_type" size="xs" color="gray" class="shrink-0">{{ log.resource_type }}</Badge>
+          </div>
+          <span class="text-[11px] text-muted-foreground">{{ log.actor_name ?? 'system' }} · {{ relativeTime(log.timestamp) }}</span>
+        </div>
       </div>
     </div>
   </div>

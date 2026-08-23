@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ClipboardList } from 'lucide-vue-next'
+import { ClipboardList, ArrowRight } from 'lucide-vue-next'
 import { CurveType } from '@unovis/ts'
 import { VisAxis, VisLine } from '@unovis/vue'
 import type { JobTrendPoint } from '~/stores/dashboard'
@@ -34,7 +34,10 @@ function tickFormat(i: number) {
         </span>
         <h2 class="label-caps">Job Execution</h2>
       </div>
-      <NuxtLink to="/jobs" class="text-[12px] font-medium text-primary dark:text-primary-active shrink-0">View all</NuxtLink>
+      <NuxtLink to="/jobs" class="flex items-center gap-1 text-[12px] font-medium text-primary dark:text-primary-active shrink-0">
+        View all
+        <ArrowRight class="size-3" />
+      </NuxtLink>
     </div>
 
     <Skeleton v-if="props.loading" class="h-40 w-full" />
@@ -42,7 +45,7 @@ function tickFormat(i: number) {
       Not enough history yet — trend appears once jobs run.
     </p>
     <template v-else>
-      <ChartContainer :config="chartConfig" :data="props.points" :height="180">
+      <ChartContainer :config="chartConfig" :data="props.points" :height="220">
         <VisLine :x="x" :y="ySuccessful" color="var(--chart-1)" :curve-type="CurveType.MonotoneX" :line-width="2" />
         <VisLine :x="x" :y="yFailed" color="var(--destructive)" :curve-type="CurveType.MonotoneX" :line-width="2" />
         <VisLine :x="x" :y="yRunning" color="var(--info)" :curve-type="CurveType.MonotoneX" :line-width="2" />

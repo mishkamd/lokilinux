@@ -1,0 +1,139 @@
+apiVersion: lokilinux/v1
+kind: Workflow
+metadata:
+  name: oracle-linux-8-to-9
+  description: In-place upgrade Oracle Linux 8 → 9 via leapp, cu rollback
+  severity: CRITICAL
+  tags: [os-upgrade, oracle, leapp]
+
+spec:
+  targets:
+    filters:
+      os_distro: oracle
+      category_id: 7c1f4e2a-0000-0000-0000-000000000001
+
+  strategy:
+    mode: all_at_once
+  defaults:
+    timeout: 900
+    on_failure: stop
+  vars:
+    leapp_report: /var/log/leapp/leapp-report.txt
+
+  steps:
+    - id: connectivity
+      type: validation
+      name: Connectivity check
+      config: { command: "systemctl is-system-running --quiet || true", expect_exit_code: 0 }
+    - id: os_detect
+      type: validation
+      name: OS detection
+      config: { command: "grep -q 'Oracle Linux Server 8' /etc/oracle-release", expect_exit_code: 0 }
+    - id: disk_check
+      type: validation
+      name: Disk space (min 5G on /)
+      config: { command: "[ $(df --output=avail -BG / | tail -1 | tr -dc '0-9') -ge 5 ]", expect_exit_code: 0 }
+    - id: repo_check
+      type: validation
+      name: Repository reachability
+      config: { command: "dnf -q repolist --enabled | grep -q ol8", expect_exit_code: 0 }
+    - id: backup
+      type: ansible
+      name: Create backup
+      config: { playbook_id: 8a1c0000-0000-0000-0000-000000000002, extra_vars: { backup_root: /var/backups/preupgrade } }
+      timeout: 3600
+    - id: preupgrade
+      type: command
+      name: Leapp preupgrade
+      config: { command: "dnf install -y leapp-upgrade && leapp preupgrade" }
+      timeout: 2700
+      on_failure: branch
+    - id: analyze
+      type: validation
+      name: Analyze leapp report
+      config: { command: "! grep -q 'inhibitor' /var/log/leapp/leapp-report.txt", expect_exit_code: 0 }
+      on_failure: branch
+    - id: approval
+      type: approval
+      name: Approve upgrade
+      config: { message: "Leapp preupgrade clean. Proceed with Oracle Linux 8 → 9 in-place upgrade?" }
+    - id: upgrade
+      type: command
+      name: Leapp upgrade
+      config: { command: "leapp upgrade" }
+      timeout: 7200
+      on_failure: branch
+    - id: reboot
+      type: command
+      name: Reboot into Oracle Linux 9
+      config: { command: "systemd-run --on-active=5s systemctl reboot" }
+      timeout: 60
+    - id: wait_back
+      type: wait_for_agent
+      name: Wait for agent to return
+      config: { timeout_seconds: 2400, min_heartbeats: 2 }
+    - id: validate_os
+      type: validation
+      name: Validate OS is Oracle Linux 9
+      config: { command: "grep -q 'Oracle Linux Server 9' /etc/oracle-release", expect_exit_code: 0 }
+      on_failure: branch
+    - id: validate_packages
+      type: validation
+      name: Validate no broken packages
+      config: { command: "dnf -q check", expect_exit_code: 0 }
+      on_failure: branch
+    - id: validate_services
+      type: validation
+      name: Validate no failed units
+      config: { command: "[ $(systemctl list-units --state=failed --no-legend | wc -l) -eq 0 ]", expect_exit_code: 0 }
+      on_failure: branch
+    - id: finish
+      type: notification
+      name: Upgrade complete
+      config: { channel: email, subject: "Oracle Linux 9 upgrade succeeded" }
+    - id: rollback
+      type: ansible
+      name: Restore from backup
+      config: { playbook_id: 4d7b0000-0000-0000-0000-000000000003, extra_vars: { backup_root: /var/backups/preupgrade } }
+      timeout: 3600
+
+  edges:
+    - { from: connectivity,       to: os_detect,          on: success }
+    - { from: os_detect,          to: disk_check,         on: success }
+    - { from: disk_check,         to: repo_check,         on: success }
+    - { from: repo_check,         to: backup,             on: success }
+    - { from: backup,             to: preupgrade,         on: success }
+    - { from: preupgrade,         to: analyze,            on: success }
+    - { from: preupgrade,         to: rollback,           on: failure }
+    - { from: analyze,            to: approval,           on: success }
+    - { from: analyze,            to: rollback,           on: failure }
+    - { from: approval,           to: upgrade,            on: success }
+    - { from: upgrade,            to: reboot,             on: success }
+    - { from: upgrade,            to: rollback,           on: failure }
+    - { from: reboot,             to: wait_back,          on: always }
+    - { from: wait_back,          to: validate_os,        on: success }
+    - { from: wait_back,          to: rollback,           on: failure }
+    - { from: validate_os,        to: validate_packages,  on: success }
+    - { from: validate_os,        to: rollback,           on: failure }
+    - { from: validate_packages,  to: validate_services,  on: success }
+    - { from: validate_packages,  to: rollback,           on: failure }
+    - { from: validate_services,  to: finish,             on: success }
+    - { from: validate_services,  to: rollback,           on: failure }
+
+layout:
+  connectivity: { x: 80, y: 40 }
+  os_detect: { x: 80, y: 160 }
+  disk_check: { x: 80, y: 280 }
+  repo_check: { x: 80, y: 400 }
+  backup: { x: 80, y: 520 }
+  preupgrade: { x: 80, y: 640 }
+  analyze: { x: 80, y: 760 }
+  approval: { x: 80, y: 880 }
+  upgrade: { x: 80, y: 1000 }
+  reboot: { x: 80, y: 1120 }
+  wait_back: { x: 80, y: 1240 }
+  validate_os: { x: 80, y: 1360 }
+  validate_packages: { x: 80, y: 1480 }
+  validate_services: { x: 80, y: 1600 }
+  finish: { x: 80, y: 1720 }
+  rollback: { x: 420, y: 1180 }

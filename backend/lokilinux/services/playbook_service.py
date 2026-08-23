@@ -111,15 +111,20 @@ class PlaybookService:
         extra_vars: dict | None = None,
         created_by: UUID | None = None,
         extra_job_parameters: dict | None = None,
+        requires_approval: bool = True,
     ) -> Job:
         """Create a job that runs this playbook's *current* content on the
         given agents. Content is snapshotted into Job.parameters at creation
         time (audit-friendly, immutable per run) rather than re-read from
         the playbook row at execution time.
 
-        requires_approval is always True here — fleet-wide Ansible execution
-        needs a human approval step (see JobService.approve_job), not an
-        opt-in flag callers could forget to set.
+        requires_approval defaults True — fleet-wide Ansible execution needs
+        a human approval step (see JobService.approve_job), not an opt-in
+        flag callers could forget to set. The Workflow Engine
+        (services/workflow_engine.py) passes False for an ansible step:
+        the workflow's own `approval` node is the gate there, and a second,
+        hidden per-Job approval on top of it would silently stall the run
+        forever with no UI pointing at why.
 
         extra_job_parameters lets a caller (e.g. PlaybookTemplateService)
         stamp extra keys into Job.parameters — such as template_id — without
@@ -150,6 +155,6 @@ class PlaybookService:
                 **(extra_job_parameters or {}),
             },
             created_by=created_by,
-            requires_approval=True,
+            requires_approval=requires_approval,
         )
         return job

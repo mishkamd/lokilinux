@@ -20,10 +20,11 @@ from lokilinux.auth.dependencies import get_current_user, require_role
 from lokilinux.cache import TTL_SERVER_LIST, RedisCache
 from lokilinux.dependencies import get_cache, get_db
 from lokilinux.models.agent import Agent, AgentHealth, AgentStatus
-from lokilinux.models.cve import Package
+from lokilinux.models.cve import AgentVulnerability, Package
 from lokilinux.schemas.common import CursorPage, decode_cursor, encode_cursor
 from lokilinux.schemas.cve import PackageResponse
 from lokilinux.schemas.server import AgentAssignmentUpdate, AgentHealthResponse, AgentResponse
+from lokilinux.services.trends import OPEN_VULN_STATUSES
 
 router = APIRouter()
 
@@ -32,6 +33,23 @@ router = APIRouter()
 # for an actively-viewed detail page — flagged during audit, not changed (behavior
 # change, needs a decision on intended cache semantics before touching).
 _DETAIL_TTL = TTL_SERVER_LIST  # 86400s
+
+
+async def _open_cve_counts(db: AsyncSession, agent_ids: list) -> dict:
+    """Open-finding count per agent (Partea IV of the workflow migration
+    plan) — replaces the dead `agents.cve_count` column (migration 029),
+    which was denormalized and nothing ever wrote to it, so it always read
+    0. OPEN_VULN_STATUSES is the same constant /vulnerabilities/summary and
+    trends use — one definition of "open" across the app, not a second one
+    invented here."""
+    if not agent_ids:
+        return {}
+    rows = (await db.execute(
+        select(AgentVulnerability.agent_id, func.count())
+        .where(AgentVulnerability.agent_id.in_(agent_ids), AgentVulnerability.status.in_(OPEN_VULN_STATUSES))
+        .group_by(AgentVulnerability.agent_id)
+    )).all()
+    return {agent_id: count for agent_id, count in rows}
 
 
 # ── List servers ──────────────────────────────────────────────────────────────
@@ -91,8 +109,12 @@ async def list_servers(
         count_q = count_q.where(Agent.status == status.value)
     total = (await db.execute(count_q)).scalar()
 
+    cve_counts = await _open_cve_counts(db, [a.id for a in items])
     page = CursorPage[AgentResponse](
-        items=[AgentResponse.model_validate(a) for a in items],
+        items=[
+            AgentResponse.model_validate(a).model_copy(update={"cve_count": cve_counts.get(a.id, 0)})
+            for a in items
+        ],
         next_cursor=next_cursor,
         total=total,
     )
@@ -120,7 +142,8 @@ async def get_server(
     if row is None:
         raise HTTPException(status_code=404, detail="Server not found")
 
-    resp = AgentResponse.model_validate(row)
+    cve_counts = await _open_cve_counts(db, [row.id])
+    resp = AgentResponse.model_validate(row).model_copy(update={"cve_count": cve_counts.get(row.id, 0)})
     await cache.set_cached(cache_key, json.loads(resp.model_dump_json()), ttl=_DETAIL_TTL)
     return resp
 
@@ -225,7 +248,8 @@ async def set_maintenance(
     await db.flush()
     await cache.invalidate_agent(agent_id)
 
-    return AgentResponse.model_validate(row)
+    cve_counts = await _open_cve_counts(db, [row.id])
+    return AgentResponse.model_validate(row).model_copy(update={"cve_count": cve_counts.get(row.id, 0)})
 
 
 # ── Category/Project assignment ───────────────────────────────────────────────
@@ -248,4 +272,5 @@ async def set_assignment(
     await db.flush()
     await cache.invalidate_agent(agent_id)
 
-    return AgentResponse.model_validate(row)
+    cve_counts = await _open_cve_counts(db, [row.id])
+    return AgentResponse.model_validate(row).model_copy(update={"cve_count": cve_counts.get(row.id, 0)})

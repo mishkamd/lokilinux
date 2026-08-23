@@ -13,6 +13,7 @@ from sqlalchemy import select
 from lokilinux.models.agent import Agent, AgentStatus
 from lokilinux.models.job import Job
 from lokilinux.models.policy import Policy
+from lokilinux.models.workflow import Workflow
 from lokilinux.workers.policy_scheduler import PolicySchedulerWorker
 
 
@@ -89,3 +90,51 @@ async def test_claim_and_run_invalid_cron_does_not_crash(db_session, fake_cache)
 
     jobs = (await db_session.execute(select(Job).where(Job.policy_id == policy.id))).scalars().all()
     assert len(jobs) == 0
+
+
+@pytest.mark.asyncio
+async def test_tick_skips_a_policy_migrated_to_a_workflow(db_session, fake_cache):
+    """Migration plan §15 stage C: once a Workflow row points back at a
+    policy via migrated_from_policy_id (services/policy_migration.py),
+    WorkflowSchedulerWorker owns that cron — this worker's _tick must not
+    also fire it, or a migrated policy would double-run on every tick."""
+    from contextlib import asynccontextmanager
+
+    agent = await _make_agent(db_session)
+    policy = await _make_due_policy(db_session, agent)
+    db_session.add(Workflow(
+        name="migrated", slug=f"migrated-{policy.id}", migrated_from_policy_id=policy.id,
+    ))
+    await db_session.commit()
+
+    @asynccontextmanager
+    async def _factory():
+        yield db_session
+
+    worker = PolicySchedulerWorker(db_session_factory=_factory, cache=fake_cache)
+    await worker._tick()
+
+    jobs = (await db_session.execute(select(Job).where(Job.policy_id == policy.id))).scalars().all()
+    assert len(jobs) == 0
+    await db_session.refresh(policy)
+    assert policy.last_run_at is None  # never claimed
+
+
+@pytest.mark.asyncio
+async def test_tick_still_fires_an_unmigrated_due_policy(db_session, fake_cache):
+    """The skip filter must not swallow ordinary policies — only ones with
+    an actual migrated_from_policy_id link."""
+    from contextlib import asynccontextmanager
+
+    agent = await _make_agent(db_session)
+    policy = await _make_due_policy(db_session, agent)
+
+    @asynccontextmanager
+    async def _factory():
+        yield db_session
+
+    worker = PolicySchedulerWorker(db_session_factory=_factory, cache=fake_cache)
+    await worker._tick()
+
+    jobs = (await db_session.execute(select(Job).where(Job.policy_id == policy.id))).scalars().all()
+    assert len(jobs) == 1

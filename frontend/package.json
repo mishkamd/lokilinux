@@ -1,6 +1,6 @@
 {
   "name": "lokilinux-frontend",
-  "version": "1.0.0",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -21,6 +21,9 @@
     "@tailwindcss/vite": "^4.3.2",
     "@unovis/ts": "^1.6.7",
     "@unovis/vue": "^1.6.7",
+    "@vue-flow/background": "^1.3.2",
+    "@vue-flow/core": "^1.48.2",
+    "@vue-flow/minimap": "^1.5.4",
     "@vueuse/core": "^14.3.0",
     "@vueuse/nuxt": "^14.3.0",
     "better-auth": "^1.6.22",
@@ -36,7 +39,8 @@
     "tailwind-merge": "^3.6.0",
     "tailwindcss": "^4.3.2",
     "tailwindcss-animate": "^1.0.7",
-    "vue-sonner": "^2.0.9"
+    "vue-sonner": "^2.0.9",
+    "yaml": "^2.9.0"
   },
   "overrides": {
     "esbuild": "0.28.1"

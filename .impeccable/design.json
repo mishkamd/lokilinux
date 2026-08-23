@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-08-20T13:57:51Z",
+  "generatedAt": "2026-08-21T16:45:00Z",
   "title": "Design System: LokiLinux",
   "extensions": {
     "colorMeta": {
@@ -74,10 +74,10 @@
       "widget-stat": { "displayName": "Widget Stat (Inter)", "purpose": "Secondary-tier headline stat inside the system-status grid — smaller than a primary MetricCard headline." }
     },
     "shadows": [
-      { "name": "surface", "value": "0 0 0 1px rgba(255,255,255,0.03)", "purpose": "Resting state for every card, table, and container — barely a shadow, more a hairline edge." },
-      { "name": "raised", "value": "0 4px 12px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.05)", "purpose": "Hover state for cards and interactive surfaces." },
-      { "name": "overlay", "value": "0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.06)", "purpose": "Toasts and floating popovers." },
-      { "name": "dialog", "value": "0 12px 48px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.08)", "purpose": "Modals — the deepest shadow in the system." }
+      { "name": "surface", "value": "0 0 0 1px rgba(255,255,255,0.03)", "valueLight": "0 1px 2px rgba(16,24,32,0.04), 0 0 0 1px rgba(16,24,32,0.04)", "purpose": "Resting state for every card, table, and container. Dark leans on a hairline ring; light (nearly invisible on white) leans on a soft dark-tinted shadow instead." },
+      { "name": "raised", "value": "0 4px 12px rgba(0,0,0,0.3), 0 0 0 1px rgba(255,255,255,0.05)", "valueLight": "0 4px 12px rgba(16,24,32,0.1), 0 0 0 1px rgba(16,24,32,0.06)", "purpose": "Hover state for cards and interactive surfaces, paired with a 1px translateY." },
+      { "name": "overlay", "value": "0 8px 32px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.06)", "valueLight": "0 8px 32px rgba(16,24,32,0.14), 0 0 0 1px rgba(16,24,32,0.07)", "purpose": "Toasts and floating popovers." },
+      { "name": "dialog", "value": "0 12px 48px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.08)", "valueLight": "0 12px 48px rgba(16,24,32,0.18), 0 0 0 1px rgba(16,24,32,0.08)", "purpose": "Modals — the deepest shadow in the system." }
     ],
     "motion": [
       { "name": "ease-out-expo", "value": "cubic-bezier(0.16, 1, 0.3, 1)", "purpose": "Default easing for nearly every transition and hover lift." },
@@ -144,9 +144,25 @@
       "name": "Icon-in-Tinted-Square",
       "kind": "custom",
       "refersTo": "icon-tinted-square",
-      "description": "The system's one recurring iconography move — a small semantic-color icon inside a 15%-tinted rounded square, always paired with an uppercase label. Used in every dashboard widget header.",
+      "description": "The system's one recurring iconography move — a small semantic-color icon inside a 15%-tinted rounded square, always paired with an uppercase label. Widget-header tier (shown here): 20px square, 12px glyph, used in every dashboard widget header and card-header row. A second, larger KPI-hero tier exists only on MetricCard — see that component.",
       "html": "<div class=\"ds-icon-header\"><span class=\"ds-icon-square\"><svg viewBox=\"0 0 24 24\" width=\"12\" height=\"12\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z\"/></svg></span><h2 class=\"ds-icon-label\">Vulnerability trend by severity</h2></div>",
       "css": ".ds-icon-header { display: flex; align-items: center; gap: 6px; color: var(--color-muted-foreground, #A1A1AA); } .ds-icon-square { display: flex; align-items: center; justify-content: center; width: 20px; height: 20px; border-radius: 6px; flex-shrink: 0; background: color-mix(in oklch, var(--color-destructive, #D34D4D) 15%, transparent); color: var(--color-destructive, #D34D4D); } .ds-icon-label { font-family: Inter, sans-serif; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-muted-foreground, #A1A1AA); margin: 0; }"
+    },
+    {
+      "name": "MetricCard — KPI Tile",
+      "kind": "custom",
+      "refersTo": "metric-card",
+      "description": "The top-row KPI hero card — the only place a large (40px), per-card-toned icon square appears (green/red/blue/yellow via the card's own semantic color, not a fixed tint like every other widget). Shares the .surface-card shell (flat at rest, 1px lift + Raised shadow on hover).",
+      "html": "<a class=\"ds-metric-card\"><span class=\"ds-metric-icon\"><svg viewBox=\"0 0 24 24\" width=\"20\" height=\"20\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78Z\"/></svg></span><span class=\"ds-metric-label\">Vulnerabilities</span><span class=\"ds-metric-value\">166</span></a>",
+      "css": ".ds-metric-card { display: flex; flex-direction: column; gap: 8px; border-radius: var(--radius-md, 12px); border: 1px solid var(--color-border, rgba(255,255,255,0.07)); background: var(--color-card, #111117); padding: 12px; box-shadow: 0 0 0 1px rgba(255,255,255,0.03); } .ds-metric-icon { display: flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: var(--radius-sm, 10px); background: color-mix(in oklch, var(--color-destructive, #D34D4D) 15%, transparent); color: var(--color-destructive, #D34D4D); } .ds-metric-label { font-family: Inter, sans-serif; font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-muted-foreground, #A1A1AA); } .ds-metric-value { font-family: Inter, sans-serif; font-variant-numeric: tabular-nums; font-size: 30px; font-weight: 700; line-height: 1; }"
+    },
+    {
+      "name": "List Row (bordered)",
+      "kind": "custom",
+      "refersTo": "list-row",
+      "description": "The row shape inside 'Top Vulnerable Servers' and 'Recent Failed Jobs' — each row is its own bordered card (not a plain text line) with a small semantic icon at the left, so a ranked/actionable list reads as a set of small units rather than a table.",
+      "html": "<a class=\"ds-list-row\"><span class=\"ds-list-row-icon\"><svg viewBox=\"0 0 24 24\" width=\"14\" height=\"14\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"m15 9-6 6M9 9l6 6\"/></svg></span><span class=\"ds-list-row-body\"><span class=\"ds-list-row-title\">rocky</span><span class=\"ds-list-row-meta\">82 vulnerabilities</span></span></a>",
+      "css": ".ds-list-row { display: flex; align-items: center; gap: 10px; border-radius: var(--radius-sm, 10px); border: 1px solid color-mix(in oklch, var(--color-border, rgba(255,255,255,0.07)) 60%, transparent); padding: 8px; text-decoration: none; color: inherit; } .ds-list-row-icon { display: flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 6px; flex-shrink: 0; background: color-mix(in oklch, var(--color-destructive, #D34D4D) 15%, transparent); color: var(--color-destructive, #D34D4D); } .ds-list-row-body { display: flex; flex: 1; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; font-size: 12px; } .ds-list-row-title { font-weight: 500; } .ds-list-row-meta { color: var(--color-muted-foreground, #A1A1AA); }"
     }
   ],
   "narrative": {

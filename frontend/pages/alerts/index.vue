@@ -1,18 +1,10 @@
 <script setup lang="ts">
 import { Check, CheckCheck } from 'lucide-vue-next'
-
-interface Alert {
-  id: string
-  title: string
-  description: string | null
-  severity: 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'INFO'
-  status: 'ACTIVE' | 'ACKNOWLEDGED' | 'RESOLVED' | 'EXPIRED'
-  alert_type: string | null
-  created_at: string
-}
+import type { Alert } from '~/stores/dashboard'
 
 const api = useApi()
 const { canEdit } = useCurrentUser()
+const { severityColor } = useSeverity()
 
 const { data: alerts, refresh, status: fetchStatus } = await useAsyncData('alerts', () =>
   api.get<{ items: Alert[] }>('/alerts?limit=100').then((r) => r.items),
@@ -25,9 +17,6 @@ const columns = [
   { key: 'created_at', label: 'Triggered' },
   { key: 'actions', label: '' },
 ]
-
-const severityColor = (s: string) =>
-  ({ CRITICAL: 'red', HIGH: 'red', MEDIUM: 'gray', LOW: 'gray', INFO: 'gray' } as Record<string, string>)[s] ?? 'gray'
 
 const statusColor = (s: string) =>
   ({ ACTIVE: 'red', ACKNOWLEDGED: 'gray', RESOLVED: 'green', EXPIRED: 'gray' } as Record<string, string>)[s] ?? 'gray'
