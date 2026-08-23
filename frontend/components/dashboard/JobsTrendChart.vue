@@ -45,7 +45,7 @@ function tickFormat(i: number) {
       Not enough history yet — trend appears once jobs run.
     </p>
     <template v-else>
-      <ChartContainer :config="chartConfig" :data="props.points" :height="220">
+      <ChartContainer :config="chartConfig" :data="props.points" :height="220" class="mb-3">
         <VisLine :x="x" :y="ySuccessful" color="var(--chart-1)" :curve-type="CurveType.MonotoneX" :line-width="2" />
         <VisLine :x="x" :y="yFailed" color="var(--destructive)" :curve-type="CurveType.MonotoneX" :line-width="2" />
         <VisLine :x="x" :y="yRunning" color="var(--info)" :curve-type="CurveType.MonotoneX" :line-width="2" />

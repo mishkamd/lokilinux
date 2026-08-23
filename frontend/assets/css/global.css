@@ -416,6 +416,16 @@ body {
   --vis-tooltip-border-color: transparent !important;
 }
 
+/* Donut central label (the big number in the middle of a ring) defaults to
+ * Unovis's own muted gray in both themes — low contrast against the app's
+ * surface-card background. var(--foreground) already flips white/black per
+ * theme, so pointing both the light default AND the dark-specific variable
+ * at it keeps the label legible without a second hardcoded color to drift. */
+[data-vis-single-container] {
+  --vis-donut-central-label-text-color: var(--foreground);
+  --vis-dark-donut-central-label-text-color: var(--foreground);
+}
+
 /* ─── Reduced Motion ─────────────────────────────────────────────
  * Every animation in this file is decorative feedback (hover lift,
  * stagger fade-in, dialog enter/exit) — none carries information a

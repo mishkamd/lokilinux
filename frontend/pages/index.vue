@@ -87,7 +87,7 @@ function pctOfFleet(count: number): string {
 </script>
 
 <template>
-  <div class="relative -m-3 sm:-m-4 min-h-full p-3 sm:p-4 space-y-6">
+  <div class="relative -m-3 sm:-m-4 min-h-full p-3 sm:p-4 space-y-3">
     <!-- The layout's topbar already shows the page title ("Dashboard") —
          no second copy here, just the page's one real control. -->
     <div class="flex justify-end">
@@ -208,14 +208,15 @@ function pctOfFleet(count: number): string {
       <!-- Trends: one chart, not a wall of them. -->
       <JobsTrendChart :points="dashboard.trends?.jobs ?? []" :loading="dashboard.trendsLoading && !dashboard.trends" />
 
-      <!-- Recent activity: history, not something requiring action right now. -->
-      <RecentActivityFeed v-if="hasRole('AUDITOR')" />
-
-      <!-- What broke: intentionally last on the page. -->
-      <RecentFailedJobs
-        :jobs="dashboard.recentFailedJobs" :loading="dashboard.recentFailedJobsLoading"
-        :error="dashboard.recentFailedJobsError"
-      />
+      <!-- Recent activity + what broke: history, intentionally last on the
+           page, side by side. -->
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3 items-start">
+        <RecentActivityFeed v-if="hasRole('AUDITOR')" />
+        <RecentFailedJobs
+          :jobs="dashboard.recentFailedJobs" :loading="dashboard.recentFailedJobsLoading"
+          :error="dashboard.recentFailedJobsError"
+        />
+      </div>
     </template>
   </div>
 </template>
