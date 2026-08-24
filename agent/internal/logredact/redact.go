@@ -15,7 +15,7 @@ import (
 var sensitiveKeys = []string{
 	"password", "passwd", "secret", "token", "private_key", "privkey",
 	"authorization", "cookie", "api_key", "apikey", "credential",
-	"session", "bearer",
+	"bearer", "auth",
 }
 
 func isSensitive(key string) bool {
@@ -43,40 +43,38 @@ func (h *redactingHandler) Enabled(ctx context.Context, l slog.Level) bool {
 }
 
 func (h *redactingHandler) Handle(ctx context.Context, r slog.Record) error {
-	masked := r.Clone()
-	masked.Attrs(func(a slog.Attr) bool {
-		if a.Value.Kind() == slog.KindGroup {
-			maskGroup(&a)
-			return true
-		}
-		if isSensitive(a.Key) {
-			a.Value = slog.StringValue("[REDACTED]")
-		}
+	// Attrs() hands out copies — mutating them inside the walk is lost.
+	// Rebuild the record with redacted attributes instead.
+	masked := slog.NewRecord(r.Time, r.Level, r.Message, r.PC)
+	r.Attrs(func(a slog.Attr) bool {
+		masked.AddAttrs(redactAttr(a))
 		return true
 	})
 	return h.inner.Handle(ctx, masked)
 }
 
-func maskGroup(a *slog.Attr) {
-	grp := a.Value.Group()
-	for i := range grp {
-		if grp[i].Value.Kind() == slog.KindGroup {
-			maskGroup(&grp[i])
-			continue
-		}
-		if isSensitive(grp[i].Key) {
-			grp[i].Value = slog.StringValue("[REDACTED]")
-		}
+func redactAttr(a slog.Attr) slog.Attr {
+	if a.Value.Kind() == slog.KindGroup {
+		return slog.Attr{Key: a.Key, Value: slog.GroupValue(redactGroup(a.Value.Group())...)}
 	}
+	if isSensitive(a.Key) {
+		a.Value = slog.StringValue("[REDACTED]")
+	}
+	return a
+}
+
+func redactGroup(grp []slog.Attr) []slog.Attr {
+	out := make([]slog.Attr, len(grp))
+	for i := range grp {
+		out[i] = redactAttr(grp[i])
+	}
+	return out
 }
 
 func (h *redactingHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	safe := make([]slog.Attr, len(attrs))
-	copy(safe, attrs)
-	for i := range safe {
-		if safe[i].Value.Kind() != slog.KindGroup && isSensitive(safe[i].Key) {
-			safe[i].Value = slog.StringValue("[REDACTED]")
-		}
+	for i := range attrs {
+		safe[i] = redactAttr(attrs[i])
 	}
 	return &redactingHandler{inner: h.inner.WithAttrs(safe)}
 }
