@@ -20,6 +20,7 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.responses import JSONResponse
 
+from lokilinux import __version__
 from lokilinux.api.v1 import router as api_v1_router
 from lokilinux.cache import RedisCache
 from lokilinux.config import Settings
@@ -46,7 +47,7 @@ settings = Settings()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    logger.info("lokilinux.startup", version="0.1.0", environment=settings.environment)
+    logger.info("lokilinux.startup", version=__version__, environment=settings.environment)
 
     # Database
     engine = build_engine(settings.database_url)
@@ -157,7 +158,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(
     title="LokiLinux API",
-    version="0.1.0",
+    version=__version__,
     description="Enterprise Linux fleet management — backend API",
     lifespan=lifespan,
     docs_url="/docs" if settings.debug else None,
