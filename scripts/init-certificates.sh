@@ -86,6 +86,31 @@ chmod 600 "$CERTS_DIR"/*.key
 chmod 644 "$CERTS_DIR"/*.crt "$CERTS_DIR"/*.csr 2>/dev/null || true
 rm -f "$CERTS_DIR/server_ext.cnf"
 
+# ── Ed25519 job-signing keypair ───────────────────────────────────────────────
+# Independent of the CA block above (own idempotency guard): signs privileged
+# job envelopes + update artifacts. job_signing.key is 32 raw bytes = the
+# Ed25519 seed, consumed directly by backend services/job_signing.py.
+# job_signing.pub is the matching raw public half, served to agents at
+# /agent/signing-key — the ONLY half that ever reaches an agent.
+if [ -f "$CERTS_DIR/job_signing.key" ] && [ "${FORCE:-0}" != "1" ]; then
+  echo "[=] Job signing key already exists in $CERTS_DIR — skipping."
+else
+  echo "[*] Generating Ed25519 job signing keypair..."
+  # PKCS8 PEM (openssl native). Loaderii de la ambele capete acceptă și raw
+  # seed de 32 bytes — vezi services/job_signing.py și /agent/signing-key.
+  openssl genpkey -algorithm ed25519 -out "$CERTS_DIR/job_signing.key"
+  chmod 600 "$CERTS_DIR/job_signing.key"
+  openssl pkey -in "$CERTS_DIR/job_signing.key" -pubout -out "$CERTS_DIR/job_signing.pub.pem"
+  chmod 644 "$CERTS_DIR/job_signing.pub.pem"
+  # job_signing.pub = RAW 32 bytes public (formatul servit agenților).
+  # SPKI Ed25519 are structură fixă: header DER constant + cheia la coadă.
+  openssl pkey -in "$CERTS_DIR/job_signing.key" -pubout -outform DER \
+    | tail -c 32 > "$CERTS_DIR/job_signing.pub"
+  chmod 644 "$CERTS_DIR/job_signing.pub"
+  _PUB_LEN="$(wc -c < "$CERTS_DIR/job_signing.pub")"
+  [ "$_PUB_LEN" = "32" ] || { echo "ERROR: derived signing pubkey is $_PUB_LEN bytes, want 32" >&2; exit 1; }
+fi
+
 echo "[+] Certificates written to $CERTS_DIR"
 ls -lh "$CERTS_DIR"
 echo ""
@@ -93,3 +118,4 @@ echo "Files:"
 echo "  CA:             $CERTS_DIR/ca.crt  (distribute to all agents)"
 echo "  Server cert:    $CERTS_DIR/server.crt + server.key"
 echo "  Agent template: $CERTS_DIR/agent-template.crt (sign per-agent certs from CA)"
+echo "  Job signing:    $CERTS_DIR/job_signing.key (control plane ONLY) + job_signing.pub (served to agents)"
