@@ -130,6 +130,15 @@ func NewVerifier(pubBase64 string) (*Verifier, error) {
 	return &Verifier{pub: ed25519.PublicKey(raw)}, nil
 }
 
+// Public returns the raw Ed25519 public key (for callers verifying
+// non-envelope artifacts, e.g. plugin signatures).
+func (v *Verifier) Public() ed25519.PublicKey {
+	if v == nil {
+		return nil
+	}
+	return v.pub
+}
+
 // Verify checks structure, the validity window, target identity and finally
 // the Ed25519 signature over the canonical unsigned bytes. expectedAgentID
 // may be empty only in tests; production always supplies it.

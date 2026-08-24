@@ -30,7 +30,7 @@ func TestInstallPlugin(t *testing.T) {
 		"checksum_sha256": hex.EncodeToString(sum[:]),
 	}
 
-	res := InstallPlugin(context.Background(), "job-1", params, 10)
+	res := InstallPlugin(context.Background(), "job-1", params, 10, nil)
 	if res.ExitCode != 0 {
 		t.Fatalf("install failed: %s", res.Error)
 	}
@@ -42,7 +42,7 @@ func TestInstallPlugin(t *testing.T) {
 	// checksum mismatch must fail and not leave the artifact behind
 	params["checksum_sha256"] = "deadbeef"
 	params["plugin_version"] = "2.0.0"
-	res = InstallPlugin(context.Background(), "job-2", params, 10)
+	res = InstallPlugin(context.Background(), "job-2", params, 10, nil)
 	if res.ExitCode == 0 {
 		t.Fatal("expected checksum mismatch failure")
 	}
@@ -51,7 +51,7 @@ func TestInstallPlugin(t *testing.T) {
 	}
 
 	// missing url must fail fast
-	res = InstallPlugin(context.Background(), "job-3", map[string]interface{}{"plugin_name": "x"}, 10)
+	res = InstallPlugin(context.Background(), "job-3", map[string]interface{}{"plugin_name": "x"}, 10, nil)
 	if res.ExitCode == 0 {
 		t.Fatal("expected failure on missing download_url")
 	}
@@ -60,7 +60,7 @@ func TestInstallPlugin(t *testing.T) {
 	res = InstallPlugin(context.Background(), "job-4", map[string]interface{}{
 		"plugin_name":  "../../etc/systemd/system",
 		"download_url": srv.URL,
-	}, 10)
+	}, 10, nil)
 	if res.ExitCode == 0 {
 		t.Fatal("expected failure on path-traversal plugin_name")
 	}
@@ -68,7 +68,7 @@ func TestInstallPlugin(t *testing.T) {
 		"plugin_name":    "demo",
 		"plugin_version": "../../evil",
 		"download_url":   srv.URL,
-	}, 10)
+	}, 10, nil)
 	if res.ExitCode == 0 {
 		t.Fatal("expected failure on path-traversal plugin_version")
 	}

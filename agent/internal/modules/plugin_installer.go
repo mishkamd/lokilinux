@@ -2,7 +2,9 @@ package modules
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
 	"io"
@@ -10,6 +12,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/lokilinux/agent/internal/security"
 )
 
 // PluginDir is where agent-side plugin artifacts land.
@@ -17,11 +21,15 @@ import (
 // only when a deployment actually needs a different path.
 var PluginDir = "/opt/lokilinux/plugins"
 
-// InstallPlugin downloads a plugin artifact, verifies its SHA-256 checksum
-// and places it at PluginDir/<name>/<name>-<version>. Returns a JobResult
-// shaped like a shell job so the existing heartbeat result path reports it
-// back to the control plane unchanged.
-func InstallPlugin(ctx context.Context, jobID string, params map[string]interface{}, timeoutSec int) JobResult {
+// InstallPlugin downloads a plugin artifact, verifies its SHA-256 checksum,
+// verifies the platform Ed25519 signature over "sha256:<digest>" when a
+// verifier is supplied (enforcement mode — plan P8), and places it at
+// PluginDir/<name>/<name>-<version>. Returns a JobResult shaped like a shell
+// job so the existing heartbeat result path reports it back unchanged.
+//
+// verifier semantics: non-nil ⇒ signature REQUIRED (fail closed); nil ⇒
+// observability mode (checksum-only), matching enforce_signed_jobs=false.
+func InstallPlugin(ctx context.Context, jobID string, params map[string]interface{}, timeoutSec int, verifier *security.Verifier) JobResult {
 	start := time.Now()
 	fail := func(format string, a ...interface{}) JobResult {
 		return JobResult{JobID: jobID, ExitCode: 1, Error: fmt.Sprintf(format, a...), DurationMs: msSince(start)}
@@ -31,6 +39,7 @@ func InstallPlugin(ctx context.Context, jobID string, params map[string]interfac
 	version, _ := params["plugin_version"].(string)
 	url, _ := params["download_url"].(string)
 	wantSum, _ := params["checksum_sha256"].(string)
+	sigB64, _ := params["signature"].(string)
 	if name == "" || url == "" {
 		return fail("plugin install missing plugin_name or download_url")
 	}
@@ -87,6 +96,23 @@ func InstallPlugin(ctx context.Context, jobID string, params map[string]interfac
 	gotSum := hex.EncodeToString(h.Sum(nil))
 	if wantSum != "" && gotSum != wantSum {
 		return fail("checksum mismatch: want %s got %s", wantSum, gotSum)
+	}
+	if wantSum == "" {
+		return fail("plugin job carries no checksum_sha256 — refusing unsigned-by-hash install")
+	}
+
+	// Ed25519 trust gate: the platform private key signs "sha256:<digest>",
+	// binding the signature to this exact artifact content. SHA-256 alone
+	// only detects corruption, not a malicious publisher (plan C3).
+	if verifier != nil {
+		if sigB64 == "" {
+			return fail("plugin signature missing — enforcement mode rejects unsigned plugins")
+		}
+		unsigned := []byte("sha256:" + gotSum)
+		sig, err := base64.StdEncoding.DecodeString(sigB64)
+		if err != nil || !ed25519.Verify(verifier.Public(), unsigned, sig) {
+			return fail("plugin signature verification failed")
+		}
 	}
 
 	dest := filepath.Join(dir, fmt.Sprintf("%s-%s", name, version))

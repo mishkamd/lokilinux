@@ -43,3 +43,13 @@ func (m *Manager) currentPolicy() *security.LocalPolicy {
 	defer m.policyMu.RUnlock()
 	return m.policy
 }
+
+// pluginVerifier returns the platform key verifier only in enforcement mode:
+// unsigned plugins are rejected when enforce_signed_jobs=true, tolerated
+// (checksum-only) during staged rollout.
+func (m *Manager) pluginVerifier() *security.Verifier {
+	if !m.secCfg.EnforceSignedJobs {
+		return nil
+	}
+	return m.verifier
+}

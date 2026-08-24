@@ -506,7 +506,7 @@ func (m *Manager) runJob(ctx context.Context, jobID, jobType string, params map[
 		}
 		return m.workflowStepsExec.Execute(ctx, jobID, steps, timeoutSec), true
 	case "PLUGIN_INSTALL":
-		return modules.InstallPlugin(ctx, jobID, params, timeoutSec), true
+		return modules.InstallPlugin(ctx, jobID, params, timeoutSec, m.pluginVerifier()), true
 	case "PACKAGE_UPDATE":
 		return modules.UpdatePackages(ctx, jobID, params, timeoutSec), true
 	case "ANSIBLE_PLAYBOOK":
