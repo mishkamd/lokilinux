@@ -136,6 +136,19 @@ func TestCapabilityGapRejected(t *testing.T) {
 	}
 }
 
+func TestPayloadMismatchRejected(t *testing.T) {
+	cfg, v, rp, sign := newSecFixture(t, true)
+	now := time.Now()
+	params := signedParams(t, sign, testAgentID, "SERVICE", []string{"SERVICE_CONTROL"}, "n6", now)
+	// swap the outer parameters after signing — signature stays valid, but
+	// it no longer covers what would execute
+	params["service_name"] = "sshd"
+	res := validateAndAuthorize(cfg, v, rp, testAgentID, "job-1", "SERVICE", params, "", now)
+	if res == nil || !contains(res.Error, "payload_mismatch") {
+		t.Fatalf("parameter swap not caught: %+v", res)
+	}
+}
+
 func TestUnknownJobTypeRejectedWhenEnforced(t *testing.T) {
 	cfg, v, rp, sign := newSecFixture(t, true)
 	now := time.Now()

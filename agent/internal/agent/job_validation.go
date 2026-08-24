@@ -71,6 +71,33 @@ func validateAndAuthorize(
 		return rejectResult(jobID, "malformed_envelope", err.Error())
 	}
 
+	// Payload binding: the signature must cover EXACTLY the parameters that
+	// will execute. Without this, an attacker could keep a valid envelope and
+	// swap the outer parameters (signature still verifies, execution differs).
+	if cfgSec.EnforceSignedJobs {
+		outer := make(map[string]interface{}, len(params))
+		for k, v := range params {
+			if k != "_envelope" {
+				outer[k] = v
+			}
+		}
+		var want []byte = []byte("{}")
+		if len(outer) > 0 {
+			b, err := json.Marshal(outer)
+			if err != nil {
+				return rejectResult(jobID, "malformed_params", err.Error())
+			}
+			if want, err = security.Canonical(b); err != nil {
+				return rejectResult(jobID, "malformed_params", err.Error())
+			}
+		}
+		got, err := security.Canonical(env.Payload)
+		if err != nil || string(want) != string(got) {
+			return rejectResult(jobID, "payload_mismatch",
+				"envelope payload does not match job parameters")
+		}
+	}
+
 	if cfgSec.EnforceSignedJobs {
 		if !security.IsRegistered(jobType) {
 			return rejectResult(jobID, "unknown_capability", fmt.Sprintf("job type %q not in capability registry", jobType))

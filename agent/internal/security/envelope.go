@@ -109,6 +109,12 @@ const (
 // ClockSkew tolerates minor host drift on the issued_at lower bound only.
 const ClockSkew = 30 * time.Second
 
+// Canonical exposes deterministic re-encoding for payload-binding checks:
+// callers compare canonical(agentParams) vs canonical(envelope.Payload).
+func Canonical(in []byte) ([]byte, error) {
+	return canonicalJSON(in)
+}
+
 // Verifier holds ONLY the platform's public signing key.
 type Verifier struct {
 	pub ed25519.PublicKey
