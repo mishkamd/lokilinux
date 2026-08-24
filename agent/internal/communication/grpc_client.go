@@ -351,7 +351,19 @@ func responseToMap(resp *gen.AgentHeartbeatResponse) map[string]interface{} {
 		}
 	}
 	if resp.UpdatePolicy != nil {
-		result["policy"] = resp.UpdatePolicy
+		// Flatten PolicyConfig into the generic policy document shape the
+		// security package parses: capabilities keyed by name, values being
+		// bool-ish scalars or JSON rule objects.
+		caps := make(map[string]interface{}, len(resp.UpdatePolicy.Policies))
+		for k, v := range resp.UpdatePolicy.Policies {
+			caps[k] = v
+		}
+		result["policy"] = map[string]interface{}{
+			"version":            resp.UpdatePolicy.Version,
+			"heartbeat_interval": resp.UpdatePolicy.HeartbeatInterval,
+			"command_whitelist":  resp.UpdatePolicy.CommandWhitelist,
+			"capabilities":       caps,
+		}
 	}
 	if resp.RebootRequest != "" {
 		result["reboot"] = resp.RebootRequest

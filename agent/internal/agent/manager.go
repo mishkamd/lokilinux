@@ -43,9 +43,14 @@ type Manager struct {
 	// signed-job trust model (docs/security/AGENT_SECURITY.md): verifier
 	// holds ONLY the platform public key; replay backs onto seen_jobs in
 	// SQLite; secCfg mirrors config.Security for the validation pipeline.
+	// policy is the last-good LocalPolicy from update_policy heartbeats —
+	// guarded by policyMu because handleResponse (heartbeat goroutine) and
+	// job goroutines read it concurrently.
 	verifier *security.Verifier
 	replay   *security.ReplayStore
 	secCfg   configSecurity
+	policyMu sync.RWMutex
+	policy   *security.LocalPolicy
 
 	failCount int // consecutive heartbeat failures, drives backoff
 
@@ -118,7 +123,9 @@ func NewManager(cfg *config.Config, log *slog.Logger, version string, logBuf *Lo
 			"path", cfg.Security.SigningPubKeyPath)
 	}
 
-	return &Manager{
+	// Restore last-good local policy across restarts (freshness is judged
+	// against ReceivedAt, so a stale one still fails HIGH+ jobs fail-closed).
+	mgr := &Manager{
 		cfg:         cfg,
 		log:         log,
 		version:     version,
@@ -147,7 +154,15 @@ func NewManager(cfg *config.Config, log *slog.Logger, version string, logBuf *Lo
 		stop:     make(chan struct{}),
 		nudge:    make(chan struct{}, 1),
 		inFlight: make(map[string]struct{}),
-	}, nil
+	}
+	if blob, err := store.GetConfig(context.Background(), "security.local_policy"); err == nil && blob != "" {
+		if lp, err := security.UnmarshalLocalPolicy([]byte(blob)); err == nil {
+			mgr.policy = lp
+			log.Info("restored local policy from state", "version", lp.Version,
+				"received_at", lp.ReceivedAt.Format(time.RFC3339))
+		}
+	}
+	return mgr, nil
 }
 
 // Run starts the heartbeat loop. Blocks until ctx is cancelled or Stop() is called.
@@ -363,6 +378,7 @@ func (m *Manager) handleResponse(ctx context.Context, resp map[string]interface{
 
 	jobs, ok := resp["pending_jobs"]
 	if !ok {
+		m.maybeUpdatePolicy(resp)
 		return
 	}
 	jobList, ok := jobs.([]interface{})
@@ -370,6 +386,7 @@ func (m *Manager) handleResponse(ctx context.Context, resp map[string]interface{
 		return
 	}
 	m.log.Info("received pending jobs", "count", len(jobList))
+	m.maybeUpdatePolicy(resp)
 
 	for _, j := range jobList {
 		job, ok := j.(map[string]interface{})
@@ -395,7 +412,7 @@ func (m *Manager) handleResponse(ctx context.Context, resp map[string]interface{
 			}
 		}
 		if rejected := validateAndAuthorize(m.secCfg, m.verifier, m.replay,
-			m.cfg.Identity.AgentID, jobID, jobType, params, stepsJSON, time.Now()); rejected != nil {
+			m.currentPolicy(), m.cfg.Identity.AgentID, jobID, jobType, params, stepsJSON, time.Now()); rejected != nil {
 			m.log.Warn("job rejected by security pipeline",
 				"job_id", jobID, "job_type", jobType, "error", rejected.Error)
 			m.resultsMu.Lock()

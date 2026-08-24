@@ -63,6 +63,16 @@ func IsRegistered(jobType string) bool {
 	return ok
 }
 
+// RiskFor returns the risk tier of a capability name ("" when unknown).
+func RiskFor(capability string) RiskLevel {
+	for _, c := range Registry {
+		if c.Name == capability {
+			return c.Risk
+		}
+	}
+	return ""
+}
+
 // RequiredCapabilities returns the capability set a job_type demands.
 // WORKFLOW_STEPS expands to one capability per distinct step type present.
 func RequiredCapabilities(jobType string, workflowStepsJSON string) []string {

@@ -42,6 +42,7 @@ func validateAndAuthorize(
 	cfgSec configSecurity,
 	verifier *security.Verifier,
 	replay *security.ReplayStore,
+	policy *security.LocalPolicy,
 	agentID string,
 	jobID, jobType string,
 	params map[string]interface{},
@@ -116,6 +117,18 @@ func validateAndAuthorize(
 			return rejectResult(jobID, "capability_gap",
 				fmt.Sprintf("envelope lacks %v required by %s", missing, jobType))
 		}
+		// Local policy enforcement (fail-closed for HIGH/CRITICAL): a bug or
+		// compromise in the control plane must not silently widen execution.
+		if reason, detail := policy.EvaluateAuthorizations(
+			env.RequestedCapabilities,
+			func(c string) string { return string(security.RiskFor(c)) },
+			now,
+		); reason != "" {
+			return rejectResult(jobID, string(reason), detail)
+		}
+	} else if cfgSec.EnforceSignedJobs {
+		// Unsigned jobs never reach here when enforcement is on (rejected
+		// earlier); nothing to evaluate.
 	}
 	return nil
 }
