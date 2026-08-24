@@ -9,7 +9,7 @@ Derivation mirrors agent/internal/security/capabilities.go: a job_type maps
 to its capability; WORKFLOW_STEPS expands per step type present.
 """
 
-from typing import Iterable
+from typing import Iterable, Optional
 
 ALL_ROLES = frozenset({"VIEWER", "MANAGER", "OPERATOR", "ADMIN", "AUDITOR"})
 
@@ -59,7 +59,7 @@ _STEP_TYPE_TO_CAPABILITY = {
 }
 
 
-def required_capabilities(job_type: str, params: dict | None = None) -> set[str]:
+def required_capabilities(job_type: str, params: Optional[dict] = None) -> set[str]:
     """Capabilities a job demands. WORKFLOW_STEPS expands to the union of its
     steps; unknown step types demand EXEC_BASH (strictest match)."""
     params = params or {}
@@ -86,7 +86,7 @@ def unauthorized_capabilities(role: str, capabilities: Iterable[str]) -> list[st
     return sorted(denied)
 
 
-def assert_can_create(role: str, job_type: str, params: dict | None = None) -> None:
+def assert_can_create(role: str, job_type: str, params: Optional[dict] = None) -> None:
     """Raises PermissionError listing denied capabilities, if any."""
     denied = unauthorized_capabilities(role or "", required_capabilities(job_type, params))
     if denied:
