@@ -107,11 +107,27 @@ job_execution:
   max_parallel_jobs: 4
   timeout_seconds: 3600
   sandbox_enabled: false
+security:
+  enforce_signed_jobs: false
+  signing_pub_key_path: /etc/lokilinux/signing_pub.b64
 logging:
   level: info
   output: /var/log/lokilinux/agent.log
 EOF
 chmod 640 /etc/lokilinux/agent.yaml
+
+# ── Platform job-signing public key ───────────────────────────────────────────
+# Public by design (only the private half, on the control plane, is secret).
+# Failure is non-fatal at install time — agent runs with signed-jobs OFF and
+# logs a warning per unsigned privileged job until the key lands.
+echo "[*] Fetching platform job-signing public key..."
+if curl -fsSL "$PLATFORM_URL/api/v1/agent/signing-key" -o /etc/lokilinux/signing_pub.b64 \
+   && [ -s /etc/lokilinux/signing_pub.b64 ]; then
+  chmod 644 /etc/lokilinux/signing_pub.b64
+else
+  echo "[!] WARNING: could not fetch signing key — signed-job enforcement will stay disabled"
+  rm -f /etc/lokilinux/signing_pub.b64
+fi
 
 # ── Install binary + CLI + systemd unit ───────────────────────────────────────
 install -m 755 "$AGENT_BIN" /usr/local/bin/lokilinux-agent

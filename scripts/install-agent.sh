@@ -133,6 +133,19 @@ logging:
 EOF
 chmod 640 /etc/lokilinux/agent.yaml
 
+# ── Platform job-signing public key (public by design) ────────────────────────
+# NOTE: this offline installer's agent.yaml schema has drifted from
+# backend/lokilinux/install_agent.sh.tmpl (the served one matches
+# config.go). The security block below matches config.SecurityConfig.
+echo "[*] Fetching platform job-signing public key..."
+if curl -fsSL "$PLATFORM_URL/api/v1/agent/signing-key" -o /etc/lokilinux/signing_pub.b64 \
+   && [ -s /etc/lokilinux/signing_pub.b64 ]; then
+  chmod 644 /etc/lokilinux/signing_pub.b64
+else
+  echo "[!] WARNING: could not fetch signing key — signed-job enforcement will stay disabled"
+  rm -f /etc/lokilinux/signing_pub.b64
+fi
+
 # ── Install binary ────────────────────────────────────────────────────────────
 echo "[*] Installing agent binary..."
 install -m 755 "$AGENT_TMP" /usr/local/bin/lokilinux-agent
