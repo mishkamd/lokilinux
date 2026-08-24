@@ -3,6 +3,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -12,6 +13,7 @@ import (
 	"github.com/lokilinux/agent/internal/compliance"
 	"github.com/lokilinux/agent/internal/config"
 	"github.com/lokilinux/agent/internal/modules"
+	"github.com/lokilinux/agent/internal/security"
 	"github.com/lokilinux/agent/internal/storage"
 )
 
@@ -37,6 +39,13 @@ type Manager struct {
 	workflowStepsExec *modules.WorkflowStepsExecutor
 	complianceRunner  *compliance.Runner
 	stop              chan struct{}
+
+	// signed-job trust model (docs/security/AGENT_SECURITY.md): verifier
+	// holds ONLY the platform public key; replay backs onto seen_jobs in
+	// SQLite; secCfg mirrors config.Security for the validation pipeline.
+	verifier *security.Verifier
+	replay   *security.ReplayStore
+	secCfg   configSecurity
 
 	failCount int // consecutive heartbeat failures, drives backoff
 
@@ -96,6 +105,19 @@ func NewManager(cfg *config.Config, log *slog.Logger, version string, logBuf *Lo
 		cfg.Identity.CAPath,
 	)
 
+	secCfg := configSecurity{
+		EnforceSignedJobs: cfg.Security.EnforceSignedJobs,
+		SigningPubKeyPath: cfg.Security.SigningPubKeyPath,
+	}
+	verifier, err := initVerifier(&secCfg)
+	if err != nil {
+		return nil, err
+	}
+	if verifier == nil {
+		log.Warn("signed-job enforcement disabled: no signing public key loaded",
+			"path", cfg.Security.SigningPubKeyPath)
+	}
+
 	return &Manager{
 		cfg:         cfg,
 		log:         log,
@@ -119,6 +141,9 @@ func NewManager(cfg *config.Config, log *slog.Logger, version string, logBuf *Lo
 		complianceRunner: compliance.NewRunner(
 			compliance.BuildRegistry(cfg.FileIntegrity.WatchPaths, cfg.FileIntegrity.Ignores), store, log,
 		),
+		verifier: verifier,
+		replay:   security.NewReplayStore(store),
+		secCfg:   secCfg,
 		stop:     make(chan struct{}),
 		nudge:    make(chan struct{}, 1),
 		inFlight: make(map[string]struct{}),
@@ -358,6 +383,35 @@ func (m *Manager) handleResponse(ctx context.Context, resp map[string]interface{
 		timeoutSec := m.cfg.JobExecution.TimeoutSeconds // config default (3600s)
 		if t, ok := job["timeout_seconds"].(float64); ok && t > 0 {
 			timeoutSec = int(t)
+		}
+
+		// Pre-dispatch trust gate: signature + replay + capability coverage.
+		// Rejections report back like any other failure so the job doesn't
+		// hang RUNNING server-side until the timeout sweeper.
+		stepsJSON := ""
+		if jobType == "WORKFLOW_STEPS" {
+			if raw, err := json.Marshal(params["steps"]); err == nil {
+				stepsJSON = string(raw)
+			}
+		}
+		if rejected := validateAndAuthorize(m.secCfg, m.verifier, m.replay,
+			m.cfg.Identity.AgentID, jobID, jobType, params, stepsJSON, time.Now()); rejected != nil {
+			m.log.Warn("job rejected by security pipeline",
+				"job_id", jobID, "job_type", jobType, "error", rejected.Error)
+			m.resultsMu.Lock()
+			m.pendingResults = append(m.pendingResults, *rejected)
+			m.resultsMu.Unlock()
+			select {
+			case m.nudge <- struct{}{}:
+			default:
+			}
+			continue
+		}
+		if !m.secCfg.EnforceSignedJobs {
+			if _, signed := params["_envelope"]; !signed && len(security.RequiredCapabilities(jobType, stepsJSON)) > 0 {
+				m.log.Warn("UNSIGNED privileged job allowed (enforce_signed_jobs=false)",
+					"job_id", jobID, "job_type", jobType)
+			}
 		}
 
 		m.inFlightMu.Lock()
