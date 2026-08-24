@@ -278,6 +278,10 @@ services:
     build:
       context: ./services/compliance
       dockerfile: Dockerfile
+      # Stamps the binary's self-reported version (main.Version via -ldflags
+      # in the Dockerfile). Without this arg it would always report "dev".
+      args:
+        VERSION: ${LOKILINUX_VERSION:-dev}
     image: lokilinux/compliance:${LOKILINUX_VERSION:-latest}
     container_name: lokilinux-compliance
     restart: unless-stopped

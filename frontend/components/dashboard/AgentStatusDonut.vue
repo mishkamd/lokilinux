@@ -48,7 +48,7 @@ const triggers = { [VisDonutSelectors.segment]: template }
     <div v-else class="flex flex-col sm:flex-row items-center gap-3">
       <div class="relative shrink-0 size-24">
         <VisSingleContainer :data="segments" :height="96" :width="96">
-          <VisDonut :value="value" :color="color" :arc-width="16" :corner-radius="2" :central-label="String(total)" central-sub-label="TOTAL" />
+          <VisDonut :value="value" :color="color" :arc-width="16" :corner-radius="2" :central-label="String(total)" />
           <VisTooltip :triggers="triggers" />
         </VisSingleContainer>
       </div>

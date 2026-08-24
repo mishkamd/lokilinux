@@ -45,19 +45,19 @@ const color = (d: Segment) => d.name === 'Compliant' ? 'var(--success)' : 'var(-
       </div>
       <div class="flex-1 w-full space-y-1.5 text-xs">
         <div class="flex items-center justify-between gap-2">
-          <span class="min-w-0 truncate text-muted-foreground">Servers evaluated</span>
+          <span class="min-w-0 truncate text-foreground">Servers evaluated</span>
           <span class="shrink-0 font-medium tabular-nums">{{ overview.servers_evaluated }}</span>
         </div>
         <div class="flex items-center justify-between gap-2">
-          <span class="min-w-0 truncate text-muted-foreground">Non-compliant</span>
+          <span class="min-w-0 truncate text-foreground">Non-compliant</span>
           <span class="shrink-0 font-medium tabular-nums text-destructive">{{ overview.servers_non_compliant }}</span>
         </div>
         <div class="flex items-center justify-between gap-2">
-          <span class="min-w-0 truncate text-muted-foreground">Exceptions</span>
+          <span class="min-w-0 truncate text-foreground">Exceptions</span>
           <span class="shrink-0 font-medium tabular-nums">{{ overview.exceptions_active }}</span>
         </div>
         <div class="flex items-center justify-between gap-2">
-          <span class="min-w-0 truncate text-muted-foreground">Remediation</span>
+          <span class="min-w-0 truncate text-foreground">Remediation</span>
           <span class="shrink-0 font-medium tabular-nums" :title="`${overview.resolved_controls} resolved`">{{ overview.remediation_pct }}%</span>
         </div>
       </div>

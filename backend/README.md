@@ -414,7 +414,7 @@ pytest -q
 | `AGENT_CERT_DIR` | Default: `/etc/lokilinux/certs` |
 | `FRONTEND_URL` | Default: `http://localhost:3000` (CORS origin) |
 | `PLATFORM_URL` | Default: `http://localhost:8000` |
-| `AGENT_VERSION` | Default în `config.py`: `0.1.0`; Compose: `0.36.0` — **configurație-driven**, sursa de adevăr depinde de contextul de deployment |
+| `AGENT_VERSION` | Default în `config.py`: `0.1.0`; Compose: `${AGENT_VERSION:-0.35.3}` — **configurație-driven**, sursa de adevăr depinde de contextul de deployment |
 | `AGENT_PACKAGE_DIR` | Default: `/opt/lokilinux/packages` |
 
 ---
@@ -431,7 +431,7 @@ Acest document reflectă starea **curentă a sursei**, nu comentarii sau documen
 
 4. **Port 9090 / Prometheus:** Compose expune portul `9090` pentru `lokilinux-api`, dar **nu există** o rută `/metrics` definită în sursa backend curentă. Nu confundați `/servers/{agent_id}/metrics` (endpoint de date pentru metricile agentului) cu un endpoint Prometheus.
 
-5. **Versiune agent:** `config.py` definește `agent_version: str = "0.1.0"` ca default, în timp ce Compose setează `AGENT_VERSION: ${AGENT_VERSION:-0.36.0}`. Versiunea este **configurație-driven** — sursa de adevăr depinde de contextul de deployment (env var în producție, default Python în development direct).
+5. **Versiune agent:** `config.py` definește `agent_version: str = "0.1.0"` ca default, în timp ce Compose setează `AGENT_VERSION: ${AGENT_VERSION:-0.35.3}`. Versiunea este **configurație-driven** — sursa de adevăr depinde de contextul de deployment (env var în producție, default Python în development direct). La runtime, valoarea servită vine din DB (`settings.agent.version`, updatată de release flow); build-side SSOT este `agent/VERSION` la rădăcina repo-ului, citit de Makefile și sincronizat automat de `.claude/skills/ship-changes/scripts/release.sh`.
 
 ---
 

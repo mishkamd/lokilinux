@@ -6,6 +6,7 @@ POST /agent/enrollment-token   — generează token de enrollment 24h (ADMIN/OPE
 GET  /agent/download           — servește binary local (enrollment token, fără JWT)
 GET  /agent/download-latest    — servește binary versiunea curentă, public (folosit de `loki update`)
 GET  /agent/download-direct    — servește binary local direct din dashboard (JWT ADMIN/OPERATOR)
+GET  /agent/signing-key        — public key Ed25519 pt signed jobs, base64 raw (public by design — nu e secret)
 POST /agents/register          — înregistrare agent cu enrollment token + generare cert mTLS
 """
 
@@ -112,6 +113,36 @@ async def get_packages(
 _INSTALL_TMPL_PATH = os.path.join(
     os.path.dirname(__file__), "..", "..", "..", "install_agent.sh.tmpl"
 )
+
+
+@router.get("/signing-key", response_class=PlainTextResponse)
+async def get_signing_key() -> str:
+    """Public Ed25519 job-signing key, base64(raw 32 bytes) — formatul pe care
+    agent/internal/security.NewVerifier îl consumă direct. Public by design:
+    cheia semnează joburile control-plane-ului; secretul rămâne în
+    JOB_SIGNING_KEY_PATH (0600, niciodată pe agenți)."""
+    key_path = os.environ.get("JOB_SIGNING_PUB_PATH", "/etc/lokilinux/certs/job_signing.pub")
+    try:
+        with open(key_path, "rb") as f:
+            raw = f.read()
+    except OSError:
+        raise HTTPException(status_code=503, detail="job signing key not provisioned on this platform")
+    if len(raw) != 32:
+        # PKCS8/DER fallback: derive raw public bytes via cryptography
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+        try:
+            pub = serialization.load_pem_public_key(raw)
+            if not isinstance(pub, Ed25519PublicKey):
+                raise ValueError("not an Ed25519 key")
+            raw = pub.public_bytes(
+                encoding=serialization.Encoding.Raw,
+                format=serialization.PublicFormat.Raw,
+            )
+        except Exception as exc:  # noqa: BLE001 — orice format neașteptat = 503, nu crash
+            raise HTTPException(status_code=503, detail=f"unusable signing key material: {exc}")
+    import base64 as _b64
+
+    return _b64.b64encode(raw).decode()
 
 
 @router.get("/install.sh", response_class=PlainTextResponse)
