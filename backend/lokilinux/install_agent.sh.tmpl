@@ -138,6 +138,18 @@ if [ -n "$LOKI_CLI" ]; then
   # which every observed PATH includes.
   ln -sf /usr/local/bin/loki /usr/bin/loki
 fi
+# ── Dedicated service user ────────────────────────────────────────────────────
+# Pre-provisions the loki-agent identity. The service still runs as root for
+# now (host-mutating jobs need a privilege bridge — see
+# docs/security/EXECUTION_MODEL.md "Privilege bridge"); the user exists so the
+# Faza 2 broker can adopt it without a re-install and state ownership is ready.
+if ! id -u loki-agent >/dev/null 2>&1; then
+  echo "[*] Creating system user loki-agent..."
+  useradd --system --home-dir /var/lib/lokilinux --no-create-home \
+          --shell /usr/sbin/nologin loki-agent 2>/dev/null || true
+fi
+chown -R loki-agent:loki-agent /var/lib/lokilinux /var/log/lokilinux 2>/dev/null || true
+
 # NOTE: this is the canonical unit — served live via /api/v1/agent/install.sh
 # (agent_install.py). Keep the [Service] section identical to
 # scripts/install-agent.sh's copy (secondary/offline install path); the two
@@ -147,6 +159,14 @@ fi
 # here (see agent/internal/modules/systemd_run.go) — ReadWritePaths can't
 # cover it anyway, since package installs write into /usr, not just
 # /var/log or /var/cache.
+#
+# Hardening directives below are verified-safe for THIS unit's actual
+# functionality (heartbeat gRPC + telemetry + per-job systemd-run). Directives
+# deliberately NOT set, with reasons:
+#   MemoryDenyWriteExecute — Go runtime is compatible in principle but needs
+#     live verification per distro before enabling fleet-wide (plan §15).
+#   RestrictAddressFamilies — would break AF_NETLINK consumers in job units'
+#     toolchains if inherited patterns change; revisit with Faza 2.
 cat > /etc/systemd/system/lokilinux-agent.service <<'EOF'
 [Unit]
 Description=LokiLinux Agent
@@ -163,11 +183,21 @@ TimeoutStopSec=30
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=lokilinux-agent
+UMask=0027
 ProtectSystem=strict
 ReadWritePaths=/var/lib/lokilinux /var/log/lokilinux
 ProtectHome=true
 PrivateTmp=true
 NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictNamespaces=true
+SystemCallArchitectures=native
 
 [Install]
 WantedBy=multi-user.target

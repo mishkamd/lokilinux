@@ -151,6 +151,14 @@ echo "[*] Installing agent binary..."
 install -m 755 "$AGENT_TMP" /usr/local/bin/lokilinux-agent
 rm -f "$AGENT_TMP"
 
+# ── Dedicated service user (pre-provisioning for Faza 2 broker) ───────────────
+if ! id -u loki-agent >/dev/null 2>&1; then
+  echo "[*] Creating system user loki-agent..."
+  useradd --system --home-dir /var/lib/lokilinux --no-create-home \
+          --shell /usr/sbin/nologin loki-agent 2>/dev/null || true
+fi
+chown -R loki-agent:loki-agent /var/lib/lokilinux /var/log/lokilinux 2>/dev/null || true
+
 # ── Create systemd unit ───────────────────────────────────────────────────────
 # NOTE: keep the [Service] section identical to backend/lokilinux/install_agent.sh.tmpl
 # (the template actually served by /api/v1/agent/install.sh — this file is a
@@ -179,6 +187,7 @@ TimeoutStopSec=30
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=lokilinux-agent
+UMask=0027
 
 # Harden service
 ProtectSystem=strict
@@ -186,6 +195,15 @@ ReadWritePaths=/var/lib/lokilinux /var/log/lokilinux
 ProtectHome=true
 PrivateTmp=true
 NoNewPrivileges=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictSUIDSGID=true
+LockPersonality=true
+RestrictNamespaces=true
+SystemCallArchitectures=native
 
 [Install]
 WantedBy=multi-user.target
