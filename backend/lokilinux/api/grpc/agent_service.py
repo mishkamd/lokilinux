@@ -112,6 +112,19 @@ class AgentServicer:
         self.cache = cache
         self.nats = nats
 
+    @staticmethod
+    def _client_common_name(context) -> str | None:
+        """CN of the verified mTLS client certificate (enrollment sets it to
+        the agent_id), or None when the transport didn't expose one."""
+        try:
+            ctx_auth = context.auth_context() or {}
+        except Exception:  # noqa: BLE001 — insecure transport in dev setups
+            return None
+        cn = ctx_auth.get("x509_common_name")
+        if isinstance(cn, (list, tuple)):
+            cn = cn[0] if cn else None
+        return cn.decode() if isinstance(cn, bytes) else cn
+
     async def HeartbeatStream(self, request_iterator, context):
         """Bidirectional stream — one response per heartbeat received."""
         async for request in request_iterator:
@@ -160,6 +173,24 @@ class AgentServicer:
                 health = getattr(request, "health", None)
                 job_results = getattr(request, "job_results", None)
                 vulnerabilities = getattr(request, "vulnerabilities", None)
+
+                # Identity binding (plan C7): the mTLS cert CN is set to the
+                # agent_id at enrollment. A certified agent claiming another
+                # agent's id in its payload would poison that agent's state —
+                # reject instead of trusting the wire.
+                client_cn = self._client_common_name(context)
+                claimed_id = str(getattr(request, "agent_id", "") or "")
+                if not client_cn:
+                    logger.warning("HeartbeatStream: no client CN presented for agent %s", claimed_id)
+                    await context.abort(grpc.StatusCode.UNAUTHENTICATED, "client certificate required")
+                    return
+                if client_cn != claimed_id:
+                    logger.error(
+                        "agent identity mismatch: cert CN=%s claims agent_id=%s",
+                        client_cn, claimed_id,
+                    )
+                    await context.abort(grpc.StatusCode.PERMISSION_DENIED, "certificate does not match agent identity")
+                    return
 
                 async with self.db_factory() as db:
                     svc = AgentService(db, self.cache)
