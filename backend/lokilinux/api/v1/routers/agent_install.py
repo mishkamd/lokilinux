@@ -145,6 +145,18 @@ async def get_signing_key() -> str:
     return _b64.b64encode(raw).decode()
 
 
+@router.get("/signing-key.pem", response_class=PlainTextResponse)
+async def get_signing_key_pem() -> str:
+    """PEM form of the job-signing public key — consumed by installers that
+    verify artifact signatures with `openssl pkeyutl -verify -pubin`."""
+    pem_path = os.environ.get("JOB_SIGNING_PUB_PEM_PATH", "/etc/lokilinux/certs/job_signing.pub.pem")
+    try:
+        with open(pem_path) as f:
+            return f.read()
+    except OSError:
+        raise HTTPException(status_code=503, detail="job signing key not provisioned on this platform")
+
+
 @router.get("/install.sh", response_class=PlainTextResponse)
 async def get_install_script(db: AsyncSession = Depends(get_db)) -> str:
     """Public bootstrap installer. The enrollment token is passed as a CLI arg
@@ -224,6 +236,38 @@ def _package_available(pkg_os: str, arch: str, ver: str) -> bool:
     return os.path.exists(os.path.join(get_settings().agent_package_dir, fmt.format(v=ver)))
 
 
+@router.get("/download-sig")
+async def download_agent_sig(
+    pkg_os: str = Query(...),
+    arch: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+    _: dict = Depends(get_current_user),
+) -> FileResponse:
+    """Ed25519 signature over "sha256:<hex digest>" of the agent artifact —
+    consumed by install.sh / loki update for supply-chain verification."""
+    _, ver, _ = await _get_agent_cfg(db)
+    filepath, filename = _sig_path(pkg_os, arch, ver)
+    return FileResponse(filepath, filename=filename, media_type="application/octet-stream")
+
+
+def _sig_path(pkg_os: str, arch: str, ver: str) -> tuple[str, str]:
+    """Map (os, arch, version) to the sibling .sig of the tar.gz artifact.
+    Mirrors _resolve_package's filename table for the tar.gz row."""
+    fmt_map = {
+        "tar.gz": "lokilinux-agent_{v}_linux_amd64.tar.gz",
+    }
+    if pkg_os != "tar.gz" or arch not in ("amd64", "arm64"):
+        raise HTTPException(status_code=404, detail="signature not available for this format/arch")
+    fname = fmt_map["tar.gz"].format(v=ver)
+    if arch == "arm64":
+        fname = fname.replace("_linux_amd64", "_linux_arm64")
+    path = os.path.join(get_settings().agent_package_dir, fname)
+    sig = path + ".sig"
+    if not os.path.isfile(sig):
+        raise HTTPException(status_code=404, detail="signature file not provisioned for this version")
+    return sig, fname + ".sig"
+
+
 @router.get("/download")
 async def download_agent(
     pkg_os: str = Query(..., alias="os"),
@@ -277,6 +321,38 @@ class RegisterRequest(BaseModel):
     os_version: str = ""
     arch: str = "amd64"
     kernel_version: str = ""
+    # Re-enrollment proof-of-possession: required ONLY when `hostname` already
+    # exists. Must be the current CA-signed client cert for that agent_id.
+    existing_cert_pem: str | None = None
+
+
+def _verify_reenrollment_proof(cert_pem: str | None, expected_agent_id: str) -> bool:
+    """Gate for rotating credentials of an EXISTING agent identity.
+
+    A stolen enrollment token alone must never mint certs for an identity an
+    attacker merely knows the hostname of (docs/security/SECURITY_AUDIT.md
+    HI-01). Possession of a currently-valid CA-issued cert for that exact
+    agent_id is the only accepted proof.
+    """
+    if not cert_pem:
+        return False
+    s = get_settings()
+    ca_path = os.path.join(s.agent_cert_dir, "ca.crt")
+    if not os.path.exists(ca_path):
+        return False
+    try:
+        with open(ca_path, "rb") as f:
+            ca_cert = x509.load_pem_x509_certificate(f.read())
+        cert = x509.load_pem_x509_certificate(cert_pem.encode())
+        cert.verify_directly_issued_by(ca_cert)
+    except Exception:
+        return False
+    now = datetime.datetime.now(datetime.timezone.utc)
+    if cert.not_valid_before_utc > now or cert.not_valid_after_utc < now:
+        return False
+    attrs = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
+    cn = attrs[0].value.strip() if attrs else ""
+    return bool(cn) and cn.lower() == expected_agent_id.strip().lower()
 
 
 def _generate_agent_cert(agent_id: str) -> tuple[str, str, str]:
@@ -342,6 +418,17 @@ async def register_agent(
     ).scalars().first()
 
     if existing is not None:
+        # HI-01: hostname alone no longer grants identity takeover — the
+        # caller must prove possession of the current agent certificate.
+        if not _verify_reenrollment_proof(body.existing_cert_pem, existing.agent_id):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Hostname already registered. Re-enrollment requires the current "
+                    "agent certificate in `existing_cert_pem`; use a new hostname or "
+                    "contact an administrator to decommission the old agent."
+                ),
+            )
         agent_id = existing.agent_id
         existing.status = AgentStatus.PENDING
         existing.os_distro = body.os_distro

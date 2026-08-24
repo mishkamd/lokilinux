@@ -78,6 +78,19 @@ agent-package: agent-build agent-build-arm64
 		-C $(AGENT_DIR)/bin lokilinux-agent loki
 	tar -czf $(AGENT_DIR)/bin/lokilinux-agent_$(AGENT_VER)_linux_arm64.tar.gz \
 		-C $(AGENT_DIR)/bin lokilinux-agent-arm64 loki
+	@# Ed25519 artifact signatures (plan P9): sign "sha256:<hex>" of each
+	@# tarball when the platform signing key is available on the build host.
+	@# Missing key = skip with a loud warning; installers verify only when a
+	@# .sig is served, so unsigned artifacts stay installable but flagged.
+	@if [ -n "$${JOB_SIGNING_KEY_PATH:-}" ] && [ -f "$${JOB_SIGNING_KEY_PATH}" ]; then \
+	  for f in $(AGENT_DIR)/bin/lokilinux-agent_$(AGENT_VER)_linux_*.tar.gz; do \
+	    openssl pkeyutl -sign -inkey "$${JOB_SIGNING_KEY_PATH}" -rawin \
+	      -in <(printf 'sha256:%s' "$$(sha256sum "$$f" | cut -d' ' -f1)") \
+	      -out "$$f.sig" || echo "WARN: signing failed for $$f"; \
+	  done; \
+	else \
+	  echo "WARN: JOB_SIGNING_KEY_PATH not set — agent artifacts UNSIGNED"; \
+	fi
 	@if command -v nfpm >/dev/null 2>&1; then \
 		cp $(AGENT_DIR)/bin/lokilinux-agent $(AGENT_DIR)/bin/lokilinux-agent-nfpm-src && \
 		cd $(AGENT_DIR) && ARCH=amd64 VERSION=$(AGENT_VER) nfpm package -f .nfpm.yaml --packager deb --target bin/ && \
@@ -122,3 +135,24 @@ init:
 
 help:
 	@grep -E '^##' Makefile | sed 's/^## //'
+
+# ── Supply-chain security ─────────────────────────────────────────────────────
+
+TRIVY ?= trivy
+
+## Scan all lokilinux images; FAILS on HIGH/CRITICAL vulns (CI gate)
+scan-image:
+	@for img in $$(docker images --format '{{.Repository}}:{{.Tag}}' | grep '^lokilinux/'); do \
+		echo "[*] Scanning $$img"; \
+		$(TRIVY) image --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed $$img || exit 1; \
+	done
+	@echo "[+] All images passed the vulnerability gate"
+
+## Generate CycloneDX SBOM for an image (make sbom IMAGE=lokilinux/api:0.3.0)
+sbom:
+ifndef IMAGE
+	$(error usage: make sbom IMAGE=lokilinux/api:<tag>)
+endif
+	@mkdir -p sbom
+	$(TRIVY) image --format cyclonedx --output sbom/$$(echo $(IMAGE) | tr '/:' '__').cdx.json $(IMAGE)
+	@echo "[+] SBOM written to sbom/"

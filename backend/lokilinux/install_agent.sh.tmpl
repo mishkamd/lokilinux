@@ -42,13 +42,37 @@ echo "[*] LokiLinux Agent Installation"
 echo "    Platform : $PLATFORM_URL"
 echo "    OS       : $OS $OS_VERSION ($ARCH)"
 
-# ── Download + extract binary ─────────────────────────────────────────────────
+# ── Download + verify + extract binary ────────────────────────────────────────
 echo "[*] Downloading agent package ($PKG_FMT/$ARCH)..."
 TMPDIR_DL="$(mktemp -d)"
 trap 'rm -rf "$TMPDIR_DL"' EXIT
 curl -fsSL -H "Authorization: Bearer $ENROLLMENT_TOKEN" \
   "$PLATFORM_URL/api/v1/agent/download?os=$PKG_FMT&arch=$ARCH" \
   -o "$TMPDIR_DL/agent.tar.gz"
+
+# Signature verification (plan P9): the platform signs the ASCII string
+# "sha256:<hex digest of artifact>" with its Ed25519 key; a checksum alone
+# only detects corruption, not a compromised distribution path. Verification
+# failure = hard abort, never install.
+SIG_URL="$PLATFORM_URL/api/v1/agent/download-sig?os=$PKG_FMT&arch=$ARCH"
+PEM_URL="$PLATFORM_URL/api/v1/agent/signing-key.pem"
+if curl -fsSL "$SIG_URL" -o "$TMPDIR_DL/agent.tar.gz.sig" 2>/dev/null \
+   && [ -s "$TMPDIR_DL/agent.tar.gz.sig" ] \
+   && curl -fsSL "$PEM_URL" -o "$TMPDIR_DL/signing.pub.pem" 2>/dev/null \
+   && [ -s "$TMPDIR_DL/signing.pub.pem" ]; then
+  DIGEST="$(sha256sum "$TMPDIR_DL/agent.tar.gz" | cut -d' ' -f1)"
+  printf 'sha256:%s' "$DIGEST" > "$TMPDIR_DL/signed_input"
+  if openssl pkeyutl -verify -pubin -inkey "$TMPDIR_DL/signing.pub.pem" -rawin \
+        -sigfile "$TMPDIR_DL/agent.tar.gz.sig" -in "$TMPDIR_DL/signed_input" >/dev/null 2>&1; then
+    echo "[+] Package signature verified"
+  else
+    echo "Error: package signature verification FAILED — refusing to install" >&2
+    exit 1
+  fi
+else
+  echo "[!] WARNING: signature file unavailable — installing WITHOUT cryptographic verification"
+fi
+
 tar -xzf "$TMPDIR_DL/agent.tar.gz" -C "$TMPDIR_DL"
 AGENT_BIN="$(find "$TMPDIR_DL" -type f -name 'lokilinux-agent*' | head -1)"
 [ -n "$AGENT_BIN" ] || { echo "Error: binary not found in package"; exit 1; }
