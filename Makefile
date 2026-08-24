@@ -7,7 +7,12 @@ AGENT_DIR      = agent
 AGENT_BIN      = $(AGENT_DIR)/bin/lokilinux-agent
 PROTO_GEN_GO   = $(AGENT_DIR)/gen
 PROTO_GEN_PY   = backend/lokilinux/gen
-VERSION        ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo "0.1.0")
+# Version sources of truth: root VERSION = platform, agent/VERSION = agent.
+# Never derive from `git describe` here — the repo carries two interleaved tag
+# namespaces (platform vX.Y.Z, agent X.Y.Z), so describe picks whichever is
+# newest and would stamp platform versions into agent artifacts (and vice versa).
+PLATFORM_VERSION ?= $(shell cat VERSION 2>/dev/null || echo "0.0.0")
+AGENT_VER        ?= $(shell cat agent/VERSION 2>/dev/null || echo "0.0.0")
 
 # ── Stack ─────────────────────────────────────────────────────────────────────
 
@@ -57,29 +62,29 @@ proto:
 ## Build static agent binary for linux/amd64
 agent-build:
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-		go build -ldflags "-s -w -X main.Version=$(VERSION)" -o $(AGENT_BIN) ./$(AGENT_DIR)/cmd/agent
+		go build -ldflags "-s -w -X main.Version=$(AGENT_VER)" -o $(AGENT_BIN) ./$(AGENT_DIR)/cmd/agent
 
 ## Build agent for linux/arm64
 agent-build-arm64:
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
-		go build -ldflags "-s -w -X main.Version=$(VERSION)" -o $(AGENT_BIN)-arm64 ./$(AGENT_DIR)/cmd/agent
+		go build -ldflags "-s -w -X main.Version=$(AGENT_VER)" -o $(AGENT_BIN)-arm64 ./$(AGENT_DIR)/cmd/agent
 
 ## Build agent for both architectures and create distributable packages
 agent-package: agent-build agent-build-arm64
 	mkdir -p $(AGENT_DIR)/bin
 	cp scripts/loki-cli.sh $(AGENT_DIR)/bin/loki
 	chmod +x $(AGENT_DIR)/bin/loki
-	tar -czf $(AGENT_DIR)/bin/lokilinux-agent_$(VERSION)_linux_amd64.tar.gz \
+	tar -czf $(AGENT_DIR)/bin/lokilinux-agent_$(AGENT_VER)_linux_amd64.tar.gz \
 		-C $(AGENT_DIR)/bin lokilinux-agent loki
-	tar -czf $(AGENT_DIR)/bin/lokilinux-agent_$(VERSION)_linux_arm64.tar.gz \
+	tar -czf $(AGENT_DIR)/bin/lokilinux-agent_$(AGENT_VER)_linux_arm64.tar.gz \
 		-C $(AGENT_DIR)/bin lokilinux-agent-arm64 loki
 	@if command -v nfpm >/dev/null 2>&1; then \
 		cp $(AGENT_DIR)/bin/lokilinux-agent $(AGENT_DIR)/bin/lokilinux-agent-nfpm-src && \
-		cd $(AGENT_DIR) && ARCH=amd64 VERSION=$(VERSION) nfpm package -f .nfpm.yaml --packager deb --target bin/ && \
-		cd $(AGENT_DIR) && ARCH=amd64 VERSION=$(VERSION) nfpm package -f .nfpm.yaml --packager rpm --target bin/ && \
+		cd $(AGENT_DIR) && ARCH=amd64 VERSION=$(AGENT_VER) nfpm package -f .nfpm.yaml --packager deb --target bin/ && \
+		cd $(AGENT_DIR) && ARCH=amd64 VERSION=$(AGENT_VER) nfpm package -f .nfpm.yaml --packager rpm --target bin/ && \
 		cp $(AGENT_DIR)/bin/lokilinux-agent-arm64 $(AGENT_DIR)/bin/lokilinux-agent-nfpm-src && \
-		cd $(AGENT_DIR) && ARCH=arm64 VERSION=$(VERSION) nfpm package -f .nfpm.yaml --packager deb --target bin/ && \
-		cd $(AGENT_DIR) && ARCH=arm64 VERSION=$(VERSION) nfpm package -f .nfpm.yaml --packager rpm --target bin/ && \
+		cd $(AGENT_DIR) && ARCH=arm64 VERSION=$(AGENT_VER) nfpm package -f .nfpm.yaml --packager deb --target bin/ && \
+		cd $(AGENT_DIR) && ARCH=arm64 VERSION=$(AGENT_VER) nfpm package -f .nfpm.yaml --packager rpm --target bin/ && \
 		rm -f $(AGENT_DIR)/bin/lokilinux-agent-nfpm-src; \
 	else \
 		echo "nfpm not installed — skipping .deb/.rpm (install: go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.40.0)"; \
@@ -97,7 +102,7 @@ COMPLIANCE_BIN = $(COMPLIANCE_DIR)/bin/lokilinux-compliance
 ## Build the lokilinux-compliance static binary for linux/amd64
 compliance-build:
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-		go build -ldflags "-s -w -X main.Version=$(VERSION)" -o $(COMPLIANCE_BIN) ./$(COMPLIANCE_DIR)/cmd/compliance
+		go build -ldflags "-s -w -X main.Version=$(PLATFORM_VERSION)" -o $(COMPLIANCE_BIN) ./$(COMPLIANCE_DIR)/cmd/compliance
 
 ## Run compliance service tests with race detector
 compliance-test:
