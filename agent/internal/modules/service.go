@@ -68,5 +68,5 @@ func Service(ctx context.Context, jobID string, params map[string]interface{}, t
 	}
 
 	argv := []string{"systemctl", action, name}
-	return runViaSystemdRunArgv(ctx, jobID, argv, "", timeoutSec, 64*1024)
+	return runViaSystemdRunArgv(ctx, jobID, argv, "", timeoutSec, 64*1024, &ProfileHostMutation)
 }

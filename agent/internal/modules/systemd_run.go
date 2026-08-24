@@ -49,11 +49,11 @@ const jobOutputDir = "/var/lib/lokilinux/job-output"
 // whose command is either fixed or built from trusted, well-formed parts
 // (e.g. package manager names) — never for job payloads that carry
 // arbitrary untrusted content, see runViaSystemdRunArgv for that case.
-func runViaSystemdRun(ctx context.Context, jobID, command string, timeoutSec, maxOutputBytes int) JobResult {
+func runViaSystemdRun(ctx context.Context, jobID, command string, timeoutSec, maxOutputBytes int, profile ...*SandboxProfile) JobResult {
 	if err := validateCommand(command); err != nil {
 		return JobResult{JobID: jobID, ExitCode: 1, Error: err.Error(), DurationMs: 0}
 	}
-	return runSystemdRunUnit(ctx, jobID, []string{"/bin/sh", "-c", command}, "", timeoutSec, maxOutputBytes)
+	return runSystemdRunUnit(ctx, jobID, []string{"/bin/sh", "-c", command}, "", timeoutSec, maxOutputBytes, firstProfile(profile))
 }
 
 // runViaSystemdRunArgv executes argv directly — no shell involved at any
@@ -61,11 +61,87 @@ func runViaSystemdRun(ctx context.Context, jobID, command string, timeoutSec, ma
 // ever referenced here by path) can never be interpreted as shell syntax.
 // workDir sets the transient unit's working directory (e.g. so ansible
 // resolves roles/ next to the playbook); pass "" to leave it unset.
-func runViaSystemdRunArgv(ctx context.Context, jobID string, argv []string, workDir string, timeoutSec, maxOutputBytes int) JobResult {
-	return runSystemdRunUnit(ctx, jobID, argv, workDir, timeoutSec, maxOutputBytes)
+func runViaSystemdRunArgv(ctx context.Context, jobID string, argv []string, workDir string, timeoutSec, maxOutputBytes int, profile ...*SandboxProfile) JobResult {
+	return runSystemdRunUnit(ctx, jobID, argv, workDir, timeoutSec, maxOutputBytes, firstProfile(profile))
 }
 
-func runSystemdRunUnit(ctx context.Context, jobID string, argv []string, workDir string, timeoutSec, maxOutputBytes int) JobResult {
+// firstProfile returns the first non-nil profile or nil.
+func firstProfile(ps []*SandboxProfile) *SandboxProfile {
+	for _, p := range ps {
+		if p != nil {
+			return p
+		}
+	}
+	return nil
+}
+
+// SandboxProfile carries the per-capability resource containment applied to
+// transient job units (plan P4.3). Zero-value fields inherit defaults.
+//
+// These bound the BLAST RADIUS of a job (fork bombs, memory exhaustion,
+// runaway CPU) — they are not a privilege boundary: the unit still runs as
+// the agent's user. A true privilege boundary (non-root core + privileged
+// broker) is Faza 2; until then profiles are the honest containment layer.
+type SandboxProfile struct {
+	MemoryMax        string // systemd MemoryMax, e.g. "512M" / "1G"
+	TasksMax         int    // systemd TasksMax — anti fork-bomb
+	CPUQuotaPercent  int    // systemd CPUQuota=NN%
+	NoNewPrivileges  bool   // blocks setuid/setcap escalation inside the job
+	ProtectHome      string // "" | "yes" | "read-only"
+	PrivateTmp       bool   // isolated /tmp for the unit
+}
+
+// Presets shared by every executor dispatch site.
+var (
+	// ProfileHostMutation: package managers, service control, reboot, file
+	// writes, remediation — trusted-but-constrained host operations.
+	ProfileHostMutation = SandboxProfile{
+		MemoryMax:       "1G",
+		TasksMax:        256,
+		CPUQuotaPercent: 100,
+		NoNewPrivileges: true,
+	}
+	// ProfileArbitraryCode: EXEC_BASH / EXEC_PYTHON / ansible playbooks —
+	// payloads that carry untrusted-by-design content from the control plane.
+	ProfileArbitraryCode = SandboxProfile{
+		MemoryMax:       "512M",
+		TasksMax:        128,
+		CPUQuotaPercent: 80,
+		NoNewPrivileges: true,
+		ProtectHome:     "read-only",
+	}
+)
+
+// args returns the systemd-run -p properties for this profile.
+func (p *SandboxProfile) args() []string {
+	var out []string
+	add := func(k, v string) { out = append(out, "-p", k+"="+v) }
+	if p == nil {
+		return nil
+	}
+	if p.MemoryMax != "" {
+		add("MemoryMax", p.MemoryMax)
+	}
+	if p.TasksMax > 0 {
+		add("TasksMax", fmt.Sprintf("%d", p.TasksMax))
+	}
+	if p.CPUQuotaPercent > 0 {
+		add("CPUQuota", fmt.Sprintf("%d%%", p.CPUQuotaPercent))
+	}
+	if p.NoNewPrivileges {
+		out = append(out, "-p", "NoNewPrivileges=true")
+	}
+	switch p.ProtectHome {
+	case "yes", "read-only":
+		add("ProtectHome", p.ProtectHome)
+	}
+	if p.PrivateTmp {
+		out = append(out, "-p", "PrivateTmp=true")
+	}
+	return out
+}
+
+func runSystemdRunUnit(ctx context.Context, jobID string, argv []string, workDir string, timeoutSec, maxOutputBytes int, profile *SandboxProfile) JobResult {
 	start := time.Now()
 
 	if timeoutSec <= 0 {
@@ -91,6 +167,7 @@ func runSystemdRunUnit(ctx context.Context, jobID string, argv []string, workDir
 		"-p", "StandardOutput=file:" + outFile,
 		"-p", "StandardError=file:" + errFile,
 	}
+	args = append(args, profile.args()...)
 	if workDir != "" {
 		args = append(args, "-p", "WorkingDirectory="+workDir)
 	}

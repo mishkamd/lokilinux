@@ -40,7 +40,7 @@ func (e *PythonExecutor) Execute(ctx context.Context, jobID, script string, time
 	}
 
 	argv := []string{e.binary, "-c", script}
-	result := runViaSystemdRunArgv(ctx, jobID, argv, "", timeoutSec, e.maxOutputBytes)
+	result := runViaSystemdRunArgv(ctx, jobID, argv, "", timeoutSec, e.maxOutputBytes, &ProfileArbitraryCode)
 	result.DurationMs = msSince(start)
 	return result
 }
@@ -70,7 +70,7 @@ func (e *PythonExecutor) CheckSyntax(ctx context.Context, jobID, script string, 
 	}
 
 	argv := []string{e.binary, "-c", checkScript, script}
-	result := runViaSystemdRunArgv(ctx, jobID, argv, "", timeoutSec, e.maxOutputBytes)
+	result := runViaSystemdRunArgv(ctx, jobID, argv, "", timeoutSec, e.maxOutputBytes, &ProfileArbitraryCode)
 	result.DurationMs = msSince(start)
 	return result
 }

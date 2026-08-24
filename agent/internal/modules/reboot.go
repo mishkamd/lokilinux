@@ -34,5 +34,5 @@ func Reboot(ctx context.Context, jobID string, params map[string]interface{}, ti
 	}
 
 	argv := []string{"systemd-run", fmt.Sprintf("--on-active=%ds", delay), "systemctl", unitCmd}
-	return runViaSystemdRunArgv(ctx, jobID, argv, "", timeoutSec, 64*1024)
+	return runViaSystemdRunArgv(ctx, jobID, argv, "", timeoutSec, 64*1024, &ProfileHostMutation)
 }

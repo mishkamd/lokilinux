@@ -30,7 +30,7 @@ func NewJobExecutor() *JobExecutor {
 // see systemd_run.go) with optional timeout.
 // timeoutSec ≤ 0 means the config default (3600s) applies.
 func (e *JobExecutor) Execute(ctx context.Context, jobID, command string, timeoutSec int) JobResult {
-	return runViaSystemdRun(ctx, jobID, command, timeoutSec, e.maxOutputBytes)
+	return runViaSystemdRun(ctx, jobID, command, timeoutSec, e.maxOutputBytes, &ProfileArbitraryCode)
 }
 
 // CheckSyntax validates command without running it — `sh -n -c <command>`

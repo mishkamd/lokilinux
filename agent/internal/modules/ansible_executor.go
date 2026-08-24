@@ -135,7 +135,7 @@ func (e *AnsibleExecutor) Execute(ctx context.Context, jobID, playbookContent st
 		argv = append(argv, "--check", "--diff")
 	}
 	argv = append(argv, playbookPath)
-	result := runViaSystemdRunArgv(ctx, jobID, argv, dir, timeoutSec, e.maxOutputBytes)
+	result := runViaSystemdRunArgv(ctx, jobID, argv, dir, timeoutSec, e.maxOutputBytes, &ProfileArbitraryCode)
 	result.DurationMs = msSince(start)
 	return result
 }

@@ -59,24 +59,24 @@ func File(ctx context.Context, jobID string, params map[string]interface{}, time
 			}
 		}
 		argv := []string{"/bin/sh", "-c", `printf '%s' "$1" > "$2"`, "--", content, path}
-		result := runViaSystemdRunArgv(ctx, jobID, argv, "", timeoutSec, 64*1024)
+		result := runViaSystemdRunArgv(ctx, jobID, argv, "", timeoutSec, 64*1024, &ProfileHostMutation)
 		if result.ExitCode != 0 || mode == "" {
 			return result
 		}
-		return runViaSystemdRunArgv(ctx, jobID+"-chmod", []string{"chmod", mode, path}, "", timeoutSec, 64*1024)
+		return runViaSystemdRunArgv(ctx, jobID+"-chmod", []string{"chmod", mode, path}, "", timeoutSec, 64*1024, &ProfileHostMutation)
 
 	case "copy":
 		source, _ := params["source"].(string)
 		if source == "" {
 			return fail("config.source is required for action copy")
 		}
-		return runViaSystemdRunArgv(ctx, jobID, []string{"cp", source, path}, "", timeoutSec, 64*1024)
+		return runViaSystemdRunArgv(ctx, jobID, []string{"cp", source, path}, "", timeoutSec, 64*1024, &ProfileHostMutation)
 
 	case "delete":
 		if _, err := os.Stat(path); os.IsNotExist(err) {
 			return skip("%s already absent — no-op", path)
 		}
-		return runViaSystemdRunArgv(ctx, jobID, []string{"rm", "-f", path}, "", timeoutSec, 64*1024)
+		return runViaSystemdRunArgv(ctx, jobID, []string{"rm", "-f", path}, "", timeoutSec, 64*1024, &ProfileHostMutation)
 
 	case "chmod":
 		mode, _ := params["mode"].(string)
@@ -86,7 +86,7 @@ func File(ctx context.Context, jobID string, params map[string]interface{}, time
 		if modeMatches(path, mode) {
 			return skip("%s already has mode %s — no-op", path, mode)
 		}
-		return runViaSystemdRunArgv(ctx, jobID, []string{"chmod", mode, path}, "", timeoutSec, 64*1024)
+		return runViaSystemdRunArgv(ctx, jobID, []string{"chmod", mode, path}, "", timeoutSec, 64*1024, &ProfileHostMutation)
 
 	case "chown":
 		owner, _ := params["owner"].(string)
@@ -107,7 +107,7 @@ func File(ctx context.Context, jobID string, params map[string]interface{}, time
 		if ownerMatches(path, owner, group) {
 			return skip("%s already owned by %s — no-op", path, spec)
 		}
-		return runViaSystemdRunArgv(ctx, jobID, []string{"chown", spec, path}, "", timeoutSec, 64*1024)
+		return runViaSystemdRunArgv(ctx, jobID, []string{"chown", spec, path}, "", timeoutSec, 64*1024, &ProfileHostMutation)
 	}
 
 	return fail("unsupported file action: %q", action) // unreachable, fileActions already gated
