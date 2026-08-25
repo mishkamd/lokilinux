@@ -19,6 +19,7 @@ import hashlib
 import time
 
 from lokilinux.correlation.suppression import is_suppressed
+from lokilinux.metrics import correlation_duration_seconds
 
 _LOCK_TTL_SEC = 5
 
@@ -48,6 +49,12 @@ class CorrelationEvaluator:
 
     async def on_signal(
         self, rules: list[Any], signal: Any, *, tenant_id: str = "default"
+    ) -> list[IncidentCandidate]:
+        with correlation_duration_seconds.time():
+            return await self._on_signal(rules, signal, tenant_id=tenant_id)
+
+    async def _on_signal(
+        self, rules: list[Any], signal: Any, *, tenant_id: str
     ) -> list[IncidentCandidate]:
         candidates: list[IncidentCandidate] = []
         for rule in rules:

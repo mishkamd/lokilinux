@@ -26,6 +26,7 @@ from lokilinux.incidents.evidence import add_evidence
 from lokilinux.incidents.lifecycle import assert_legal
 from lokilinux.incidents.models import Incident, IncidentSignal
 from lokilinux.incidents.timeline import add_entry
+from lokilinux.metrics import clickhouse_insert_errors_total, incidents_created_total
 from lokilinux.nats_topics import INCIDENT_CREATED, INCIDENT_RESOLVED, INCIDENT_UPDATED
 from lokilinux.services.alert_service import AlertService
 from lokilinux.signals.models import Signal
@@ -133,6 +134,7 @@ class IncidentService:
         )
         self.db.add(incident)
         await self.db.flush()
+        incidents_created_total.labels(incident_type=candidate.rule.incident_type).inc()
 
         for sig in signal_rows:
             self.db.add(IncidentSignal(incident_id=incident.id, signal_id=sig.id))
@@ -150,6 +152,7 @@ class IncidentService:
                 )
         except Exception:
             logger.error("incident.evidence_write_failed", incident_id=str(incident.id), exc_info=True)
+            clickhouse_insert_errors_total.labels(table="incident_evidence").inc()
 
         alert_svc = AlertService(self.db, self.nats)
         alert = await alert_svc.create_alert(

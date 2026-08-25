@@ -21,7 +21,7 @@ import structlog
 
 from lokilinux.ch import ClickHouseStore
 from lokilinux.events.schemas import NormalizedEvent
-from lokilinux.metrics import events_dropped_total
+from lokilinux.metrics import clickhouse_insert_errors_total, event_buffer_depth, events_dropped_total
 
 logger = structlog.get_logger()
 
@@ -66,6 +66,7 @@ class EventRepository:
                 len(self._buffer) >= EVENT_INSERT_BATCH
                 or (time.monotonic() - self._oldest_buffered_at) > EVENT_INSERT_FLUSH_SEC
             )
+            event_buffer_depth.labels(buffer="events").set(len(self._buffer))
         if should_flush:
             await self.flush()
 
@@ -78,10 +79,12 @@ class EventRepository:
                 return
             batch, self._buffer = self._buffer, []
             self._oldest_buffered_at = None
+            event_buffer_depth.labels(buffer="events").set(0)
         try:
             await self.ch.insert("events", batch, column_names=_COLUMNS)
         except Exception:
             logger.error("events.flush_failed", batch_size=len(batch), exc_info=True)
+            clickhouse_insert_errors_total.labels(table="events").inc()
             await self._requeue_with_backpressure(batch)
 
     async def _requeue_with_backpressure(self, failed_batch: list[list[Any]]) -> None:
@@ -102,6 +105,7 @@ class EventRepository:
                 return
             self._buffer = [row for i, row in enumerate(self._buffer) if i not in to_drop]
             events_dropped_total.labels(reason="buffer_overflow").inc(len(to_drop))
+            event_buffer_depth.labels(buffer="events").set(len(self._buffer))
             logger.warning("events.buffer_overflow_dropped", dropped=len(to_drop))
 
     async def query(

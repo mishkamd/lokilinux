@@ -5,7 +5,7 @@ publishes 9090). Counters only ever carry labels like outcome/reason — never
 serials, agent payloads or key material.
 """
 
-from prometheus_client import Counter, Histogram, start_http_server
+from prometheus_client import Counter, Gauge, Histogram, start_http_server
 
 # ── Signed jobs (§4) ──────────────────────────────────────────────────────────
 unsigned_privileged_jobs_total = Counter(
@@ -50,6 +50,26 @@ events_received_total = Counter(
 )
 events_dropped_total = Counter(
     "lokilinux_events_dropped_total", "Events dropped before reaching ClickHouse", ["reason"]
+)
+signals_detected_total = Counter(
+    "lokilinux_signals_detected_total", "Signal upserts (new + re-occurrence)", ["type"]
+)
+incidents_created_total = Counter(
+    "lokilinux_incidents_created_total", "New incidents opened (not re-attaches)", ["incident_type"]
+)
+correlation_duration_seconds = Histogram(
+    "lokilinux_correlation_duration_seconds", "CorrelationEvaluator.on_signal wall time",
+    buckets=(0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0),
+)
+clickhouse_insert_errors_total = Counter(
+    "lokilinux_clickhouse_insert_errors_total", "Failed ClickHouse insert() calls", ["table"]
+)
+event_buffer_depth = Gauge(
+    "lokilinux_event_buffer_depth", "Rows currently buffered awaiting the next ClickHouse flush", ["buffer"]
+)
+ch_operation_duration_seconds = Histogram(
+    "lokilinux_ch_operation_duration_seconds", "ClickHouseStore call latency", ["operation"],
+    buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5),
 )
 
 # ── Exec broker (§19) ────────────────────────────────────────────────────────

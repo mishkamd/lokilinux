@@ -17,6 +17,7 @@ import time
 import structlog
 
 from lokilinux.ch import ClickHouseStore
+from lokilinux.metrics import clickhouse_insert_errors_total, event_buffer_depth
 
 logger = structlog.get_logger()
 
@@ -51,6 +52,7 @@ class SignalOccurrenceRepository:
                 len(self._buffer) >= OCCURRENCE_INSERT_BATCH
                 or (time.monotonic() - self._oldest_buffered_at) > OCCURRENCE_INSERT_FLUSH_SEC
             )
+            event_buffer_depth.labels(buffer="signal_occurrences").set(len(self._buffer))
         if should_flush:
             await self.flush()
 
@@ -60,10 +62,12 @@ class SignalOccurrenceRepository:
                 return
             batch, self._buffer = self._buffer, []
             self._oldest_buffered_at = None
+            event_buffer_depth.labels(buffer="signal_occurrences").set(0)
         try:
             await self.ch.insert("signal_occurrences", batch, column_names=_COLUMNS)
         except Exception:
             logger.error("signal_occurrences.flush_failed", batch_size=len(batch), exc_info=True)
+            clickhouse_insert_errors_total.labels(table="signal_occurrences").inc()
             async with self._lock:
                 self._buffer = batch + self._buffer
                 if self._oldest_buffered_at is None:
@@ -73,3 +77,4 @@ class SignalOccurrenceRepository:
                     dropped = self._buffer[:overflow]
                     self._buffer = self._buffer[overflow:]
                     logger.warning("signal_occurrences.buffer_overflow_dropped", dropped=len(dropped))
+                event_buffer_depth.labels(buffer="signal_occurrences").set(len(self._buffer))

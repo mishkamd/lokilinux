@@ -8,6 +8,7 @@ from uuid import UUID
 from pydantic import BaseModel
 
 from lokilinux.schemas.common import CursorPage
+from lokilinux.signals.schemas import SignalResponse
 
 
 class IncidentTimelineEntry(BaseModel):
@@ -39,3 +40,8 @@ class IncidentResponse(BaseModel):
 
 
 IncidentListResponse = CursorPage[IncidentResponse]
+
+
+class IncidentDetailResponse(IncidentResponse):
+    signals: list[SignalResponse]
+    timeline: list[IncidentTimelineEntry]

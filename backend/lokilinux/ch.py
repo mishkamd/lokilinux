@@ -18,6 +18,8 @@ import asyncio
 import clickhouse_connect
 import structlog
 
+from lokilinux.metrics import ch_operation_duration_seconds
+
 logger = structlog.get_logger()
 
 
@@ -114,10 +116,12 @@ class ClickHouseStore:
         return await asyncio.to_thread(self._client.command, sql)
 
     async def query(self, sql: str, parameters: dict | None = None) -> Any:
-        return await asyncio.to_thread(self._client.query, sql, parameters=parameters)
+        with ch_operation_duration_seconds.labels(operation="query").time():
+            return await asyncio.to_thread(self._client.query, sql, parameters=parameters)
 
     async def insert(self, table: str, data: list[list[Any]], column_names: list[str]) -> None:
-        await asyncio.to_thread(self._client.insert, table, data, column_names=column_names)
+        with ch_operation_duration_seconds.labels(operation="insert").time():
+            await asyncio.to_thread(self._client.insert, table, data, column_names=column_names)
 
     async def ensure_tables(
         self,

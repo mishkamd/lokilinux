@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
 from lokilinux.events.fingerprint import fingerprint
+from lokilinux.metrics import signals_detected_total
 from lokilinux.nats_topics import SIGNAL_DETECTED, SIGNAL_RESOLVED
 from lokilinux.signals.detectors import DetectedSignal
 from lokilinux.signals.models import Signal
@@ -92,6 +93,7 @@ class SignalService:
             host_id=detected.host_id, service=detected.service, fingerprint=fp,
             value=detected.value, metadata=detected.metadata,
         )
+        signals_detected_total.labels(type=detected.type).inc()
         try:
             await self.nats.publish(
                 SIGNAL_DETECTED,
