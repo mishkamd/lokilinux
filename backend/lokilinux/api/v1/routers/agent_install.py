@@ -352,7 +352,18 @@ def _verify_reenrollment_proof(cert_pem: str | None, expected_agent_id: str) -> 
         return False
     attrs = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
     cn = attrs[0].value.strip() if attrs else ""
+    if not (bool(cn) and cn.lower() == expected_agent_id.strip().lower()):
+        return False
+
     return bool(cn) and cn.lower() == expected_agent_id.strip().lower()
+
+
+def _cert_serial_hex(cert_pem: str) -> str | None:
+    """P11 helper: hex serial of a PEM cert, None when unparseable."""
+    try:
+        return format(x509.load_pem_x509_certificate(cert_pem.encode()).serial_number, "x")
+    except Exception:
+        return None
 
 
 def _generate_agent_cert(agent_id: str) -> tuple[str, str, str]:
@@ -429,6 +440,23 @@ async def register_agent(
                     "contact an administrator to decommission the old agent."
                 ),
             )
+
+        # P11: a revoked certificate must not resurrect its identity through
+        # re-enrollment — same fail-closed policy as the heartbeat gate.
+        s = get_settings()
+        serial_hex = _cert_serial_hex(body.existing_cert_pem)
+        try:
+            from lokilinux.services import cert_revocation
+
+            await cert_revocation.assert_not_revoked(
+                cache, serial_hex,
+                enabled=s.certificate_revocation_enabled,
+                fail_closed=s.certificate_revocation_fail_closed,
+            )
+        except cert_revocation.CertificateRevoked:
+            raise HTTPException(status_code=403, detail="certificate revoked")
+        except cert_revocation.RevocationUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         agent_id = existing.agent_id
         existing.status = AgentStatus.PENDING
         existing.os_distro = body.os_distro
