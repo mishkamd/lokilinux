@@ -24,7 +24,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
     structlog==26.1.0 orjson==3.11.9 httpx==0.28.1 python-multipart==0.0.32 \
     PyJWT[cryptography]==2.13.0 cryptography==50.0.0 \
     openpyxl==3.1.5 reportlab==5.0.0 \
-    croniter==6.2.4 && \
+    croniter==6.2.4 prometheus-client==0.21.3 && \
     # Transitive-dep security fixes, forced AFTER main install so the
     # resolver cannot downgrade them back:
     # setuptools CVE-2025-47273, wheel CVE-2026-24049, jaraco.context

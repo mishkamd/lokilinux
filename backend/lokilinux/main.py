@@ -50,6 +50,11 @@ settings = Settings()
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("lokilinux.startup", version=__version__, environment=settings.environment)
 
+    if settings.metrics_enabled:
+        from lokilinux.metrics import start_metrics_server
+
+        start_metrics_server(settings.metrics_port)
+
     # Database
     engine = build_engine(settings.database_url)
     session_factory = build_session_factory(engine)

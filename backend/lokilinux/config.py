@@ -70,6 +70,12 @@ class Settings(BaseSettings):
     certificate_revocation_enabled: bool = True
     certificate_revocation_fail_closed: bool = True
 
+    # ── Metrics / KMS (plan 2026-08-25) ───────────────────────
+    metrics_enabled: bool = True
+    metrics_port: int = 9090
+    job_signing_required: bool = False   # fail-closed dispatch when True
+    security_profile: str = "development"  # production adds startup validations
+
     @property
     def debug(self) -> bool:
         return self.environment == "development"

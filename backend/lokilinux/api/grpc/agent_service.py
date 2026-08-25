@@ -10,6 +10,7 @@ Heartbeat flow:
 """
 
 import logging
+import re
 
 import grpc
 from cryptography import x509
@@ -26,6 +27,7 @@ from lokilinux.services.compliance_ingest_service import (
     publish_domain_hashes,
     publish_domain_snapshots,
 )
+from lokilinux import metrics
 from lokilinux.services.job_envelope import maybe_attach_envelope
 from lokilinux.services.policy_service import get_job_timeout_seconds
 
@@ -91,6 +93,29 @@ async def revoke_agent_identity(cache, agent_id: str) -> None:
 
 async def unrevoke_agent_identity(cache, agent_id: str) -> None:
     await cache.invalidate(_revoked_key(agent_id))
+
+
+_REJECT_RE = re.compile(r"rejected \[(\w+)\]")
+
+
+def _count_agent_rejections(job_results) -> None:
+    """Increment security counters from agent-reported job failures. The agent
+    encodes its pre-dispatch gate verdicts as `rejected [code]: detail`."""
+    if not job_results:
+        return
+    for r in job_results:
+        err = str(getattr(r, "error", None) or "")
+        m = _REJECT_RE.search(err)
+        if not m:
+            continue
+        code = m.group(1).lower()
+        metrics.agent_rejected_jobs_total.labels(code=code).inc()
+        if code == "bad_signature":
+            metrics.invalid_signature_total.labels(reason="bad_signature").inc()
+        elif code == "expired":
+            metrics.expired_signature_total.inc()
+        elif code == "duplicate_job":
+            metrics.replayed_job_total.inc()
 
 
 def _needs_recursion(v) -> bool:
@@ -213,6 +238,7 @@ class AgentServicer:
                 packages = getattr(request, "packages", None)
                 health = getattr(request, "health", None)
                 job_results = getattr(request, "job_results", None)
+                _count_agent_rejections(job_results)
                 vulnerabilities = getattr(request, "vulnerabilities", None)
 
                 # Identity binding happens in the gate ABOVE the try block
