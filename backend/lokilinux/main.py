@@ -106,6 +106,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.nats = nc
     logger.info("nats.ready", url=settings.nats_url)
 
+    # JetStream replay/audit streams for the observability pipeline — plain-core
+    # subscribe stays the delivery path everywhere (see eventbus.py docstring).
+    from lokilinux.eventbus import ensure_streams
+    await ensure_streams(nc)
+
     # Workers — subscribe after NATS is up
     from lokilinux.workers.alert_processor import AlertProcessorWorker
     from lokilinux.workers.cve_processor import CVEProcessorWorker
