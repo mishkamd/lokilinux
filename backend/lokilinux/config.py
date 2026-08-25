@@ -37,6 +37,10 @@ class Settings(BaseSettings):
     signal_occurrence_retention_days: int = 90
     incident_evidence_retention_days: int = 180
     event_pipeline_enabled: bool = True
+    event_max_payload_bytes: int = 65536
+    event_rate_per_agent_per_min: int = 600
+    event_max_clock_skew_sec: int = 300
+    correlation_state_backend: str = "redis"
 
     # ── gRPC (agent communication) ────────────────────────────
     grpc_port: int = 50051

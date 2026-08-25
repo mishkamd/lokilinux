@@ -35,3 +35,12 @@ COMPLIANCE_SNAPSHOT_DOMAIN = "lokilinux.compliance.snapshot"  # + ".{domain}" su
 COMPLIANCE_DRIFT_DETECTED = "lokilinux.compliance.drift.detected"
 COMPLIANCE_SCORE_UPDATED = "lokilinux.compliance.score.updated"
 COMPLIANCE_BASELINE_PUBLISHED = "lokilinux.compliance.baseline.published"
+
+# Observability pipeline (Observation -> Event -> Signal -> Correlation -> Incident)
+EVENT_RAW = "lokilinux.events.raw"            # + ".{source}" subject suffix per publish
+EVENT_NORMALIZED = "lokilinux.events.normalized"
+SIGNAL_DETECTED = "lokilinux.signals.detected"
+SIGNAL_RESOLVED = "lokilinux.signals.resolved"
+INCIDENT_CREATED = "lokilinux.incidents.created"
+INCIDENT_UPDATED = "lokilinux.incidents.updated"
+INCIDENT_RESOLVED = "lokilinux.incidents.resolved"
