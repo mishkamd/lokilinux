@@ -36,6 +36,15 @@ from .remediation import MaintenanceWindow, RemediationAction, RemediationJob, R
 from .rule_evaluation import ComplianceScore, RuleEvaluation
 from .workflow import Workflow, WorkflowAudit, WorkflowRun, WorkflowStepRun, WorkflowVersion
 
+# Observability pipeline (Phases B/D) — these live in their own bounded-context
+# packages (lokilinux.signals / lokilinux.incidents), not lokilinux.models, but
+# Alert.incident_id and Incident.root_cause_signal_id/correlation_rule_id are
+# cross-package FKs: without importing them here too, SQLAlchemy can't resolve
+# those FK targets whenever something imports lokilinux.models without also
+# having already imported signals/incidents first (NoReferencedTableError).
+from lokilinux.incidents.models import Incident, IncidentSignal, IncidentTimeline
+from lokilinux.signals.models import CorrelationRule, Signal
+
 __all__ = [
     # agent
     "Agent",
@@ -117,4 +126,11 @@ __all__ = [
     "WorkflowRun",
     "WorkflowStepRun",
     "WorkflowVersion",
+    # incidents (observability pipeline, Phase D)
+    "Incident",
+    "IncidentSignal",
+    "IncidentTimeline",
+    # signals (observability pipeline, Phase B)
+    "CorrelationRule",
+    "Signal",
 ]
