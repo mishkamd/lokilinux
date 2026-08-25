@@ -49,6 +49,12 @@ SETTINGS_SCHEMA: dict[str, dict[str, tuple[str, Any]]] = {
         "heartbeat_timeout_minutes": ("integer", 5),
         "job_stale_timeout_minutes": ("integer", 60),
     },
+    "observability": {
+        # Kill switch for the events -> signals -> incidents pipeline (Task A5).
+        # Workers re-check this every loop, so flipping it takes effect without
+        # a redeploy — legacy alerting is unaffected either way.
+        "event_pipeline_enabled": ("boolean", True),
+    },
     "retention": {
         "metrics_days": ("integer", 365),
     },

@@ -36,7 +36,10 @@ class Settings(BaseSettings):
     event_retention_days: int = 30
     signal_occurrence_retention_days: int = 90
     incident_evidence_retention_days: int = 180
-    event_pipeline_enabled: bool = True
+    # NOTE: the pipeline kill switch (event_pipeline_enabled) lives in
+    # settings_schema.py's "observability" group, not here — it's a live,
+    # DB-backed toggle workers re-check every loop, not a deploy-time value
+    # (see the plan's Rollout & rollback section).
     event_max_payload_bytes: int = 65536
     event_rate_per_agent_per_min: int = 600
     event_max_clock_skew_sec: int = 300

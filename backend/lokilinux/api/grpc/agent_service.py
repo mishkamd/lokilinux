@@ -22,6 +22,7 @@ from lokilinux.services.cert_revocation import (
     RevocationUnavailable,
     assert_not_revoked,
 )
+from lokilinux.events.publish import emit, is_pipeline_enabled
 from lokilinux.services.compliance_ingest_service import (
     diff_domain_hashes,
     publish_domain_hashes,
@@ -277,6 +278,23 @@ class AgentServicer:
                         logger.warning("HeartbeatStream: %s", exc)
                         await context.abort(grpc.StatusCode.NOT_FOUND, str(exc))
                         return
+
+                    # Observability pipeline (Task A5) — best-effort, never
+                    # blocks or fails the heartbeat itself.
+                    if await is_pipeline_enabled(self.cache, db):
+                        await emit(self.nats, "agent", "host.heartbeat.ok", host_id=str(agent.id))
+                        health_raw = _as_dict(health)
+                        health_dict: dict = health_raw if isinstance(health_raw, dict) else {}
+                        if health_dict:
+                            await emit(
+                                self.nats, "metrics", "metric.sample", host_id=str(agent.id),
+                                payload={
+                                    "cpu": health_dict.get("cpu_usage"),
+                                    "memory": health_dict.get("memory_usage"),
+                                    "disk": health_dict.get("disk_usage"),
+                                },
+                            )
+
                     pending_jobs = await svc.get_pending_jobs(agent.id)
                     job_timeouts = {
                         j.id: await get_job_timeout_seconds(db, j) for j in pending_jobs

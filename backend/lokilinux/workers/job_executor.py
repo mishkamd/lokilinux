@@ -11,6 +11,7 @@ import json
 import logging
 from uuid import UUID
 
+from lokilinux.events.publish import emit, is_pipeline_enabled
 from lokilinux.nats_topics import JOB_RESULT
 from lokilinux.services.job_service import JobService
 
@@ -40,5 +41,14 @@ class JobExecutorWorker:
                     stderr=data.get("stderr", ""),
                     duration_ms=data.get("duration_ms", 0),
                 )
+                if await is_pipeline_enabled(self.cache, db):
+                    exit_code = data["exit_code"]
+                    await emit(
+                        self.nats, "job",
+                        "job.completed" if exit_code == 0 else "job.failed",
+                        severity="INFO" if exit_code == 0 else "WARNING",
+                        host_id=data["agent_id"],
+                        payload={"job_id": data["job_id"], "exit_code": exit_code},
+                    )
         except Exception:
             logger.error("Failed to process job result", exc_info=True)
