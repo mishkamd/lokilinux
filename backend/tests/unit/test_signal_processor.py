@@ -1,9 +1,13 @@
 import contextlib
 import json
 from types import SimpleNamespace
+from uuid import uuid4
 
 import pytest
+from sqlalchemy import select
 
+from lokilinux.models.agent import Agent, AgentStatus
+from lokilinux.topology.models import TopologyNode
 from lokilinux.workers.signal_processor import SignalProcessorWorker
 
 
@@ -54,6 +58,31 @@ async def test_recovery_event_resolves_without_creating_a_signal(db_session, fak
 
     subjects = [s for s, _ in fake_nats.published]
     assert subjects == ["lokilinux.signals.resolved"]
+
+
+@pytest.mark.asyncio
+async def test_recovery_event_auto_seeds_topology_host_node(db_session, fake_cache, fake_nats):
+    agent = Agent(agent_id=str(uuid4()), status=AgentStatus.ACTIVE, hostname="web-1")
+    db_session.add(agent)
+    await db_session.flush()
+
+    worker = SignalProcessorWorker(fake_nats, _db_factory(db_session), fake_cache, _FakeCH())
+    await worker._handle_normalized_event(_msg({
+        "type": "host.heartbeat.ok", "host_id": str(agent.id), "tenant_id": "default", "payload": {},
+    }))
+
+    rows = (await db_session.execute(select(TopologyNode).where(TopologyNode.agent_id == agent.id))).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].kind == "HOST"
+    assert rows[0].name == "web-1"
+
+
+@pytest.mark.asyncio
+async def test_recovery_event_with_non_uuid_host_id_skips_topology_seed_without_raising(db_session, fake_cache, fake_nats):
+    worker = SignalProcessorWorker(fake_nats, _db_factory(db_session), fake_cache, _FakeCH())
+    await worker._handle_normalized_event(_msg({
+        "type": "host.heartbeat.ok", "host_id": "host-2", "tenant_id": "default", "payload": {},
+    }))  # "host-2" isn't a UUID — must not raise, just skip the topology seed
 
 
 @pytest.mark.asyncio

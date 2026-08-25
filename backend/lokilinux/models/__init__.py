@@ -44,6 +44,7 @@ from .workflow import Workflow, WorkflowAudit, WorkflowRun, WorkflowStepRun, Wor
 # having already imported signals/incidents first (NoReferencedTableError).
 from lokilinux.incidents.models import Incident, IncidentSignal, IncidentTimeline
 from lokilinux.signals.models import CorrelationRule, Signal
+from lokilinux.topology.models import TopologyEdge, TopologyNode
 
 __all__ = [
     # agent
@@ -133,4 +134,7 @@ __all__ = [
     # signals (observability pipeline, Phase B)
     "CorrelationRule",
     "Signal",
+    # topology (observability pipeline, Phase E)
+    "TopologyEdge",
+    "TopologyNode",
 ]

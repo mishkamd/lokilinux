@@ -10,11 +10,13 @@ everything else — one detection path, not two.
 """
 
 from types import SimpleNamespace
+from uuid import UUID
 import json
 
 import structlog
 
 from lokilinux.ch import ClickHouseStore
+from lokilinux.models.agent import Agent
 from lokilinux.nats_topics import COMPLIANCE_DRIFT_DETECTED, EVENT_NORMALIZED
 from lokilinux.signals.detectors import (
     DETECTORS,
@@ -25,6 +27,7 @@ from lokilinux.signals.detectors import (
 )
 from lokilinux.signals.repository import SignalOccurrenceRepository
 from lokilinux.signals.service import SignalService
+from lokilinux.topology.service import ensure_host_node
 
 logger = structlog.get_logger()
 
@@ -43,6 +46,26 @@ class SignalProcessorWorker:
 
     async def stop(self) -> None:
         await self.occurrences.flush()
+
+    async def _auto_seed_host_node(self, db, host_id: str | None) -> None:
+        """Cheap, idempotent: ensure a HOST topology node exists for this
+        agent, named by its hostname. Best-effort — a lookup failure here
+        must not break signal resolution, which already happened above."""
+        agent_uuid = None
+        if host_id:
+            try:
+                agent_uuid = UUID(str(host_id))
+            except ValueError:
+                return
+        if agent_uuid is None:
+            return
+        try:
+            agent = await db.get(Agent, agent_uuid)
+            if agent is None:
+                return
+            await ensure_host_node(db, agent_id=agent.id, hostname=agent.hostname or agent.agent_id)
+        except Exception:
+            logger.warning("signal_processor.topology_seed_failed", host_id=host_id, exc_info=True)
 
     async def _handle_normalized_event(self, msg) -> None:
         try:
@@ -75,6 +98,7 @@ class SignalProcessorWorker:
 
                 if event.type == RECOVERY_EVENT_TYPE:
                     await svc.resolve_by_fingerprint(tenant_id, event.host_id, RECOVERY_RESOLVES_SIGNAL_TYPE)
+                    await self._auto_seed_host_node(db, event.host_id)
                     return
 
                 if event.type == METRIC_SAMPLE_EVENT_TYPE:
