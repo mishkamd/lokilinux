@@ -1,5 +1,8 @@
 # Security Hardening — Finalization Plan
 
+> **STATUS (2026-08-25): COMPLET.** `06a3535` broker telemetry+flip · `2669e50` remediation runners · `d7ca41a` CRL re-enroll · `22248fd` bundle guard · `bbd39f5` docs+E2E.
+> **E2E LIVE: 8/8 PASS** pe stack real (`scripts/security/e2e_signed_job.sh` vs lokilinux-api:0.3.0 rebuild — signing-key endpoints, revocation gating 401, metrics 9090). Deploy efectuat: rebuild api image (prometheus-client 0.21.1), migrate alembic 030, cheie signing provizionată în volumul certs, ClickHouse network-user fix pentru stack-ul local.
+
 > **For agentic workers:** superpowers:executing-plans. Checkbox tracking.
 
 **Goal:** Închiderea ultimelor gap-uri: telemetrie prin broker (deblochează non-root), COMPLIANCE_REMEDIATE prin broker, CRL la re-enroll, validare operațională (E2E local condiționat + distro runbook).
