@@ -63,11 +63,15 @@ proto:
 agent-build:
 	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
 		go build -ldflags "-s -w -X main.Version=$(AGENT_VER)" -o $(AGENT_BIN) ./$(AGENT_DIR)/cmd/agent
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
+		go build -ldflags "-s -w -X main.Version=$(AGENT_VER)" -o $(AGENT_DIR)/bin/loki-agent-exec $(AGENT_DIR)/cmd/exec-broker
 
 ## Build agent for linux/arm64
 agent-build-arm64:
 	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
 		go build -ldflags "-s -w -X main.Version=$(AGENT_VER)" -o $(AGENT_BIN)-arm64 ./$(AGENT_DIR)/cmd/agent
+	CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
+		go build -ldflags "-s -w -X main.Version=$(AGENT_VER)" -o $(AGENT_DIR)/bin/loki-agent-exec-arm64 $(AGENT_DIR)/cmd/exec-broker
 
 ## Build agent for both architectures and create distributable packages
 agent-package: agent-build agent-build-arm64

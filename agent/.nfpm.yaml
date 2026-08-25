@@ -14,6 +14,11 @@ contents:
     file_info:
       mode: 0755
 
+  - src: bin/loki-agent-exec
+    dst: /usr/local/bin/loki-agent-exec
+    file_info:
+      mode: 0755
+
   - src: /dev/null
     dst: /etc/lokilinux/
     type: dir

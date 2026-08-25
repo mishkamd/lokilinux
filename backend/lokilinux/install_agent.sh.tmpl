@@ -227,8 +227,51 @@ SystemCallArchitectures=native
 WantedBy=multi-user.target
 EOF
 
+# ── Exec broker (opt-in non-root core) ────────────────────────────────────────
+# INSTALL_EXEC_BROKER=0 keeps the legacy all-root layout (compat default).
+# With the broker, the main agent can run as loki-agent; telemetry paths that
+# still need systemd-run are documented in EXECUTION_MODEL.md as a known gap.
+if [ "${INSTALL_EXEC_BROKER:-1}" = "1" ] && [ -x /usr/local/bin/loki-agent-exec ]; then
+  install -m 644 /dev/null /etc/systemd/system/loki-agent-exec.service
+  cat > /etc/systemd/system/loki-agent-exec.service <<'BROKEREOF'
+[Unit]
+Description=LokiLinux Agent Execution Broker
+PartOf=lokilinux-agent.service
+After=lokilinux-agent.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/loki-agent-exec --socket /run/lokilinux/exec.sock --agent-user loki-agent
+Restart=always
+RestartSec=5
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any
+ProtectSystem=strict
+ReadWritePaths=/run/lokilinux /var/lib/lokilinux
+ProtectHome=true
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+UMask=0027
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target
+BROKEREOF
+  mkdir -p /run/lokilinux
+  chown root:loki-agent /run/lokilinux 2>/dev/null || true
+  chmod 750 /run/lokilinux
+fi
+
 systemctl daemon-reload
 systemctl enable lokilinux-agent >/dev/null 2>&1 || true
+if [ -f /etc/systemd/system/loki-agent-exec.service ]; then
+  systemctl enable --now loki-agent-exec >/dev/null 2>&1 || true
+fi
 systemctl restart lokilinux-agent
 
 sleep 2
