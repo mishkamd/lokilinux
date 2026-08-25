@@ -111,10 +111,22 @@ const (
 // ClockSkew tolerates minor host drift on the issued_at lower bound only.
 const ClockSkew = 30 * time.Second
 
+// TargetAgent returns the envelope's intended agent id.
+func (e *Envelope) TargetAgent() string { return e.AgentID }
+
 // Canonical exposes deterministic re-encoding for payload-binding checks:
 // callers compare canonical(agentParams) vs canonical(envelope.Payload).
 func Canonical(in []byte) ([]byte, error) {
 	return canonicalJSON(in)
+}
+
+// MustCanonical is Canonical for tests/fixed inputs; panics on invalid JSON.
+func MustCanonical(in []byte) []byte {
+	out, err := canonicalJSON(in)
+	if err != nil {
+		panic(err)
+	}
+	return out
 }
 
 // Verifier holds ONLY platform public keys, indexed by key version

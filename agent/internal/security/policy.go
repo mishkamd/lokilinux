@@ -103,7 +103,7 @@ func riskTier(risk string) int {
 // a job demands. LOW/MEDIUM pass without policy; HIGH/CRITICAL require a
 // fresh, enabled policy entry. require_approval entries reject until the
 // approval-claim mechanism ships (explicit, not silent).
-func (lp *LocalPolicy) EvaluateAuthorizations(capabilities []string, risksByCap func(string) string, now time.Time) (PolicyRejectReason, string) {
+func (lp *LocalPolicy) EvaluateAuthorizations(capabilities []string, risksByCap func(string) string, now time.Time, approvedByClaim map[string]bool) (PolicyRejectReason, string) {
 	for _, capName := range capabilities {
 		tier := riskTier(risksByCap(capName))
 		if tier < 2 {
@@ -122,8 +122,8 @@ func (lp *LocalPolicy) EvaluateAuthorizations(capabilities []string, risksByCap 
 		if !rule.Enabled {
 			return CapabilityOff, fmt.Sprintf("capability %s disabled by policy", capName)
 		}
-		if rule.RequireApproval {
-			return ApprovalNeeded, fmt.Sprintf("capability %s requires approval flow (not yet available)", capName)
+		if rule.RequireApproval && !approvedByClaim[capName] {
+			return ApprovalNeeded, fmt.Sprintf("capability %s requires a valid approval claim", capName)
 		}
 	}
 	return "", ""

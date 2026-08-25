@@ -6,6 +6,7 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -88,7 +89,7 @@ func validateAndAuthorize(
 	if cfgSec.EnforceSignedJobs {
 		outer := make(map[string]interface{}, len(params))
 		for k, v := range params {
-			if k != "_envelope" {
+			if k != "_envelope" && k != "_approval_claim" { // transport keys, not job content
 				outer[k] = v
 			}
 		}
@@ -127,12 +128,52 @@ func validateAndAuthorize(
 			return rejectResult(jobID, "capability_gap",
 				fmt.Sprintf("envelope lacks %v required by %s", missing, jobType))
 		}
+
+		// Approval claims (plan §6): a valid signed claim satisfies
+		// require_approval gates; everything else keeps the hard reject.
+		var approvalClaim *security.ApprovalClaim
+		if rawClaim, ok := params["_approval_claim"]; ok {
+			claimJSON, err := json.Marshal(rawClaim)
+			if err != nil {
+				return rejectResult(jobID, "approval_malformed", err.Error())
+			}
+			claim, err := security.ParseApprovalClaim(claimJSON)
+			if err != nil {
+				return rejectResult(jobID, "approval_malformed", err.Error())
+			}
+			payloadCanonical, err := security.Canonical(env.Payload)
+			if err != nil {
+				return rejectResult(jobID, "approval_malformed", err.Error())
+			}
+			jobHash := fmt.Sprintf("%x", sha256.Sum256(payloadCanonical))
+			if err := verifier.VerifyApprovalClaim(
+				claim,
+				env.JobID,
+				jobHash,
+				env.AgentID,
+				env.RequestedCapabilities,
+				replayAdapter{store: replay},
+				now,
+			); err != nil {
+				return rejectResult(jobID, "approval_invalid", err.Error())
+			}
+			approvalClaim = claim
+		}
+
+		approvedByClaim := map[string]bool{}
+		if approvalClaim != nil {
+			for _, cp := range approvalClaim.Capabilities {
+				approvedByClaim[cp] = true
+			}
+		}
+
 		// Local policy enforcement (fail-closed for HIGH/CRITICAL): a bug or
 		// compromise in the control plane must not silently widen execution.
 		if reason, detail := policy.EvaluateAuthorizations(
 			env.RequestedCapabilities,
 			func(c string) string { return string(security.RiskFor(c)) },
 			now,
+			approvedByClaim,
 		); reason != "" {
 			return rejectResult(jobID, string(reason), detail)
 		}
