@@ -45,7 +45,7 @@ dependencies = [
 
     # Policy Engine — cron trigger scheduling
     "croniter==6.2.4",
-    "prometheus-client==0.21.3",
+    "prometheus-client==0.21.1",
 
     # Compliance — curated rule content loader (F10)
     "PyYAML==6.0.3",
