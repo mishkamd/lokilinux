@@ -55,6 +55,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         start_metrics_server(settings.metrics_port)
 
+    # Production security profile (plan §25): conservative by default —
+    # production demands the full trust model be ON before serving agents.
+    if settings.security_profile == "production":
+        problems = []
+        if not os.environ.get("JOB_SIGNING_REQUIRED", "").lower() in ("1", "true", "yes"):
+            problems.append("JOB_SIGNING_REQUIRED must be true in production")
+        if not settings.certificate_revocation_enabled:
+            problems.append("certificate_revocation_enabled must be true in production")
+        if not settings.certificate_revocation_fail_closed:
+            problems.append("certificate_revocation_fail_closed must be true in production")
+        if os.environ.get("KMS_PROVIDER", "file") == "file" and                 os.environ.get("ALLOW_FILE_KEYS_IN_PRODUCTION", "").lower() not in ("1", "true", "yes"):
+            problems.append("file-based signing keys require ALLOW_FILE_KEYS_IN_PRODUCTION=true (use a KMS provider)")
+        if problems:
+            raise RuntimeError("production security profile violations: " + "; ".join(problems))
+
     # Database
     engine = build_engine(settings.database_url)
     session_factory = build_session_factory(engine)
