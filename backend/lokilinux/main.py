@@ -176,11 +176,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from lokilinux.workers.event_processor import EventProcessorWorker
     event_processor_worker = EventProcessorWorker(nc, cache, ch)
     await event_processor_worker.start()
+    from lokilinux.workers.signal_processor import SignalProcessorWorker
+    signal_processor_worker = SignalProcessorWorker(nc, session_factory, cache, ch)
+    await signal_processor_worker.start()
     app.state.workers = [
         job_worker, cve_worker, alert_worker, policy_worker, policy_scheduler_worker, plugin_worker,
         heartbeat_worker, job_timeout_worker, remediation_scheduler_worker, remediation_verification_worker,
         retention_worker, notification_worker, cve_enrichment_worker, workflow_runner_worker,
-        workflow_scheduler_worker, event_processor_worker,
+        workflow_scheduler_worker, event_processor_worker, signal_processor_worker,
     ]
     logger.info("workers.ready")
 
@@ -196,6 +199,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await retention_worker.stop()
     await cve_enrichment_worker.stop()
     await event_processor_worker.stop()  # flushes any buffered events to ClickHouse
+    await signal_processor_worker.stop()  # flushes any buffered signal occurrences
     await nc.drain()
     await ch.disconnect()
     await cache.disconnect()
