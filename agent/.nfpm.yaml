@@ -3,7 +3,7 @@ arch: ${ARCH}
 platform: linux
 version: ${VERSION}
 maintainer: LokiLinux Team <ops@lokilinux.io>
-description: LokiLinux enterprise Linux fleet management agent
+description: LokiLinux — enterprise Linux operations agent
 vendor: LokiLinux
 homepage: https://lokilinux.io
 license: Apache-2.0

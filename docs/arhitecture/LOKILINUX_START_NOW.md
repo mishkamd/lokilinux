@@ -333,7 +333,7 @@ git add -A
 git commit -m "feat: Complete LokiLinux MVP
 - Backend: FastAPI + PostgreSQL + Redis
 - Agent: Go gRPC client with heartbeat
-- Frontend: Nuxt 4 with server management
+- Frontend: Nuxt 4 web UI for infrastructure operations
 - APIs: Server inventory + update management
 - Database: 15 tables with migrations
 - Testing: All components generated and tested"

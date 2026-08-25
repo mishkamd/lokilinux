@@ -56,7 +56,7 @@
 [project]
 name = "lokilinux"
 version = "1.0.0"
-description = "Minimal Linux fleet management platform"
+description = "Enterprise Linux operations platform"
 requires-python = ">=3.11"
 
 dependencies = [
@@ -191,7 +191,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="LokiLinux API",
     version="1.0.0",
-    description="Minimal Linux fleet management platform",
+    description="Enterprise Linux operations platform",
     lifespan=lifespan,
     default_response_class=ORJSONResponse,  # Use orjson for faster JSON
     docs_url="/docs" if settings.debug else None,
