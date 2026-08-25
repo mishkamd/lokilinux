@@ -1,7 +1,7 @@
 [project]
 name = "lokilinux"
 version = "0.3.0"
-description = "Enterprise Linux fleet management platform"
+description = "Enterprise Linux Operations Platform"
 requires-python = ">=3.11"
 
 dependencies = [
@@ -26,6 +26,9 @@ dependencies = [
 
     # Event store (observability pipeline)
     "clickhouse-connect==1.7.2",
+
+    # OTLP ingestion (Task G1) — protobuf message defs only, no SDK/exporter
+    "opentelemetry-proto==1.44.0",
 
     # gRPC / agent communication
     "grpcio==1.81.1",

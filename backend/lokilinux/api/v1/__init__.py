@@ -21,6 +21,7 @@ from .routers.events import router as events_router
 from .routers.incidents import router as incidents_router
 from .routers.jobs import router as jobs_router
 from .routers.observability import router as observability_router
+from .routers.otlp import router as otlp_router
 from .routers.playbook_templates import router as playbook_templates_router
 from .routers.playbooks import router as playbooks_router
 from .routers.plugins import router as plugins_router
@@ -57,3 +58,4 @@ router.include_router(incidents_router, prefix="/incidents", tags=["incidents"])
 router.include_router(signals_router, prefix="/signals", tags=["signals"])
 router.include_router(correlation_router, prefix="/correlation", tags=["correlation"])
 router.include_router(observability_router, prefix="/observability", tags=["observability"])
+router.include_router(otlp_router, prefix="/otlp/v1", tags=["otlp"])
