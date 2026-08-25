@@ -277,7 +277,7 @@ import {
   FileText, Puzzle, BellDot, Bell, Users, Settings, UserCircle, LogOut, Search, Menu, X,
   PanelLeft, PanelLeftClose, Bot, Layers, FolderKanban, ShieldCheck,
   BookCheck, ListChecks, GitCompare, Wrench, FileSearch, FileChartColumn, ShieldOff, CircleHelp,
-  Workflow,
+  Workflow, Siren,
 } from 'lucide-vue-next'
 import { Toaster } from 'vue-sonner'
 
@@ -400,6 +400,7 @@ const navSections = computed((): { title: string; links: NavLink[] }[] => [
     title: 'Observability',
     links: [
       { to: '/alerts', label: 'Alerts', icon: BellDot },
+      { to: '/incidents', label: 'Incidents', icon: Siren },
     ],
   },
 ])
