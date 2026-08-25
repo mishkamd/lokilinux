@@ -23,6 +23,7 @@ from starlette.responses import JSONResponse
 from lokilinux import __version__
 from lokilinux.api.v1 import router as api_v1_router
 from lokilinux.cache import RedisCache
+from lokilinux.ch import ClickHouseStore
 from lokilinux.config import Settings
 from lokilinux.db import build_engine, build_session_factory
 from lokilinux.middleware.rate_limit import RateLimitMiddleware
@@ -77,6 +78,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await cache.connect()
     app.state.cache = cache
     logger.info("cache.ready")
+
+    # ClickHouse — event store (observability pipeline, raw events/signal
+    # occurrences/incident evidence; PostgreSQL never stores these)
+    ch = ClickHouseStore(
+        url=settings.clickhouse_url,
+        user=settings.clickhouse_user,
+        password=settings.clickhouse_password,
+        database=settings.clickhouse_database,
+    )
+    await ch.connect()
+    await ch.ensure_tables(
+        event_retention_days=settings.event_retention_days,
+        signal_occurrence_retention_days=settings.signal_occurrence_retention_days,
+        incident_evidence_retention_days=settings.incident_evidence_retention_days,
+    )
+    app.state.ch = ch
+    logger.info("clickhouse.ready")
 
     # NATS — all topics prefixed lokilinux. (O1)
     nc = await nats.connect(settings.nats_url)
@@ -150,6 +168,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await retention_worker.stop()
     await cve_enrichment_worker.stop()
     await nc.drain()
+    await ch.disconnect()
     await cache.disconnect()
     await engine.dispose()
 
@@ -221,6 +240,9 @@ async def readiness(request: Request) -> JSONResponse:
 
     if not await request.app.state.cache.ping():
         errors.append("cache: unreachable")
+
+    if not await request.app.state.ch.ping():
+        errors.append("clickhouse: unreachable")
 
     if errors:
         return JSONResponse(status_code=503, content={"status": "not_ready", "errors": errors})

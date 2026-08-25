@@ -18,7 +18,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir \
     fastapi==0.138.1 uvicorn[standard]==0.49.0 \
     sqlalchemy[asyncio]==2.0.51 psycopg[async,binary]==3.3.4 alembic==1.18.5 \
-    redis[hiredis]==8.0.1 nats-py==2.15.0 \
+    redis[hiredis]==8.0.1 nats-py==2.15.0 clickhouse-connect==1.7.2 \
     grpcio==1.81.1 protobuf==6.33.5 \
     pydantic==2.13.4 pydantic-settings==2.14.2 \
     structlog==26.1.0 orjson==3.11.9 httpx==0.28.1 python-multipart==0.0.32 \

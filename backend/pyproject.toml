@@ -24,6 +24,9 @@ dependencies = [
     # Message bus
     "nats-py==2.15.0",
 
+    # Event store (observability pipeline)
+    "clickhouse-connect==1.7.2",
+
     # gRPC / agent communication
     "grpcio==1.81.1",
     "protobuf==6.33.5",
