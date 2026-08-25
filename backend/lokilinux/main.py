@@ -179,11 +179,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from lokilinux.workers.signal_processor import SignalProcessorWorker
     signal_processor_worker = SignalProcessorWorker(nc, session_factory, cache, ch)
     await signal_processor_worker.start()
+
+    # Seed the default correlation rule (idempotent, same pattern as the
+    # curated compliance rules above) before CorrelationWorker starts.
+    from lokilinux.correlation.rules import ensure_default_rules
+    async with session_factory() as db:
+        try:
+            await ensure_default_rules(db)
+        except Exception:
+            logger.error("correlation.default_rule_seed_failed", exc_info=True)
+    from lokilinux.workers.correlation_worker import CorrelationWorker
+    correlation_worker = CorrelationWorker(nc, session_factory, cache)
+    await correlation_worker.start()
+
     app.state.workers = [
         job_worker, cve_worker, alert_worker, policy_worker, policy_scheduler_worker, plugin_worker,
         heartbeat_worker, job_timeout_worker, remediation_scheduler_worker, remediation_verification_worker,
         retention_worker, notification_worker, cve_enrichment_worker, workflow_runner_worker,
-        workflow_scheduler_worker, event_processor_worker, signal_processor_worker,
+        workflow_scheduler_worker, event_processor_worker, signal_processor_worker, correlation_worker,
     ]
     logger.info("workers.ready")
 
