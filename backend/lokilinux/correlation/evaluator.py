@@ -27,6 +27,7 @@ _LOCK_TTL_SEC = 5
 class IncidentCandidate:
     rule: Any
     group_key: str
+    group_values: dict[str, str]
     member_types: list[str]
     score: int
     root_signal_type: str
@@ -78,7 +79,7 @@ class CorrelationEvaluator:
 
             root_signal_type = max(distinct_members, key=lambda m: weights.get(m, 0))
             candidates.append(IncidentCandidate(
-                rule=rule, group_key=group_key, member_types=distinct_members,
-                score=score, root_signal_type=root_signal_type,
+                rule=rule, group_key=group_key, group_values=group_values,
+                member_types=distinct_members, score=score, root_signal_type=root_signal_type,
             ))
         return candidates

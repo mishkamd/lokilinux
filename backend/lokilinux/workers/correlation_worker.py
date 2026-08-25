@@ -1,11 +1,11 @@
 """
 LokiLinux — CorrelationWorker: SIGNAL_DETECTED -> CorrelationEvaluator -> IncidentSink.
 
-IncidentSink is a stub interface for Task C1 — Task D2 (Phase D, not yet
-written) swaps in the real IncidentService without this worker changing
-again; `sink=None` defaults to a no-op sink so this worker is fully usable
-(rules load, windows accumulate, candidates get computed and just dropped)
-before Phase D exists.
+IncidentSink.open() takes the current message's `db` session (not stored on
+the sink itself — the worker owns one session per message, IncidentService
+needs to run inside it) plus the candidate. Task D2 (this commit) replaces
+the Task C1 stub with IncidentServiceSink, wired by default; a caller can
+still inject a different sink (tests, or a future no-op mode).
 """
 
 from types import SimpleNamespace
@@ -15,19 +15,35 @@ import structlog
 
 from lokilinux.correlation.evaluator import CorrelationEvaluator, IncidentCandidate
 from lokilinux.correlation.rules import RuleCache
+from lokilinux.incidents.service import IncidentService
 from lokilinux.nats_topics import SIGNAL_DETECTED
 
 logger = structlog.get_logger()
 
 
 class IncidentSink:
-    """Stub — replaced by IncidentService in Task D2."""
+    async def open(self, db, candidate: IncidentCandidate) -> None:
+        raise NotImplementedError
 
-    async def open(self, candidate: IncidentCandidate) -> None:
+
+class NoOpIncidentSink(IncidentSink):
+    """Drops candidates — useful for tests that only care about correlation,
+    not incident creation."""
+
+    async def open(self, db, candidate: IncidentCandidate) -> None:
         logger.info(
             "correlation.candidate_dropped_no_incident_sink",
             incident_type=candidate.rule.incident_type, score=candidate.score,
         )
+
+
+class IncidentServiceSink(IncidentSink):
+    def __init__(self, nats, cache) -> None:
+        self.nats = nats
+        self.cache = cache
+
+    async def open(self, db, candidate: IncidentCandidate) -> None:
+        await IncidentService(db, self.nats, self.cache).open_from_candidate(candidate)
 
 
 class CorrelationWorker:
@@ -36,7 +52,7 @@ class CorrelationWorker:
         self.db_factory = db_session_factory
         self.rule_cache = RuleCache()
         self.evaluator = CorrelationEvaluator(cache)
-        self.sink = sink or IncidentSink()
+        self.sink = sink or IncidentServiceSink(nats_client, cache)
 
     async def start(self) -> None:
         await self.nats.subscribe(SIGNAL_DETECTED, cb=self._handle_signal)
@@ -54,6 +70,6 @@ class CorrelationWorker:
                 rules = await self.rule_cache.get_enabled_rules(db)
                 candidates = await self.evaluator.on_signal(rules, signal)
                 for candidate in candidates:
-                    await self.sink.open(candidate)
+                    await self.sink.open(db, candidate)
         except Exception:
             logger.error("correlation_worker.process_failed", exc_info=True)

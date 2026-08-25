@@ -3,9 +3,16 @@ import json
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy import select
 
 from lokilinux.correlation.rules import ensure_default_rules
-from lokilinux.workers.correlation_worker import CorrelationWorker, IncidentCandidate, IncidentSink
+from lokilinux.incidents.models import Incident
+from lokilinux.workers.correlation_worker import (
+    CorrelationWorker,
+    IncidentCandidate,
+    IncidentSink,
+    NoOpIncidentSink,
+)
 
 
 class _FakeZSetCache:
@@ -33,7 +40,7 @@ class _RecordingSink(IncidentSink):
     def __init__(self) -> None:
         self.opened: list[IncidentCandidate] = []
 
-    async def open(self, candidate: IncidentCandidate) -> None:
+    async def open(self, db, candidate: IncidentCandidate) -> None:
         self.opened.append(candidate)
 
 
@@ -74,13 +81,33 @@ async def test_below_threshold_never_opens(db_session, fake_nats):
 
 
 @pytest.mark.asyncio
-async def test_default_sink_is_a_noop_when_none_given(db_session, fake_nats):
+async def test_default_sink_creates_a_real_incident(db_session, fake_nats):
+    """sink=None wires IncidentServiceSink by default (Task D2) — a threshold
+    crossing without an explicit sink actually opens an Incident row, not a
+    no-op drop."""
     await ensure_default_rules(db_session)
     worker = CorrelationWorker(fake_nats, _db_factory(db_session), _FakeZSetCache())
-    # must not raise even though nothing consumes the candidate
+
     await worker._handle_signal(_msg({"type": "cpu.high", "host_id": "host-3"}))
     await worker._handle_signal(_msg({"type": "load.high", "host_id": "host-3"}))
     await worker._handle_signal(_msg({"type": "http.latency.high", "host_id": "host-3"}))
+
+    rows = (await db_session.execute(select(Incident))).scalars().all()
+    assert len(rows) == 1
+    assert rows[0].type == "application_degradation"
+
+
+@pytest.mark.asyncio
+async def test_explicit_noop_sink_drops_without_raising(db_session, fake_nats):
+    await ensure_default_rules(db_session)
+    worker = CorrelationWorker(fake_nats, _db_factory(db_session), _FakeZSetCache(), sink=NoOpIncidentSink())
+
+    await worker._handle_signal(_msg({"type": "cpu.high", "host_id": "host-4"}))
+    await worker._handle_signal(_msg({"type": "load.high", "host_id": "host-4"}))
+    await worker._handle_signal(_msg({"type": "http.latency.high", "host_id": "host-4"}))
+
+    rows = (await db_session.execute(select(Incident))).scalars().all()
+    assert rows == []
 
 
 @pytest.mark.asyncio
