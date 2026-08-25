@@ -12,7 +12,7 @@ Internal IT/DevOps teams — a single sysadmin or a small ops team administering
 
 ## Product Purpose
 
-LokiLinux is an enterprise Linux fleet management platform. A lightweight Go agent installed on each managed server reports system state, installed packages, and known vulnerabilities on a heartbeat; the platform aggregates this across the fleet into one dashboard for patch management, CVE tracking, compliance-drift detection, and remediation — plus a job engine to push package updates, Ansible playbooks, and custom commands out to targeted servers.
+LokiLinux is an enterprise Linux operations platform. A lightweight Go agent installed on each managed server reports system state, installed packages, and known vulnerabilities on a heartbeat; the platform aggregates this across the fleet into one control plane for patch management, CVE tracking, compliance-drift detection, and remediation — plus a job engine to push package updates, Ansible playbooks, and custom commands out to targeted servers.
 
 ## Positioning
 
@@ -33,7 +33,7 @@ Admins manage a fleet of Linux servers across distro families — RHEL, Rocky, O
 ## Brand Commitments
 
 - Name and logo are final: **LokiLinux**, Norse-helmet mark, no rebrand in scope.
-- Tagline in use: "Enterprise Linux Fleet Management" / "Fleet Management Platform".
+- Tagline: "Secure. Automate. Operate." Category: "Enterprise Linux Operations Platform". "Fleet management" remains a capability name inside the platform (fleet inventory, patch management), never the product category.
 - Visual identity is locked, not just current state: the "Precision Terminal" aesthetic (dark, near-black canvas; forest-green primary; monospace-driven data typography; command-center density) is a confirmed brand commitment for all future design work, not a stage to redesign away from.
 
 ## Evidence on Hand

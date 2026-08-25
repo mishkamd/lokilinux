@@ -1,6 +1,6 @@
 ---
 name: LokiLinux
-description: Enterprise Linux Fleet Management — a command-center dashboard for patching, CVE tracking, and compliance drift across a Linux fleet
+description: Enterprise Linux Operations Platform — a command-center control plane for fleet operations, security, PKI/KMS, observability, and compliance drift across a Linux fleet
 colors:
   tactical-forest: "#2D6A4F"
   tactical-forest-hover: "#3A7D5D"
