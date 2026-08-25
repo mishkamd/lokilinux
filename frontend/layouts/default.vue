@@ -352,7 +352,7 @@ const navSections = computed((): { title: string; links: NavLink[] }[] => [
   {
     title: 'Infrastructure',
     links: [
-      { to: '/',                label: 'Dashboard',       icon: LayoutDashboard },
+      { to: '/',                label: 'Overview',        icon: LayoutDashboard },
       { to: '/servers',         label: 'Servers',         icon: Server },
       { to: '/agents',          label: 'Agents',          icon: Cpu },
       { to: '/jobs',            label: 'Jobs',            icon: ClipboardList },
@@ -361,7 +361,7 @@ const navSections = computed((): { title: string; links: NavLink[] }[] => [
     ],
   },
   {
-    title: 'Automation Engine',
+    title: 'Automation',
     links: [
       { to: '/workflows', label: 'Workflows', icon: Workflow },
       { to: '/policies', label: 'Policies', icon: FileText },

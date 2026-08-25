@@ -14,13 +14,13 @@
           </span>
         </div>
         <h1 class="text-4xl font-display font-light text-foreground tracking-tight">{{ companyName }}</h1>
-        <p class="text-sm text-muted-foreground mt-1">Enterprise Linux Fleet Management</p>
+        <p class="text-sm text-muted-foreground mt-1">Enterprise Linux Operations Platform</p>
       </div>
       <Card class="w-full">
         <slot />
       </Card>
       <p class="text-center text-xs text-muted-foreground mt-6">
-        {{ companyName }} v1.0 &mdash; Enterprise Fleet Management Platform
+        {{ companyName }} &mdash; Secure. Automate. Operate.
       </p>
     </div>
   </div>
