@@ -20,6 +20,11 @@ from lokilinux.models.plugin import Plugin, PluginInstallation, PluginStatus
 from lokilinux.models.remediation import RemediationJob, RemediationPlan
 from lokilinux.nats_topics import JOB_CREATED
 
+# Job types that execute arbitrary code as root on agents. These always
+# require approval before an agent may pick them up — enforced here so the
+# invariant holds for every caller (router, playbooks, policies, plugins).
+_FORCE_APPROVAL_JOB_TYPES = frozenset({"CUSTOM_COMMAND", "ANSIBLE_PLAYBOOK"})
+
 _TERMINAL_RESULT_STATUSES = {"COMPLETED", "FAILED", "TIMEOUT", "CANCELLED", "SKIPPED"}
 _FAILURE_PRIORITY = ("FAILED", "TIMEOUT", "CANCELLED")  # first match wins; else COMPLETED
 
@@ -219,12 +224,22 @@ class JobService:
         policy_id: UUID | None = None,
         created_by: UUID | None = None,
         requires_approval: bool = False,
+        skip_approval_gate: bool = False,
     ) -> Job:
         """Create a job; raise ValueError on active duplicate.
 
         Fans out a JobResult(status=PENDING) row per target agent — this is
         what makes the job visible to AgentService.get_pending_jobs().
+
+        Security invariant (docs/security/SECURITY_AUDIT.md CR-01):
+        host-mutating jobs execute arbitrary code as root on agents and can
+        never skip the approval gate. The ONLY exception is the workflow
+        engine's dispatch path, whose `approval` node already applied an
+        explicit, audited human gate upstream (skip_approval_gate=True) — a
+        second hidden gate there would silently stall runs with no UI for it.
         """
+        if job_type in _FORCE_APPROVAL_JOB_TYPES and not skip_approval_gate:
+            requires_approval = True
         params = parameters or {}
         dedup_key = self.compute_dedup_key(job_type, target_servers, params)
 

@@ -15,7 +15,6 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.auth.dependencies import get_current_user, require_role, safe_user_uuid
-from lokilinux.utils.capability_rbac import assert_can_create
 from lokilinux.cache import TTL_JOB_STATUS, RedisCache
 from lokilinux.dependencies import get_cache, get_db, get_nats
 from lokilinux.models.agent import Agent
@@ -25,6 +24,7 @@ from lokilinux.schemas.common import CursorPage, decode_cursor, encode_cursor
 from lokilinux.schemas.job import JobCreate, JobResponse, JobResultResponse, JobStatus, JobType
 from lokilinux.services.audit_service import AuditService
 from lokilinux.services.job_service import JobService
+from lokilinux.utils.capability_rbac import assert_can_create
 
 router = APIRouter()
 

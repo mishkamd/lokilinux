@@ -457,6 +457,9 @@ async def _dispatch_step(
         name=f"Workflow step: {step.name}", job_type="CUSTOM_COMMAND",
         target_servers=target_servers, parameters={"command": command, **extra_params},
         requires_approval=False,
+        # CR-01 invariant exception: the workflow's approval node is the human
+        # gate — see create_job's security-invariant docstring.
+        skip_approval_gate=True,
     )
 
 

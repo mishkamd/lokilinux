@@ -71,6 +71,9 @@ class FakeCache:
     def __init__(self) -> None:
         self._store: dict[str, Any] = {}
 
+    async def exists(self, key: str) -> bool:
+        return key in self._store
+
     async def get_cached(self, key: str) -> Any | None:
         return self._store.get(key)
 
