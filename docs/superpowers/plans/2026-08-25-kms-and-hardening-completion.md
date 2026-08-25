@@ -1,5 +1,8 @@
 # Security Hardening Completion + lokilinux-kms Implementation Plan
 
+> **STATUS (2026-08-25): IMPLEMENTAT.** Commits: `62b297f` A1/A2 revocare service · `1846239` A3 heartbeat wire · `831b2c3` A4 admin API · `adb70bb`+`63d7534` B CA bundle+runbook · `ca5c927` C metrics+fail-closed · `1da1126` D1 claims · `d182bf7` F kms core · `4f4e40a` D3 approve+attach · `f72d419` D4 agent verify · `66b04f0` E broker · `c950ca1` G production profile.
+> **TESTED:** 173 Go `-race` + 39 pytest security suites. **NOT TESTED:** live distro (Ubuntu/Rocky), E2E stack real, dual-trust pe flotă. Detalii în raportul final al sesiunii.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: superpowers:executing-plans or subagent-driven-development. Steps use checkbox (`- [ ]`).
 
 **Goal:** Finalizează hardening-ul agentului (P11 revocare, CA rotation, enforcement complet, broker non-root, approval claims) și implementează `lokilinux/kms` ca abstracție de signing cu lifecycle chei — `JobSigner` rămâne fața stabilă, fișierul actual devine un provider interschimbabil.
