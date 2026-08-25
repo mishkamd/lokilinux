@@ -120,6 +120,22 @@ class RedisCache:
         except Exception as exc:
             logger.warning("cache.invalidate_pattern_error", pattern=pattern, error=str(exc))
 
+    # ── Set operations (certificate revocation, membership checks) ────────────
+    # Unlike the helpers above, these PROPAGATE errors: revocation semantics
+    # need to distinguish "not a member" from "redis unreachable" (fail-closed).
+
+    async def sadd(self, key: str, member: str) -> int:
+        return int(await self._client.sadd(key, member))  # type: ignore[union-attr]
+
+    async def srem(self, key: str, member: str) -> int:
+        return int(await self._client.srem(key, member))  # type: ignore[union-attr]
+
+    async def sismember(self, key: str, member: str) -> bool:
+        return bool(await self._client.sismember(key, member))  # type: ignore[union-attr]
+
+    async def smembers(self, key: str) -> set:
+        return set(await self._client.smembers(key))  # type: ignore[union-attr]
+
     # ── Domain-level invalidation helpers ────────────────────────────────────
 
     async def invalidate_agent(self, agent_id: str) -> None:
