@@ -10,6 +10,7 @@ import (
 
 	"github.com/lokilinux/agent/internal/agent"
 	"github.com/lokilinux/agent/internal/config"
+	"github.com/lokilinux/agent/internal/logredact"
 )
 
 // Version is injected at build time via -ldflags "-X main.Version=...".
@@ -62,6 +63,8 @@ func main() {
 
 // newLogger builds a structured JSON logger directed at stderr, wrapped in a
 // ring buffer so the last N lines can be attached to outgoing heartbeats.
+// The JSON handler is wrapped with secret redaction (plan §34): any
+// attribute whose key looks credential-bearing is emitted as [REDACTED].
 func newLogger(level string) (*slog.Logger, *agent.LogRingBuffer) {
 	lvl := slog.LevelInfo
 	switch level {
@@ -72,6 +75,9 @@ func newLogger(level string) (*slog.Logger, *agent.LogRingBuffer) {
 	case "error":
 		lvl = slog.LevelError
 	}
-	buf := agent.NewLogRingBuffer(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: lvl}), 100)
+	buf := agent.NewLogRingBuffer(
+		logredact.NewHandler(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: lvl})),
+		100,
+	)
 	return slog.New(buf), buf
 }

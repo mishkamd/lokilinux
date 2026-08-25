@@ -4,7 +4,9 @@
 
 ## Rol
 
-Tot ce rulează platforma stă în **9 servicii Docker** pe o rețea bridge comună (`lokilinux-network`), cu 5 volume named pentru persistență. Un singur `make init` duce de la zero la stack funcțional.
+Tot ce rulează platforma stă în **9 servicii Docker** pe **cinci rețele segmentate** (`data-net`, `app-net`, `web-net` — interne; `gateway-net` pentru publicarea porturilor pe host; `egress-net` — doar api, pentru acces outbound), cu 5 volume named pentru persistență. Un singur `make init` duce de la zero la stack funcțional.
+
+Doar frontend-ul (3000), api-ul (8000 REST + 9090 metrics) și grpc (50051) au porturi publicate pe host; postgres, pgBouncer (6432), redis (6379) și nats (4222/8222) sunt **internal-only**. Imaginile sunt tag-uite `${LOKILINUX_VERSION}` (0.3.0) — niciodată `latest`.
 
 ## Harta serviciilor
 
@@ -41,7 +43,7 @@ Tot ce rulează platforma stă în **9 servicii Docker** pe o rețea bridge comu
 | `nats` | nats:2.10.29-alpine (--js) | 4222, 8222 monitor | wget healthz | 1 CPU / 1G |
 | `redis` | redis:7.4.9-alpine | 6379 | redis-cli ping | 1 CPU / 2G |
 | `lokilinux-migrate` | build backend | — | rulează și iese (restart: no) | — |
-| `lokilinux-api` | lokilinux/api | 8000 REST, 9090 metrics | curl /health | 2 CPU / 2G |
+| `lokilinux-api` | lokilinux/api | 8000 REST, 9090 metrics | probe python stdlib `/health` | 2 CPU / 2G |
 | `lokilinux-grpc` | lokilinux/api (alt command) | 50051 mTLS | socket probe python | 2 CPU / 2G |
 | `lokilinux-compliance` | lokilinux/compliance | 8080 healthz, 9091 metrics | self-probe `-healthcheck` | 2 CPU / 2G |
 | `lokilinux-frontend` | lokilinux/frontend | 3000 | wget /health | 0.5 CPU / 512M |
@@ -78,6 +80,21 @@ Lanț de dependențe: `postgres` → healthy → `pgbouncer` → healthy → `lo
 - bind-mount surse (fără `.venv`/`node_modules`);
 - limite relaxate (4G/serviciu), query logging verbose Postgres.
 
+## Securitate runtime
+
+- Serviciile de aplicație rulează non-root (imaginea backend are user dedicat `appuser`, uid 10001; imaginea compliance distroless rulează `USER nonroot:nonroot`) cu rootfs **read-only** + tmpfs `/tmp`, `cap_drop: ALL`, `no-new-privileges` și limite pids/memory/cpu. Infrastructura e hardenită cu `no-new-privileges` + limite.
+- `.env` nu ajunge niciodată în imagini (`backend/.dockerignore` îl blochează).
+- `scripts/docker-init.sh` dă chown 10001:10001 pe cheile de certificate, ca serviciile non-root să le poată citi; wait-for-API folosește un one-liner Python `urllib` (imaginea runtime nu are curl).
+
+## Scanare imagini & supply chain
+
+```bash
+make scan-image                       # Trivy peste toate imaginile lokilinux/* — pică pe HIGH/CRITICAL
+make sbom IMAGE=lokilinux/api:0.3.0   # SBOM CycloneDX în sbom/
+```
+
+Excepțiile acceptate explicit sunt în `.trivyignore`. Pipeline-ul CI (`.github/workflows/security-pipeline.yml`) aplică același gate: build → teste → Trivy → SBOM → push GHCR → semnare cosign.
+
 ## Makefile — comenzi esențiale
 
 ```bash
@@ -92,6 +109,8 @@ make agent-build-arm64      # linux/arm64
 make agent-package          # .tar.gz + .deb + .rpm ambele arhitecturi
 make agent-test             # go test -race
 make proto                  # regenerează Go + Python din proto/*.proto
+make scan-image             # gate Trivy (HIGH/CRITICAL = fail)
+make sbom IMAGE=...         # SBOM CycloneDX
 ```
 
 ## Scripturi utile (`scripts/`)

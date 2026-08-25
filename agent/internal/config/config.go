@@ -13,6 +13,7 @@ type Config struct {
 	Heartbeat     HeartbeatConfig     `yaml:"heartbeat"`
 	Cache         CacheConfig         `yaml:"cache"`
 	JobExecution  JobExecConfig       `yaml:"job_execution"`
+	Security      SecurityConfig      `yaml:"security"`
 	Logging       LoggingConfig       `yaml:"logging"`
 	FileIntegrity FileIntegrityConfig `yaml:"file_integrity"`
 }
@@ -46,6 +47,16 @@ type JobExecConfig struct {
 	MaxParallelJobs int  `yaml:"max_parallel_jobs"`
 	TimeoutSeconds  int  `yaml:"timeout_seconds"`
 	SandboxEnabled  bool `yaml:"sandbox_enabled"`
+}
+
+// SecurityConfig gates the signed-job trust model. EnforceSignedJobs starts
+// false fleet-wide (staged rollout): false = accept unsigned privileged jobs
+// with a WARN per job, true = reject anything without a valid Ed25519
+// envelope. The signing public key arrives at enrollment via
+// /agent/signing-key; without it, enforcement cannot be enabled.
+type SecurityConfig struct {
+	EnforceSignedJobs bool   `yaml:"enforce_signed_jobs"`
+	SigningPubKeyPath string `yaml:"signing_pub_key_path"`
 }
 
 type LoggingConfig struct {
@@ -98,6 +109,9 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.JobExecution.TimeoutSeconds == 0 {
 		cfg.JobExecution.TimeoutSeconds = 3600
+	}
+	if cfg.Security.SigningPubKeyPath == "" {
+		cfg.Security.SigningPubKeyPath = "/etc/lokilinux/signing_pub.b64"
 	}
 	if cfg.Logging.Level == "" {
 		cfg.Logging.Level = "info"

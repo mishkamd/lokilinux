@@ -12,6 +12,8 @@ Heartbeat flow:
 import logging
 
 import grpc
+from cryptography import x509
+from cryptography.x509.oid import NameOID
 
 from lokilinux.services.agent_service import AgentService
 from lokilinux.services.compliance_ingest_service import (
@@ -19,9 +21,52 @@ from lokilinux.services.compliance_ingest_service import (
     publish_domain_hashes,
     publish_domain_snapshots,
 )
+from lokilinux.services.job_envelope import maybe_attach_envelope
 from lokilinux.services.policy_service import get_job_timeout_seconds
 
 logger = logging.getLogger(__name__)
+
+
+def _peer_cert_common_name(context) -> str | None:
+    """Extract the CN from the mTLS peer certificate. Fail-closed: any parse
+    problem or missing cert returns None and the caller rejects the stream.
+
+    Certificates are minted with CN=agent_id at enrollment
+    (api/v1/routers/agent_install.py::_generate_agent_cert), so the CN is the
+    only trustworthy statement of agent identity on the wire.
+    """
+    if context is None:
+        return None
+    try:
+        auth_ctx = context.auth_context() or {}
+        pems = auth_ctx.get("x509_pem_cert") or []
+        if not pems:
+            return None
+        raw = pems[0]
+        pem = raw.encode() if isinstance(raw, str) else bytes(raw)
+        cert = x509.load_pem_x509_certificate(pem)
+        attrs = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
+        return attrs[0].value.strip() if attrs else None
+    except Exception:
+        logger.warning("gRPC auth: failed to parse peer certificate", exc_info=True)
+        return None
+
+
+def _revoked_key(agent_id: str) -> str:
+    return f"agent:revoked:{agent_id}"
+
+
+async def revoke_agent_identity(cache, agent_id: str) -> None:
+    """Deny-list an agent identity — checked on every heartbeat connection.
+
+    Call from deregistration flows; the cert itself remains cryptographically
+    valid until expiry (no CRL yet), so this flag is what actually stops it.
+    """
+    await cache.set_cached(_revoked_key(agent_id), True)  # no TTL = persists
+
+
+async def unrevoke_agent_identity(cache, agent_id: str) -> None:
+    await cache.invalidate(_revoked_key(agent_id))
 
 
 def _needs_recursion(v) -> bool:
@@ -70,6 +115,35 @@ class AgentServicer:
     async def HeartbeatStream(self, request_iterator, context):
         """Bidirectional stream — one response per heartbeat received."""
         async for request in request_iterator:
+            # ── Identity gate (docs/security/SECURITY_AUDIT.md CR-03) ─────────
+            # The wire agent_id is untrusted. Bind it to the mTLS client cert
+            # CN and refuse revoked identities. These aborts happen BEFORE the
+            # try/except below so they propagate as real gRPC statuses instead
+            # of being swallowed by the generic error handler.
+            cert_cn = _peer_cert_common_name(context)
+            if not cert_cn:
+                logger.warning("HeartbeatStream: no peer certificate presented")
+                await context.abort(
+                    grpc.StatusCode.UNAUTHENTICATED, "client certificate required"
+                )
+                return
+            requested_id = str(getattr(request, "agent_id", "") or "").strip()
+            if not requested_id or requested_id.lower() != cert_cn.lower():
+                logger.warning(
+                    "HeartbeatStream identity mismatch: cert CN=%s requested agent_id=%s",
+                    cert_cn,
+                    requested_id,
+                )
+                await context.abort(
+                    grpc.StatusCode.UNAUTHENTICATED,
+                    "certificate does not match agent_id",
+                )
+                return
+            if await self.cache.get_cached(_revoked_key(requested_id)):
+                logger.warning("HeartbeatStream: revoked agent %s rejected", requested_id)
+                await context.abort(grpc.StatusCode.PERMISSION_DENIED, "agent revoked")
+                return
+
             try:
                 # The JSON codec yields a SimpleNamespace with only the keys the
                 # agent actually sent — ip_address is optional, fall back to the
@@ -87,8 +161,14 @@ class AgentServicer:
                 job_results = getattr(request, "job_results", None)
                 vulnerabilities = getattr(request, "vulnerabilities", None)
 
+                # Identity binding happens in the gate ABOVE the try block
+                # (CR-03) — aborts there propagate as real gRPC statuses; a
+                # duplicate check here would be both redundant and swallowed
+                # by this generic handler, so it lives only at the gate.
+
                 async with self.db_factory() as db:
                     svc = AgentService(db, self.cache)
+                    agent_version = getattr(request, "agent_version", None)
                     try:
                         agent = await svc.update_heartbeat(
                             request.agent_id,
@@ -100,7 +180,7 @@ class AgentServicer:
                                 "health": _as_dict(health),
                                 "job_results": [_as_dict(r) for r in (job_results or [])],
                                 "vulnerabilities": [_as_dict(v) for v in (vulnerabilities or [])],
-                                "agent_version": getattr(request, "agent_version", None),
+                                "agent_version": agent_version,
                                 "recent_logs": getattr(request, "recent_logs", None),
                                 "log_connections": getattr(request, "log_connections", None),
                                 "log_informative": getattr(request, "log_informative", None),
@@ -120,6 +200,15 @@ class AgentServicer:
                     pending_jobs = await svc.get_pending_jobs(agent.id)
                     job_timeouts = {
                         j.id: await get_job_timeout_seconds(db, j) for j in pending_jobs
+                    }
+                    # Signed envelopes attach only to privileged job types for
+                    # agents new enough to validate them (job_envelope module
+                    # handles gating; failures degrade to unsigned, never drop).
+                    signed_params = {
+                        j.id: maybe_attach_envelope(
+                            j, _parameters_for_agent(j, agent.id), agent_version
+                        )
+                        for j in pending_jobs
                     }
 
                     # Compliance delta sync (docs/compliance/04-PROTOCOL.md §3) —
@@ -149,7 +238,7 @@ class AgentServicer:
                         {
                             "job_id": str(j.id),
                             "job_type": j.job_type,
-                            "parameters": _parameters_for_agent(j, agent.id),
+                            "parameters": signed_params[j.id],
                             **({"timeout_seconds": job_timeouts[j.id]} if job_timeouts.get(j.id) else {}),
                         }
                         for j in pending_jobs

@@ -48,6 +48,14 @@ CREATE TABLE IF NOT EXISTS compliance_state (
     facts        TEXT
 );
 
+CREATE TABLE IF NOT EXISTS seen_jobs (
+    nonce     TEXT PRIMARY KEY,
+    job_id    TEXT NOT NULL,
+    seen_at   INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_seen_jobs_seen_at ON seen_jobs(seen_at);
+
 CREATE INDEX IF NOT EXISTS idx_jobs_status    ON jobs(status);
 CREATE INDEX IF NOT EXISTS idx_jobs_expires   ON jobs(expires_at);
 CREATE INDEX IF NOT EXISTS idx_pkgs_agent     ON packages_cache(agent_id);
@@ -97,6 +105,36 @@ func (s *Store) EnqueueJob(ctx context.Context, j Job) error {
          VALUES(?,?,?,?,?,?,?)`,
 		j.ID, j.JobType, j.Status, j.Parameters, now, now, expires,
 	)
+	return err
+}
+
+// UpdateJobStatus changes a job's status.
+
+// MarkJobSeen records a replay-protection nonce. Returns false when the
+// nonce was already present — the caller must then reject the job as a
+// duplicate (INSERT OR IGNORE semantics, single statement = race-free).
+func (s *Store) MarkJobSeen(ctx context.Context, nonce, jobID string) (bool, error) {
+	res, err := s.db.ExecContext(ctx,
+		`INSERT OR IGNORE INTO seen_jobs(nonce, job_id, seen_at) VALUES(?,?,?)`,
+		nonce, jobID, time.Now().Unix(),
+	)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, err
+	}
+	return n == 1, nil
+}
+
+// PruneSeenJobs drops replay entries older than cutoff. The retention window
+// must exceed the longest envelope lifetime the platform can issue
+// (expires_at - issued_at), otherwise an expired-but-unseen job could be
+// replayed after its nonce is pruned.
+func (s *Store) PruneSeenJobs(ctx context.Context, cutoff time.Time) error {
+	_, err := s.db.ExecContext(ctx,
+		`DELETE FROM seen_jobs WHERE seen_at < ?`, cutoff.Unix())
 	return err
 }
 

@@ -41,11 +41,13 @@ docker volume create lokilinux-certs          2>/dev/null || true
 
 # 5. Copy certificates into Docker volume ---------------------------------
 echo "[*] Copying certificates into lokilinux-certs volume..."
+# chown to uid/gid 10001 (appuser in the backend image): the API and gRPC
+# services run non-root but must read ca.key/server.key from this volume.
 docker run --rm \
   -v lokilinux-certs:/certs \
   -v "$(pwd)/.certs":/source:ro \
   alpine:latest \
-  sh -c "cp -r /source/* /certs/ && chmod 600 /certs/*.key && chmod 644 /certs/*.crt"
+  sh -c "cp -r /source/* /certs/ && chown -R 10001:10001 /certs && chmod 600 /certs/*.key && chmod 644 /certs/*.crt"
 
 # 6. Build images ---------------------------------------------------------
 echo "[*] Building Docker images..."
@@ -75,7 +77,7 @@ docker compose up -d lokilinux-api lokilinux-grpc lokilinux-frontend
 # 10. Wait for API ready --------------------------------------------------
 echo "[*] Waiting for API..."
 for i in $(seq 1 20); do
-  if docker compose exec -T lokilinux-api curl -sf http://localhost:8000/health >/dev/null 2>&1; then
+  if docker compose exec -T lokilinux-api python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)" >/dev/null 2>&1; then
     echo "[+] API ready"
     break
   fi

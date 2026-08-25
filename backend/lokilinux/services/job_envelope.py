@@ -1,0 +1,138 @@
+"""Signed-job envelopes: control-plane half of the agent trust model.
+
+maybe_attach_envelope() decides, per (job, agent), whether a privileged job
+gets an Ed25519-signed "_envelope" embedded in its parameters:
+
+  - only when a signing key is provisioned and envelopes are enabled
+  - only for PRIVILEGED job types (the capability registry below mirrors
+    agent/internal/security/capabilities.go 1:1)
+  - only for agents whose version understands the pipeline
+    (MIN_AGENT_VERSION_SIGNED_JOBS in utils/agent_capability.py)
+
+The envelope's payload is a snapshot of the exact parameters being sent, so
+agent-side verification binds the signature to what will execute.
+"""
+
+import base64
+import json
+import logging
+import os
+from typing import List, Optional
+
+from lokilinux.utils.agent_capability import (
+    MIN_AGENT_VERSION_SIGNED_JOBS,
+    agent_meets_minimum,
+)
+from lokilinux.services.job_signing import JobSigner
+
+logger = logging.getLogger(__name__)
+
+# job_type -> (capability, risk). MUST stay in sync with the Go registry.
+_CAPABILITY_REGISTRY = {
+    "HEARTBEAT": ("READ_SYSTEM", "LOW"),
+    "FILE_READ": ("READ_SYSTEM", "LOW"),
+    "LOG_READ": ("READ_LOGS", "LOW"),
+    "SERVICE": ("SERVICE_CONTROL", "MEDIUM"),
+    "FILE": ("FILE_WRITE", "MEDIUM"),
+    "PACKAGE_UPDATE": ("PACKAGE_MANAGEMENT", "HIGH"),
+    "COMPLIANCE_REMEDIATE": ("SECURITY_REMEDIATION", "HIGH"),
+    "FIREWALL_CHANGE": ("FIREWALL_CONFIGURATION", "HIGH"),
+    "REBOOT": ("REBOOT_HOST", "HIGH"),
+    "WORKFLOW_STEPS": ("EXEC_BASH", "CRITICAL"),
+    "ANSIBLE_PLAYBOOK": ("EXEC_ANSIBLE", "CRITICAL"),
+    "PLUGIN_INSTALL": ("PLUGIN_INSTALL", "CRITICAL"),
+}
+
+_STEP_TYPE_TO_CAP = {
+    "command": "EXEC_BASH",
+    "package": "PACKAGE_MANAGEMENT",
+    "service": "SERVICE_CONTROL",
+    "system": "REBOOT_HOST",
+    "file": "FILE_WRITE",
+    "ansible": "EXEC_ANSIBLE",
+}
+
+_signer_instance: Optional[JobSigner] = None
+_signer_init_done = False
+
+
+def _required_capabilities(job_type: str, params: dict) -> List[str]:
+    if job_type == "WORKFLOW_STEPS":
+        caps = []
+        for step in params.get("steps") or []:
+            st = step.get("type") if isinstance(step, dict) else None
+            cap = _STEP_TYPE_TO_CAP.get(st or "")
+            if cap and cap not in caps:
+                caps.append(cap)
+        return caps or ["EXEC_BASH"]
+    cap = _CAPABILITY_REGISTRY.get(job_type)
+    return [cap[0]] if cap else []
+
+
+def _risk_level(job_type: str) -> str:
+    return (_CAPABILITY_REGISTRY.get(job_type) or ("", "HIGH"))[1]
+
+
+def _get_signer() -> Optional[JobSigner]:
+    """Lazily construct the singleton signer. Returns None while no usable
+    key is provisioned; a later call re-attempts (cheap file stat)."""
+    global _signer_instance, _signer_init_done
+    key_path = os.environ.get("JOB_SIGNING_KEY_PATH", "/etc/lokilinux/certs/job_signing.key")
+    enabled = os.environ.get("JOB_SIGNING_ENVELOPES", "true").lower() != "false"
+    if not enabled or not os.path.isfile(key_path):
+        return None
+    if not _signer_init_done:
+        try:
+            _signer_instance = JobSigner(key_path)
+        except Exception:  # noqa: BLE001 — unusable key must never break dispatch
+            logger.exception("job signing key unreadable — envelopes disabled")
+        _signer_init_done = True
+    return _signer_instance
+
+
+def maybe_attach_envelope(job, params: dict, agent_version: Optional[str]) -> dict:
+    """Returns params, with an "_envelope" added when this job/agent pair
+    qualifies for signed execution. Never raises."""
+    try:
+        signer = _get_signer()
+        if signer is None:
+            return params
+        job_type = getattr(job, "job_type", "") or ""
+        if job_type not in _CAPABILITY_REGISTRY:
+            return params
+        if not agent_meets_minimum(agent_version, MIN_AGENT_VERSION_SIGNED_JOBS):
+            return params
+
+        payload = {k: v for k, v in (params or {}).items() if k != "_envelope"}
+        env = signer.sign(
+            job_id=str(getattr(job, "id", "")),
+            agent_id=str(getattr(job, "agent_id", "") or ""),
+            tenant_id=str(getattr(job, "tenant_id", "") or ""),
+            job_type=job_type,
+            payload=payload,
+            policy_id=str(getattr(job, "policy_id", "") or ""),
+            risk_level=_risk_level(job_type),
+            requested_capabilities=_required_capabilities(job_type, payload),
+        )
+        out = dict(payload)
+        out["_envelope"] = env
+        return out
+    except Exception:  # noqa: BLE001 — signing failure must never drop a job
+        logger.exception("envelope attachment failed — sending unsigned")
+        return params
+
+
+def canonical_payload_bytes(payload: dict) -> bytes:
+    """Exposed for tests: the exact bytes covered by the signature inside the
+    full-envelope canonical form (sorted keys, compact separators)."""
+    return json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+
+
+def pub_b64_len_ok(b64: str) -> bool:
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+
+    try:
+        Ed25519PublicKey.from_public_bytes(base64.b64decode(b64))
+        return True
+    except Exception:
+        return False

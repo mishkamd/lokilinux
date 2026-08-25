@@ -1,5 +1,12 @@
 # LokiLinux — Docker Deployment & Plugin System Guide
 
+> **⚠️ ARCHIVED / DEPRECATED (August 2026):** this document describes an older
+> Docker architecture (API + gRPC in a single container, flat `lokilinux-network`,
+> NATS/Redis/pgBouncer ports published on the host, `latest` image tags). It no
+> longer reflects reality. Current sources of truth: `docker-compose.yml`
+> (5 segmented networks: data-net / app-net / web-net / gateway-net / egress-net),
+> `README.md` (Security Hardening section) and `docs/modules/06-infrastructura.md`.
+
 ---
 
 ## I. DOCKER ARCHITECTURE OVERVIEW

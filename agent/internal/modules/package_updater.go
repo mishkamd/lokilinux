@@ -52,7 +52,7 @@ func UpdatePackages(ctx context.Context, jobID string, params map[string]interfa
 	// systemd_run.go. Installing packages means writing into /usr, which
 	// the agent's own mount namespace can never do regardless of
 	// ReadWritePaths.
-	return runViaSystemdRunArgv(ctx, jobID, argv, "", timeoutSec, 4*1024*1024)
+	return runViaSystemdRunArgv(ctx, jobID, argv, "", timeoutSec, 4*1024*1024, &ProfileHostMutation)
 }
 
 // packageUpdateArgv builds the argv for the detected package manager — never

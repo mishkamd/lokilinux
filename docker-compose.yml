@@ -1,6 +1,23 @@
 # LokiLinux — Production Docker Compose
 # TimescaleDB chunk_time_interval = '1 day' (configured in init SQL)
 # pgBouncer sits in front of Postgres on port 6432 for connection pooling
+#
+# Security posture:
+#   * App containers run non-root, cap_drop: ALL, no-new-privileges,
+#     read-only rootfs (+ tmpfs /tmp where the app needs scratch space).
+#   * Networks are segmented; everything except the API's egress net is
+#     `internal: true` (no outbound internet, no host attachment).
+#   * Only frontend/api/grpc ports are published on the host — redis,
+#     nats and pgBouncer are reachable only from inside the compose networks.
+#
+# Network map:
+#   data-net  (internal) : postgres <-> pgbouncer (+ frontend direct DB access)
+#   app-net   (internal) : pgbouncer / nats / redis <-> api / grpc / compliance
+#   web-net   (internal) : api <-> frontend
+#   gateway-net          : api / grpc / frontend — required for host port
+#                          publishing (internal networks cannot publish ports)
+#   egress-net           : api only — outbound internet for NVD/CISA feeds
+#                          and workflow webhooks (no published ports)
 
 services:
 
@@ -12,6 +29,8 @@ services:
     image: timescale/timescaledb:2.28.1-pg17
     container_name: lokilinux-postgres
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-lokilinux}
       POSTGRES_USER: ${POSTGRES_USER:-lokilinux}
@@ -20,7 +39,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     networks:
-      - lokilinux-network
+      - data-net
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-lokilinux}"]
       interval: 10s
@@ -30,6 +49,7 @@ services:
     deploy:
       resources:
         limits:
+          pids: 200
           cpus: "2"
           memory: 4G
         reservations:
@@ -37,7 +57,7 @@ services:
           memory: 1G
 
   # ============================================================================
-  # CONNECTION POOLER — pgBouncer (port 6432)
+  # CONNECTION POOLER — pgBouncer (internal port 5432, NOT published to host)
   # ============================================================================
 
   pgbouncer:
@@ -47,6 +67,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     environment:
       DB_USER: ${POSTGRES_USER:-lokilinux}
       DB_PASSWORD: ${POSTGRES_PASSWORD}
@@ -57,10 +81,9 @@ services:
       MAX_CLIENT_CONN: 200
       DEFAULT_POOL_SIZE: 20
       AUTH_TYPE: scram-sha-256
-    ports:
-      - "6432:5432"
     networks:
-      - lokilinux-network
+      - data-net
+      - app-net
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -h localhost -p 5432 -U ${POSTGRES_USER:-lokilinux}"]
       interval: 10s
@@ -69,28 +92,35 @@ services:
     deploy:
       resources:
         limits:
+          pids: 64
           cpus: "0.5"
           memory: 256M
 
   # ============================================================================
-  # MESSAGE BUS — NATS 2.10 with JetStream
+  # MESSAGE BUS — NATS 2.10 with JetStream (ports internal-only)
   # ============================================================================
 
   nats:
     image: nats:2.10.29-alpine
     container_name: lokilinux-nats
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
     command:
       - "--js"
       - "--sd=/data/jetstream"
       - "--m=8222"
-    ports:
-      - "4222:4222"   # client
-      - "8222:8222"   # monitoring
+      # CR-02 (security audit): auth MANDATORY — brokerul respinge orice
+      # client fără credențiale. Porturile rămân internal-only (agenții nu
+      # vorbesc NATS deloc; bus-ul e backend↔compliance).
+      - "--user=${NATS_USER:?NATS_USER required}"
+      - "--pass=${NATS_PASSWORD:?NATS_PASSWORD required}"
     volumes:
       - nats_data:/data/jetstream
     networks:
-      - lokilinux-network
+      - app-net
     healthcheck:
       test: ["CMD-SHELL", "wget --spider -q http://localhost:8222/healthz"]
       interval: 10s
@@ -99,17 +129,20 @@ services:
     deploy:
       resources:
         limits:
+          pids: 100
           cpus: "1"
           memory: 1G
 
   # ============================================================================
-  # CACHE — Redis 7
+  # CACHE — Redis 7 (port internal-only)
   # ============================================================================
 
   redis:
     image: redis:7.4.9-alpine
     container_name: lokilinux-redis
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     command:
       - redis-server
       - --requirepass
@@ -120,20 +153,23 @@ services:
       - allkeys-lru
       - --appendonly
       - "yes"
-    ports:
-      - "6379:6379"
+    # REDISCLI_AUTH instead of `redis-cli -a`: avoids leaking the password
+    # into the process list of every healthcheck invocation.
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD}
     volumes:
       - redis_data:/data
     networks:
-      - lokilinux-network
+      - app-net
     healthcheck:
-      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      test: ["CMD", "redis-cli", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
     deploy:
       resources:
         limits:
+          pids: 100
           cpus: "1"
           memory: 2G
 
@@ -147,6 +183,14 @@ services:
       dockerfile: Dockerfile
     container_name: lokilinux-migrate
     restart: "no"
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 32
     depends_on:
       pgbouncer:
         condition: service_healthy
@@ -156,7 +200,7 @@ services:
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
     command: ["alembic", "upgrade", "head"]
     networks:
-      - lokilinux-network
+      - app-net
 
   # ============================================================================
   # API — FastAPI REST (port 8000) + Prometheus metrics (port 9090)
@@ -166,9 +210,16 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    image: lokilinux/api:${LOKILINUX_VERSION:-latest}
+    image: lokilinux/api:${LOKILINUX_VERSION:-0.3.0}
     container_name: lokilinux-api
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       pgbouncer:
         condition: service_healthy
@@ -181,7 +232,7 @@ services:
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-production}
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pgbouncer:5432/${POSTGRES_DB}
-      NATS_URL: nats://nats:4222
+      NATS_URL: nats://${NATS_USER}:${NATS_PASSWORD}@nats:4222
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
       # Internal fallback: FastAPI fetches JWKS at {BETTER_AUTH_URL}/api/auth/jwks
@@ -209,9 +260,12 @@ services:
       - ./logs/api:/var/log/lokilinux
       - ./agent/bin:/opt/lokilinux/packages:ro
     networks:
-      - lokilinux-network
+      - app-net
+      - web-net
+      - egress-net
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      # Image ships without curl (hardened); use Python stdlib.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -219,6 +273,7 @@ services:
     deploy:
       resources:
         limits:
+          pids: 256
           cpus: "2"
           memory: 2G
 
@@ -230,9 +285,16 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    image: lokilinux/api:${LOKILINUX_VERSION:-latest}
+    image: lokilinux/api:${LOKILINUX_VERSION:-0.3.0}
     container_name: lokilinux-grpc
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       pgbouncer:
         condition: service_healthy
@@ -243,7 +305,7 @@ services:
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-production}
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pgbouncer:5432/${POSTGRES_DB}
-      NATS_URL: nats://nats:4222
+      NATS_URL: nats://${NATS_USER}:${NATS_PASSWORD}@nats:4222
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       GRPC_PORT: ${GRPC_PORT:-50051}
       CA_CERT_PATH: /etc/lokilinux/certs/ca.crt
@@ -257,7 +319,8 @@ services:
     volumes:
       - certs_dir:/etc/lokilinux/certs:ro
     networks:
-      - lokilinux-network
+      - app-net
+      - gateway-net
     healthcheck:
       test: ["CMD-SHELL", "python -c \"import socket; s=socket.socket(); s.settimeout(3); s.connect(('127.0.0.1',50051)); s.close()\""]
       interval: 30s
@@ -267,6 +330,7 @@ services:
     deploy:
       resources:
         limits:
+          pids: 128
           cpus: "2"
           memory: 2G
 
@@ -281,10 +345,17 @@ services:
       # Stamps the binary's self-reported version (main.Version via -ldflags
       # in the Dockerfile). Without this arg it would always report "dev".
       args:
-        VERSION: ${LOKILINUX_VERSION:-dev}
-    image: lokilinux/compliance:${LOKILINUX_VERSION:-latest}
+        VERSION: ${LOKILINUX_VERSION:-0.3.0}
+    image: lokilinux/compliance:${LOKILINUX_VERSION:-0.3.0}
     container_name: lokilinux-compliance
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       pgbouncer:
         condition: service_healthy
@@ -300,12 +371,12 @@ services:
       # real hang (context deadline exceeded on Ping) against this exact
       # POSTGRES_PASSWORD when this was still the URI form.
       DATABASE_URL: "host=pgbouncer port=5432 user=${POSTGRES_USER} password=${POSTGRES_PASSWORD} dbname=${POSTGRES_DB}"
-      NATS_URL: nats://nats:4222
+      NATS_URL: nats://${NATS_USER}:${NATS_PASSWORD}@nats:4222
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - certs_dir:/etc/lokilinux/certs:ro
     networks:
-      - lokilinux-network
+      - app-net
     healthcheck:
       # gcr.io/distroless/static-debian12 has no shell, no wget/curl — the
       # binary checks itself instead (cmd/compliance/main.go -healthcheck).
@@ -321,6 +392,7 @@ services:
     deploy:
       resources:
         limits:
+          pids: 64
           cpus: "2"
           memory: 2G
 
@@ -334,9 +406,16 @@ services:
       dockerfile: Dockerfile
       args:
         NUXT_PUBLIC_API_BASE: /api/v1
-    image: lokilinux/frontend:${LOKILINUX_VERSION:-latest}
+    image: lokilinux/frontend:${LOKILINUX_VERSION:-0.3.0}
     container_name: lokilinux-frontend
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       lokilinux-api:
         condition: service_healthy
@@ -354,7 +433,9 @@ services:
     ports:
       - "3000:3000"
     networks:
-      - lokilinux-network
+      - web-net
+      - data-net
+      - gateway-net
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:3000/health"]
       interval: 30s
@@ -364,16 +445,32 @@ services:
     deploy:
       resources:
         limits:
+          pids: 128
           cpus: "0.5"
           memory: 512M
 
 # ============================================================================
-# NETWORK
+# NETWORKS — see header comment for the segmentation map
 # ============================================================================
 
 networks:
-  lokilinux-network:
-    name: lokilinux-network
+  data-net:
+    name: lokilinux-data-net
+    driver: bridge
+    internal: true
+  app-net:
+    name: lokilinux-app-net
+    driver: bridge
+    internal: true
+  web-net:
+    name: lokilinux-web-net
+    driver: bridge
+    internal: true
+  gateway-net:
+    name: lokilinux-gateway-net
+    driver: bridge
+  egress-net:
+    name: lokilinux-egress-net
     driver: bridge
 
 # ============================================================================

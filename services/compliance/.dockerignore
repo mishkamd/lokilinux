@@ -1,0 +1,12 @@
+# VCS & docs
+.git
+.gitignore
+README.md
+
+# Build artifacts
+bin/
+*.test
+
+# Docker files themselves
+Dockerfile
+.dockerignore

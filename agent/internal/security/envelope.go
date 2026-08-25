@@ -21,26 +21,38 @@ import (
 
 // Envelope is the signed job wrapper delivered inside job parameters under
 // the "_envelope" key. Field names match the backend signer exactly.
+// NO omitempty anywhere: the canonical bytes must contain every field on
+// both sides (Go emits struct order first, but canonicalJSON re-encodes via
+// sorted maps, while the Python signer sorts keys — the intersection is
+// "all fields present, alphabetically sorted"). Optional fields are
+// normalized to their zero value ("", {}, []) by UnsignedBytes.
 type Envelope struct {
 	JobID                 string          `json:"job_id"`
 	AgentID               string          `json:"agent_id"`
-	TenantID              string          `json:"tenant_id,omitempty"`
+	TenantID              string          `json:"tenant_id"`
 	JobType               string          `json:"job_type"`
-	Payload               json.RawMessage `json:"payload,omitempty"`
-	PolicyID              string          `json:"policy_id,omitempty"`
+	Payload               json.RawMessage `json:"payload"`
+	PolicyID              string          `json:"policy_id"`
 	IssuedAt              int64           `json:"issued_at"`  // unix seconds
 	ExpiresAt             int64           `json:"expires_at"` // unix seconds
 	Nonce                 string          `json:"nonce"`
-	RiskLevel             string          `json:"risk_level,omitempty"` // LOW|MEDIUM|HIGH|CRITICAL
-	RequestedCapabilities []string        `json:"requested_capabilities,omitempty"`
+	RiskLevel             string          `json:"risk_level"` // LOW|MEDIUM|HIGH|CRITICAL
+	RequestedCapabilities []string        `json:"requested_capabilities"`
 	Signature             string          `json:"signature"` // base64(ed25519 sig)
 }
 
 // UnsignedBytes returns the exact byte sequence signatures cover: compact
-// JSON of the envelope minus Signature, keys sorted recursively.
+// JSON of the envelope minus Signature, keys sorted recursively, optional
+// fields normalized so both implementations emit identical bytes.
 func (e *Envelope) UnsignedBytes() ([]byte, error) {
 	cp := *e
 	cp.Signature = ""
+	if len(cp.Payload) == 0 {
+		cp.Payload = json.RawMessage(`{}`)
+	}
+	if cp.RequestedCapabilities == nil {
+		cp.RequestedCapabilities = []string{}
+	}
 	b, err := json.Marshal(&cp)
 	if err != nil {
 		return nil, err
@@ -97,6 +109,12 @@ const (
 // ClockSkew tolerates minor host drift on the issued_at lower bound only.
 const ClockSkew = 30 * time.Second
 
+// Canonical exposes deterministic re-encoding for payload-binding checks:
+// callers compare canonical(agentParams) vs canonical(envelope.Payload).
+func Canonical(in []byte) ([]byte, error) {
+	return canonicalJSON(in)
+}
+
 // Verifier holds ONLY the platform's public signing key.
 type Verifier struct {
 	pub ed25519.PublicKey
@@ -110,6 +128,15 @@ func NewVerifier(pubBase64 string) (*Verifier, error) {
 		return nil, fmt.Errorf("invalid platform signing public key")
 	}
 	return &Verifier{pub: ed25519.PublicKey(raw)}, nil
+}
+
+// Public returns the raw Ed25519 public key (for callers verifying
+// non-envelope artifacts, e.g. plugin signatures).
+func (v *Verifier) Public() ed25519.PublicKey {
+	if v == nil {
+		return nil
+	}
+	return v.pub
 }
 
 // Verify checks structure, the validity window, target identity and finally

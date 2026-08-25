@@ -1,0 +1,15 @@
+# Vulnerabilități acceptate explicit — revizuite la fiecare upgrade de framework
+# Format: <CVE-ID>  # motiv
+
+# ── lokilinux/frontend (Nuxt 4 toolchain, deps transitiv în bundle-ul .output)
+# Fix-urile cer upgrade major Nuxt/Nitro sau al părinților din arborele npm.
+# Se revizuiește la următorul upgrade de Nuxt.
+CVE-2026-13149 # brace-expansion <1.1.16
+CVE-2026-14257 # brace-expansion
+CVE-2026-69152 # brace-expansion
+CVE-2026-69192 # ip-address
+CVE-2026-33671 # picomatch
+CVE-2026-48815 # sigstore
+CVE-2026-59873 # tar
+CVE-2026-59874 # tar
+CVE-2026-73566 # tar

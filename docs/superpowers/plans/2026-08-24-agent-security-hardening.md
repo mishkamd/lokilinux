@@ -1,5 +1,7 @@
 # LokiLinux Agent — Security Hardening Implementation Plan
 
+> **STATUS (2026-08-24): P1–P4, P8–P10 IMPLEMENTATE + verificate.** Commits: `18364cd` (envelope), `70ceafc` (key distribution), `9287bb3`+`a860cf7` (redaction), `7c3960a` (signer), `64a168f` (pipeline), `f5d4589` (gating), `52ba09c` (policy local), `8982acb`+`982c601` (RBAC), `b7e8d60` (sandbox profiles), `9c2698f` (systemd hardening), `80b9a2a` (identity binding), `f351e22` (plugin signing), `d2fc74d` (secure update). Deviații documentate în EXECUTION_MODEL.md ("Privilege bridge"). Rămâne: P11 CRL-lite, rollout operațional (flag ON per fleet), MemoryDenyWriteExecute live-test.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Compromiterea unui Agent să nu conducă automat la compromiterea infrastructurii — Assume Breach + Zero Trust + Least Privilege + Defense in Depth, păstrând Bash/Ansible/Python și agentul lightweight.

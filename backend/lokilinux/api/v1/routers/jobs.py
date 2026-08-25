@@ -21,12 +21,23 @@ from lokilinux.models.agent import Agent
 from lokilinux.models.job import Job, JobResult
 from lokilinux.models.job import JobStatus as JobStatusModel
 from lokilinux.schemas.common import CursorPage, decode_cursor, encode_cursor
-from lokilinux.schemas.job import JobCreate, JobResponse, JobResultResponse, JobStatus
+from lokilinux.schemas.job import JobCreate, JobResponse, JobResultResponse, JobStatus, JobType
+from lokilinux.services.audit_service import AuditService
 from lokilinux.services.job_service import JobService
+from lokilinux.utils.capability_rbac import assert_can_create
 
 router = APIRouter()
 
 _CANCELLABLE = {JobStatusModel.QUEUED, JobStatusModel.SCHEDULED}
+
+# Host-mutating job types are arbitrary-code execution on monitored servers
+# (the agent runs them as root) — creation is ADMIN-only and they always
+# require approval before an agent may pick them up. The approval flag is
+# ALSO forced service-side (job_service._FORCE_APPROVAL_JOB_TYPES) so no
+# other code path can bypass it.
+_HOST_MUTATING_JOB_TYPES = frozenset(
+    {JobType.CUSTOM_COMMAND.value, JobType.ANSIBLE_PLAYBOOK.value}
+)
 
 
 # ── List jobs ─────────────────────────────────────────────────────────────────
@@ -110,6 +121,26 @@ async def create_job(
     nats=Depends(get_nats),
     current_user: dict = Depends(get_current_user),
 ) -> JobResponse:
+    role = current_user.get("role", "VIEWER")
+    # Capability-based RBAC (docs/security/AGENT_SECURITY.md §RBAC): the
+    # capability set is derived from job_type (+workflow steps) and checked
+    # against the caller's role. Supersedes the old ADMIN-only gate for
+    # CUSTOM_COMMAND/ANSIBLE_PLAYBOOK with per-capability tiers.
+    try:
+        assert_can_create(role, body.job_type.value, body.parameters)
+    except PermissionError as exc:
+        await AuditService(db).log(
+            action="job.create_denied",
+            user_id=str(current_user.get("id") or ""),
+            actor_name=current_user.get("username") or current_user.get("email"),
+            resource_type="job",
+            changes={"job_type": body.job_type.value, "reason": str(exc)},
+        )
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    if body.job_type.value in _HOST_MUTATING_JOB_TYPES:
+        if role != "ADMIN":
+            raise HTTPException(status_code=403, detail="Insufficient permissions")
+
     service = JobService(db, cache, nats)
     try:
         job = await service.create_job(
@@ -124,6 +155,16 @@ async def create_job(
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    if body.job_type.value in _HOST_MUTATING_JOB_TYPES:
+        await AuditService(db).log(
+            action="job.created_host_mutating",
+            user_id=str(current_user.get("id") or ""),
+            actor_name=current_user.get("username") or current_user.get("email"),
+            resource_type="job",
+            resource_id=str(job.id),
+            changes={"job_type": job.job_type, "name": job.name, "requires_approval": True},
+        )
 
     await cache.invalidate_pattern("job:list:*")
     return JobResponse.model_validate(job)

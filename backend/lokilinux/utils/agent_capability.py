@@ -17,8 +17,16 @@ regardless of agent version (see workflow_engine.py's module docstring).
 # only place this decision lives.
 MIN_AGENT_VERSION_NATIVE_MODULES = (0, 36, 0)
 
+# The agent version that ships the signed-job validation pipeline
+# (agent/internal/security + manager pre-dispatch gate). Envelopes are sent
+# ONLY to agents at or above this version; older binaries would ignore the
+# unknown "_envelope" parameter key and execute unsigned anyway, so gating
+# keeps rollout observable rather than silently inconsistent. Bump together
+# with the release that actually ships the pipeline.
+MIN_AGENT_VERSION_SIGNED_JOBS = (0, 37, 0)
 
-def _parse_version(v: str | None) -> tuple[int, int, int] | None:
+
+def _parse_version(v) -> "tuple[int, int, int] | None":
     if not v:
         return None
     parts = v.strip().lstrip("v").split(".")
@@ -33,9 +41,11 @@ def _parse_version(v: str | None) -> tuple[int, int, int] | None:
     return (nums[0], nums[1], nums[2])
 
 
-def agent_meets_minimum(agent_version: str | None, minimum: tuple[int, int, int] = MIN_AGENT_VERSION_NATIVE_MODULES) -> bool:
+def agent_meets_minimum(agent_version, minimum=MIN_AGENT_VERSION_NATIVE_MODULES) -> bool:
     """None, empty, or unparseable agent_version is treated as "too old" —
     conservative by construction, since the whole point is to never risk a
-    native job_type landing on an agent binary that doesn't handle it."""
+    native job_type landing on an agent binary that doesn't handle it.
+    (Annotations kept unparameterized: this module also runs under the
+    host's test interpreter, not only the 3.11 container.)"""
     parsed = _parse_version(agent_version)
     return parsed is not None and parsed >= minimum
