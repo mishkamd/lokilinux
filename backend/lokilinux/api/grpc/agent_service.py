@@ -290,6 +290,29 @@ class AgentServicer:
                         )
                         for j in pending_jobs
                     }
+                    # Attach signed approval claims to jobs that require them
+                    # (plan §6): the agent verifies claim binding + signature
+                    # before executing require_approval capabilities.
+                    from sqlalchemy import select as _select
+                    from lokilinux.models.approval import ApprovalClaim
+
+                    for j in pending_jobs:
+                        if not getattr(j, "requires_approval", False):
+                            continue
+                        row = (
+                            await db.execute(
+                                _select(ApprovalClaim)
+                                .where(ApprovalClaim.job_id == j.id,
+                                       ApprovalClaim.consumed_at.is_(None))
+                                .order_by(ApprovalClaim.created_at.desc())
+                                .limit(1)
+                            )
+                        ).scalar_one_or_none()
+                        if row is not None:
+                            import json as _json
+                            params_dict = dict(signed_params[j.id])
+                            params_dict["_approval_claim"] = _json.loads(row.claim_json)
+                            signed_params[j.id] = params_dict
 
                     # Compliance delta sync (docs/compliance/04-PROTOCOL.md §3) —
                     # domain_hashes/domain_full arrive as SimpleNamespace via the

@@ -220,7 +220,7 @@ class JobService:
         job_type: str,
         target_servers: dict,
         parameters: dict | None = None,
-        description: str | None = None,
+        description=None,
         scheduled_time: datetime | None = None,
         policy_id: UUID | None = None,
         created_by: UUID | None = None,
@@ -322,7 +322,7 @@ class JobService:
         # this layer: without a provisioned key the DB approval still stands,
         # but agents in enforcement mode will reject execution — surfaced via
         # metrics rather than blocking the administrative action here.
-        claim_json: str | None = None
+        claim_json = None
         try:
             from lokilinux.services.approval_claims import create_claim
             from lokilinux.services.job_signing import JobSigner
