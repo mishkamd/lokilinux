@@ -27,10 +27,44 @@ type RemediationExecutor struct {
 	shell   *JobExecutor
 	ansible *AnsibleExecutor
 	python  *PythonExecutor
+
+	// brokerRunners, when set, override runnerFor: each provider executes
+	// through loki-agent-exec instead of in-process systemd-run (non-root
+	// core mode, plan Faza 2). dry-run variants stay LOCAL — syntax checks
+	// (sh -n / ast.parse / --check) need no privileges.
+	brokerRunners map[string]ActionRunner
 }
 
 func NewRemediationExecutor(shell *JobExecutor, ansible *AnsibleExecutor, python *PythonExecutor) *RemediationExecutor {
 	return &RemediationExecutor{shell: shell, ansible: ansible, python: python}
+}
+
+// NewBrokerRemediationRunner builds an ActionRunner dispatching one provider
+// body through the exec client.
+func NewBrokerRemediationRunner(run func(operation string, args map[string]interface{}, timeoutSec int) JobResult, provider string) ActionRunner {
+	switch provider {
+	case "shell":
+		return func(ctx context.Context, jobID, body string, timeoutSec int) JobResult {
+			return run("bash.exec", map[string]interface{}{"command": body}, timeoutSec)
+		}
+	case "ansible":
+		return func(ctx context.Context, jobID, body string, timeoutSec int) JobResult {
+			return run("ansible.run", map[string]interface{}{
+				"playbook_content": body, "extra_vars": map[string]interface{}{},
+				"roles": map[string]interface{}{}}, timeoutSec)
+		}
+	case "python":
+		return func(ctx context.Context, jobID, body string, timeoutSec int) JobResult {
+			return run("python.exec", map[string]interface{}{"script": body}, timeoutSec)
+		}
+	default:
+		return nil
+	}
+}
+
+// SetBrokerRunners installs provider→runner overrides (nil values ignored).
+func (e *RemediationExecutor) SetBrokerRunners(runners map[string]ActionRunner) {
+	e.brokerRunners = runners
 }
 
 // runnerFor returns the ActionRunner for a given provider — dryRun selects
@@ -40,6 +74,11 @@ func NewRemediationExecutor(shell *JobExecutor, ansible *AnsibleExecutor, python
 // under systemd-run); ansible and python use their own argv-based executors
 // with empty extra_vars/roles.
 func (e *RemediationExecutor) runnerFor(provider string, dryRun bool) (ActionRunner, error) {
+	if !dryRun && e.brokerRunners != nil {
+		if r, ok := e.brokerRunners[provider]; ok && r != nil {
+			return r, nil
+		}
+	}
 	switch provider {
 	case "shell":
 		if dryRun {

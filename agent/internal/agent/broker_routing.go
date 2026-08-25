@@ -93,3 +93,16 @@ func wireBrokerUpdateChecker(mgr *Manager, client *broker.Client) {
 		return snap.Updates, nil
 	})
 }
+
+// wireBrokerRemediation installs broker-backed runners for the three
+// remediation providers. Dry-run paths stay local (no privileges needed).
+func wireBrokerRemediation(mgr *Manager, client *broker.Client) {
+	run := func(operation string, args map[string]interface{}, timeoutSec int) modules.JobResult {
+		return client.Run(operation, "remediation", args, timeoutSec)
+	}
+	mgr.remediationExec.SetBrokerRunners(map[string]modules.ActionRunner{
+		"shell":   modules.NewBrokerRemediationRunner(run, "shell"),
+		"ansible": modules.NewBrokerRemediationRunner(run, "ansible"),
+		"python":  modules.NewBrokerRemediationRunner(run, "python"),
+	})
+}

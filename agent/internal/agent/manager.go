@@ -162,7 +162,8 @@ func NewManager(cfg *config.Config, log *slog.Logger, version string, logBuf *Lo
 	}
 	if cfg.Security.ExecBrokerSocket != "" {
 		wireBrokerUpdateChecker(mgr, broker.NewClient(cfg.Security.ExecBrokerSocket))
-		log.Info("package update checks delegated to exec broker", "socket", cfg.Security.ExecBrokerSocket)
+		wireBrokerRemediation(mgr, broker.NewClient(cfg.Security.ExecBrokerSocket))
+		log.Info("privileged execution delegated to exec broker", "socket", cfg.Security.ExecBrokerSocket)
 	}
 
 	if blob, err := store.GetConfig(context.Background(), "security.local_policy"); err == nil && blob != "" {
