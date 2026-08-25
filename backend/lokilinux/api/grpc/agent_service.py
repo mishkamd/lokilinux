@@ -16,6 +16,11 @@ from cryptography import x509
 from cryptography.x509.oid import NameOID
 
 from lokilinux.services.agent_service import AgentService
+from lokilinux.services.cert_revocation import (
+    CertificateRevoked,
+    RevocationUnavailable,
+    assert_not_revoked,
+)
 from lokilinux.services.compliance_ingest_service import (
     diff_domain_hashes,
     publish_domain_hashes,
@@ -49,6 +54,25 @@ def _peer_cert_common_name(context) -> str | None:
         return attrs[0].value.strip() if attrs else None
     except Exception:
         logger.warning("gRPC auth: failed to parse peer certificate", exc_info=True)
+        return None
+
+
+def _peer_cert_serial(context):
+    """Serial (hex, lowercase) of the verified mTLS client certificate —
+    parsed from the handshake cert, NEVER from agent-supplied fields.
+    Returns None when absent/unparseable; callers decide policy."""
+    if context is None:
+        return None
+    try:
+        auth_ctx = context.auth_context() or {}
+        pems = auth_ctx.get("x509_pem_cert") or []
+        if not pems:
+            return None
+        raw = pems[0]
+        pem = raw.encode() if isinstance(raw, str) else bytes(raw)
+        return format(x509.load_pem_x509_certificate(pem).serial_number, "x")
+    except Exception:
+        logger.warning("gRPC auth: failed to read certificate serial", exc_info=True)
         return None
 
 
@@ -142,6 +166,36 @@ class AgentServicer:
             if await self.cache.get_cached(_revoked_key(requested_id)):
                 logger.warning("HeartbeatStream: revoked agent %s rejected", requested_id)
                 await context.abort(grpc.StatusCode.PERMISSION_DENIED, "agent revoked")
+                return
+
+            # ── Certificate serial revocation (P11 CRL-lite) ─────────────────
+            # One lookup per connection attempt, keyed by the handshake cert's
+            # serial (server-side extraction — agent input is never trusted
+            # for revocation state). Settings control compat/fail-closed.
+            from lokilinux.config import get_settings
+
+            _settings = get_settings()
+            cert_serial = _peer_cert_serial(context)
+            try:
+                await assert_not_revoked(
+                    self.cache,
+                    cert_serial,
+                    enabled=_settings.certificate_revocation_enabled,
+                    fail_closed=_settings.certificate_revocation_fail_closed,
+                )
+            except CertificateRevoked:
+                logger.warning(
+                    "HeartbeatStream: revoked certificate %s for agent %s",
+                    cert_serial, requested_id,
+                )
+                await context.abort(grpc.StatusCode.PERMISSION_DENIED, "certificate revoked")
+                return
+            except RevocationUnavailable:
+                logger.error(
+                    "HeartbeatStream: revocation store unavailable, fail-closed for agent %s",
+                    requested_id,
+                )
+                await context.abort(grpc.StatusCode.UNAVAILABLE, "revocation check unavailable")
                 return
 
             try:
