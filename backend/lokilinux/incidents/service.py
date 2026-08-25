@@ -22,6 +22,7 @@ import structlog
 
 from lokilinux.correlation.evaluator import IncidentCandidate
 from lokilinux.events.fingerprint import fingerprint
+from lokilinux.incidents.evidence import add_evidence
 from lokilinux.incidents.lifecycle import assert_legal
 from lokilinux.incidents.models import Incident, IncidentSignal
 from lokilinux.incidents.timeline import add_entry
@@ -56,10 +57,11 @@ def _incident_event_json(incident: Incident) -> bytes:
 
 
 class IncidentService:
-    def __init__(self, db: AsyncSession, nats: Any, cache: Any) -> None:
+    def __init__(self, db: AsyncSession, nats: Any, cache: Any, ch: Any) -> None:
         self.db = db
         self.nats = nats
         self.cache = cache
+        self.ch = ch
 
     async def _resolve_member_signals(self, candidate: IncidentCandidate, tenant_id: str) -> list[Signal]:
         host_id = candidate.group_values.get("host_id") or None
@@ -140,6 +142,14 @@ class IncidentService:
         )
         for sig in signal_rows:
             await add_entry(self.db, incident.id, "signal", f"contributing signal: {sig.type}")
+        try:
+            for sig in signal_rows:
+                await add_evidence(
+                    self.ch, tenant_id, str(incident.id), "signal", sig.fingerprint,
+                    f"{sig.type} (severity {sig.severity})",
+                )
+        except Exception:
+            logger.error("incident.evidence_write_failed", incident_id=str(incident.id), exc_info=True)
 
         alert_svc = AlertService(self.db, self.nats)
         alert = await alert_svc.create_alert(

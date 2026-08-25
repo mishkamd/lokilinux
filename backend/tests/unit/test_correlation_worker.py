@@ -36,6 +36,11 @@ class _FakeZSetCache:
         return True
 
 
+class _FakeCH:
+    async def insert(self, table, data, column_names) -> None:
+        pass
+
+
 class _RecordingSink(IncidentSink):
     def __init__(self) -> None:
         self.opened: list[IncidentCandidate] = []
@@ -60,7 +65,7 @@ def _msg(payload: dict) -> SimpleNamespace:
 async def test_reaching_threshold_opens_via_sink(db_session, fake_nats):
     await ensure_default_rules(db_session)
     sink = _RecordingSink()
-    worker = CorrelationWorker(fake_nats, _db_factory(db_session), _FakeZSetCache(), sink=sink)
+    worker = CorrelationWorker(fake_nats, _db_factory(db_session), _FakeZSetCache(), _FakeCH(), sink=sink)
 
     await worker._handle_signal(_msg({"type": "cpu.high", "host_id": "host-1"}))
     await worker._handle_signal(_msg({"type": "load.high", "host_id": "host-1"}))
@@ -74,7 +79,7 @@ async def test_reaching_threshold_opens_via_sink(db_session, fake_nats):
 async def test_below_threshold_never_opens(db_session, fake_nats):
     await ensure_default_rules(db_session)
     sink = _RecordingSink()
-    worker = CorrelationWorker(fake_nats, _db_factory(db_session), _FakeZSetCache(), sink=sink)
+    worker = CorrelationWorker(fake_nats, _db_factory(db_session), _FakeZSetCache(), _FakeCH(), sink=sink)
 
     await worker._handle_signal(_msg({"type": "cpu.high", "host_id": "host-2"}))
     assert sink.opened == []
@@ -86,7 +91,7 @@ async def test_default_sink_creates_a_real_incident(db_session, fake_nats):
     crossing without an explicit sink actually opens an Incident row, not a
     no-op drop."""
     await ensure_default_rules(db_session)
-    worker = CorrelationWorker(fake_nats, _db_factory(db_session), _FakeZSetCache())
+    worker = CorrelationWorker(fake_nats, _db_factory(db_session), _FakeZSetCache(), _FakeCH())
 
     await worker._handle_signal(_msg({"type": "cpu.high", "host_id": "host-3"}))
     await worker._handle_signal(_msg({"type": "load.high", "host_id": "host-3"}))
@@ -100,7 +105,7 @@ async def test_default_sink_creates_a_real_incident(db_session, fake_nats):
 @pytest.mark.asyncio
 async def test_explicit_noop_sink_drops_without_raising(db_session, fake_nats):
     await ensure_default_rules(db_session)
-    worker = CorrelationWorker(fake_nats, _db_factory(db_session), _FakeZSetCache(), sink=NoOpIncidentSink())
+    worker = CorrelationWorker(fake_nats, _db_factory(db_session), _FakeZSetCache(), _FakeCH(), sink=NoOpIncidentSink())
 
     await worker._handle_signal(_msg({"type": "cpu.high", "host_id": "host-4"}))
     await worker._handle_signal(_msg({"type": "load.high", "host_id": "host-4"}))
@@ -112,5 +117,5 @@ async def test_explicit_noop_sink_drops_without_raising(db_session, fake_nats):
 
 @pytest.mark.asyncio
 async def test_malformed_json_does_not_raise(db_session, fake_nats):
-    worker = CorrelationWorker(fake_nats, _db_factory(db_session), _FakeZSetCache())
+    worker = CorrelationWorker(fake_nats, _db_factory(db_session), _FakeZSetCache(), _FakeCH())
     await worker._handle_signal(SimpleNamespace(data=b"{not-json"))  # must not raise

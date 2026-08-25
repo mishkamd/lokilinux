@@ -189,10 +189,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         except Exception:
             logger.error("correlation.default_rule_seed_failed", exc_info=True)
     from lokilinux.workers.correlation_worker import CorrelationWorker
-    correlation_worker = CorrelationWorker(nc, session_factory, cache)
+    correlation_worker = CorrelationWorker(nc, session_factory, cache, ch)
     await correlation_worker.start()
     from lokilinux.workers.incident_worker import IncidentWorker
-    incident_worker = IncidentWorker(nc, session_factory, cache)
+    incident_worker = IncidentWorker(nc, session_factory, cache, ch)
     await incident_worker.start()
 
     app.state.workers = [

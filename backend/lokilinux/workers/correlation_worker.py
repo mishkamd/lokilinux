@@ -38,21 +38,22 @@ class NoOpIncidentSink(IncidentSink):
 
 
 class IncidentServiceSink(IncidentSink):
-    def __init__(self, nats, cache) -> None:
+    def __init__(self, nats, cache, ch) -> None:
         self.nats = nats
         self.cache = cache
+        self.ch = ch
 
     async def open(self, db, candidate: IncidentCandidate) -> None:
-        await IncidentService(db, self.nats, self.cache).open_from_candidate(candidate)
+        await IncidentService(db, self.nats, self.cache, self.ch).open_from_candidate(candidate)
 
 
 class CorrelationWorker:
-    def __init__(self, nats_client, db_session_factory, cache, sink: IncidentSink | None = None) -> None:
+    def __init__(self, nats_client, db_session_factory, cache, ch, sink: IncidentSink | None = None) -> None:
         self.nats = nats_client
         self.db_factory = db_session_factory
         self.rule_cache = RuleCache()
         self.evaluator = CorrelationEvaluator(cache)
-        self.sink = sink or IncidentServiceSink(nats_client, cache)
+        self.sink = sink or IncidentServiceSink(nats_client, cache, ch)
 
     async def start(self) -> None:
         await self.nats.subscribe(SIGNAL_DETECTED, cb=self._handle_signal)

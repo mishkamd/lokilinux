@@ -32,10 +32,11 @@ _OPEN_STATUSES = ("OPEN", "ACKNOWLEDGED", "IN_PROGRESS")
 
 
 class IncidentWorker:
-    def __init__(self, nats_client, db_session_factory, cache) -> None:
+    def __init__(self, nats_client, db_session_factory, cache, ch) -> None:
         self.nats = nats_client
         self.db_factory = db_session_factory
         self.cache = cache
+        self.ch = ch
         self._task: asyncio.Task | None = None
 
     async def start(self) -> None:
@@ -79,7 +80,7 @@ class IncidentWorker:
                 ).scalars().all()
                 if not incident_ids:
                     return
-                svc = IncidentService(db, self.nats, self.cache)
+                svc = IncidentService(db, self.nats, self.cache, self.ch)
                 for incident_id in incident_ids:
                     await svc.maybe_auto_resolve(incident_id)
         except Exception:
@@ -118,7 +119,7 @@ class IncidentWorker:
             ).scalars().all()
             if not open_incidents:
                 return
-            svc = IncidentService(db, self.nats, self.cache)
+            svc = IncidentService(db, self.nats, self.cache, self.ch)
             for incident in open_incidents:
                 resolved = await svc.maybe_auto_resolve(incident.id)
                 if resolved:

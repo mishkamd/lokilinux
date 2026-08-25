@@ -169,7 +169,7 @@ async def test_incident_created_handler_respects_kill_switch(db_session, fake_ca
     monkeypatch.setattr(runbook_service, "execute_runbook", _recording_execute(calls))
     await _make_runbook(db_session, trigger_mode="AUTO", with_workflow=True, incident_type="application_degradation")
 
-    worker = IncidentWorker(fake_nats, _db_factory(db_session), fake_cache)
+    worker = IncidentWorker(fake_nats, _db_factory(db_session), fake_cache, None)
     await worker._handle_incident_created(_msg({"type": "application_degradation", "severity": "CRITICAL"}))
 
     assert calls == []  # kill switch defaults False, no Setting row overriding it
@@ -177,5 +177,5 @@ async def test_incident_created_handler_respects_kill_switch(db_session, fake_ca
 
 @pytest.mark.asyncio
 async def test_incident_created_handler_malformed_json_does_not_raise(db_session, fake_cache, fake_nats):
-    worker = IncidentWorker(fake_nats, _db_factory(db_session), fake_cache)
+    worker = IncidentWorker(fake_nats, _db_factory(db_session), fake_cache, None)
     await worker._handle_incident_created(SimpleNamespace(data=b"{not-json"))

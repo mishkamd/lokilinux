@@ -23,6 +23,14 @@ class _FakeCache:
         return True
 
 
+class _FakeCH:
+    def __init__(self) -> None:
+        self.inserted: list = []
+
+    async def insert(self, table, data, column_names) -> None:
+        self.inserted.append((table, data, column_names))
+
+
 async def _make_signal(db_session, *, host_id: str, sig_type: str, status: str = "OPEN", last_seen=None) -> Signal:
     now = datetime.now(timezone.utc)
     sig = Signal(
@@ -65,7 +73,7 @@ async def test_open_from_candidate_creates_incident_links_signals_and_timeline(d
     rule = await _make_rule(db_session)
     candidate = _candidate(rule, host_id=host_id, member_types=["cpu.high", "load.high"], score=65, root_signal_type="load.high")
 
-    svc = IncidentService(db_session, fake_nats, _FakeCache())
+    svc = IncidentService(db_session, fake_nats, _FakeCache(), _FakeCH())
     incident = await svc.open_from_candidate(candidate)
 
     assert incident.type == "application_degradation"
@@ -91,7 +99,7 @@ async def test_second_candidate_same_group_key_attaches_instead_of_duplicating(d
     group_key = "fixed-group-key"
     sig1 = await _make_signal(db_session, host_id=host_id, sig_type="cpu.high")
     rule = await _make_rule(db_session)
-    svc = IncidentService(db_session, fake_nats, _FakeCache())
+    svc = IncidentService(db_session, fake_nats, _FakeCache(), _FakeCH())
 
     first = await svc.open_from_candidate(
         _candidate(rule, host_id=host_id, member_types=["cpu.high"], score=20, root_signal_type="cpu.high", group_key=group_key)
@@ -120,7 +128,7 @@ async def test_ack_resolve_reopen_flow(db_session, fake_nats):
     host_id = "host-3"
     sig = await _make_signal(db_session, host_id=host_id, sig_type="cpu.high")
     rule = await _make_rule(db_session)
-    svc = IncidentService(db_session, fake_nats, _FakeCache())
+    svc = IncidentService(db_session, fake_nats, _FakeCache(), _FakeCH())
     incident = await svc.open_from_candidate(
         _candidate(rule, host_id=host_id, member_types=["cpu.high"], score=60, root_signal_type="cpu.high")
     )
@@ -147,7 +155,7 @@ async def test_illegal_transition_raises(db_session, fake_nats):
     host_id = "host-4"
     await _make_signal(db_session, host_id=host_id, sig_type="cpu.high")
     rule = await _make_rule(db_session)
-    svc = IncidentService(db_session, fake_nats, _FakeCache())
+    svc = IncidentService(db_session, fake_nats, _FakeCache(), _FakeCH())
     incident = await svc.open_from_candidate(
         _candidate(rule, host_id=host_id, member_types=["cpu.high"], score=60, root_signal_type="cpu.high")
     )
@@ -162,7 +170,7 @@ async def test_maybe_auto_resolve_false_when_signals_not_quiet(db_session, fake_
     host_id = "host-5"
     await _make_signal(db_session, host_id=host_id, sig_type="cpu.high", status="OPEN")
     rule = await _make_rule(db_session)
-    svc = IncidentService(db_session, fake_nats, _FakeCache())
+    svc = IncidentService(db_session, fake_nats, _FakeCache(), _FakeCH())
     incident = await svc.open_from_candidate(
         _candidate(rule, host_id=host_id, member_types=["cpu.high"], score=60, root_signal_type="cpu.high")
     )
@@ -177,7 +185,7 @@ async def test_maybe_auto_resolve_true_when_all_signals_quiet(db_session, fake_n
     quiet_since = datetime.now(timezone.utc) - timedelta(seconds=700)
     sig = await _make_signal(db_session, host_id=host_id, sig_type="cpu.high", status="OPEN")
     rule = await _make_rule(db_session)
-    svc = IncidentService(db_session, fake_nats, _FakeCache())
+    svc = IncidentService(db_session, fake_nats, _FakeCache(), _FakeCH())
     incident = await svc.open_from_candidate(
         _candidate(rule, host_id=host_id, member_types=["cpu.high"], score=60, root_signal_type="cpu.high")
     )
