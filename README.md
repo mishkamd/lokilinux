@@ -87,6 +87,8 @@ Enterprise Linux fleet management platform — centralized patch management, vul
 | `nats` | NATS 2.10.29 + JetStream | 4222, 8222 | Event bus |
 | `lokilinux-migrate` | Alembic | — | One-shot DB migrations |
 
+Postgres, pgBouncer, Redis and NATS are **internal-only** — they have no published host ports and are reachable only from inside the compose networks (`data-net` / `app-net`). The only host-published ports are frontend `3000`, api `8000` + `9090` metrics, and grpc `50051`.
+
 ## Module Documentation
 
 Detailed per-module documentation (Romanian, generated from code at v0.3.0) lives in [`docs/modules/`](docs/modules/):
@@ -137,7 +139,8 @@ For local development with hot-reload, use `make dev` instead of `make up` (uses
 | `http://localhost:3000` | Web UI |
 | `http://localhost:8000/docs` | API docs (Swagger) |
 | `http://localhost:8000/health` | API health check |
-| `nats://localhost:4222` | NATS (JetStream enabled) |
+
+NATS, Redis and pgBouncer are not reachable from the host (internal networks only); use `docker compose exec` from inside the stack if you need to inspect them.
 
 ## First-Time Authentication
 
@@ -234,6 +237,13 @@ make proto    # Regenerate Go + Python from proto/*.proto
 make certs    # Generate CA + server certificates
 ```
 
+### Security
+
+```bash
+make scan-image                       # Trivy gate over all lokilinux/* images — FAILS on HIGH/CRITICAL (accepted CVEs in .trivyignore)
+make sbom IMAGE=lokilinux/api:0.3.0   # CycloneDX SBOM for one image, written to sbom/
+```
+
 ## Development
 
 - **Hot-reload stack**: `make dev` — dev Dockerfiles (`uvicorn --reload`, `npm run dev`), bind-mounted sources, all infrastructure ports exposed locally (5432, 6432, 4222, 6379), verbose Postgres query logging.
@@ -244,11 +254,34 @@ make certs    # Generate CA + server certificates
 
 ## Docker Compose Structure
 
-`docker-compose.yml` defines 9 services on a shared `lokilinux-network`. All long-running services have health checks. `lokilinux-migrate` runs `alembic upgrade head` once and exits.
+`docker-compose.yml` defines 9 services across **five segmented networks** (no flat shared network). All long-running services have health checks. `lokilinux-migrate` runs `alembic upgrade head` once and exits.
+
+```
+data-net  (internal) : postgres <-> pgbouncer (+ frontend direct DB access)
+app-net   (internal) : pgbouncer / nats / redis <-> api / grpc / compliance / migrate
+web-net   (internal) : api <-> frontend
+gateway-net          : api / grpc / frontend — required for host port publishing
+                       (internal networks cannot publish ports)
+egress-net           : api only — outbound internet for NVD/CISA feeds and webhooks
+```
+
+Only `gateway-net` members can publish host ports: frontend `3000`, api `8000`/`9090`, grpc `50051`. Redis (`6379`), NATS (`4222`/`8222`) and pgBouncer (`6432`) are internal-only.
+
+Images are tagged `${LOKILINUX_VERSION}` (pinned to `0.3.0` in `.env`) — never `latest`.
 
 Service dependencies: `postgres` → `pgbouncer` → `lokilinux-migrate` → `lokilinux-api` / `lokilinux-grpc` / `lokilinux-compliance` → `lokilinux-frontend`
 
-`docker-compose.dev.yml` is a dev override (used by `make dev`) that exposes Postgres, pgBouncer, and NATS ports locally and enables verbose Postgres query logging.
+`docker-compose.dev.yml` is a dev override (used by `make dev`) that exposes the infrastructure ports locally (5432, 6432, 4222, 8222, 6379) and enables verbose Postgres query logging.
+
+## Security Hardening
+
+- **Non-root containers**: application services run as unprivileged users (backend image uses a dedicated `appuser`, uid 10001; the compliance distroless image runs `USER nonroot:nonroot`). mTLS cert keys are chowned to uid 10001 by `scripts/docker-init.sh` so non-root services can read them.
+- **Minimal images**: the backend image is a multi-stage venv build with no curl/pip/setuptools/libpq5 in the runtime layer and a Python-stdlib healthcheck instead of curl (~434MB, down from ~878MB). The compliance image is distroless with the real version baked in via `ARG VERSION`.
+- **Runtime restrictions**: application services run with `read_only` rootfs + tmpfs `/tmp`, `cap_drop: ALL`, `no-new-privileges`, and pids/memory/cpu limits. Infrastructure services are hardened with `no-new-privileges` plus limits.
+- **Network segmentation**: see the map under [Docker Compose Structure](#docker-compose-structure) — data/app/web networks are `internal: true`; only api has an egress path to the internet.
+- **Secrets**: `.env` is never copied into images (`backend/.dockerignore` blocks it).
+- **Version pinning**: images are tagged `${LOKILINUX_VERSION}` (`0.3.0`), never `latest`.
+- **Vulnerability gate**: `make scan-image` runs Trivy over every `lokilinux/*` image and fails on HIGH/CRITICAL findings; explicitly accepted exceptions live in `.trivyignore`. SBOMs via `make sbom IMAGE=...` (CycloneDX, into `sbom/`). CI enforces the same gate in [.github/workflows/security-pipeline.yml](.github/workflows/security-pipeline.yml) (build → tests → Trivy gate → SBOM → GHCR push → cosign sign).
 
 ## Directory Structure
 

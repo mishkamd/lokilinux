@@ -1,0 +1,115 @@
+# LokiLinux — Supply-chain security pipeline
+#
+# Source → Unit tests → Image build → Vulnerability scan (fail on HIGH/CRIT)
+#        → SBOM → Image signing → Registry
+#
+# Prerequisites (repo secrets):
+#   REGISTRY_USER / REGISTRY_TOKEN — push credentials
+#   COSIGN_KEY / COSIGN_PASSWORD   — cosign signing key (or use keyless)
+
+name: security-pipeline
+
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+env:
+  PLATFORM_VERSION: "0.3.0"
+
+permissions:
+  contents: read
+  packages: write
+  id-token: write # cosign keyless signing
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Go unit tests (agent + compliance)
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+      - run: make agent-test compliance-test
+
+      # Python backend tests
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install backend dev deps and run tests
+        working-directory: backend
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -e ".[dev]"
+          .venv/bin/pytest tests/
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        image:
+          - { name: api, context: ./backend, dockerfile: ./backend/Dockerfile }
+          - { name: frontend, context: ./frontend, dockerfile: ./frontend/Dockerfile }
+          - { name: compliance, context: ./services/compliance, dockerfile: ./services/compliance/Dockerfile }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.image.context }}
+          file: ${{ matrix.image.dockerfile }}
+          push: false
+          load: true
+          tags: lokilinux/${{ matrix.image.name }}:${{ env.PLATFORM_VERSION }}
+          build-args: VERSION=${{ env.PLATFORM_VERSION }}
+
+      - name: Vulnerability gate (fails on HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: lokilinux/${{ matrix.image.name }}:${{ env.PLATFORM_VERSION }}
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          trivyignores: .trivyignore
+
+      - name: Generate SBOM (CycloneDX)
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: lokilinux/${{ matrix.image.name }}:${{ env.PLATFORM_VERSION }}
+          format: cyclonedx
+          output: sbom-${{ matrix.image.name }}.cdx.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ matrix.image.name }}
+          path: sbom-${{ matrix.image.name }}.cdx.json
+
+      # ── Publish + sign only on main/tags (not PRs) ──
+      - name: Login to GHCR
+        if: github.event_name != 'pull_request'
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Push
+        if: github.event_name != 'pull_request'
+        run: |
+          docker tag lokilinux/${{ matrix.image.name }}:${{ env.PLATFORM_VERSION }} \
+            ghcr.io/${{ github.repository_owner }}/lokilinux-${{ matrix.image.name }}:${{ env.PLATFORM_VERSION }}
+          docker push ghcr.io/${{ github.repository_owner }}/lokilinux-${{ matrix.image.name }}:${{ env.PLATFORM_VERSION }}
+
+      - name: Sign image (cosign keyless)
+        if: github.event_name != 'pull_request'
+        uses: sigstore/cosign-installer@v3
+      - run: |
+          cosign sign --yes \
+            ghcr.io/${{ github.repository_owner }}/lokilinux-${{ matrix.image.name }}@$(docker inspect --format '{{index .RepoDigests 0}}' ghcr.io/${{ github.repository_owner }}/lokilinux-${{ matrix.image.name }}:${{ env.PLATFORM_VERSION }} | cut -d@ -f2) || true

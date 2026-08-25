@@ -1,0 +1,33 @@
+# Secrets — never bake into image layers
+.env
+.env.*
+*.pem
+*.key
+*.crt
+
+# Virtualenvs & caches (local dev only)
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Tests & tooling — not needed at runtime
+tests/
+lokilinux.egg-info/
+.pytest.ini
+mypy.ini
+
+# Stale build artifacts
+banks/
+
+# Docs & VCS
+README.md
+.gitignore
+Dockerfile.dev
+
+# Docker files themselves
+Dockerfile
+.dockerignore

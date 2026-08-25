@@ -70,7 +70,7 @@ Notă de arhitectură: spec-ul inițial menționa ClickHouse și LangGraph — *
 
 ### HI-06 · Parole slabe `.env` + porturi expuse — **Fixed**
 - POSTGRES/REDIS/TIMESCALE/ADMIN parole pattern-guessable; porturi 6432/6379/8000/9090/3000 publicate pe all-interfaces.
-- **Fix**: rotire parole puternice random; `127.0.0.1:` prefix pe pgbouncer/redis/metrics/api; frontend lasat pe decizia proxy-ului (documentat).
+- **Fix**: rotire parole puternice random; `127.0.0.1:` prefix pe pgbouncer/redis/metrics/api; frontend lasat pe decizia proxy-ului (documentat). Ulterior, pgBouncer (6432) și Redis (6379) au fost scoase complet de pe host (internal-only, rețele segmentate).
 
 ### HI-07 · Evenimente forjate trec BLAKE3 self-check — **Partially Mitigated, restanță P1**
 - `ingest.go:106-115`: hash self-claimed de publisher; cu NATS deschis (CR-02) forjarea era trivială → drift_events, rule_evaluations, scores, incidents.
@@ -80,11 +80,11 @@ Notă de arhitectură: spec-ul inițial menționa ClickHouse și LangGraph — *
 
 | ID | Titlu | Locație | Stare |
 |---|---|---|---|
-| ME-01 | Containere app rulează root implicit; zero cap_drop/no-new-privileges/read_only; compliance distroless dar nu `:nonroot` | Dockerfiles + compose | Open (P1) |
+| ME-01 | Containere app rulează root implicit; zero cap_drop/no-new-privileges/read_only; compliance distroless dar nu `:nonroot` | Dockerfiles + compose | **Fixed** — serviciile de aplicație rulează non-root (backend `appuser` uid 10001; distroless `USER nonroot:nonroot`), read_only + tmpfs /tmp, cap_drop ALL, no-new-privileges, limite pids/memory/cpu; infra hardenită cu no-new-privileges + limite |
 | ME-02 | Rate-limit pe client.host doar, fail-open; lipsă body-size cap REST | middleware/rate_limit.py | Open (P1) |
 | ME-03 | Zero security headers, zero TrustedHostMiddleware | main.py | Open (P1) |
 | ME-04 | JetStream fără MaxBytes; Facts `map[string]any` fără schema/size-cap | consumer.go:42-49, ingest.go | Open (P1) |
-| ME-05 | npm install ignoră lockfile în build; deps `^` floating frontend; cryptography drift 49.0.0(Dockerfile) vs 46.0.3(pyproject) | frontend/Dockerfile, pyproject.toml | Open (P2) |
+| ME-05 | npm install ignoră lockfile în build; deps `^` floating frontend; cryptography drift 49.0.0(Dockerfile) vs 46.0.3(pyproject) | frontend/Dockerfile, pyproject.toml | Partial fixed (P2) — build-ul folosește `npm ci`; restanță: deps `^` floating + drift cryptography |
 | ME-06 | Enrollment token în command line shell (`--token={token}`) | install_agent.sh.tmpl | Open (P2) |
 | ME-07 | `ip_address` self-reported peste adresa peer reală | api/grpc/agent_service.py:77-82 | Open (P2) |
 | ME-08 | Sesiuni cache-uite în Redis pe raw token; lag revocare 60s | auth/jwks_validator.py:28 | Open (P2, hash key) |

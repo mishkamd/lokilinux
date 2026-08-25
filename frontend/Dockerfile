@@ -2,8 +2,9 @@ FROM node:22.23.1-alpine AS builder
 
 WORKDIR /build
 
-COPY package.json ./
-RUN npm install --legacy-peer-deps
+# npm ci = reproducible installs strictly from package-lock.json
+COPY package.json package-lock.json ./
+RUN npm ci --legacy-peer-deps
 
 COPY . .
 

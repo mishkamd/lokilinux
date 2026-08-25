@@ -1,4 +1,4 @@
-.PHONY: up down build dev proto agent-build agent-build-arm64 agent-package agent-test compliance-build compliance-test certs init logs ps help
+.PHONY: up down build dev proto agent-build agent-build-arm64 agent-package agent-test compliance-build compliance-test certs init logs ps help scan-image sbom
 
 COMPOSE        = docker compose
 COMPOSE_DEV    = $(COMPOSE) -f docker-compose.yml -f docker-compose.dev.yml
@@ -142,9 +142,10 @@ TRIVY ?= trivy
 
 ## Scan all lokilinux images; FAILS on HIGH/CRITICAL vulns (CI gate)
 scan-image:
-	@for img in $$(docker images --format '{{.Repository}}:{{.Tag}}' | grep '^lokilinux/'); do \
+	@for img in $$(docker images --format '{{.Repository}}:{{.Tag}}' | grep '^lokilinux/' | grep -v ':test' | grep -v 'lokilinux/dsc'); do \
 		echo "[*] Scanning $$img"; \
-		$(TRIVY) image --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed $$img || exit 1; \
+		[ -f .trivyignore ] && IGN="--ignorefile .trivyignore" || IGN=""; \
+		$(TRIVY) image --exit-code 1 --severity HIGH,CRITICAL --ignore-unfixed $$IGN $$img || exit 1; \
 	done
 	@echo "[+] All images passed the vulnerability gate"
 

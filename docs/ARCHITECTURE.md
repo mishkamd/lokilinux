@@ -78,7 +78,7 @@ LokiLinux is an enterprise Linux fleet management platform for centralized patch
 
 ### 2.1 Service Map
 
-Eight services on a shared `lokilinux-network` Docker bridge network, five named volumes for persistent data.
+Nine services across five segmented Docker networks (`data-net`, `app-net`, `web-net` internal; `gateway-net` for host port publishing; `egress-net` for API outbound access), five named volumes for persistent data. There is no flat shared network anymore.
 
 ```
 Service Dependency Chain:
@@ -932,6 +932,8 @@ Scope: GLOBAL < OS < ROLE < ENVIRONMENT < DATACENTER < CLUSTER < APPLICATION
 | `make agent-test` | Go tests with -race -cover |
 | `make compliance-build` | Static compliance binary linux/amd64 |
 | `make compliance-test` | Compliance Go tests with -race -cover |
+| `make scan-image` | Trivy scan of all lokilinux/* images, fails on HIGH/CRITICAL |
+| `make sbom IMAGE=<img>` | CycloneDX SBOM for one image into `sbom/` |
 | `make logs` | Tail all service logs |
 | `make ps` | Show container status |
 
@@ -939,10 +941,12 @@ Scope: GLOBAL < OS < ROLE < ENVIRONMENT < DATACENTER < CLUSTER < APPLICATION
 
 | Component | Base Image | Final Image | Strategy |
 |-----------|-----------|-------------|----------|
-| Backend | python:3.11.15-slim | python:3.11.15-slim (libpq5+curl) | Multi-stage, pip installs |
-| Frontend | node:22.23.1-alpine | node:22.23.1-alpine (non-root user) | Multi-stage, nuxt build |
-| Compliance | golang:1.26 | gcr.io/distroless/static-debian12 | Multi-stage, no shell |
+| Backend | python:3.11.15-slim | python:3.11.15-slim (multi-stage venv, non-root `appuser` uid 10001, no curl/pip/setuptools/libpq5) | Multi-stage, pip installs in builder, Python-stdlib healthcheck |
+| Frontend | node:22.23.1-alpine | node:22.23.1-alpine (non-root user) | Multi-stage, `npm ci` + nuxt build |
+| Compliance | golang:1.26 | gcr.io/distroless/static-debian12 (`USER nonroot:nonroot`) | Multi-stage, no shell |
 | Agent | — | Static binary + nfpm .deb/.rpm | CGO_ENABLED=0 cross-compile |
+
+Runtime images are pinned to `${LOKILINUX_VERSION}` (currently `0.3.0`) — never `latest`. Vulnerability scanning gate: `make scan-image` (Trivy, fails on HIGH/CRITICAL); SBOMs via `make sbom IMAGE=...`; enforced in CI by `.github/workflows/security-pipeline.yml`.
 
 ### 10.3 Agent Installation (Remote Hosts)
 
@@ -960,7 +964,7 @@ Curl-installable script `scripts/install-agent.sh`:
 `scripts/docker-init.sh`:
 1. Verify `.env` exists
 2. Generate certificates (if missing)
-3. Create runtime directories + Docker volumes
+3. Create runtime directories + Docker volumes (cert keys chowned to uid 10001 so non-root services can read them)
 4. Build all Docker images
 5. Start infrastructure (postgres, pgbouncer, nats, redis)
 6. Wait for PostgreSQL readiness
@@ -968,6 +972,8 @@ Curl-installable script `scripts/install-agent.sh`:
 8. Run Alembic migrations
 9. Run Better Auth migrations
 10. Create admin user (password printed at end)
+
+API readiness is polled with a Python `urllib` one-liner via `docker compose exec` — the runtime image ships no curl.
 
 ### 10.5 Logging
 

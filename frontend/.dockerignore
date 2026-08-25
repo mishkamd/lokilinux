@@ -3,5 +3,10 @@ node_modules
 .output
 .git
 .env
+.env.*
 *.log
 dist
+tests
+Dockerfile.dev
+.dockerignore
+README.md

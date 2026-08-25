@@ -62,9 +62,16 @@ full-snapshot ingest is on the order of ~800/sec fleet-wide — well within a fe
     build:
       context: ./services/compliance
       dockerfile: Dockerfile
-    image: lokilinux/compliance:${LOKILINUX_VERSION:-latest}
+    image: lokilinux/compliance:${LOKILINUX_VERSION:-0.3.0}
     container_name: lokilinux-compliance
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     depends_on:
       pgbouncer:
         condition: service_healthy
@@ -73,15 +80,17 @@ full-snapshot ingest is on the order of ~800/sec fleet-wide — well within a fe
       lokilinux-migrate:
         condition: service_completed_successfully
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pgbouncer:5432/${POSTGRES_DB}
-      NATS_URL: nats://nats:4222
+      # DSN keyword=value form (not a postgresql:// URI) so generated passwords
+      # with special characters don't need percent-encoding; see docker-compose.yml
+      DATABASE_URL: "host=pgbouncer port=5432 user=${POSTGRES_USER} password=${POSTGRES_PASSWORD} dbname=${POSTGRES_DB}"
+      NATS_URL: nats://${NATS_USER}:${NATS_PASSWORD}@nats:4222
       LOG_LEVEL: ${LOG_LEVEL:-info}
     volumes:
       - certs_dir:/etc/lokilinux/certs:ro
     networks:
-      - lokilinux-network
+      - app-net
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8080/healthz"]
+      test: ["CMD", "/lokilinux-compliance", "-healthcheck"]
       interval: 30s
       timeout: 10s
       retries: 3

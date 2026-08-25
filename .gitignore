@@ -40,3 +40,6 @@ __pycache__/
 agent/agent
 agent/bin/
 services/compliance/compliance
+
+# Trivy SBOM output
+sbom/
