@@ -103,7 +103,7 @@ def _get_signer() -> Optional[JobSigner]:
         return None
     if not _signer_init_done:
         try:
-            _signer_instance = JobSigner(key_path)
+            _signer_instance = JobSigner()  # reads JOB_SIGNING_KEY_PATH itself
         except Exception:  # noqa: BLE001 — unusable key must never break dispatch
             logger.exception("job signing key unreadable — envelopes disabled")
         _signer_init_done = True

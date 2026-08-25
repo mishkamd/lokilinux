@@ -113,6 +113,8 @@ func NewManager(cfg *config.Config, log *slog.Logger, version string, logBuf *Lo
 	secCfg := configSecurity{
 		EnforceSignedJobs: cfg.Security.EnforceSignedJobs,
 		SigningPubKeyPath: cfg.Security.SigningPubKeyPath,
+		SigningPubKeys:    cfg.Security.SigningPubKeys,
+		RetiredKeys:       cfg.Security.RetiredKeys,
 	}
 	verifier, err := initVerifier(&secCfg)
 	if err != nil {

@@ -16,6 +16,7 @@ from .routers.categories import router as categories_router
 from .routers.compliance import router as compliance_router
 from .routers.cves import router as cves_router
 from .routers.dashboard import router as dashboard_router
+from .routers.events import router as events_router
 from .routers.jobs import router as jobs_router
 from .routers.playbook_templates import router as playbook_templates_router
 from .routers.playbooks import router as playbooks_router
@@ -29,6 +30,7 @@ router = APIRouter()
 router.include_router(dashboard_router, prefix="/dashboard", tags=["dashboard"])
 router.include_router(categories_router, tags=["categories"])
 router.include_router(compliance_router, prefix="/compliance", tags=["compliance"])
+router.include_router(events_router, prefix="/events", tags=["events"])
 router.include_router(servers_router, prefix="/servers", tags=["servers"])
 router.include_router(jobs_router, prefix="/jobs", tags=["jobs"])
 router.include_router(cves_router, prefix="/vulnerabilities", tags=["vulnerabilities"])

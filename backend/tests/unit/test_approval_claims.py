@@ -27,7 +27,7 @@ def make_claim(**overrides):
         ttl_seconds=300, now=NOW,
     )
     kw.update(overrides)
-    return create_claim(PRIV, **kw)
+    return create_claim(lambda m: PRIV.sign(m), **kw)
 
 
 def verify_ok(claim, payload=None, target="agent-1", caps=None):

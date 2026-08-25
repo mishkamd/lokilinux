@@ -18,7 +18,7 @@ import time
 import uuid
 from typing import List, Optional
 
-from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 
 CLAIM_TTL_SECONDS = 300
 
@@ -34,7 +34,7 @@ def compute_job_hash(payload: dict) -> str:
 
 
 def create_claim(
-    private_key: Ed25519PrivateKey,
+    sign_message,
     *,
     job_id: str,
     target_agent_id: str,
@@ -61,7 +61,7 @@ def create_claim(
     }
     unsigned = {k: v for k, v in claim.items() if k != "signature"}
     unsigned["signature"] = ""
-    claim["signature"] = base64.b64encode(private_key.sign(canonical_bytes(unsigned))).decode()
+    claim["signature"] = base64.b64encode(sign_message(canonical_bytes(unsigned))).decode()
     return claim
 
 

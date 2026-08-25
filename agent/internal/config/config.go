@@ -57,6 +57,10 @@ type JobExecConfig struct {
 type SecurityConfig struct {
 	EnforceSignedJobs bool   `yaml:"enforce_signed_jobs"`
 	SigningPubKeyPath string `yaml:"signing_pub_key_path"`
+	// Versioned trust set for key rotation (plan §11): {"1": "<base64 pub>"}.
+	// The legacy SigningPubKeyPath is folded in as version 1 when present.
+	SigningPubKeys map[int]string `yaml:"signing_pub_keys"`
+	RetiredKeys    []int          `yaml:"retired_key_versions"`
 }
 
 type LoggingConfig struct {

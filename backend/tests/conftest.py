@@ -12,6 +12,7 @@ DATABASE_URL is overridden via env var *before* any `lokilinux.*` import, since
 import contextlib
 import os
 import uuid
+from types import SimpleNamespace
 from typing import Any, AsyncIterator
 
 import pytest
@@ -50,7 +51,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from lokilinux.api.v1 import router as api_v1_router
 from lokilinux.auth.dependencies import get_current_user
-from lokilinux.dependencies import get_cache, get_db, get_nats
+from lokilinux.dependencies import get_cache, get_ch, get_db, get_nats
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -82,6 +83,10 @@ class FakeCache:
 
     async def invalidate(self, key: str) -> None:
         self._store.pop(key, None)
+
+    async def incr(self, key: str, ttl: int) -> int:
+        self._store[key] = int(self._store.get(key, 0)) + 1
+        return self._store[key]
 
     async def invalidate_pattern(self, pattern: str) -> None:
         prefix = pattern.split("*")[0]

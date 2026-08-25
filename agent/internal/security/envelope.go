@@ -38,7 +38,8 @@ type Envelope struct {
 	Nonce                 string          `json:"nonce"`
 	RiskLevel             string          `json:"risk_level"` // LOW|MEDIUM|HIGH|CRITICAL
 	RequestedCapabilities []string        `json:"requested_capabilities"`
-	Signature             string          `json:"signature"` // base64(ed25519 sig)
+	KeyVersion            *int            `json:"key_version,omitempty"` // absent = v1 (legacy envelopes stay byte-identical)
+	Signature             string          `json:"signature"`             // base64(ed25519 sig)
 }
 
 // UnsignedBytes returns the exact byte sequence signatures cover: compact
@@ -104,6 +105,7 @@ const (
 	RejectNotYetValid  RejectReason = "not_yet_valid"
 	RejectWrongAgent   RejectReason = "wrong_agent"
 	RejectMalformed    RejectReason = "malformed"
+	RejectUnknownKey   RejectReason = "unknown_signer"
 )
 
 // ClockSkew tolerates minor host drift on the issued_at lower bound only.
@@ -115,19 +117,37 @@ func Canonical(in []byte) ([]byte, error) {
 	return canonicalJSON(in)
 }
 
-// Verifier holds ONLY the platform's public signing key.
+// Verifier holds ONLY platform public keys, indexed by key version
+// (plan §10/§11: rotation keeps old versions verifiable, RETIRED refuses).
 type Verifier struct {
-	pub ed25519.PublicKey
+	byVersion map[int]ed25519.PublicKey
+	retired   map[int]bool
 }
 
-// NewVerifier builds a Verifier from the base64-encoded public key
-// distributed at enrollment (/etc/lokilinux/signing_pub.b64).
+// NewVerifier builds a single-version (legacy v1) verifier.
 func NewVerifier(pubBase64 string) (*Verifier, error) {
-	raw, err := base64.StdEncoding.DecodeString(pubBase64)
-	if err != nil || len(raw) != ed25519.PublicKeySize {
-		return nil, fmt.Errorf("invalid platform signing public key")
+	return NewVerifierSet(map[int]string{1: pubBase64}, nil)
+}
+
+// NewVerifierSet builds a versioned verifier. retired versions reject with
+// unknown_signer — signatures from a compromised-and-retired key stop trusting.
+func NewVerifierSet(keys map[int]string, retired []int) (*Verifier, error) {
+	m := make(map[int]ed25519.PublicKey, len(keys))
+	for v, b64 := range keys {
+		raw, err := base64.StdEncoding.DecodeString(b64)
+		if err != nil || len(raw) != ed25519.PublicKeySize {
+			return nil, fmt.Errorf("invalid platform signing public key (v%d)", v)
+		}
+		m[v] = ed25519.PublicKey(raw)
 	}
-	return &Verifier{pub: ed25519.PublicKey(raw)}, nil
+	if len(m) == 0 {
+		return nil, fmt.Errorf("empty signing key set")
+	}
+	r := make(map[int]bool, len(retired))
+	for _, v := range retired {
+		r[v] = true
+	}
+	return &Verifier{byVersion: m, retired: r}, nil
 }
 
 // Public returns the raw Ed25519 public key (for callers verifying
@@ -136,15 +156,26 @@ func (v *Verifier) Public() ed25519.PublicKey {
 	if v == nil {
 		return nil
 	}
-	return v.pub
+	return v.byVersion[1]
 }
 
 // Verify checks structure, the validity window, target identity and finally
 // the Ed25519 signature over the canonical unsigned bytes. expectedAgentID
 // may be empty only in tests; production always supplies it.
 func (v *Verifier) Verify(e *Envelope, expectedAgentID string, now time.Time) (RejectReason, error) {
-	if v == nil || len(v.pub) == 0 {
+	if v == nil || len(v.byVersion) == 0 {
 		return RejectBadSignature, fmt.Errorf("no signing key configured")
+	}
+	version := 1
+	if e.KeyVersion != nil {
+		version = *e.KeyVersion
+	}
+	pub, known := v.byVersion[version]
+	if !known {
+		return RejectUnknownKey, fmt.Errorf("no signing key for version %d", version)
+	}
+	if v.retired[version] {
+		return RejectUnknownKey, fmt.Errorf("signing key version %d is retired", version)
 	}
 	if now.Unix() > e.ExpiresAt {
 		return RejectExpired, fmt.Errorf("envelope expired at %d", e.ExpiresAt)
@@ -163,7 +194,7 @@ func (v *Verifier) Verify(e *Envelope, expectedAgentID string, now time.Time) (R
 	if err != nil || len(sig) != ed25519.SignatureSize {
 		return RejectBadSignature, fmt.Errorf("malformed signature")
 	}
-	if !ed25519.Verify(v.pub, unsigned, sig) {
+	if !ed25519.Verify(pub, unsigned, sig) {
 		return RejectBadSignature, fmt.Errorf("signature verification failed")
 	}
 	return "", nil

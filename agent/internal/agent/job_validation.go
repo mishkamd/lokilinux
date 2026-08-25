@@ -19,20 +19,30 @@ import (
 // Enforcement ON without a usable key is a configuration error — refuse to
 // start rather than silently running an unenforceable policy.
 func initVerifier(cfg *configSecurity) (*security.Verifier, error) {
-	raw, err := os.ReadFile(cfg.SigningPubKeyPath)
-	if err != nil {
-		if cfg.EnforceSignedJobs {
+	keys := map[int]string{}
+	for ver, b64 := range cfg.SigningPubKeys {
+		keys[ver] = b64
+	}
+	if _, hasV1 := keys[1]; !hasV1 {
+		raw, err := os.ReadFile(cfg.SigningPubKeyPath)
+		if err == nil && len(raw) > 0 {
+			keys[1] = string(raw)
+		} else if cfg.EnforceSignedJobs {
 			return nil, fmt.Errorf("enforce_signed_jobs=true but signing public key unreadable at %s: %w", cfg.SigningPubKeyPath, err)
 		}
-		return nil, nil // observability mode without key is fine
 	}
-	return security.NewVerifier(string(raw))
+	if len(keys) == 0 {
+		return nil, nil // observability mode without any key is fine
+	}
+	return security.NewVerifierSet(keys, cfg.RetiredKeys)
 }
 
 // configSecurity narrows the fields job validation needs (testability).
 type configSecurity struct {
 	EnforceSignedJobs bool
 	SigningPubKeyPath string
+	SigningPubKeys    map[int]string
+	RetiredKeys       []int
 }
 
 // validateAndAuthorize runs the full pre-dispatch gate. A non-nil result

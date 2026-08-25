@@ -15,6 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.cache import RedisCache
+from lokilinux.models.approval import ApprovalClaim
 from lokilinux.models.job import Job, JobResult, JobStatus
 from lokilinux.models.plugin import Plugin, PluginInstallation, PluginStatus
 from lokilinux.models.remediation import RemediationJob, RemediationPlan
@@ -316,8 +317,44 @@ class JobService:
 
         job.approved_by = approved_by
         job.approved_at = datetime.now(timezone.utc)
+
+        # Issue the signed approval claim (plan §6). Signing is best-effort at
+        # this layer: without a provisioned key the DB approval still stands,
+        # but agents in enforcement mode will reject execution — surfaced via
+        # metrics rather than blocking the administrative action here.
+        claim_json: str | None = None
+        try:
+            from lokilinux.services.approval_claims import create_claim
+            from lokilinux.services.job_signing import JobSigner
+
+            signer = _get_job_signer()
+            if signer is not None:
+                capabilities = [job.job_type]
+                target_agent = (
+                    str(job.target_servers[0]) if job.target_servers else ""
+                )
+                claim = signer.sign_approval_claim(
+                    job_id=str(job.id),
+                    target_agent_id=target_agent,
+                    payload=job.parameters or {},
+                    capabilities=capabilities,
+                    approver_id=str(approved_by) if approved_by else "",
+                )
+                self.db.add(ApprovalClaim(
+                    job_id=job.id,
+                    approver_id=str(approved_by) if approved_by else None,
+                    claim_json=json.dumps(claim),
+                    expires_at=datetime.fromtimestamp(claim["expires_at"], tz=timezone.utc),
+                ))
+                claim_json = json.dumps(claim)
+        except Exception:  # noqa: BLE001 — approval must not fail for signing infra
+            import logging
+
+            logging.getLogger(__name__).warning("approval claim issuance failed", exc_info=True)
+
         await self.db.commit()
         await self.cache.invalidate(f"job:{job_id}:status")
+        job.approval_claim_json = claim_json  # transient, not a column
         return job
 
     async def complete_job(
@@ -352,3 +389,21 @@ class JobService:
         await self.db.commit()
         await self.cache.invalidate(f"job:{job_id}:status")
         return job_result
+
+
+def _get_job_signer():
+    """Lazy JobSigner over the KMS file provider (v1); None when unprovisioned."""
+    try:
+        import os
+
+        from lokilinux.kms import get_provider
+        from lokilinux.services.job_signing import JobSigner
+
+        provider = get_provider({
+            "provider": "file",
+            "file": {"key_path": os.environ.get(
+                "JOB_SIGNING_KEY_PATH", "/etc/lokilinux/certs/job_signing.key")},
+        })
+        return JobSigner(provider=provider)
+    except Exception:  # noqa: BLE001 — no key installed yet
+        return None
