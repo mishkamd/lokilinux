@@ -44,6 +44,14 @@ approval_rejected_total = Counter(
     "approval_rejected_total", "Approval claim verification failures", ["reason"]
 )
 
+# ── Observability pipeline (events/signals/incidents) ─────────────────────────
+events_received_total = Counter(
+    "lokilinux_events_received_total", "Events accepted by EventProcessorWorker", ["source"]
+)
+events_dropped_total = Counter(
+    "lokilinux_events_dropped_total", "Events dropped before reaching ClickHouse", ["reason"]
+)
+
 # ── Exec broker (§19) ────────────────────────────────────────────────────────
 exec_broker_requests_total = Counter(
     "exec_broker_requests_total", "Exec broker operations executed", ["operation"]
