@@ -229,7 +229,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     title="LokiLinux API",
     version=__version__,
-    description="Enterprise Linux fleet management — backend API",
+    description="Enterprise Linux Operations Platform — unified control plane API",
     lifespan=lifespan,
     docs_url="/docs" if settings.debug else None,
     redoc_url=None,
