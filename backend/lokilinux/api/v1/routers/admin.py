@@ -12,9 +12,11 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.auth.dependencies import require_role
+from lokilinux.cache import RedisCache
 from lokilinux.config import get_settings
-from lokilinux.dependencies import get_db
+from lokilinux.dependencies import get_cache, get_db
 from lokilinux.models.audit import Setting
+from lokilinux.services import cert_revocation
 from lokilinux.services.audit_service import AuditService
 from lokilinux.settings_schema import PUBLIC_GROUPS, PUBLIC_KEYS, get_all_settings, update_settings
 
@@ -255,3 +257,60 @@ async def list_audit_logs(
     _user: dict = Depends(require_role("ADMIN", "AUDITOR")),
 ) -> dict:
     return await AuditService(db).list_logs(limit, cursor)
+
+
+# ── Certificate revocation (P11 CRL-lite) ─────────────────────────────────────
+
+@router.post("/certificates/{serial}/revoke")
+async def revoke_certificate(
+    serial: str,
+    db: AsyncSession = Depends(get_db),
+    cache: RedisCache = Depends(get_cache),
+    current_user: dict = Depends(require_role("ADMIN")),
+) -> dict:
+    """Adds a certificate serial to the Redis revocation set. Agents presenting
+    it are rejected at the next mTLS connection attempt (fail-closed)."""
+    try:
+        norm = await cert_revocation.revoke(cache, serial)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    await AuditService(db).log(
+        action="certificate.revoked",
+        actor_name=current_user.get("username") or current_user.get("email"),
+        resource_type="certificate",
+        resource_id=norm,
+        changes={"serial": norm},
+        status="success",
+    )
+    return {"serial": norm, "revoked": True}
+
+
+@router.post("/certificates/{serial}/unrevoke")
+async def unrevoke_certificate(
+    serial: str,
+    db: AsyncSession = Depends(get_db),
+    cache: RedisCache = Depends(get_cache),
+    current_user: dict = Depends(require_role("ADMIN")),
+) -> dict:
+    try:
+        was_present = await cert_revocation.unrevoke(cache, serial)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    await AuditService(db).log(
+        action="certificate.unrevoked",
+        actor_name=current_user.get("username") or current_user.get("email"),
+        resource_type="certificate",
+        resource_id=serial.lower().removeprefix("0x"),
+        changes={"was_present": was_present},
+        status="success",
+    )
+    return {"serial": serial.lower().removeprefix("0x"), "revoked": False}
+
+
+@router.get("/certificates/revoked")
+async def list_revoked_certificates(
+    _: dict = Depends(require_role("ADMIN")),
+    cache: RedisCache = Depends(get_cache),
+) -> dict:
+    """Admin-only listing; serials are not exposed through any non-admin API."""
+    return {"revoked": await cert_revocation.list_revoked(cache)}
