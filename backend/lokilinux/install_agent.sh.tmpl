@@ -267,6 +267,17 @@ BROKEREOF
   chmod 750 /run/lokilinux
 fi
 
+# Non-root flip: when the broker is installed AND explicitly requested via
+# AGENT_NON_ROOT=1, the core runs as loki-agent — privileged ops go through
+# the broker socket. Default stays root (compat) until a fleet is validated.
+if [ -f /etc/systemd/system/loki-agent-exec.service ] && [ "${AGENT_NON_ROOT:-0}" = "1" ]; then
+  echo "[*] AGENT_NON_ROOT=1: switching agent core to User=loki-agent"
+  sed -i 's/^User=root$/User=loki-agent/' /etc/systemd/system/lokilinux-agent.service
+  chown -R loki-agent:loki-agent /var/lib/lokilinux /var/log/lokilinux
+  chown root:loki-agent /etc/lokilinux/certs/agent.key 2>/dev/null || true
+  chmod 640 /etc/lokilinux/certs/agent.key 2>/dev/null || true
+fi
+
 systemctl daemon-reload
 systemctl enable lokilinux-agent >/dev/null 2>&1 || true
 if [ -f /etc/systemd/system/loki-agent-exec.service ]; then

@@ -211,6 +211,81 @@ EOF
 
 # ── Enable and start ──────────────────────────────────────────────────────────
 echo "[*] Enabling and starting lokilinux-agent..."
+# Non-root flip (opt-in, same contract as the served template)
+if [ "${INSTALL_EXEC_BROKER:-1}" = "1" ]; then
+  install -m 644 /dev/null /etc/systemd/system/loki-agent-exec.service
+  cat > /etc/systemd/system/loki-agent-exec.service <<'BROKEREOF'
+[Unit]
+Description=LokiLinux Agent Execution Broker
+PartOf=lokilinux-agent.service
+After=lokilinux-agent.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/loki-agent-exec --socket /run/lokilinux/exec.sock --agent-user loki-agent
+Restart=always
+RestartSec=5
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any
+ProtectSystem=strict
+ReadWritePaths=/run/lokilinux /var/lib/lokilinux
+ProtectHome=true
+PrivateTmp=true
+UMask=0027
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target
+BROKEREOF
+  mkdir -p /run/lokilinux && chmod 750 /run/lokilinux
+  chown root:loki-agent /run/lokilinux 2>/dev/null || true
+fi
+
+if [ -f /etc/systemd/system/loki-agent-exec.service ] && [ "${AGENT_NON_ROOT:-0}" = "1" ]; then
+  sed -i 's/^User=root$/User=loki-agent/' /etc/systemd/system/lokilinux-agent.service
+  chown -R loki-agent:loki-agent /var/lib/lokilinux /var/log/lokilinux
+  chown root:loki-agent /etc/lokilinux/certs/agent.key 2>/dev/null || true
+  chmod 640 /etc/lokilinux/certs/agent.key 2>/dev/null || true
+fi
+
+# ── Exec broker + non-root flip (opt-in, same contract as served template) ────
+if [ "${INSTALL_EXEC_BROKER:-1}" = "1" ]; then
+  cat > /etc/systemd/system/loki-agent-exec.service <<'BROKEREOF'
+[Unit]
+Description=LokiLinux Agent Execution Broker
+PartOf=lokilinux-agent.service
+After=lokilinux-agent.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/loki-agent-exec --socket /run/lokilinux/exec.sock --agent-user loki-agent
+Restart=always
+RestartSec=5
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any
+ProtectSystem=strict
+ReadWritePaths=/run/lokilinux /var/lib/lokilinux
+ProtectHome=true
+PrivateTmp=true
+UMask=0027
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target
+BROKEREOF
+  mkdir -p /run/lokilinux && chmod 750 /run/lokilinux
+  chown root:loki-agent /run/lokilinux 2>/dev/null || true
+fi
+
+if [ -f /etc/systemd/system/loki-agent-exec.service ] && [ "${AGENT_NON_ROOT:-0}" = "1" ]; then
+  sed -i 's/^User=root$/User=loki-agent/' /etc/systemd/system/lokilinux-agent.service
+  chown -R loki-agent:loki-agent /var/lib/lokilinux /var/log/lokilinux
+  chown root:loki-agent /etc/lokilinux/certs/agent.key 2>/dev/null || true
+  chmod 640 /etc/lokilinux/certs/agent.key 2>/dev/null || true
+fi
+
 systemctl daemon-reload
 systemctl enable lokilinux-agent
 systemctl start  lokilinux-agent

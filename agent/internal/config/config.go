@@ -61,6 +61,10 @@ type SecurityConfig struct {
 	// The legacy SigningPubKeyPath is folded in as version 1 when present.
 	SigningPubKeys map[int]string `yaml:"signing_pub_keys"`
 	RetiredKeys    []int          `yaml:"retired_key_versions"`
+	// ExecBrokerSocket: when set, privileged job execution is delegated to
+	// loki-agent-exec over this unix socket (non-root core mode). Empty =
+	// legacy in-process systemd-run path.
+	ExecBrokerSocket string `yaml:"exec_broker_socket"`
 }
 
 type LoggingConfig struct {

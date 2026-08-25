@@ -47,6 +47,12 @@ func Execute(req *Request) modules.JobResult {
 	args := req.Arguments
 
 	switch req.Operation {
+	case "package.check_updates":
+		if len(args) != 0 {
+			return badReq(jobID, "check_updates takes no arguments")
+		}
+		return modules.CheckPackageUpdates(ctx, jobID)
+
 	case "package.update":
 		params := map[string]interface{}{}
 		if names, ok := args["package_names"].([]interface{}); ok {
