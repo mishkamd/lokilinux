@@ -1,7 +1,22 @@
 <!-- generated-by: gsd-doc-writer -->
 # LokiLinux
 
-Enterprise Linux fleet management platform — centralized patch management, vulnerability scanning, compliance automation, and remediation for 10K–100K+ Linux servers.
+**Enterprise Linux Operations Platform**
+
+> Secure. Automate. Operate.
+
+Operate Linux infrastructure at scale through a unified control plane for fleet management, automation, security, PKI/KMS, observability, and AI-assisted operations — centralized patch management, vulnerability scanning, compliance automation, and remediation for 10K–100K+ Linux servers.
+
+## Product Pillars
+
+| Pillar | What ships today |
+|--------|------------------|
+| **Operations** | Fleet inventory & health, patch management, service/host administration |
+| **Automation** | Workflow engine (YAML + visual builder), Ansible layer, scheduled jobs |
+| **Security** | RBAC (5 roles), audit log, signed jobs, mTLS everywhere |
+| **PKI / KMS** | Job-signing keys with lifecycle + rotation (file provider); mTLS CA + enrollment certs |
+| **Observability** | Events → signals → incidents pipeline, Prometheus metrics, alerts |
+| **AI Operations** | Planned — see [Roadmap](#roadmap). Not implemented today. |
 
 ## Features
 
@@ -282,6 +297,18 @@ Service dependencies: `postgres` → `pgbouncer` → `lokilinux-migrate` → `lo
 - **Secrets**: `.env` is never copied into images (`backend/.dockerignore` blocks it).
 - **Version pinning**: images are tagged `${LOKILINUX_VERSION}` (`0.3.0`), never `latest`.
 - **Vulnerability gate**: `make scan-image` runs Trivy over every `lokilinux/*` image and fails on HIGH/CRITICAL findings; explicitly accepted exceptions live in `.trivyignore`. SBOMs via `make sbom IMAGE=...` (CycloneDX, into `sbom/`). CI enforces the same gate in [.github/workflows/security-pipeline.yml](.github/workflows/security-pipeline.yml) (build → tests → Trivy gate → SBOM → GHCR push → cosign sign).
+- **KMS / signing**: every privileged job is Ed25519-signed; keys live in a versioned layout (`ACTIVE` / `VERIFY_ONLY` / `RETIRED`) with rotation via `POST /api/v1/admin/kms/keys/job-signing/rotate`. Provider interface defined for Vault / HSM / PKCS#11 — not implemented (explicit fail-closed `NotImplementedError`). See [`docs/security/KMS.md`](docs/security/KMS.md).
+
+## Roadmap
+
+Status labels are deliberate — nothing below is shipped.
+
+| Area | Status | Notes |
+|------|--------|-------|
+| AI Operations | Planned | AI-assisted diagnostics, RCA, and remediation suggestions behind the policy engine and approval gates. No AI code exists yet. |
+| External KMS providers | Planned | Vault / PKCS#11 / cloud KMS — the provider Protocol exists, implementations don't. |
+| Certificate rotation | Planned | Short-lived agent certs + revocation endpoint (see [`docs/security/ROADMAP.md`](docs/security/ROADMAP.md)). |
+| Debian/Ubuntu CVE sources | Backlog | CVE cross-referencing is dnf/yum-only today (`agent/internal/modules/package_manager.go`). |
 
 ## Directory Structure
 
