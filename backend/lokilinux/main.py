@@ -191,12 +191,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from lokilinux.workers.correlation_worker import CorrelationWorker
     correlation_worker = CorrelationWorker(nc, session_factory, cache)
     await correlation_worker.start()
+    from lokilinux.workers.incident_worker import IncidentWorker
+    incident_worker = IncidentWorker(nc, session_factory, cache)
+    await incident_worker.start()
 
     app.state.workers = [
         job_worker, cve_worker, alert_worker, policy_worker, policy_scheduler_worker, plugin_worker,
         heartbeat_worker, job_timeout_worker, remediation_scheduler_worker, remediation_verification_worker,
         retention_worker, notification_worker, cve_enrichment_worker, workflow_runner_worker,
         workflow_scheduler_worker, event_processor_worker, signal_processor_worker, correlation_worker,
+        incident_worker,
     ]
     logger.info("workers.ready")
 
@@ -204,6 +208,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     # Shutdown — reverse order
     logger.info("lokilinux.shutdown")
+    await incident_worker.stop()
     await heartbeat_worker.stop()
     await remediation_verification_worker.stop()
     await remediation_scheduler_worker.stop()
