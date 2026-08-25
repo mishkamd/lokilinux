@@ -22,6 +22,7 @@ from .routers.playbook_templates import router as playbook_templates_router
 from .routers.playbooks import router as playbooks_router
 from .routers.plugins import router as plugins_router
 from .routers.policies import router as policies_router
+from .routers.runbooks import router as runbooks_router
 from .routers.servers import router as servers_router
 from .routers.topology import router as topology_router
 from .routers.workflows import router as workflows_router
@@ -47,3 +48,4 @@ router.include_router(agent_install_router, prefix="/agent", tags=["agent-instal
 router.include_router(agent_register_router, prefix="/agents", tags=["agent-install"])
 router.include_router(workflows_router, prefix="/workflows", tags=["workflows"])
 router.include_router(topology_router, prefix="/topology", tags=["topology"])
+router.include_router(runbooks_router, prefix="/runbooks", tags=["runbooks"])

@@ -54,6 +54,10 @@ SETTINGS_SCHEMA: dict[str, dict[str, tuple[str, Any]]] = {
         # Workers re-check this every loop, so flipping it takes effect without
         # a redeploy — legacy alerting is unaffected either way.
         "event_pipeline_enabled": ("boolean", True),
+        # Safe-by-default (Task E2): AUTO-mode runbooks stay no-ops until an
+        # admin explicitly flips this on. MANUAL runbooks are unaffected —
+        # they only ever run when someone clicks "Execute".
+        "incident_autorun_runbooks": ("boolean", False),
     },
     "retention": {
         "metrics_days": ("integer", 365),

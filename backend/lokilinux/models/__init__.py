@@ -43,6 +43,7 @@ from .workflow import Workflow, WorkflowAudit, WorkflowRun, WorkflowStepRun, Wor
 # those FK targets whenever something imports lokilinux.models without also
 # having already imported signals/incidents first (NoReferencedTableError).
 from lokilinux.incidents.models import Incident, IncidentSignal, IncidentTimeline
+from lokilinux.runbooks.models import Runbook
 from lokilinux.signals.models import CorrelationRule, Signal
 from lokilinux.topology.models import TopologyEdge, TopologyNode
 
@@ -131,6 +132,8 @@ __all__ = [
     "Incident",
     "IncidentSignal",
     "IncidentTimeline",
+    # runbooks (observability pipeline, Phase E)
+    "Runbook",
     # signals (observability pipeline, Phase B)
     "CorrelationRule",
     "Signal",

@@ -20,7 +20,9 @@ import structlog
 
 from lokilinux.incidents.models import Incident, IncidentSignal
 from lokilinux.incidents.service import IncidentService
-from lokilinux.nats_topics import SIGNAL_RESOLVED
+from lokilinux.nats_topics import INCIDENT_CREATED, SIGNAL_RESOLVED
+from lokilinux.runbooks.service import maybe_auto_run
+from lokilinux.settings_schema import get_setting_value
 from lokilinux.signals.models import Signal
 
 logger = structlog.get_logger()
@@ -38,6 +40,7 @@ class IncidentWorker:
 
     async def start(self) -> None:
         await self.nats.subscribe(SIGNAL_RESOLVED, cb=self._handle_signal_resolved)
+        await self.nats.subscribe(INCIDENT_CREATED, cb=self._handle_incident_created)
         self._task = asyncio.create_task(self._loop())
         logger.info("IncidentWorker started")
 
@@ -81,6 +84,32 @@ class IncidentWorker:
                     await svc.maybe_auto_resolve(incident_id)
         except Exception:
             logger.error("incident_worker.signal_resolved_handling_failed", exc_info=True)
+
+    async def _handle_incident_created(self, msg) -> None:
+        """Runbook matcher (Task E2): AUTO-mode runbooks whose incident_type
+        matches and min_severity is at or below this incident's severity
+        run immediately, gated by the global kill switch — MANUAL runbooks
+        are untouched, they only run through the explicit execute endpoint."""
+        try:
+            data = json.loads(msg.data)
+        except Exception:
+            logger.error("incident_worker.malformed_incident_created_json", exc_info=True)
+            return
+        incident_type = data.get("type")
+        incident_severity = data.get("severity")
+        if not incident_type or not incident_severity:
+            return
+        try:
+            async with self.db_factory() as db:
+                autorun_enabled = await get_setting_value(db, "observability.incident_autorun_runbooks")
+                if not autorun_enabled:
+                    return
+                await maybe_auto_run(
+                    db, self.cache, incident_type, incident_severity,
+                    autorun_enabled=autorun_enabled, nats=self.nats,
+                )
+        except Exception:
+            logger.error("incident_worker.runbook_matcher_failed", exc_info=True)
 
     async def _sweep(self) -> None:
         async with self.db_factory() as db:
