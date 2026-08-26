@@ -237,6 +237,58 @@ services:
       - app-net
 
   # ============================================================================
+  # CA-SIGNER — isolated CA signing (PKI Faza 4), UDS only, no network at all
+  # ============================================================================
+
+  lokilinux-ca-signer:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    image: lokilinux/api:${LOKILINUX_VERSION:-0.3.0}
+    container_name: lokilinux-ca-signer
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # The private key that signs every agent identity in the fleet lives only
+    # here — no app-net, no web-net, no egress-net, nothing. api/grpc reach
+    # this process exclusively over the ca_signer_sock UDS volume below.
+    network_mode: "none"
+    environment:
+      CA_KEY_PATH: /etc/lokilinux/ca-key/ca.key
+      CA_CERT_PATH: /etc/lokilinux/certs/ca.crt
+      CA_SIGNER_SOCKET_PATH: /run/lokilinux/ca-signer/sign.sock
+    command:
+      - python
+      - -m
+      - uvicorn
+      - lokilinux.services.ca_signer_service:app
+      - --uds
+      - /run/lokilinux/ca-signer/sign.sock
+    volumes:
+      - ca_key_dir:/etc/lokilinux/ca-key:ro
+      - certs_dir:/etc/lokilinux/certs:ro
+      - ca_signer_sock:/run/lokilinux/ca-signer
+    healthcheck:
+      # No network stack (network_mode: none) — self-check dials the UDS
+      # directly, same rationale as lokilinux-compliance's binary self-check.
+      test: ["CMD", "python", "-c", "import socket; s=socket.socket(socket.AF_UNIX); s.settimeout(3); s.connect('/run/lokilinux/ca-signer/sign.sock'); s.close()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          pids: 32
+          cpus: "0.5"
+          memory: 256M
+
+  # ============================================================================
   # API — FastAPI REST (port 8000) + Prometheus metrics (port 9090)
   # ============================================================================
 
@@ -265,6 +317,8 @@ services:
         condition: service_healthy
       lokilinux-migrate:
         condition: service_completed_successfully
+      lokilinux-ca-signer:
+        condition: service_healthy
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-production}
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pgbouncer:5432/${POSTGRES_DB}
@@ -286,7 +340,9 @@ services:
       API_HOST: 0.0.0.0
       API_PORT: 8000
       CA_CERT_PATH: /etc/lokilinux/certs/ca.crt
-      CA_KEY_PATH: /etc/lokilinux/certs/ca.key
+      # ca.key itself never mounts here — PKI Faza 4, signing goes through
+      # lokilinux-ca-signer over this UDS (see services/ca_signer_client.py).
+      CA_SIGNER_SOCKET_PATH: /run/lokilinux/ca-signer/sign.sock
       PLUGIN_DIR: /opt/lokilinux/plugins
       LOG_LEVEL: ${LOG_LEVEL:-info}
       # Single public entry point — agent install URLs + CORS origin both derive from it.
@@ -299,6 +355,7 @@ services:
       - "9090:9090"
     volumes:
       - certs_dir:/etc/lokilinux/certs:ro
+      - ca_signer_sock:/run/lokilinux/ca-signer
       - plugins_dir:/opt/lokilinux/plugins
       - ./logs/api:/var/log/lokilinux
       - ./agent/bin:/opt/lokilinux/packages:ro
@@ -345,6 +402,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      lokilinux-ca-signer:
+        condition: service_healthy
     environment:
       ENVIRONMENT: ${ENVIRONMENT:-production}
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pgbouncer:5432/${POSTGRES_DB}
@@ -352,7 +411,8 @@ services:
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       GRPC_PORT: ${GRPC_PORT:-50051}
       CA_CERT_PATH: /etc/lokilinux/certs/ca.crt
-      CA_KEY_PATH: /etc/lokilinux/certs/ca.key
+      # ca.key never mounts here — see lokilinux-api's CA_SIGNER_SOCKET_PATH comment.
+      CA_SIGNER_SOCKET_PATH: /run/lokilinux/ca-signer/sign.sock
       SERVER_CERT_PATH: /etc/lokilinux/certs/server.crt
       SERVER_KEY_PATH: /etc/lokilinux/certs/server.key
       # Required by Settings (Better Auth hardening) — without these the gRPC
@@ -367,6 +427,7 @@ services:
       - "50051:50051"
     volumes:
       - certs_dir:/etc/lokilinux/certs:ro
+      - ca_signer_sock:/run/lokilinux/ca-signer
     networks:
       - app-net
       - gateway-net
@@ -539,3 +600,7 @@ volumes:
     name: lokilinux-plugins
   certs_dir:
     name: lokilinux-certs
+  ca_key_dir:
+    name: lokilinux-ca-key
+  ca_signer_sock:
+    name: lokilinux-ca-signer-sock
