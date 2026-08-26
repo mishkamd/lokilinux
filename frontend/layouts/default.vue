@@ -5,7 +5,7 @@
     <!-- Mobile backdrop -->
     <div
       v-if="sidebarOpen"
-      class="fixed inset-0 z-30 bg-black/60 lg:hidden"
+      class="fixed inset-0 z-30 bg-black/40 backdrop-blur-sm lg:hidden"
       @click="sidebarOpen = false"
     />
 
