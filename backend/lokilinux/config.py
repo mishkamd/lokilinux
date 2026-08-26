@@ -55,6 +55,8 @@ class Settings(BaseSettings):
 
     # ── Agent certificates ────────────────────────────────────
     agent_cert_dir: str = "/etc/lokilinux/certs"
+    agent_cert_ttl_days: int = 30
+    ca_signer_socket_path: str = "/run/lokilinux/ca-signer/sign.sock"
 
     # ── Observability ─────────────────────────────────────────
     log_level: str = "INFO"
