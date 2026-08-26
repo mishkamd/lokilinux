@@ -314,6 +314,15 @@ class AgentServicer:
                     from sqlalchemy import select as _select
                     from lokilinux.models.approval import ApprovalClaim
 
+                    attached_count = sum(
+                        1 for p in signed_params.values() if "_envelope" in p
+                    )
+                    metrics.signed_jobs_total.inc(attached_count)
+                    if pending_jobs:
+                        logger.info(
+                            "dispatch envelope summary: jobs=%d signed=%d agent_version=%s",
+                            len(pending_jobs), attached_count, agent_version,
+                        )
                     for j in pending_jobs:
                         if not getattr(j, "requires_approval", False):
                             continue

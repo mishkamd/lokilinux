@@ -355,7 +355,13 @@ services:
       CA_KEY_PATH: /etc/lokilinux/certs/ca.key
       SERVER_CERT_PATH: /etc/lokilinux/certs/server.crt
       SERVER_KEY_PATH: /etc/lokilinux/certs/server.key
+      # Required by Settings (Better Auth hardening) — without these the gRPC
+      # servicer 500s every heartbeat with a Settings ValidationError.
+      BETTER_AUTH_URL: ${BETTER_AUTH_INTERNAL_URL:-http://lokilinux-frontend:3000}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      METRICS_ENABLED: "true"
+      METRICS_PORT: "9091"
     command: ["python", "-m", "lokilinux.grpc_server"]
     ports:
       - "50051:50051"
