@@ -339,7 +339,9 @@ services:
       BETTER_AUTH_URL: ${BETTER_AUTH_INTERNAL_URL:-http://lokilinux-frontend:3000}
       API_HOST: 0.0.0.0
       API_PORT: 8000
-      CA_CERT_PATH: /etc/lokilinux/certs/ca.crt
+      # Dual-trust during CA rotation (docs/security/CERTIFICATE_ROTATION.md):
+      # bundle = CA_old + CA_new so agents on either cert generation verify.
+      CA_CERT_PATH: /etc/lokilinux/certs/ca-bundle.crt
       # ca.key itself never mounts here — PKI Faza 4, signing goes through
       # lokilinux-ca-signer over this UDS (see services/ca_signer_client.py).
       CA_SIGNER_SOCKET_PATH: /run/lokilinux/ca-signer/sign.sock
@@ -410,7 +412,8 @@ services:
       NATS_URL: nats://${NATS_USER}:${NATS_PASSWORD}@nats:4222
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       GRPC_PORT: ${GRPC_PORT:-50051}
-      CA_CERT_PATH: /etc/lokilinux/certs/ca.crt
+      # Dual-trust during CA rotation — same bundle as the api service.
+      CA_CERT_PATH: /etc/lokilinux/certs/ca-bundle.crt
       # ca.key never mounts here — see lokilinux-api's CA_SIGNER_SOCKET_PATH comment.
       CA_SIGNER_SOCKET_PATH: /run/lokilinux/ca-signer/sign.sock
       SERVER_CERT_PATH: /etc/lokilinux/certs/server.crt
