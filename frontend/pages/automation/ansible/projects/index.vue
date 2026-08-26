@@ -100,7 +100,14 @@ async function confirmDelete() {
       description="Groups playbooks the way a real Ansible tree's projects/<name>/ does. Default agents are this project's inventory — playbooks attached to it default to targeting them. Playbooks with no project show under Debug/Uncategorized."
     />
 
-    <DataTable :rows="store.projects" :columns="columns" :loading="store.loading">
+    <DataTable
+      :rows="store.projects"
+      :columns="columns"
+      :loading="store.loading"
+      sortable
+      :page-size="25"
+      empty-title="No projects"
+    >
       <template #default_agent_ids-data="{ row }">
         <Badge color="gray" size="xs">{{ (row as AnsibleProject).default_agent_ids.length }} agents</Badge>
       </template>
@@ -109,12 +116,16 @@ async function confirmDelete() {
       </template>
       <template #actions-data="{ row }">
         <div class="flex items-center justify-end gap-1">
-          <Button v-if="canEdit" size="xs" variant="ghost" class="text-muted-foreground" aria-label="Edit project" @click="openEdit(row as AnsibleProject)">
-            <Pencil class="size-3.5" />
-          </Button>
-          <Button v-if="canEdit" size="xs" variant="ghost" class="text-muted-foreground" aria-label="Delete project" @click="deletingProject = row as AnsibleProject">
-            <Trash2 class="size-3.5" />
-          </Button>
+          <Tooltip v-if="canEdit" text="Edit project">
+            <Button v-if="canEdit" size="xs" variant="ghost" aria-label="Edit project" @click="openEdit(row as AnsibleProject)">
+              <Pencil class="size-3.5" />
+            </Button>
+          </Tooltip>
+          <Tooltip v-if="canEdit" text="Delete project">
+            <Button v-if="canEdit" size="xs" variant="ghost" aria-label="Delete project" @click="deletingProject = row as AnsibleProject">
+              <Trash2 class="size-3.5" />
+            </Button>
+          </Tooltip>
         </div>
       </template>
     </DataTable>
@@ -141,17 +152,20 @@ async function confirmDelete() {
     </Dialog>
 
     <!-- Delete confirm -->
-    <Dialog :model-value="!!deletingProject" title="Delete Project" @update:model-value="deletingProject = null">
-      <template #body>
+    <ConfirmDeleteDialog
+      :model-value="!!deletingProject"
+      :entity-name="deletingProject?.name"
+      :loading="deleting"
+      title="Delete Project"
+      @update:model-value="deletingProject = null"
+      @confirm="confirmDelete"
+    >
+      <template #description>
         <p class="text-sm text-muted-foreground">
           Delete <strong class="text-foreground">{{ deletingProject?.name }}</strong>?
           Playbooks in it move to Debug/Uncategorized — nothing is deleted.
         </p>
       </template>
-      <template #footer>
-        <Button variant="ghost" @click="deletingProject = null">Cancel</Button>
-        <Button variant="destructive" :loading="deleting" @click="confirmDelete">Delete</Button>
-      </template>
-    </Dialog>
+    </ConfirmDeleteDialog>
   </div>
 </template>

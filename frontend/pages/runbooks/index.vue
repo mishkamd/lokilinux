@@ -102,14 +102,24 @@ onMounted(() => {
 
 <template>
   <div>
-    <div class="flex items-center justify-end mb-4">
-      <Button @click="openCreate">
-        <Plus class="size-4" />
-        New runbook
-      </Button>
-    </div>
+    <PageHeader title="Runbooks" description="Automated response playbooks triggered by incidents.">
+      <template #actions>
+        <Button @click="openCreate">
+          <Plus class="size-4" />
+          New runbook
+        </Button>
+      </template>
+    </PageHeader>
 
-    <DataTable :rows="runbooks" :columns="columns" :loading="loading">
+    <DataTable
+      :rows="runbooks"
+      :columns="columns"
+      :loading="loading"
+      sortable
+      :page-size="25"
+      empty-title="No runbooks"
+      empty-description="Create a runbook to automate incident response."
+    >
       <template #name-data="{ row }">
         <button class="font-medium hover:underline" @click="openEdit(row as Runbook)">{{ row.name }}</button>
       </template>
@@ -126,9 +136,11 @@ onMounted(() => {
         <Switch :model-value="Boolean(row.enabled)" @update:model-value="toggle(row as Runbook)" />
       </template>
       <template #actions-data="{ row }">
-        <Button size="xs" variant="ghost" class="text-muted-foreground" aria-label="Delete runbook" @click="deletingRunbook = row as Runbook">
-          <Trash2 class="size-3.5" />
-        </Button>
+        <Tooltip text="Delete runbook">
+          <Button size="xs" variant="ghost" aria-label="Delete runbook" @click="deletingRunbook = row as Runbook">
+            <Trash2 class="size-3.5" />
+          </Button>
+        </Tooltip>
       </template>
     </DataTable>
 
@@ -163,16 +175,13 @@ onMounted(() => {
       </template>
     </Dialog>
 
-    <Dialog :model-value="!!deletingRunbook" title="Delete runbook" @update:model-value="deletingRunbook = null">
-      <template #body>
-        <p class="text-sm text-muted-foreground">
-          Delete <strong class="text-foreground">{{ deletingRunbook?.name }}</strong>? This cannot be undone.
-        </p>
-      </template>
-      <template #footer>
-        <Button variant="ghost" @click="deletingRunbook = null">Cancel</Button>
-        <Button variant="destructive" :loading="deleting" @click="confirmDelete">Delete</Button>
-      </template>
-    </Dialog>
+    <ConfirmDeleteDialog
+      :model-value="!!deletingRunbook"
+      :entity-name="deletingRunbook?.name"
+      :loading="deleting"
+      title="Delete runbook"
+      @update:model-value="deletingRunbook = null"
+      @confirm="confirmDelete"
+    />
   </div>
 </template>

@@ -173,6 +173,7 @@ async function rescan() {
         </EmptyState>
         <DataTable
           v-else :rows="selectedCveResources" :columns="resourceColumns" row-key="agent_id"
+          sortable :page-size="25"
           :selectable="canEdit" :selected="selected" @update:selected="selected = $event"
         >
           <template #hostname-data="{ row }">

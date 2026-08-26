@@ -172,7 +172,14 @@ async function confirmExecute() {
       description="Playbooks run locally on each selected agent (ansible-playbook --connection=local) — no SSH, no external inventory. Execution always requires admin approval on the Jobs page before it reaches agents."
     />
 
-    <DataTable :rows="filteredPlaybooks" :columns="columns" :loading="store.loading">
+    <DataTable
+      :rows="filteredPlaybooks"
+      :columns="columns"
+      :loading="store.loading"
+      sortable
+      :page-size="25"
+      empty-title="No playbooks"
+    >
       <template #project_id-data="{ row }">
         <Badge color="gray" size="xs">{{ projectName((row as Playbook).project_id) }}</Badge>
       </template>
@@ -189,31 +196,34 @@ async function confirmExecute() {
       </template>
       <template #actions-data="{ row }">
         <div class="flex items-center justify-end gap-1">
-          <Button size="xs" variant="ghost" class="text-muted-foreground" aria-label="Run playbook" @click="openExecute(row as Playbook)">
-            <Play class="size-3.5" />
-          </Button>
-          <Button v-if="canEdit" size="xs" variant="ghost" class="text-muted-foreground" aria-label="Edit playbook" @click="openEdit(row as Playbook)">
-            <Pencil class="size-3.5" />
-          </Button>
-          <Button v-if="canEdit" size="xs" variant="ghost" class="text-muted-foreground" aria-label="Delete playbook" @click="deletingPlaybook = row as Playbook">
-            <Trash2 class="size-3.5" />
-          </Button>
+          <Tooltip text="Run playbook">
+            <Button size="xs" variant="ghost" aria-label="Run playbook" @click="openExecute(row as Playbook)">
+              <Play class="size-3.5" />
+            </Button>
+          </Tooltip>
+          <Tooltip v-if="canEdit" text="Edit playbook">
+            <Button v-if="canEdit" size="xs" variant="ghost" aria-label="Edit playbook" @click="openEdit(row as Playbook)">
+              <Pencil class="size-3.5" />
+            </Button>
+          </Tooltip>
+          <Tooltip v-if="canEdit" text="Delete playbook">
+            <Button v-if="canEdit" size="xs" variant="ghost" aria-label="Delete playbook" @click="deletingPlaybook = row as Playbook">
+              <Trash2 class="size-3.5" />
+            </Button>
+          </Tooltip>
         </div>
       </template>
     </DataTable>
 
     <!-- Delete confirm -->
-    <Dialog :model-value="!!deletingPlaybook" title="Delete Playbook" @update:model-value="deletingPlaybook = null">
-      <template #body>
-        <p class="text-sm text-muted-foreground">
-          Delete <strong class="text-foreground">{{ deletingPlaybook?.name }}</strong>? This cannot be undone.
-        </p>
-      </template>
-      <template #footer>
-        <Button variant="ghost" @click="deletingPlaybook = null">Cancel</Button>
-        <Button variant="destructive" :loading="deleting" @click="confirmDelete">Delete</Button>
-      </template>
-    </Dialog>
+    <ConfirmDeleteDialog
+      :model-value="!!deletingPlaybook"
+      :entity-name="deletingPlaybook?.name"
+      :loading="deleting"
+      title="Delete Playbook"
+      @update:model-value="deletingPlaybook = null"
+      @confirm="confirmDelete"
+    />
 
     <!-- Execute dialog -->
     <Dialog :model-value="!!executingPlaybook" title="Run Playbook" @update:model-value="executingPlaybook = null">

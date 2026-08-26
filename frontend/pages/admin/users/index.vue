@@ -103,8 +103,19 @@ const columns = [
   { key: 'name', label: 'Name' },
   { key: 'email', label: 'Email' },
   { key: 'role', label: 'Role' },
-  { key: 'actions', label: '' },
+  { key: 'actions', label: '', noSort: true },
 ]
+
+const searchQuery = ref('')
+
+const filteredUsers = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  const items = data.value?.items ?? []
+  if (!q) return items
+  return items.filter((u) =>
+    [u.name, u.email, u.role].some((v) => v != null && String(v).toLowerCase().includes(q)),
+  )
+})
 </script>
 
 <template>
@@ -118,18 +129,33 @@ const columns = [
       </template>
     </PageHeader>
 
-    <DataTable :rows="data?.items ?? []" :columns="columns" :loading="pending">
+    <DataTable
+      :rows="filteredUsers"
+      :columns="columns"
+      :loading="pending"
+      sortable
+      :page-size="25"
+      empty-title="No users found"
+      :empty-description="searchQuery ? `Nothing matches “${searchQuery}”.` : 'Create the first user to get started.'"
+    >
+      <template #toolbar>
+        <Input v-model="searchQuery" placeholder="Search name, email or role..." class="w-full sm:w-64" />
+      </template>
       <template #role-data="{ row }">
         <Badge color="gray">{{ String(row.role).toUpperCase() }}</Badge>
       </template>
       <template #actions-data="{ row }">
         <div class="flex items-center justify-end gap-1">
-          <Button size="xs" variant="ghost" class="text-muted-foreground" aria-label="Edit user" @click="openEdit(row as unknown as User)">
-            <Pencil class="size-3.5" />
-          </Button>
-          <Button size="xs" variant="ghost" class="text-muted-foreground" aria-label="Delete user" @click="deletingUser = row as unknown as User">
-            <Trash2 class="size-3.5" />
-          </Button>
+          <Tooltip text="Edit user">
+            <Button size="xs" variant="ghost" aria-label="Edit user" @click="openEdit(row as unknown as User)">
+              <Pencil class="size-3.5" />
+            </Button>
+          </Tooltip>
+          <Tooltip text="Delete user">
+            <Button size="xs" variant="ghost" aria-label="Delete user" @click="deletingUser = row as unknown as User">
+              <Trash2 class="size-3.5" />
+            </Button>
+          </Tooltip>
         </div>
       </template>
     </DataTable>
@@ -174,16 +200,13 @@ const columns = [
       </template>
     </Dialog>
 
-    <Dialog :model-value="!!deletingUser" title="Delete User" @update:model-value="deletingUser = null">
-      <template #body>
-        <p class="text-sm text-muted-foreground">
-          Delete <strong class="text-foreground">{{ deletingUser?.name ?? deletingUser?.email }}</strong>? This cannot be undone.
-        </p>
-      </template>
-      <template #footer>
-        <Button variant="ghost" @click="deletingUser = null">Cancel</Button>
-        <Button variant="destructive" :loading="deleting" @click="confirmDelete">Delete</Button>
-      </template>
-    </Dialog>
+    <ConfirmDeleteDialog
+      :model-value="!!deletingUser"
+      :entity-name="deletingUser?.name ?? deletingUser?.email"
+      :loading="deleting"
+      title="Delete User"
+      @update:model-value="deletingUser = null"
+      @confirm="confirmDelete"
+    />
   </div>
 </template>

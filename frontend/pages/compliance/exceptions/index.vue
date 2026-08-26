@@ -119,7 +119,14 @@ async function revoke(id: string) {
       </div>
     </PageHeader>
 
-    <DataTable :rows="exceptions" :columns="columns" :loading="exceptionsLoading">
+    <DataTable
+      :rows="exceptions"
+      :columns="columns"
+      :loading="exceptionsLoading"
+      sortable
+      :page-size="25"
+      empty-title="No exceptions"
+    >
       <template #rule_id-data="{ row }">
         <span class="font-mono text-xs" :title="row.rule_title">{{ row.rule_key || row.rule_id }}</span>
       </template>

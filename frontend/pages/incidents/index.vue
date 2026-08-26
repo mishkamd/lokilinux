@@ -6,6 +6,7 @@ const router = useRouter()
 const { incidents, total, loading, nextCursor, filters } = storeToRefs(store)
 const { severityColor } = useSeverity()
 const toast = useToast()
+const { format: fmtDateTime } = useDateTime()
 
 const STATUSES = ['', 'OPEN', 'ACKNOWLEDGED', 'IN_PROGRESS', 'RESOLVED', 'CLOSED']
 const SEVERITIES = ['', 'CRITICAL', 'HIGH', 'MEDIUM', 'LOW', 'INFO']
@@ -73,6 +74,10 @@ onMounted(() => store.fetchIncidents())
       :rows="incidents"
       :columns="columns"
       :loading="loading"
+      sortable
+      :page-size="25"
+      empty-title="No incidents"
+      empty-description="Incidents appear here when correlated signals cross their thresholds."
       rows-clickable
       @row-click="(row) => router.push(`/incidents/${row.id}`)"
     >
@@ -89,32 +94,32 @@ onMounted(() => store.fetchIncidents())
         <Badge :color="statusColor(String(row.status))" size="xs">{{ row.status }}</Badge>
       </template>
       <template #started_at-data="{ row }">
-        <span class="font-mono text-xs text-muted-foreground">{{ new Date(String(row.started_at)).toLocaleString() }}</span>
+        <span class="font-mono text-xs text-muted-foreground">{{ fmtDateTime(String(row.started_at)) }}</span>
       </template>
       <template #actions-data="{ row }">
         <div class="flex items-center justify-end gap-1" @click.stop>
-          <Button
-            v-if="row.status === 'OPEN'"
-            size="xs"
-            variant="ghost"
-            class="text-muted-foreground"
-            aria-label="Acknowledge incident"
-            :loading="acting === row.id"
-            @click="ack(String(row.id))"
-          >
-            <Check class="size-3.5" />
-          </Button>
-          <Button
-            v-if="!['RESOLVED', 'CLOSED'].includes(String(row.status))"
-            size="xs"
-            variant="ghost"
-            class="text-muted-foreground"
-            aria-label="Resolve incident"
-            :loading="acting === row.id"
-            @click="resolve(String(row.id))"
-          >
-            <CheckCheck class="size-3.5" />
-          </Button>
+          <Tooltip v-if="row.status === 'OPEN'" text="Acknowledge incident">
+            <Button
+              size="xs"
+              variant="ghost"
+              aria-label="Acknowledge incident"
+              :loading="acting === row.id"
+              @click="ack(String(row.id))"
+            >
+              <Check class="size-3.5" />
+            </Button>
+          </Tooltip>
+          <Tooltip v-if="!['RESOLVED', 'CLOSED'].includes(String(row.status))" text="Resolve incident">
+            <Button
+              size="xs"
+              variant="ghost"
+              aria-label="Resolve incident"
+              :loading="acting === row.id"
+              @click="resolve(String(row.id))"
+            >
+              <CheckCheck class="size-3.5" />
+            </Button>
+          </Tooltip>
         </div>
       </template>
     </DataTable>

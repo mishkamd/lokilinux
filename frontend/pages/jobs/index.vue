@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { RefreshCw, Plus, Eye, Trash2, Check } from 'lucide-vue-next'
-import { ACTIVE_STATUSES } from '~/stores/jobs'
+import { ACTIVE_STATUSES, type Job } from '~/stores/jobs'
 
 const store = useJobsStore()
 const serversStore = useServersStore()
@@ -11,13 +11,15 @@ const toast = useToast()
 const JOB_TYPES = ['', 'PACKAGE_UPDATE', 'SECURITY_PATCH', 'CVE_SCAN', 'CUSTOM_COMMAND', 'REMEDIATION']
 const JOB_STATUSES = ['', 'QUEUED', 'SCHEDULED', 'PENDING', 'RUNNING', 'COMPLETED', 'FAILED', 'TIMEOUT', 'CANCELLED']
 
+const { format: fmtDateTime } = useDateTime()
+
 const columns = [
   { key: 'name', label: 'Name' },
   { key: 'job_type', label: 'Type' },
   { key: 'status', label: 'Status' },
   { key: 'created_at', label: 'Created' },
   { key: 'completed_at', label: 'Completed' },
-  { key: 'actions', label: '' },
+  { key: 'actions', label: '', noSort: true },
 ]
 
 const showNewJob = ref(false)
@@ -143,42 +145,53 @@ onUnmounted(() => clearInterval(poll))
       </div>
     </PageHeader>
 
-    <DataTable :rows="jobs" :columns="columns" :loading="loading">
+    <DataTable
+      :rows="jobs"
+      :columns="columns"
+      :loading="loading"
+      sortable
+      :page-size="25"
+      empty-title="No jobs"
+      empty-description="Create a job to run remediation on your servers."
+    >
       <template #status-data="{ row }">
         <Badge :color="statusColor(String(row.status))" size="xs">{{ row.status }}</Badge>
       </template>
       <template #created_at-data="{ row }">
-        <span class="font-mono">{{ new Date(String(row.created_at)).toLocaleString() }}</span>
+        <span class="font-mono">{{ fmtDateTime(String(row.created_at)) }}</span>
       </template>
       <template #completed_at-data="{ row }">
-        <span class="font-mono">{{ row.completed_at ? new Date(String(row.completed_at)).toLocaleString() : '—' }}</span>
+        <span class="font-mono">{{ row.completed_at ? fmtDateTime(String(row.completed_at)) : '—' }}</span>
       </template>
       <template #actions-data="{ row }">
         <div class="flex items-center justify-end gap-1">
-          <Button size="xs" variant="ghost" class="text-muted-foreground" aria-label="View job" @click="selectedJob = row as typeof jobs.value[0]">
-            <Eye class="size-3.5" />
-          </Button>
-          <Button
-            v-if="row.requires_approval && !row.approved_by"
-            size="xs"
-            variant="ghost"
-            class="text-success"
-            aria-label="Approve job"
-            :loading="approving === String(row.id)"
-            @click="approveJob(row as typeof jobs.value[0])"
-          >
-            <Check class="size-3.5" />
-          </Button>
-          <Button
-            v-if="['QUEUED', 'SCHEDULED', 'PENDING'].includes(String(row.status))"
-            size="xs"
-            variant="ghost"
-            class="text-muted-foreground"
-            aria-label="Cancel job"
-            @click="cancellingJob = row as typeof jobs.value[0]"
-          >
-            <Trash2 class="size-3.5" />
-          </Button>
+          <Tooltip text="View job">
+            <Button size="xs" variant="ghost" aria-label="View job" @click="selectedJob = row as Job">
+              <Eye class="size-3.5" />
+            </Button>
+          </Tooltip>
+          <Tooltip v-if="row.requires_approval && !row.approved_by" text="Approve job">
+            <Button
+              size="xs"
+              variant="ghost"
+              class="text-success"
+              aria-label="Approve job"
+              :loading="approving === String(row.id)"
+              @click="approveJob(row as Job)"
+            >
+              <Check class="size-3.5" />
+            </Button>
+          </Tooltip>
+          <Tooltip v-if="['QUEUED', 'SCHEDULED', 'PENDING'].includes(String(row.status))" text="Cancel job">
+            <Button
+              size="xs"
+              variant="ghost"
+              aria-label="Cancel job"
+              @click="cancellingJob = row as Job"
+            >
+              <Trash2 class="size-3.5" />
+            </Button>
+          </Tooltip>
         </div>
       </template>
     </DataTable>
@@ -210,16 +223,20 @@ onUnmounted(() => clearInterval(poll))
 
     <JobDetail :job="selectedJob" @close="selectedJob = null" />
 
-    <Dialog :model-value="!!cancellingJob" title="Cancel Job" @update:model-value="cancellingJob = null">
-      <template #body>
+    <ConfirmDeleteDialog
+      :model-value="!!cancellingJob"
+      :entity-name="cancellingJob?.name"
+      :loading="cancelling"
+      title="Cancel Job"
+      confirm-label="Cancel Job"
+      @update:model-value="cancellingJob = null"
+      @confirm="confirmCancel"
+    >
+      <template #description>
         <p class="text-sm text-muted-foreground">
           Cancel <strong class="text-foreground">{{ cancellingJob?.name }}</strong>? This cannot be undone.
         </p>
       </template>
-      <template #footer>
-        <Button variant="ghost" @click="cancellingJob = null">Cancel</Button>
-        <Button variant="destructive" :loading="cancelling" @click="confirmCancel">Cancel Job</Button>
-      </template>
-    </Dialog>
+    </ConfirmDeleteDialog>
   </div>
 </template>

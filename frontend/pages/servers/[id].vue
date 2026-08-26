@@ -4,6 +4,7 @@ import { ACTIVE_STATUSES } from '~/stores/jobs'
 const route = useRoute()
 const store = useServersStore()
 const { statusColor } = useServers()
+const { format: fmtDateTime } = useDateTime()
 
 await store.fetchServer(route.params.id as string)
 
@@ -240,7 +241,7 @@ const VULN_FILTER_OPTIONS = [
             </div>
             <div>
               <dt class="text-xs text-muted-foreground">Last Seen</dt>
-              <dd class="font-medium text-[13px] mt-0.5">{{ server.last_seen_at ? new Date(String(server.last_seen_at)).toLocaleString() : 'Never' }}</dd>
+              <dd class="font-medium text-[13px] mt-0.5">{{ server.last_seen_at ? fmtDateTime(String(server.last_seen_at)) : 'Never' }}</dd>
             </div>
             <div v-if="Object.keys(server.tags as object).length">
               <dt class="text-xs text-muted-foreground">Tags</dt>
@@ -261,7 +262,7 @@ const VULN_FILTER_OPTIONS = [
         <div class="mt-4 space-y-6">
           <div>
             <h3 class="text-sm font-medium mb-2">Disks</h3>
-            <DataTable :rows="server.disks ?? []" :columns="diskColumns">
+            <DataTable :rows="server.disks ?? []" :columns="diskColumns" sortable empty-title="No disks reported">
               <template #usage-data="{ row }">
                 {{ formatBytes(row.used_size) }} / {{ formatBytes(row.total_size) }}
               </template>
@@ -275,7 +276,7 @@ const VULN_FILTER_OPTIONS = [
 
           <div>
             <h3 class="text-sm font-medium mb-2">Network Interfaces</h3>
-            <DataTable :rows="server.network_interfaces ?? []" :columns="networkColumns">
+            <DataTable :rows="server.network_interfaces ?? []" :columns="networkColumns" sortable empty-title="No interfaces reported">
               <template #ip_addresses-data="{ row }">
                 {{ row.ip_addresses?.join(', ') || '—' }}
               </template>
@@ -287,7 +288,7 @@ const VULN_FILTER_OPTIONS = [
 
           <div>
             <h3 class="text-sm font-medium mb-2">Block Devices</h3>
-            <DataTable :rows="server.block_devices ?? []" :columns="blockDeviceColumns">
+            <DataTable :rows="server.block_devices ?? []" :columns="blockDeviceColumns" sortable empty-title="No block devices reported">
               <template #name-data="{ row }">
                 <span :class="row.parent_name ? 'pl-4' : ''">{{ row.parent_name ? '└─ ' : '' }}{{ row.name }}</span>
               </template>
@@ -297,7 +298,7 @@ const VULN_FILTER_OPTIONS = [
 
           <div>
             <h3 class="text-sm font-medium mb-2">Listening Ports</h3>
-            <DataTable :rows="server.listening_ports ?? []" :columns="listeningPortColumns">
+            <DataTable :rows="server.listening_ports ?? []" :columns="listeningPortColumns" sortable empty-title="No listening ports reported">
               <template #protocol-data="{ row }">
                 <Badge color="gray" size="xs">{{ row.protocol }}</Badge>
               </template>
@@ -324,6 +325,10 @@ const VULN_FILTER_OPTIONS = [
             :rows="store.packages"
             :columns="packageColumns"
             :loading="store.packagesLoading"
+            sortable
+            :page-size="25"
+            empty-title="No packages reported yet"
+            empty-description="This appears after the first heartbeat with inventory from the agent."
             selectable
             v-model:selected="selectedPackageIds"
           >
@@ -337,9 +342,6 @@ const VULN_FILTER_OPTIONS = [
               <span v-else class="text-muted-foreground text-xs">up to date</span>
             </template>
           </DataTable>
-          <p v-if="!store.packagesLoading && !store.packages.length" class="text-xs text-muted-foreground mt-2">
-            No packages reported yet. This appears after the first heartbeat with inventory from the agent.
-          </p>
         </div>
       </template>
 
@@ -349,7 +351,15 @@ const VULN_FILTER_OPTIONS = [
             <span class="text-xs text-muted-foreground">Status</span>
             <Select v-model="vulnFilter" :options="VULN_FILTER_OPTIONS" class="w-28" @update:model-value="onVulnFilterChange" />
           </div>
-          <DataTable :rows="store.vulnerabilities" :columns="vulnerabilityColumns" :loading="store.vulnerabilitiesLoading">
+          <DataTable
+            :rows="store.vulnerabilities"
+            :columns="vulnerabilityColumns"
+            :loading="store.vulnerabilitiesLoading"
+            sortable
+            :page-size="25"
+            empty-title="No vulnerabilities reported"
+            :empty-description="vulnFilter === 'open' ? 'Switch to “All” to see resolved findings.' : 'This appears after CVE scan processing for this server\'s packages.'"
+          >
             <template #severity-data="{ row }">
               <Badge v-if="row.severity" :color="SEVERITY_COLORS[row.severity] ?? 'gray'" size="xs">{{ row.severity }}</Badge>
               <span v-else class="text-muted-foreground text-xs">—</span>
@@ -365,23 +375,29 @@ const VULN_FILTER_OPTIONS = [
               <Badge :color="VULN_STATUS_COLORS[row.status] ?? 'gray'" size="xs">{{ row.status }}</Badge>
             </template>
           </DataTable>
-          <p v-if="!store.vulnerabilitiesLoading && !store.vulnerabilities.length" class="text-xs text-muted-foreground mt-2">
-            {{ vulnFilter === 'open' ? 'No open vulnerabilities. Switch to “All” to see resolved findings.' : 'No vulnerabilities reported. This appears after CVE scan processing for this server\'s packages.' }}
-          </p>
         </div>
       </template>
 
       <template #jobs>
         <div class="mt-4">
-          <DataTable :rows="jobs" :columns="jobColumns" :loading="jobsLoading" rows-clickable @row-click="selectedJob = $event">
+          <DataTable
+            :rows="jobs"
+            :columns="jobColumns"
+            :loading="jobsLoading"
+            sortable
+            :page-size="25"
+            empty-title="No jobs for this server yet"
+            rows-clickable
+            @row-click="selectedJob = $event"
+          >
             <template #status-data="{ row }">
               <Badge :color="jobStatusColor(String(row.status))" size="xs">{{ row.status }}</Badge>
             </template>
             <template #created_at-data="{ row }">
-              {{ new Date(String(row.created_at)).toLocaleString() }}
+              {{ fmtDateTime(String(row.created_at)) }}
             </template>
             <template #completed_at-data="{ row }">
-              {{ row.completed_at ? new Date(String(row.completed_at)).toLocaleString() : '—' }}
+              {{ row.completed_at ? fmtDateTime(String(row.completed_at)) : '—' }}
             </template>
           </DataTable>
           <p class="text-xs text-muted-foreground mt-2">Click a job for full output (stdout/stderr).</p>

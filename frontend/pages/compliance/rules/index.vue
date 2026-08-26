@@ -44,8 +44,16 @@ const columns = [
       <Badge color="gray">{{ rulesTotal }} rules</Badge>
     </PageHeader>
 
-    <DataTable :rows="rules" :columns="columns" :loading="rulesLoading" rows-clickable
-               @row-click="(row) => navigateTo(`/compliance/rules/${row.id}`)">
+    <DataTable
+      :rows="rules"
+      :columns="columns"
+      :loading="rulesLoading"
+      sortable
+      :page-size="25"
+      empty-title="No rules found"
+      rows-clickable
+      @row-click="(row) => navigateTo(`/compliance/rules/${row.id}`)"
+    >
       <template #title-data="{ row }">
         <div>
           <p class="font-medium">{{ row.title }}</p>

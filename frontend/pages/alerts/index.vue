@@ -5,6 +5,7 @@ import type { Alert } from '~/stores/dashboard'
 const api = useApi()
 const { canEdit } = useCurrentUser()
 const { severityColor } = useSeverity()
+const { format: fmtDateTime } = useDateTime()
 
 const { data: alerts, refresh, status: fetchStatus } = await useAsyncData('alerts', () =>
   api.get<{ items: Alert[] }>('/alerts?limit=100').then((r) => r.items),
@@ -57,7 +58,15 @@ async function resolve(id: string) {
       <Badge color="red">{{ openCount }} active</Badge>
     </div>
 
-    <DataTable :rows="alerts ?? []" :columns="columns" :loading="fetchStatus === 'pending'">
+    <DataTable
+      :rows="alerts ?? []"
+      :columns="columns"
+      :loading="fetchStatus === 'pending'"
+      sortable
+      :page-size="25"
+      empty-title="No alerts"
+      empty-description="Alerts appear here when rules trigger."
+    >
       <template #severity-data="{ row }">
         <Badge :color="severityColor(String(row.severity))" size="xs">{{ row.severity }}</Badge>
       </template>
@@ -69,32 +78,32 @@ async function resolve(id: string) {
         <Badge :color="statusColor(String(row.status))" size="xs">{{ row.status }}</Badge>
       </template>
       <template #created_at-data="{ row }">
-        <span class="font-mono text-xs text-muted-foreground">{{ new Date(String(row.created_at)).toLocaleString() }}</span>
+        <span class="font-mono text-xs text-muted-foreground">{{ fmtDateTime(String(row.created_at)) }}</span>
       </template>
       <template #actions-data="{ row }">
         <div v-if="canEdit" class="flex items-center justify-end gap-1">
-          <Button
-            v-if="row.status === 'ACTIVE'"
-            size="xs"
-            variant="ghost"
-            class="text-muted-foreground"
-            aria-label="Acknowledge alert"
-            :loading="acting === row.id"
-            @click="acknowledge(String(row.id))"
-          >
-            <Check class="size-3.5" />
-          </Button>
-          <Button
-            v-if="row.status !== 'RESOLVED' && row.status !== 'EXPIRED'"
-            size="xs"
-            variant="ghost"
-            class="text-muted-foreground"
-            aria-label="Resolve alert"
-            :loading="acting === row.id"
-            @click="resolve(String(row.id))"
-          >
-            <CheckCheck class="size-3.5" />
-          </Button>
+          <Tooltip v-if="row.status === 'ACTIVE'" text="Acknowledge alert">
+            <Button
+              size="xs"
+              variant="ghost"
+              aria-label="Acknowledge alert"
+              :loading="acting === row.id"
+              @click="acknowledge(String(row.id))"
+            >
+              <Check class="size-3.5" />
+            </Button>
+          </Tooltip>
+          <Tooltip v-if="row.status !== 'RESOLVED' && row.status !== 'EXPIRED'" text="Resolve alert">
+            <Button
+              size="xs"
+              variant="ghost"
+              aria-label="Resolve alert"
+              :loading="acting === row.id"
+              @click="resolve(String(row.id))"
+            >
+              <CheckCheck class="size-3.5" />
+            </Button>
+          </Tooltip>
         </div>
       </template>
     </DataTable>

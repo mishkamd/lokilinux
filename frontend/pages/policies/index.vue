@@ -117,7 +117,15 @@ onMounted(() => store.fetchPolicies())
       </div>
     </PageHeader>
 
-    <DataTable :rows="policies" :columns="columns" :loading="loading">
+    <DataTable
+      :rows="policies"
+      :columns="columns"
+      :loading="loading"
+      sortable
+      :page-size="25"
+      empty-title="No policies"
+      empty-description="Create a policy to automate compliance checks."
+    >
       <template #is_enabled-data="{ row }">
         <Switch :model-value="Boolean(row.is_enabled)" :disabled="!canEdit" @update:model-value="toggleEnabled(row as unknown as Policy)" />
       </template>
@@ -149,34 +157,37 @@ onMounted(() => store.fetchPolicies())
 
       <template #actions-data="{ row }">
         <div class="flex items-center justify-end gap-1">
-          <Button size="xs" variant="ghost" class="text-muted-foreground" aria-label="Run now" :loading="runningId === row.id" @click="runNow(row as unknown as Policy)">
-            <Play class="size-3.5" />
-          </Button>
+          <Tooltip text="Run now">
+            <Button size="xs" variant="ghost" aria-label="Run now" :loading="runningId === row.id" @click="runNow(row as unknown as Policy)">
+              <Play class="size-3.5" />
+            </Button>
+          </Tooltip>
           <NuxtLink :to="`/policies/${row.id}`">
-            <Button size="xs" variant="ghost" class="text-muted-foreground">Details</Button>
+            <Button size="xs" variant="ghost">Details</Button>
           </NuxtLink>
-          <Button v-if="canEdit" size="xs" variant="ghost" class="text-muted-foreground" aria-label="Edit policy" @click="openEdit(row as unknown as Policy)">
-            <Pencil class="size-3.5" />
-          </Button>
-          <Button v-if="canEdit" size="xs" variant="ghost" class="text-muted-foreground" aria-label="Delete policy" @click="deletingPolicy = row as unknown as Policy">
-            <Trash2 class="size-3.5" />
-          </Button>
+          <Tooltip v-if="canEdit" text="Edit policy">
+            <Button v-if="canEdit" size="xs" variant="ghost" aria-label="Edit policy" @click="openEdit(row as unknown as Policy)">
+              <Pencil class="size-3.5" />
+            </Button>
+          </Tooltip>
+          <Tooltip v-if="canEdit" text="Delete policy">
+            <Button v-if="canEdit" size="xs" variant="ghost" aria-label="Delete policy" @click="deletingPolicy = row as unknown as Policy">
+              <Trash2 class="size-3.5" />
+            </Button>
+          </Tooltip>
         </div>
       </template>
     </DataTable>
 
     <PolicyWizard v-if="showWizard" :policy="editingPolicy" @close="showWizard = false" @saved="onWizardSaved" />
 
-    <Dialog :model-value="!!deletingPolicy" title="Delete policy" @update:model-value="deletingPolicy = null">
-      <template #body>
-        <p class="text-sm text-muted-foreground">
-          Delete <strong class="text-foreground">{{ deletingPolicy?.name }}</strong>? This action cannot be undone.
-        </p>
-      </template>
-      <template #footer>
-        <Button variant="ghost" @click="deletingPolicy = null">Cancel</Button>
-        <Button variant="destructive" :loading="deleting" @click="confirmDelete">Delete</Button>
-      </template>
-    </Dialog>
+    <ConfirmDeleteDialog
+      :model-value="!!deletingPolicy"
+      :entity-name="deletingPolicy?.name"
+      :loading="deleting"
+      title="Delete policy"
+      @update:model-value="deletingPolicy = null"
+      @confirm="confirmDelete"
+    />
   </div>
 </template>

@@ -5,6 +5,7 @@ import { RefreshCw } from 'lucide-vue-next'
 const store = useComplianceStore()
 const { driftEvents, driftTotal, driftLoading, driftNextCursor, driftFilters } = storeToRefs(store)
 const { canEdit } = useCurrentUser()
+const { format: fmtDateTime } = useDateTime()
 
 onMounted(() => store.fetchDriftEvents())
 
@@ -43,10 +44,18 @@ async function onSuppress(id: string) {
       <Badge color="gray">{{ driftTotal }} drift events</Badge>
     </PageHeader>
 
-    <DataTable :rows="driftEvents" :columns="columns" :loading="driftLoading" rows-clickable
-               @row-click="(row) => navigateTo(`/compliance/drift/${row.id}`)">
+    <DataTable
+      :rows="driftEvents"
+      :columns="columns"
+      :loading="driftLoading"
+      sortable
+      :page-size="25"
+      empty-title="No drift detected"
+      rows-clickable
+      @row-click="(row) => navigateTo(`/compliance/drift/${row.id}`)"
+    >
       <template #time-data="{ row }">
-        <span class="font-mono text-xs">{{ new Date(String(row.time)).toLocaleString() }}</span>
+        <span class="font-mono text-xs">{{ fmtDateTime(String(row.time)) }}</span>
       </template>
       <template #agent_id-data="{ row }">
         <span class="font-mono text-xs">{{ row.hostname || row.agent_id }}</span>

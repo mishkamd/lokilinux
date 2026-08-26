@@ -88,8 +88,16 @@ async function submitImport() {
       </div>
     </PageHeader>
 
-    <DataTable :rows="policySets" :columns="columns" :loading="policySetsLoading" rows-clickable
-               @row-click="(row) => navigateTo(`/compliance/policies/${row.id}`)">
+    <DataTable
+      :rows="policySets"
+      :columns="columns"
+      :loading="policySetsLoading"
+      sortable
+      :page-size="25"
+      empty-title="No policy sets"
+      rows-clickable
+      @row-click="(row) => navigateTo(`/compliance/policies/${row.id}`)"
+    >
       <template #name-data="{ row }">
         <div>
           <p class="font-medium">{{ row.name }}</p>

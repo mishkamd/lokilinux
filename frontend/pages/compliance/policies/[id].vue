@@ -109,7 +109,14 @@ const columns = [
           <NuxtLink to="/compliance/policies" class="underline">Use "Import from ComplianceAsCode"</NuxtLink>
           on the Policy Sets list to populate it.
         </Alert>
-        <DataTable :rows="policySetRules" :columns="columns">
+        <DataTable
+          :rows="policySetRules"
+          :columns="columns"
+          row-key="id"
+          sortable
+          :page-size="25"
+          empty-title="No rules"
+        >
           <template #domain-data="{ row }"><Badge color="gray" size="xs">{{ row.domain }}</Badge></template>
           <template #severity-data="{ row }">
             <Badge :color="SEVERITY_COLORS[String(row.severity)] ?? 'gray'" size="xs">{{ row.severity }}</Badge>

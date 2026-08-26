@@ -3,6 +3,7 @@ import { Download, Plus, RefreshCw } from 'lucide-vue-next'
 import type { ReportFormat, ReportStatus, ReportType } from '~/stores/compliance'
 
 const store = useComplianceStore()
+const { format: fmtDateTime } = useDateTime()
 const api = useApi()
 const toast = useToast()
 const { canEdit } = useCurrentUser()
@@ -107,7 +108,14 @@ async function downloadReport(id: string, format: ReportFormat) {
       </div>
     </PageHeader>
 
-    <DataTable :rows="reports" :columns="columns" :loading="reportsLoading">
+    <DataTable
+      :rows="reports"
+      :columns="columns"
+      :loading="reportsLoading"
+      sortable
+      :page-size="25"
+      empty-title="No reports generated yet"
+    >
       <template #report_type-data="{ row }">
         <Badge color="gray" size="xs">{{ row.report_type }}</Badge>
       </template>
@@ -118,7 +126,7 @@ async function downloadReport(id: string, format: ReportFormat) {
         <Badge :color="STATUS_COLORS[row.status as ReportStatus] ?? 'gray'" size="xs">{{ row.status }}</Badge>
       </template>
       <template #created_at-data="{ row }">
-        <span class="font-mono text-xs">{{ new Date(String(row.created_at)).toLocaleString() }}</span>
+        <span class="font-mono text-xs">{{ fmtDateTime(String(row.created_at)) }}</span>
       </template>
       <template #download-data="{ row }">
         <Button v-if="row.status === 'COMPLETED'" size="xs" variant="outline"

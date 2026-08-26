@@ -5,6 +5,7 @@ import type { FileChangeKind } from '~/stores/compliance'
 
 const store = useComplianceStore()
 const serversStore = useServersStore()
+const { format: fmtDateTime } = useDateTime()
 const {
   fileHashes, fileHashesLoading, fileHashPathPrefix,
   fileChanges, fileChangesTotal, fileChangesLoading, fileChangesNextCursor, fileChangeFilters,
@@ -96,7 +97,15 @@ const changeColumns = [
           <Badge color="gray">{{ fileHashes.length }} watched files</Badge>
         </PageHeader>
 
-        <DataTable :rows="fileHashes" :columns="hashColumns" :loading="fileHashesLoading">
+        <DataTable
+          :rows="fileHashes"
+          :columns="hashColumns"
+          :loading="fileHashesLoading"
+          sortable
+          :page-size="25"
+          empty-title="No watched files"
+          :empty-description="fileHashPathPrefix ? 'No watched files match the path prefix.' : 'Files appear here after agents report their inventory.'"
+        >
           <template #path-data="{ row }">
             <span class="font-mono text-xs">{{ row.path }}</span>
           </template>
@@ -107,7 +116,7 @@ const changeColumns = [
             <span class="font-mono text-xs">{{ row.size_bytes ?? '—' }}</span>
           </template>
           <template #updated_at-data="{ row }">
-            <span class="font-mono text-xs">{{ new Date(String(row.updated_at)).toLocaleString() }}</span>
+            <span class="font-mono text-xs">{{ fmtDateTime(String(row.updated_at)) }}</span>
           </template>
         </DataTable>
       </template>
@@ -124,9 +133,16 @@ const changeColumns = [
           <Badge color="gray">{{ fileChangesTotal }} changes</Badge>
         </PageHeader>
 
-        <DataTable :rows="fileChanges" :columns="changeColumns" :loading="fileChangesLoading">
+        <DataTable
+          :rows="fileChanges"
+          :columns="changeColumns"
+          :loading="fileChangesLoading"
+          sortable
+          :page-size="25"
+          empty-title="No changes recorded"
+        >
           <template #time-data="{ row }">
-            <span class="font-mono text-xs">{{ new Date(String(row.time)).toLocaleString() }}</span>
+            <span class="font-mono text-xs">{{ fmtDateTime(String(row.time)) }}</span>
           </template>
           <template #agent_id-data="{ row }">
             <span class="font-mono text-xs">{{ row.hostname || row.agent_id }}</span>
@@ -201,7 +217,7 @@ const changeColumns = [
             <p class="label-caps mb-1">Timeline</p>
             <ul class="divide-y divide-border">
               <li v-for="(c, i) in fileChangePathDetail.timeline" :key="i" class="py-1.5 flex items-center justify-between gap-2 text-xs">
-                <span class="font-mono text-muted-foreground">{{ new Date(c.time).toLocaleString() }} · {{ c.hostname || c.agent_id.slice(0, 8) + '…' }}</span>
+                <span class="font-mono text-muted-foreground">{{ fmtDateTime(c.time) }} · {{ c.hostname || c.agent_id.slice(0, 8) + '…' }}</span>
                 <Badge :color="CHANGE_KIND_COLORS[c.change_kind] ?? 'gray'" size="xs">{{ c.change_kind }}</Badge>
               </li>
             </ul>

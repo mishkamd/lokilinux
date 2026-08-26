@@ -85,8 +85,16 @@ async function submitCreate() {
       </div>
     </PageHeader>
 
-    <DataTable :rows="baselines" :columns="columns" :loading="baselinesLoading" rows-clickable
-               @row-click="(row) => navigateTo(`/compliance/baselines/${row.id}`)">
+    <DataTable
+      :rows="baselines"
+      :columns="columns"
+      :loading="baselinesLoading"
+      sortable
+      :page-size="25"
+      empty-title="No baselines yet"
+      rows-clickable
+      @row-click="(row) => navigateTo(`/compliance/baselines/${row.id}`)"
+    >
       <template #name-data="{ row }">
         <span class="font-medium">{{ row.name }}</span>
       </template>

@@ -163,8 +163,16 @@ async function submitWindow() {
 
     <Alert v-if="remediationError" color="red" class="mb-4">{{ remediationError }}</Alert>
 
-    <DataTable :rows="remediationPlans" :columns="columns" :loading="remediationLoading" rows-clickable
-               @row-click="(row) => navigateTo(`/compliance/remediation/${row.id}`)">
+    <DataTable
+      :rows="remediationPlans"
+      :columns="columns"
+      :loading="remediationLoading"
+      sortable
+      :page-size="25"
+      empty-title="No remediation plans"
+      rows-clickable
+      @row-click="(row) => navigateTo(`/compliance/remediation/${row.id}`)"
+    >
       <template #status-data="{ row }">
         <Badge :color="STATUS_COLORS[row.status as RemediationPlanStatus] ?? 'gray'" size="xs">{{ row.status }}</Badge>
       </template>
