@@ -18,10 +18,7 @@ import (
 // without a database. Order is not significant: rule loading downstream
 // deduplicates via SELECT DISTINCT.
 func MatchingSetIDs(attrs storage.AgentAttributes, assignments []storage.PolicyAssignment) []uuid.UUID {
-	sAttrs := scope.AgentAttributes{
-		OsDistro: attrs.OsDistro, OsVersion: attrs.OsVersion,
-		Category: attrs.Category, Project: attrs.Project,
-	}
+	sAttrs := attrs.ScopeAttrs()
 	var out []uuid.UUID
 	for _, a := range assignments {
 		if scope.Matches(a.ScopeSelector, sAttrs) {

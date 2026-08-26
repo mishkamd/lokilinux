@@ -15,7 +15,7 @@ Operate Linux infrastructure at scale through a unified control plane for fleet 
 | **Automation** | Workflow engine (YAML + visual builder), Ansible layer, scheduled jobs |
 | **Security** | RBAC (5 roles), audit log, signed jobs, mTLS everywhere |
 | **PKI / KMS** | Job-signing keys with lifecycle + rotation (file provider); mTLS CA + enrollment certs |
-| **Observability** | Events → signals → incidents pipeline, Prometheus metrics, alerts |
+| **Observability** | Events → signals → incidents pipeline (ClickHouse), correlation rules, runbooks with incident→workflow bridge, topology map, OTLP/HTTP ingest, Prometheus metrics |
 | **AI Operations** | Planned — see [Roadmap](#roadmap). Not implemented today. |
 
 ## Features
@@ -31,6 +31,7 @@ Operate Linux infrastructure at scale through a unified control plane for fleet 
 | **Ansible automation** | AWX-like layer: projects, roles, playbooks (versioned), job templates — the live fleet is the inventory |
 | **Plugin marketplace** | Marketplace-style install lifecycle for control-plane / agent / UI / notification plugins |
 | **RBAC + audit** | Five roles (`ADMIN`, `MANAGER`, `OPERATOR`, `VIEWER`, `AUDITOR`) enforced across REST; audit log of user actions |
+| **Observability suite** | Raw event ingest (OTLP/HTTP + internal) into ClickHouse, signal detection with dedup, weighted-window correlation rules, incident lifecycle with timeline/root-cause/evidence, runbooks that can auto-trigger workflows (`/events`, `/signals`, `/correlation`, `/incidents`, `/runbooks`, `/topology`) |
 
 ## Architecture
 
@@ -44,7 +45,7 @@ Operate Linux infrastructure at scale through a unified control plane for fleet 
                   ┌──────────────▼───────────────────────┐
                   │       Control Plane (FastAPI)         │
                   │  REST :8000  │ gRPC :50051 (mTLS)     │
-                  │       metrics :9090 (Prometheus)      │
+                  │   metrics :9090 (Prometheus)          │
                   └──────┬─────────────────┬─────────────┘
                          │                 │ compliance snapshots (NATS)
          ┌───────────────┼──────────┐      ▼
@@ -57,26 +58,29 @@ Operate Linux infrastructure at scale through a unified control plane for fleet 
          │  ┌──────┐ ┌──────┐       │
          │  │ Redis│ │ NATS │───────┘  ┌───────────────────────┐
          │  └──────┘ └──────┘◄─────────┤   Linux Agents (Go)   │
-         └─────────────────────────┬───┤   Static binary       │
-                                   └──►│   Outbound-only mTLS  │
-                                       │   60s heartbeat       │
-                                       └───────────────────────┘
+         │  ┌──────────┐           ───►│   Static binary       │
+         │  │ClickHouse│ ◄────────────┤   Outbound-only mTLS  │
+         │  └──────────┘   events     │   60s heartbeat       │
+         └─────────────────────────┬──└───────────────────────┘
+                                   └──► (raw events, signal occurrences,
+                                        incident evidence — observability)
 ```
 
 **Four layers:**
 
 | Layer | Tech | Role |
 |-------|------|------|
-| **Control Plane** | FastAPI 0.138.1 (Python 3.11) + grpcio | REST API, gRPC server, job orchestration, CVE processing, Ansible automation, workflow engine, 15 background workers |
-| **Linux Agent** | Go 1.24 (static binary, CGO_ENABLED=0) | Heartbeat with inventory + vulnerabilities + 24 compliance collectors; job, playbook, remediation and workflow-step execution |
-| **Compliance Service** | Go 1.25 (pgx, CEL, NATS JetStream) | CPU-bound hot path: snapshot ingest, drift detection, rule evaluation, scoring, assessment scheduling |
-| **Frontend** | Nuxt 4.5.2 + Vue 3.5 + TypeScript | Dashboard, fleet management, compliance UI, visual workflow builder, Ansible automation UI, plugin marketplace, user admin |
+| **Control Plane** | FastAPI 0.138.1 (Python 3.11) + grpcio | REST API, gRPC server, job orchestration, CVE processing, Ansible automation, workflow engine, observability pipeline (events → signals → incidents), 19 background workers |
+| **Linux Agent** | Go 1.24 (static binary, CGO_ENABLED=0) | Heartbeat with inventory + vulnerabilities + 24 compliance collectors; job, playbook, remediation (broker-backed ActionRunners) and workflow-step execution; optional exec-broker daemon for non-root operation |
+| **Compliance Service** | Go 1.25 (pgx, CEL, NATS JetStream) | CPU-bound hot path: snapshot ingest, drift detection, rule evaluation, scoring, assessment scheduling — results written directly to PostgreSQL |
+| **Frontend** | Nuxt 4.5.2 + Vue 3.5 + TypeScript | Dashboard, fleet management, compliance UI, visual workflow builder, Ansible automation UI, observability suite UI, plugin marketplace, user admin |
 
 **Data flows:**
 
 1. *Heartbeat (agent → control plane)* — agent dials out via mTLS gRPC every 60s carrying system info, packages (delta-synced via SHA-256 checksum), vulnerabilities, job results and per-domain compliance hashes → receives pending jobs, policy delta and resync requests in the response.
-2. *Compliance pipeline* — the gRPC servicer publishes snapshots to NATS JetStream (`lokilinux.compliance.*`) → the Go service ingests, diffs against baselines, evaluates CEL rules, computes scores → results flow back to the API workers as drift/score events.
-3. *User traffic* — the frontend calls `/api/v1` through a same-origin proxy; long-running work is decoupled onto NATS workers so REST stays fast.
+2. *Compliance pipeline* — the gRPC servicer publishes snapshots to NATS JetStream (`lokilinux.compliance.snapshot.*`) → the Go service ingests, diffs against baselines, evaluates CEL rules, computes scores → results are persisted to PostgreSQL (`compliance_scores`, drift tables) and read by the REST API.
+3. *Observability pipeline* — events arrive via `POST /api/v1/otlp` (OTLP/HTTP, protobuf) and internal producers → published raw on `lokilinux.events.raw` → `EventProcessorWorker` validates/dedups/fingerprints and batches them into ClickHouse → `SignalProcessorWorker` runs detectors on normalized events (`lokilinux.signals.detected`) → `CorrelationWorker` evaluates weighted-window correlation rules with Redis state and suppression → matching signals escalate into **incidents** (timeline, root cause, ClickHouse evidence rows) → linked **runbooks** can auto-trigger workflows.
+4. *User traffic* — the frontend calls `/api/v1` through a same-origin proxy; long-running work is decoupled onto NATS workers so REST stays fast.
 
 ## Screenshots
 
@@ -94,19 +98,20 @@ Operate Linux infrastructure at scale through a unified control plane for fleet 
 |---------|-----------|------|---------|
 | `lokilinux-frontend` | Nuxt 4 (Node 22) | 3000 | Web UI + Better Auth |
 | `lokilinux-api` | FastAPI + uvicorn + grpcio | 8000, 9090 | REST API + Prometheus metrics |
-| `lokilinux-grpc` | grpcio + mTLS | 50051 | Agent communication |
-| `lokilinux-compliance` | Go (pgx, CEL, NATS JetStream) | 8080, 9091 | Compliance hot path: ingest, drift, rules, scoring, scheduling |
+| `lokilinux-grpc` | grpcio + mTLS | 50051 | Agent communication (metrics on 9091) |
+| `lokilinux-compliance` | Go (pgx, CEL, NATS JetStream) | 8080 | Compliance hot path: ingest, drift, rules, scoring, scheduling |
 | `postgres` | TimescaleDB 2.28.1 (PG17) | 5432 | Primary DB + time-series |
-| `pgbouncer` | pgBouncer (transaction mode) | 6432 | Connection pooling |
+| `pgbouncer` | pgBouncer (transaction mode) | 6432* | Connection pooling |
 | `redis` | Redis 7.4.9 | 6379 | Cache (AOF, allkeys-lru) |
 | `nats` | NATS 2.10.29 + JetStream | 4222, 8222 | Event bus |
+| `clickhouse` | ClickHouse 24.8 | 8123 | Event store: raw events, signal occurrences, incident evidence |
 | `lokilinux-migrate` | Alembic | — | One-shot DB migrations |
 
-Postgres, pgBouncer, Redis and NATS are **internal-only** — they have no published host ports and are reachable only from inside the compose networks (`data-net` / `app-net`). The only host-published ports are frontend `3000`, api `8000` + `9090` metrics, and grpc `50051`.
+\* pgBouncer listens internally on 5432; the historical "6432" host mapping is gone — no infrastructure port is published to the host.
 
 ## Module Documentation
 
-Detailed per-module documentation (Romanian, generated from code at v0.3.0) lives in [`docs/modules/`](docs/modules/):
+Detailed per-module documentation (Romanian, generated from code at v0.4.0) lives in [`docs/modules/`](docs/modules/):
 
 | Document | Module | Covers |
 |----------|--------|--------|
@@ -117,6 +122,10 @@ Detailed per-module documentation (Romanian, generated from code at v0.3.0) live
 | [`04-compliance.md`](docs/modules/04-compliance.md) | Compliance Service | Ingest pipeline, drift detector, CEL rules, leader election, scheduler |
 | [`05-workflow-engine.md`](docs/modules/05-workflow-engine.md) | Workflow Engine | YAML compilation, versioning/publish, run advancement, agent step execution |
 | [`06-infrastructura.md`](docs/modules/06-infrastructura.md) | Infrastructure | Docker services, volumes, mTLS certificates, dev vs production |
+| [`07-ansible.md`](docs/modules/07-ansible.md) | Ansible Automation | Projects, roles, playbooks, job templates, snapshot execution model |
+| [`08-api-public-mcp.md`](docs/modules/08-api-public-mcp.md) | Public API / MCP | External integration surface |
+| [`09-recomandari.md`](docs/modules/09-recomandari.md) | Recommendations | Prioritized improvement backlog derived from code review |
+| [`10-compliance-autopilot.md`](docs/modules/10-compliance-autopilot.md) | Compliance Autopilot | End-to-end compliance automation concept and current coverage |
 
 English deep-dive on the compliance subsystem only: [`docs/compliance/00-OVERVIEW.md`](docs/compliance/00-OVERVIEW.md) … `13-OPS.md`. Full-stack snapshot (as of an earlier commit): [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
@@ -222,6 +231,41 @@ Hybrid architecture — CPU-bound work in Go, user-facing CRUD in FastAPI:
 
 Details: [`docs/modules/04-compliance.md`](docs/modules/04-compliance.md) (RO) and the full spec series [`docs/compliance/`](docs/compliance/) (EN).
 
+## Observability Pipeline
+
+Security-relevant events flow through a four-stage pipeline, each stage a separate NATS worker in the control plane:
+
+```text
+ producers (agents via metric.sample / REST / OTLP: POST /api/v1/otlp)
+     │
+     ▼
+ lokilinux.events.raw ──► EventProcessorWorker
+     │                     validate · dedup (Redis ev:dedup:{id}) · fingerprint
+     ▼                     batch insert
+ ClickHouse (events)
+     │
+     ▼
+ lokilinux.events.normalized ──► SignalProcessorWorker ──► detectors registry
+     │                                                  (per-event-type rules,
+     ▼                                                   dedup + upsert)
+ lokilinux.signals.detected ──► CorrelationWorker
+     │                          weighted-window evaluator · Redis state ·
+     ▼                           suppression windows · correlation_rules CRUD
+ lokilinux.incidents.* ──► IncidentWorker
+     │                      open → acknowledge → resolve lifecycle · timeline ·
+     ▼                       root cause · ClickHouse incident_evidence rows
+ incidents link alerts ──► Runbooks (safe-by-default auto-trigger)
+                            runbook steps bridge into the workflow engine
+```
+
+Key properties:
+
+- **ClickHouse is append-only observability storage** — raw events (`EVENT_RETENTION_DAYS`, default 30), signal occurrences (`SIGNAL_OCCURRENCE_RETENTION_DAYS`, 90) and incident evidence (`INCIDENT_EVIDENCE_RETENTION_DAYS`, 180); retention tunable per dataset.
+- **OTLP ingest** accepts protobuf OTLP/HTTP payloads (`opentelemetry-proto`) and translates them into normalized events — external telemetry sources feed the same pipeline.
+- **Topology** (`/topology`): nodes + edges model with recursive resolver; relationships between agents/resources feed correlation context.
+- **Prometheus metrics**: `lokilinux-api` serves metrics on port 9090 (prometheus_client HTTP server, `backend/lokilinux/metrics.py`); `lokilinux-grpc` serves on 9091. Metrics cover signed-job enforcement, event pipeline depth/drops, correlation duration, signal/incident totals.
+- **Runbook bridge**: an incident can auto-fire its linked workflow only when `autorun_enabled` is set on the runbook — safe by default; execution still passes normal approval gates.
+
 ## Makefile Targets
 
 ### Stack
@@ -243,6 +287,13 @@ make agent-build         # Build static binary (linux/amd64)
 make agent-build-arm64   # Build static binary (linux/arm64)
 make agent-package       # .tar.gz + .deb + .rpm for both arches
 make agent-test          # Run agent tests with race detector
+```
+
+### Compliance service (Go)
+
+```bash
+make compliance-build    # Build the Go compliance microservice
+make compliance-test     # Run its test suite
 ```
 
 ### Other
@@ -269,22 +320,22 @@ make sbom IMAGE=lokilinux/api:0.3.0   # CycloneDX SBOM for one image, written to
 
 ## Docker Compose Structure
 
-`docker-compose.yml` defines 9 services across **five segmented networks** (no flat shared network). All long-running services have health checks. `lokilinux-migrate` runs `alembic upgrade head` once and exits.
+`docker-compose.yml` defines 10 services across **five segmented networks** (no flat shared network). All long-running services have health checks. `lokilinux-migrate` runs `alembic upgrade head` once and exits.
 
 ```
 data-net  (internal) : postgres <-> pgbouncer (+ frontend direct DB access)
-app-net   (internal) : pgbouncer / nats / redis <-> api / grpc / compliance / migrate
+app-net   (internal) : pgbouncer / nats / redis / clickhouse <-> api / grpc / compliance / migrate
 web-net   (internal) : api <-> frontend
 gateway-net          : api / grpc / frontend — required for host port publishing
                        (internal networks cannot publish ports)
 egress-net           : api only — outbound internet for NVD/CISA feeds and webhooks
 ```
 
-Only `gateway-net` members can publish host ports: frontend `3000`, api `8000`/`9090`, grpc `50051`. Redis (`6379`), NATS (`4222`/`8222`) and pgBouncer (`6432`) are internal-only.
+Only `gateway-net` members can publish host ports: frontend `3000`, api `8000`/`9090`, grpc `50051`. Redis (`6379`), NATS (`4222`/`8222`), ClickHouse (`8123`) and pgBouncer are internal-only.
 
-Images are tagged `${LOKILINUX_VERSION}` (pinned to `0.3.0` in `.env`) — never `latest`.
+Images are tagged `${LOKILINUX_VERSION}` (pinned to `0.4.0` in `.env`) — never `latest`.
 
-Service dependencies: `postgres` → `pgbouncer` → `lokilinux-migrate` → `lokilinux-api` / `lokilinux-grpc` / `lokilinux-compliance` → `lokilinux-frontend`
+Service dependencies: `postgres` → `pgbouncer` → `lokilinux-migrate` → `lokilinux-api` / `lokilinux-grpc` / `lokilinux-compliance` → `lokilinux-frontend`; api additionally waits on `redis`, `nats` and `clickhouse` health.
 
 `docker-compose.dev.yml` is a dev override (used by `make dev`) that exposes the infrastructure ports locally (5432, 6432, 4222, 8222, 6379) and enables verbose Postgres query logging.
 
@@ -295,9 +346,12 @@ Service dependencies: `postgres` → `pgbouncer` → `lokilinux-migrate` → `lo
 - **Runtime restrictions**: application services run with `read_only` rootfs + tmpfs `/tmp`, `cap_drop: ALL`, `no-new-privileges`, and pids/memory/cpu limits. Infrastructure services are hardened with `no-new-privileges` plus limits.
 - **Network segmentation**: see the map under [Docker Compose Structure](#docker-compose-structure) — data/app/web networks are `internal: true`; only api has an egress path to the internet.
 - **Secrets**: `.env` is never copied into images (`backend/.dockerignore` blocks it).
-- **Version pinning**: images are tagged `${LOKILINUX_VERSION}` (`0.3.0`), never `latest`.
+- **Version pinning**: images are tagged `${LOKILINUX_VERSION}` (`0.4.0`), never `latest`.
 - **Vulnerability gate**: `make scan-image` runs Trivy over every `lokilinux/*` image and fails on HIGH/CRITICAL findings; explicitly accepted exceptions live in `.trivyignore`. SBOMs via `make sbom IMAGE=...` (CycloneDX, into `sbom/`). CI enforces the same gate in [.github/workflows/security-pipeline.yml](.github/workflows/security-pipeline.yml) (build → tests → Trivy gate → SBOM → GHCR push → cosign sign).
 - **KMS / signing**: every privileged job is Ed25519-signed; keys live in a versioned layout (`ACTIVE` / `VERIFY_ONLY` / `RETIRED`) with rotation via `POST /api/v1/admin/kms/keys/job-signing/rotate`. Provider interface defined for Vault / HSM / PKCS#11 — not implemented (explicit fail-closed `NotImplementedError`). See [`docs/security/KMS.md`](docs/security/KMS.md).
+- **CRL re-enrollment check**: a revoked agent certificate cannot resurrect its identity — re-enroll proof-of-possession validates against the CA certificate revocation list.
+- **Production profile validation**: when `ENVIRONMENT=production`, the control plane fails closed at startup if required production settings (secrets, auth wiring) are missing or insecure.
+- **Agent exec broker**: optional non-root operation mode — an allowlisted-operations broker daemon over a peercred-authenticated Unix socket performs privileged actions on behalf of the unprivileged agent; remediation runs through broker-backed ActionRunners (dry-run stays local).
 
 ## Roadmap
 
@@ -316,31 +370,49 @@ Status labels are deliberate — nothing below is shipped.
 lokilinux/
 ├── backend/              # FastAPI application
 │   ├── lokilinux/
-│   │   ├── api/v1/       # REST routers (servers, jobs, cves, policies, workflows, playbooks, ansible-projects, ansible-roles, playbook-templates, plugins, alerts, admin, agent-install, dashboard, categories + compliance/* sub-package)
+│   │   ├── api/v1/       # REST routers (servers, jobs, cves, policies, workflows, playbooks,
+│   │   │                 #   ansible-projects, ansible-roles, playbook-templates, plugins, alerts,
+│   │   │                 #   admin, agent-install, dashboard, categories, events, signals, incidents,
+│   │   │                 #   correlation, topology, runbooks, observability, otlp + compliance/* sub-package)
 │   │   ├── api/grpc/     # gRPC service handlers
-│   │   ├── auth/         # JWT validation, role dependencies
+│   │   ├── auth/         # Better Auth session validation, role dependencies
+│   │   ├── events/       # Event schemas + ClickHouse repository (observability)
+│   │   ├── signals/      # Signal detectors + service
+│   │   ├── incidents/    # Incident lifecycle service
+│   │   ├── correlation/  # Weighted-window evaluator
+│   │   ├── runbooks/     # Runbook → workflow bridge
+│   │   ├── otlp/         # OTLP/HTTP ingestion translation
+│   │   ├── ch.py         # ClickHouse client + batch writer
+│   │   ├── metrics.py    # Prometheus metric definitions + HTTP server
 │   │   ├── models/       # SQLAlchemy ORM models
 │   │   ├── schemas/      # Pydantic API schemas
 │   │   ├── services/     # Business logic
-│   │   └── workers/      # NATS async consumers
-│   ├── alembic/          # Alembic migrations
+│   │   └── workers/      # NATS consumers + asyncio loops (19 workers)
+│   ├── alembic/          # Alembic migrations (001 → 034)
 │   └── Dockerfile
 ├── agent/                # Go agent
 │   ├── cmd/agent/        # Entry point
+│   ├── exec-broker/      # Privileged-action broker daemon (peercred socket, allowlist)
 │   ├── internal/
 │   │   ├── agent/        # Manager loop (heartbeat + job dispatch)
 │   │   ├── compliance/   # 24 built-in security collectors + runner (content-hashed domains)
 │   │   ├── communication/# gRPC client (mTLS, JSON codec)
-│   │   ├── modules/      # system_info, packages, vuln, jobs, ansible_executor, remediation_executor, workflow_steps_executor, plugin_installer
-│   │   └── storage/      # SQLite cache
+│   │   ├── broker/       # Exec-broker client (operations allowlist)
+│   │   ├── security/     # Signed-job envelope verification, replay/approval claims
+│   │   ├── modules/      # system_info, packages, vuln, jobs, ansible_executor,
+│   │   │                 #   remediation_executor, workflow_steps_executor, plugin_installer
+│   │   ├── logredact/    # Sensitive-data redaction for logs
+│   │   └── storage/      # SQLite cache (modernc.org/sqlite — pure Go)
 │   └── .nfpm.yaml        # Package config (.deb/.rpm)
-├── frontend/               # Nuxt 4 application
-│   ├── pages/            # File-based routing (servers, jobs, alerts, policies, vulnerabilities, compliance, workflows, plugins, automation/ansible/*, admin/*)
+├── frontend/             # Nuxt 4 application
+│   ├── pages/            # File-based routing (servers, jobs, alerts, policies, vulnerabilities,
+│   │                     #   compliance, workflows, plugins, automation/ansible/*, admin/*,
+│   │                     #   events, signals, incidents, correlation, runbooks, topology)
 │   ├── stores/           # Pinia stores
 │   ├── composables/      # useAuth, useServers, useJobs, etc.
-│   ├── server/           # Better Auth API handler + middleware
+│   ├── server/           # Better Auth API handler (Kysely adapter) + middleware
 │   └── Dockerfile
-├── services/compliance/    # Go microservice — compliance hot path (ingest, drift, rules, scoring, scheduler)
+├── services/compliance/  # Go microservice — compliance hot path (ingest, drift, rules, scoring, scheduler)
 ├── proto/                # Protobuf definitions
 │   └── lokilinux.proto
 ├── scripts/              # docker-init.sh, init-certificates.sh, install-agent.sh, loki-cli.sh, rebuild.sh
@@ -358,13 +430,18 @@ lokilinux/
 | `POSTGRES_PASSWORD` | Database password |
 | `POSTGRES_DB` | Database name (default: `lokilinux`) |
 | `REDIS_PASSWORD` | Redis password |
+| `NATS_USER` / `NATS_PASSWORD` | NATS credentials (**required** — broker rejects unauthenticated clients) |
+| `CLICKHOUSE_USER` / `CLICKHOUSE_PASSWORD` / `CLICKHOUSE_DATABASE` | ClickHouse event store credentials (defaults: `default` / required password / `lokilinux`) — **note:** present in `.env` but not yet in `.env.example`; copy from `.env.example` and add if missing |
+| `EVENT_RETENTION_DAYS` | ClickHouse raw-event retention (default 30) |
+| `SIGNAL_OCCURRENCE_RETENTION_DAYS` | Signal occurrence retention (default 90) |
+| `INCIDENT_EVIDENCE_RETENTION_DAYS` | Incident evidence retention (default 180) |
 | `BETTER_AUTH_SECRET` | Better Auth signing secret |
 | `ADMIN_EMAIL` | Default admin email |
 | `ADMIN_PASSWORD` | Default admin password |
 | `PLATFORM_HOSTNAME` | Server hostname (for certs) |
-| `AGENT_VERSION` | Agent binary version (default: `0.37.0`) |
+| `AGENT_VERSION` | Agent binary version (build SSOT: `agent/VERSION`, default `0.37.0`) |
 | `LOG_LEVEL` | Logging level (default: `info`) |
 | `DATABASE_URL` | Async SQLAlchemy connection string |
 | `NATS_URL` | NATS event bus connection string |
 | `REDIS_URL` | Redis connection string |
-| `ENVIRONMENT` | `development` \| `production` |
+| `ENVIRONMENT` | `development` \| `production` (production = fail-closed startup validation) |

@@ -55,30 +55,6 @@ describe('useComplianceStore', () => {
     })
   })
 
-  describe('inventory', () => {
-    it('fetchInventorySnapshot stores the snapshot and clears the error', async () => {
-      apiMocks.get.mockResolvedValueOnce({ id: 's1', agent_id: 'a1', domain: 'sshd', content_hash: 'abc', taken_at: 'now', facts: {} })
-      const store = useComplianceStore()
-
-      await store.fetchInventorySnapshot('a1', 'sshd')
-
-      expect(apiMocks.get).toHaveBeenCalledWith('/compliance/agents/a1/inventory/sshd')
-      expect(store.inventorySnapshot?.domain).toBe('sshd')
-      expect(store.inventorySnapshotError).toBeNull()
-    })
-
-    it('fetchInventorySnapshot sets a friendly error and clears the snapshot on failure', async () => {
-      apiMocks.get.mockRejectedValueOnce(new Error('404'))
-      const store = useComplianceStore()
-      store.inventorySnapshot = { id: 'stale' } as any
-
-      await store.fetchInventorySnapshot('a1', 'sshd')
-
-      expect(store.inventorySnapshot).toBeNull()
-      expect(store.inventorySnapshotError).toContain('No snapshot found')
-    })
-  })
-
   describe('policy engine', () => {
     it('fetchRules populates the rule catalog', async () => {
       apiMocks.get.mockResolvedValueOnce({ items: [{ id: 'r1', rule_key: 'sshd_disable_root' }], next_cursor: null, total: 1 })

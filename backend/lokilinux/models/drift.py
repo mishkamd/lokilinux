@@ -17,6 +17,14 @@ from sqlalchemy.orm import Mapped, mapped_column
 
 from lokilinux.db import Base
 
+# Statuses meaning "someone still needs to act on this incident" — the single
+# source of truth for every list/filter that treats a drift incident as open.
+# A CLOSED incident (RESOLVED/SUPPRESSED/EXCEPTION) never transitions back —
+# a reappearing deviation opens a fresh drift_events row instead (the Go
+# ingester's correlationKey dedup only matches OPEN/ACKNOWLEDGED,
+# docs/compliance §9).
+OPEN_DRIFT_STATUSES = ("OPEN", "ACKNOWLEDGED", "IN_REMEDIATION")
+
 
 class DriftEvent(Base):
     __tablename__ = "drift_events"

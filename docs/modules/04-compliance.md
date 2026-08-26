@@ -41,23 +41,23 @@ services/compliance/
     ├── scoring/               # Classify(domain) → categorie de scor
     ├── scheduler/             # Leader election + dispatch
     │   ├── leader.go          #   Lease TTL pe NATS KV bucket
+    │   ├── kv_adapter.go      #   Adaptor jetstream.KeyValue → KVStore
     │   ├── dispatch.go        #   Dispatcher: Job.scheduled_time scadent → dispatch
     │   ├── assessment.go      #   AssessmentPoller: claim + rulează assessment-uri pending (5s)
-    │   ├── selector.go        #   Selectare agenți țintă
-    │   └── exceptions.go      #   Excepții în scheduling
+    │   └── exceptions.go      #   Expirer: excepții ACTIVE cu expires_at trecut → EXPIRED (60s)
     ├── scope/                 # selector.go: Matches(selector, attrs); PlatformID(distro, version)
     ├── storage/
-    │   └── postgres.go        # Toate interogările SQL (~700 linii)
-    └── telemetry/             # Contoare Prometheus (înregistrate la boot)
+    │   └── postgres.go        # Toate interogările SQL (~960 linii) + Transact() pentru scrieri atomice
 ```
 
-## Pipeline-ul de ingest (`ingest/ingest.go:100`)
+## Pipeline-ul de ingest (`ingest/ingest.go`)
 
 Pentru fiecare mesaj `lokilinux.compliance.snapshot.{domain}`:
 
+0. **Atomicitate** — pașii 2-7 rulează într-o singură tranzacție Postgres (`storage.Transact`). Orice eșuc dă rollback complet, deci un redelivery JetStream reîncepe de la o tablă curată. Replay-ul unui snapshot identic (unchanged) **sare** peste scrierile blob/snapshot — re-inserarea le-ar duplica și ar umfla `ref_count` la fiecare retry.
 1. **Verificare hash** — recalculează BLAKE3 peste facts exact ca agentul (`canonicalHash`, duplicat deliberat între modulele Go separate) și respinge mismatch-ul. Snapshot neverificat ar otrăvi drift/scoring pentru acel agent+domeniu.
 2. **Drift vs snapshot anterior** — dacă există hash precedent și diferă: `drift.Detect(...)` produce un Event cu FieldDiff per cale de câmp.
-3. **Stocare content-addressable** — blob-ul facts intră în `inventory_blobs` (upsert după hash — deduplicare naturală), apoi rând nou în `inventory_snapshots` (jurnal imutabil; snapshot-uri identice se înregistrează tot, marcate `unchanged`).
+3. **Stocare content-addressable** (doar dacă statele diferă) — blob-ul facts intră în `inventory_blobs` (upsert după hash — deduplicare naturală), apoi rând nou în `inventory_snapshots`.
 4. **Drift vs baseline efectiv** — comparare *independentă* de pasul 2: o abatere de la baseline e raportabilă chiar la primul snapshot al unui agent.
 5. **Evaluare reguli** — vezi secțiunea dedicată mai jos.
 6. **Scoring** — dacă s-au evaluat reguli, recompute scoruri pentru agent.
@@ -102,7 +102,7 @@ Leader election pe NATS KV (lease TTL, `node_id` = hostname) — o singură inst
 | Componentă | Tick | Rol |
 |---|---|---|
 | `Dispatcher` | 10s | Job-uri compliance cu `scheduled_time` scadent → dispatch |
-| `Expirer` | 60s | Expiră excepții pending + artefacte |
+| `Expirer` | 60s | Expiră excepții ACTIVE cu `expires_at` trecut |
 | `AssessmentPoller` | 5s | Claim + rulează assessment-uri cerute din API |
 
 ## Wiring la startup (`main.go`) și oprire
@@ -111,14 +111,14 @@ Leader election pe NATS KV (lease TTL, `node_id` = hostname) — o singură inst
 2. Evaluator CEL → Ingester → `EnsureStream` JetStream → IngestConsumer + BaselineConsumer (durables distincte pe același stream).
 3. Reconciliere baseline la startup.
 4. Leader elector + Dispatcher + Expirer + AssessmentPoller.
-5. healthz (:8080, degradează cu 503 când NATS e deconectat) + metrics (:9091); SIGTERM/SIGINT → shutdown graceful 10s.
+5. healthz (:8080, net/http; degradează cu 503 când NATS e deconectat) + metrics (:9091, promhttp). La SIGTERM/SIGINT: se oprește fetch-ul JetStream și se **drenează** handlerii în zbor (`consumeCtx.Drain()` + așteptare limitată la 6s) înainte de shutdown-ul serverelor HTTP — un deploy nu mai trunchiază pipeline-uri la jumătatea scrierii.
 
 ## Interacțiunea cu restul sistemului
 
 - **CRUD user-facing** stă integral în FastAPI (`routers/compliance/*`). Serviciul Go nu vede HTTP deloc.
 - **Schimbul de rezultate e prin tabelele Postgres partajate** — API-ul citește direct `drift_events`, `rule_evaluations`, `file_changes`, scorurile compute aici. Nu există callback NATS spre backend.
-- ⚠️ Subiectele `lokilinux.compliance.drift.detected` și `.score.updated` sunt definite în `nats_topics.py` dar azi **nu au nici producător nici consumator** — rezervate pentru push WebSocket/cache invalidare viitoare.
-- Singurele subiecte active: `compliance.snapshot.{domain}` + `hashes.reported` (producător: servicer gRPC) și `compliance.baseline.published` (producător: API; consumator: BaselineConsumer).
+- ✅ Subiectele `lokilinux.compliance.drift.detected` și `.score.updated` au fost **șterse din `nats_topics.py`** (nu au avut niciodată producător/consumator); dacă se dorește push WebSocket/cache invalidare, se re-adaugă odată cu producătorul din serviciul Go. Idem `hashes.reported` — publicarea per-heartbeat fără consumator a fost eliminată din gRPC passthrough.
+- Singurele subiecte active: `compliance.snapshot.{domain}` (producător: servicer gRPC) și `compliance.baseline.published` (producător: API; consumator: BaselineConsumer).
 - **Job-uri remediere** pornesc prin backend (worker + heartbeat), nu direct de aici.
 
 ## Dependențe

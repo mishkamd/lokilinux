@@ -14,7 +14,6 @@ import (
 type Config struct {
 	Database  DatabaseConfig  `yaml:"database"`
 	NATS      NATSConfig      `yaml:"nats"`
-	Baseline  BaselineConfig  `yaml:"baseline"`
 	Telemetry TelemetryConfig `yaml:"telemetry"`
 	Logging   LoggingConfig   `yaml:"logging"`
 }
@@ -34,13 +33,6 @@ type NATSConfig struct {
 	MaxAckPending    int    `yaml:"max_ack_pending"`
 	LeaderKVBucket   string `yaml:"leader_kv_bucket"`
 	LeaderTTLSeconds int    `yaml:"leader_ttl_seconds"`
-}
-
-type BaselineConfig struct {
-	// SigningKeyPath points at the Ed25519 private key used to sign
-	// published baseline versions (docs/compliance/06-BASELINE.md §3).
-	// Mounted read-only, this service only — never into lokilinux-api.
-	SigningKeyPath string `yaml:"signing_key_path"`
 }
 
 type TelemetryConfig struct {

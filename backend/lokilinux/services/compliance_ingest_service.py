@@ -19,7 +19,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.models.inventory import InventorySnapshot
-from lokilinux.nats_topics import COMPLIANCE_HASHES_REPORTED, COMPLIANCE_SNAPSHOT_DOMAIN
+from lokilinux.nats_topics import COMPLIANCE_SNAPSHOT_DOMAIN
 
 logger = logging.getLogger(__name__)
 
@@ -46,19 +46,6 @@ async def diff_domain_hashes(db: AsyncSession, agent_id: UUID, domain_hashes: di
         for domain, claimed_hash in domain_hashes.items()
         if known.get(domain) != claimed_hash
     ]
-
-
-async def publish_domain_hashes(nats, agent_id: UUID, domain_hashes: dict) -> None:
-    """Publish the raw per-domain hash report. lokilinux-compliance doesn't
-    consume this subject today (it only consumes full snapshot bodies on
-    COMPLIANCE_SNAPSHOT_DOMAIN) — this exists per the documented wire
-    contract (04-PROTOCOL.md §4) so a future lightweight consumer (e.g. a
-    staleness dashboard) doesn't need another protocol change to attach.
-    """
-    await nats.publish(
-        COMPLIANCE_HASHES_REPORTED,
-        json.dumps({"agent_id": str(agent_id), "domain_hashes": domain_hashes}).encode(),
-    )
 
 
 async def publish_domain_snapshots(

@@ -17,20 +17,39 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/lokilinux/compliance/internal/rules"
+	"github.com/lokilinux/compliance/internal/scope"
 )
+
+// dbtx is the query surface shared by *pgxpool.Pool and pgx.Tx — Store
+// methods run against either, which is what makes Transact possible without
+// duplicating every statement.
+type dbtx interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+	QueryRow(ctx context.Context, sql string, arguments ...any) pgx.Row
+	Query(ctx context.Context, sql string, arguments ...any) (pgx.Rows, error)
+}
 
 type Store struct {
 	pool *pgxpool.Pool
+	db   dbtx // pool outside a transaction, the tx handle inside Transact
 }
 
 // Open connects using databaseURL and verifies connectivity with a ping —
 // a misconfigured DATABASE_URL should fail at startup, not on the first
-// real query.
-func Open(ctx context.Context, databaseURL string) (*Store, error) {
-	pool, err := pgxpool.New(ctx, databaseURL)
+// real query. maxConns caps pool size (<=0 means pgx's default).
+func Open(ctx context.Context, databaseURL string, maxConns int32) (*Store, error) {
+	cfg, err := pgxpool.ParseConfig(databaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("parsing database URL: %w", err)
+	}
+	if maxConns > 0 {
+		cfg.MaxConns = maxConns
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("creating pgx pool: %w", err)
 	}
@@ -38,16 +57,38 @@ func Open(ctx context.Context, databaseURL string) (*Store, error) {
 		pool.Close()
 		return nil, fmt.Errorf("pinging database: %w", err)
 	}
-	return &Store{pool: pool}, nil
+	return &Store{pool: pool, db: pool}, nil
 }
 
 func (s *Store) Close() { s.pool.Close() }
+
+// Transact runs fn against a single Postgres transaction — every Store call
+// inside fn writes atomically: any error rolls back the whole attempt, so a
+// crash or shutdown mid-ingest can no longer strand partial state that a
+// JetStream redelivery would then compound.
+func (s *Store) Transact(ctx context.Context, fn func(tx *Store) error) error {
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("beginning transaction: %w", err)
+	}
+	txs := &Store{pool: s.pool, db: tx}
+	if err := fn(txs); err != nil {
+		if rbErr := tx.Rollback(ctx); rbErr != nil {
+			return errors.Join(err, fmt.Errorf("rolling back transaction: %w", rbErr))
+		}
+		return err
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("committing transaction: %w", err)
+	}
+	return nil
+}
 
 // UpsertInventoryBlob stores the canonical body once per content_hash
 // (docs/compliance/01-DATA-MODEL.md §3, D3) — a second write of the same
 // hash increments ref_count instead of duplicating storage.
 func (s *Store) UpsertInventoryBlob(ctx context.Context, contentHash string, body []byte, algo string) error {
-	_, err := s.pool.Exec(ctx, `
+	_, err := s.db.Exec(ctx, `
 		INSERT INTO inventory_blobs (content_hash, body, algo, size_bytes, ref_count)
 		VALUES ($1, $2, $3, $4, 1)
 		ON CONFLICT (content_hash) DO UPDATE
@@ -64,7 +105,7 @@ func (s *Store) UpsertInventoryBlob(ctx context.Context, contentHash string, bod
 // (agent_id, domain), per docs/compliance/01-DATA-MODEL.md §3.
 func (s *Store) InsertInventorySnapshot(ctx context.Context, agentID uuid.UUID, domain, contentHash string) (uuid.UUID, error) {
 	var id uuid.UUID
-	err := s.pool.QueryRow(ctx, `
+	err := s.db.QueryRow(ctx, `
 		INSERT INTO inventory_snapshots (agent_id, domain, content_hash)
 		VALUES ($1, $2, $3)
 		RETURNING id
@@ -79,7 +120,7 @@ func (s *Store) InsertInventorySnapshot(ctx context.Context, agentID uuid.UUID, 
 // for (agentID, domain), and false if none exists yet — the comparison
 // point for delta-sync's resync_domains decision (docs/compliance/04-PROTOCOL.md §3).
 func (s *Store) LatestSnapshotHash(ctx context.Context, agentID uuid.UUID, domain string) (contentHash string, found bool, err error) {
-	err = s.pool.QueryRow(ctx, `
+	err = s.db.QueryRow(ctx, `
 		SELECT content_hash FROM inventory_snapshots
 		WHERE agent_id = $1 AND domain = $2
 		ORDER BY taken_at DESC LIMIT 1
@@ -97,7 +138,7 @@ func (s *Store) LatestSnapshotHash(ctx context.Context, agentID uuid.UUID, domai
 // to decode the previous snapshot's facts for drift comparison.
 func (s *Store) GetBlobBody(ctx context.Context, contentHash string) ([]byte, error) {
 	var body []byte
-	err := s.pool.QueryRow(ctx, `SELECT body FROM inventory_blobs WHERE content_hash = $1`, contentHash).Scan(&body)
+	err := s.db.QueryRow(ctx, `SELECT body FROM inventory_blobs WHERE content_hash = $1`, contentHash).Scan(&body)
 	if err != nil {
 		return nil, fmt.Errorf("fetching blob body %s: %w", contentHash, err)
 	}
@@ -118,7 +159,7 @@ func (s *Store) InsertDriftEvent(
 ) (uuid.UUID, error) {
 	now := time.Now().UTC()
 	var eventID uuid.UUID
-	err := s.pool.QueryRow(ctx, `
+	err := s.db.QueryRow(ctx, `
 		INSERT INTO drift_events (
 			time, agent_id, domain, compared_against, severity, change_type, summary,
 			correlation_key, status, occurrences, first_seen, last_seen
@@ -131,7 +172,7 @@ func (s *Store) InsertDriftEvent(
 	}
 
 	for _, d := range fieldDiffs {
-		_, err := s.pool.Exec(ctx, `
+		_, err := s.db.Exec(ctx, `
 			INSERT INTO drift_details (time, drift_event_time, drift_event_id, field_path, old_value, new_value)
 			VALUES ($1, $2, $3, $4, $5, $6)
 		`, now, now, eventID, d.FieldPath, d.OldValue, d.NewValue)
@@ -151,7 +192,7 @@ func (s *Store) InsertDriftEvent(
 // deviation that reappears after being fixed opens a new incident rather
 // than silently reopening a closed one.
 func (s *Store) IncrementDriftOccurrence(ctx context.Context, agentID uuid.UUID, correlationKey string) (bool, error) {
-	tag, err := s.pool.Exec(ctx, `
+	tag, err := s.db.Exec(ctx, `
 		UPDATE drift_events SET occurrences = occurrences + 1, last_seen = now()
 		WHERE agent_id = $1 AND correlation_key = $2 AND status IN ('OPEN', 'ACKNOWLEDGED')
 	`, agentID, correlationKey)
@@ -185,7 +226,7 @@ type PolicyAssignment struct {
 // internal/policy (mirrors internal/baseline's resolver), replacing the
 // earlier GLOBAL-only restriction.
 func (s *Store) LoadActivePolicyAssignments(ctx context.Context) ([]PolicyAssignment, error) {
-	rowsResult, err := s.pool.Query(ctx, `
+	rowsResult, err := s.db.Query(ctx, `
 		SELECT policy_set_id, scope_type, scope_selector
 		FROM policy_assignments
 		WHERE is_enabled = true
@@ -216,7 +257,7 @@ func (s *Store) RulesForPolicySetsAndDomain(ctx context.Context, policySetIDs []
 	if len(policySetIDs) == 0 {
 		return nil, nil
 	}
-	rowsResult, err := s.pool.Query(ctx, `
+	rowsResult, err := s.db.Query(ctx, `
 		SELECT DISTINCT cr.id, cr.rule_key, cr.check_source, cr.check_expr,
 		       cr.platform_filter, cr.expected_value, psr.policy_set_id
 		FROM compliance_rules cr
@@ -275,7 +316,7 @@ func (s *Store) evidencePathsForRules(ctx context.Context, ruleIDs []uuid.UUID) 
 	if len(ruleIDs) == 0 {
 		return out, nil
 	}
-	rowsResult, err := s.pool.Query(ctx, `
+	rowsResult, err := s.db.Query(ctx, `
 		SELECT rule_id, resource_path FROM compliance_rule_resources
 		WHERE resource_type = 'FACT_PATH' AND rule_id = ANY($1)
 	`, ruleIDs)
@@ -326,7 +367,7 @@ func (s *Store) LoadActiveExceptionsForRules(ctx context.Context, ruleIDs []uuid
 	if len(ruleIDs) == 0 {
 		return nil, nil
 	}
-	rowsResult, err := s.pool.Query(ctx, `
+	rowsResult, err := s.db.Query(ctx, `
 		SELECT id, rule_id, agent_id, scope_selector
 		FROM compliance_exceptions
 		WHERE status = 'ACTIVE' AND expires_at > now() AND rule_id = ANY($1)
@@ -360,7 +401,7 @@ func (s *Store) InsertRuleEvaluation(
 	errMsg, evidenceHash, source string,
 	exceptionID *uuid.UUID,
 ) error {
-	_, err := s.pool.Exec(ctx, `
+	_, err := s.db.Exec(ctx, `
 		INSERT INTO rule_evaluations (
 			time, agent_id, rule_id, policy_set_id, result, actual_value, evidence,
 			error_message, expected_value, evidence_hash, source, exception_id
@@ -391,7 +432,7 @@ type ExistingFileHash struct {
 }
 
 func (s *Store) ExistingFileHashes(ctx context.Context, agentID uuid.UUID) (map[string]ExistingFileHash, error) {
-	rowsResult, err := s.pool.Query(ctx, `SELECT path, hash, mode, uid, gid FROM file_hashes WHERE agent_id = $1`, agentID)
+	rowsResult, err := s.db.Query(ctx, `SELECT path, hash, mode, uid, gid FROM file_hashes WHERE agent_id = $1`, agentID)
 	if err != nil {
 		return nil, fmt.Errorf("querying existing file hashes for agent %s: %w", agentID, err)
 	}
@@ -413,7 +454,7 @@ func (s *Store) ExistingFileHashes(ctx context.Context, agentID uuid.UUID) (map[
 // file_hashes is current-state-only (migration 017), overwritten in place,
 // unlike file_changes which is an append-only history.
 func (s *Store) UpsertFileHash(ctx context.Context, agentID uuid.UUID, path, algo, hash string, sizeBytes int64, mode, uid, gid int32) error {
-	_, err := s.pool.Exec(ctx, `
+	_, err := s.db.Exec(ctx, `
 		INSERT INTO file_hashes (agent_id, path, algo, hash, size_bytes, mode, uid, gid, updated_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, now())
 		ON CONFLICT (agent_id, path) DO UPDATE
@@ -430,7 +471,7 @@ func (s *Store) UpsertFileHash(ctx context.Context, agentID uuid.UUID, path, alg
 // event has been recorded — file_hashes only ever tracks files that
 // currently exist on the agent.
 func (s *Store) DeleteFileHash(ctx context.Context, agentID uuid.UUID, path string) error {
-	_, err := s.pool.Exec(ctx, `DELETE FROM file_hashes WHERE agent_id = $1 AND path = $2`, agentID, path)
+	_, err := s.db.Exec(ctx, `DELETE FROM file_hashes WHERE agent_id = $1 AND path = $2`, agentID, path)
 	if err != nil {
 		return fmt.Errorf("deleting file hash (agent=%s path=%s): %w", agentID, path, err)
 	}
@@ -450,7 +491,7 @@ type FileChangeMetadata struct {
 // 017), append-only, one row per detected change. Empty oldHash/newHash
 // (CREATED has no old, DELETED has no new) are stored as SQL NULL.
 func (s *Store) InsertFileChange(ctx context.Context, agentID uuid.UUID, path, oldHash, newHash, changeKind string, meta FileChangeMetadata) error {
-	_, err := s.pool.Exec(ctx, `
+	_, err := s.db.Exec(ctx, `
 		INSERT INTO file_changes (
 			time, agent_id, path, old_hash, new_hash, change_kind,
 			old_mode, new_mode, old_uid, new_uid, old_gid, new_gid
@@ -470,7 +511,7 @@ func (s *Store) InsertFileChange(ctx context.Context, agentID uuid.UUID, path, o
 // waiver as active once this runs, since evaluateAndRecord's exception
 // lookup already filters on status = 'ACTIVE'.
 func (s *Store) ExpirePendingExceptions(ctx context.Context) (int64, error) {
-	tag, err := s.pool.Exec(ctx, `
+	tag, err := s.db.Exec(ctx, `
 		UPDATE compliance_exceptions SET status = 'EXPIRED', updated_at = now()
 		WHERE status = 'ACTIVE' AND expires_at <= now()
 	`)
@@ -490,7 +531,7 @@ func (s *Store) ExpirePendingExceptions(ctx context.Context) (int64, error) {
 // ignore rule is needed. Upgrade path: extend the WHERE clause once that's
 // requested, same honest-v1 pattern as ActiveRulesForDomain's predecessor.
 func (s *Store) LoadFileIntegrityIgnorePatterns(ctx context.Context) ([]string, error) {
-	rowsResult, err := s.pool.Query(ctx, `SELECT path_pattern FROM file_integrity_ignores WHERE scope_type = 'GLOBAL'`)
+	rowsResult, err := s.db.Query(ctx, `SELECT path_pattern FROM file_integrity_ignores WHERE scope_type = 'GLOBAL'`)
 	if err != nil {
 		return nil, fmt.Errorf("querying file integrity ignore patterns: %w", err)
 	}
@@ -524,7 +565,7 @@ func (s *Store) RulesForResourcePaths(ctx context.Context, resourceType string, 
 	if len(paths) == 0 {
 		return nil, nil
 	}
-	rowsResult, err := s.pool.Query(ctx, `
+	rowsResult, err := s.db.Query(ctx, `
 		SELECT DISTINCT crr.rule_id, cr.domain
 		FROM compliance_rule_resources crr
 		JOIN compliance_rules cr ON cr.id = crr.rule_id
@@ -558,7 +599,7 @@ type EvaluationSummary struct {
 // (migration 016) had no writer before this; this is the full input set a
 // rescore needs after any domain's rule_evaluations change.
 func (s *Store) LatestEvaluationsForAgent(ctx context.Context, agentID uuid.UUID) ([]EvaluationSummary, error) {
-	rowsResult, err := s.pool.Query(ctx, `
+	rowsResult, err := s.db.Query(ctx, `
 		SELECT DISTINCT ON (re.rule_id) cr.domain, re.result
 		FROM rule_evaluations re
 		JOIN compliance_rules cr ON cr.id = re.rule_id
@@ -591,7 +632,7 @@ func (s *Store) InsertComplianceScore(
 	score float64,
 	passedCount, failedCount, notApplicableCount int,
 ) error {
-	_, err := s.pool.Exec(ctx, `
+	_, err := s.db.Exec(ctx, `
 		INSERT INTO compliance_scores (time, agent_id, category, score, passed_count, failed_count, not_applicable_count)
 		VALUES ($1, $2, $3, $4, $5, $6, $7)
 	`, time.Now().UTC(), agentID, category, score, passedCount, failedCount, notApplicableCount)
@@ -609,7 +650,7 @@ func (s *Store) InsertComplianceScore(
 // it anywhere in the codebase before this (docs/compliance/02-GO-SERVICE.md §4).
 // Only the leader replica should call this (docs/compliance/13-OPS.md).
 func (s *Store) DispatchScheduledJobs(ctx context.Context) (int64, error) {
-	tag, err := s.pool.Exec(ctx, `
+	tag, err := s.db.Exec(ctx, `
 		UPDATE jobs SET status = 'QUEUED', updated_at = now()
 		WHERE status = 'SCHEDULED' AND scheduled_time IS NOT NULL AND scheduled_time <= now()
 	`)
@@ -637,11 +678,21 @@ type AgentAttributes struct {
 	Project   string
 }
 
+// ScopeAttrs projects the agent's attributes onto the scope matcher's input
+// type — one converter instead of four identical struct literals scattered
+// across ingest/policy/baseline.
+func (a AgentAttributes) ScopeAttrs() scope.AgentAttributes {
+	return scope.AgentAttributes{
+		OsDistro: a.OsDistro, OsVersion: a.OsVersion,
+		Category: a.Category, Project: a.Project,
+	}
+}
+
 // LoadAgentAttributes fetches one agent's scope-matching attributes.
 func (s *Store) LoadAgentAttributes(ctx context.Context, agentID uuid.UUID) (AgentAttributes, error) {
 	var a AgentAttributes
 	a.AgentID = agentID
-	err := s.pool.QueryRow(ctx, `
+	err := s.db.QueryRow(ctx, `
 		SELECT COALESCE(a.os_distro, ''), COALESCE(a.os_version, ''),
 		       COALESCE(c.name, ''), COALESCE(p.name, '')
 		FROM agents a
@@ -671,7 +722,7 @@ type PublishedBaseline struct {
 // version before promoting a new one, so at most one row per baseline is
 // live at a time — a flat list, not a window query.
 func (s *Store) LoadPublishedBaselines(ctx context.Context) ([]PublishedBaseline, error) {
-	rowsResult, err := s.pool.Query(ctx, `
+	rowsResult, err := s.db.Query(ctx, `
 		SELECT bv.id, bv.baseline_id, b.scope_type, b.scope_selector, bv.expected_state, bv.published_at
 		FROM baseline_versions bv
 		JOIN baselines b ON b.id = bv.baseline_id
@@ -697,7 +748,7 @@ func (s *Store) LoadPublishedBaselines(ctx context.Context) ([]PublishedBaseline
 // for a COMPLIANCE_BASELINE_PUBLISHED fleet-wide invalidation
 // (docs/compliance/06-BASELINE.md §2).
 func (s *Store) ListAgentIDs(ctx context.Context) ([]uuid.UUID, error) {
-	rowsResult, err := s.pool.Query(ctx, `SELECT id FROM agents`)
+	rowsResult, err := s.db.Query(ctx, `SELECT id FROM agents`)
 	if err != nil {
 		return nil, fmt.Errorf("querying agent ids: %w", err)
 	}
@@ -719,7 +770,7 @@ func (s *Store) ListAgentIDs(ctx context.Context) ([]uuid.UUID, error) {
 // against the whole fleet in one query, never one LoadAgentAttributes call
 // per agent (docs/compliance §38).
 func (s *Store) ListAgentAttributes(ctx context.Context) ([]AgentAttributes, error) {
-	rowsResult, err := s.pool.Query(ctx, `
+	rowsResult, err := s.db.Query(ctx, `
 		SELECT a.id, COALESCE(a.os_distro, ''), COALESCE(a.os_version, ''),
 		       COALESCE(c.name, ''), COALESCE(p.name, '')
 		FROM agents a
@@ -752,7 +803,7 @@ func (s *Store) UpsertBaselineEffective(
 	mergedState map[string]any,
 	mergedHash string,
 ) error {
-	_, err := s.pool.Exec(ctx, `
+	_, err := s.db.Exec(ctx, `
 		INSERT INTO baseline_effective (agent_id, baseline_version_ids, merged_state, merged_hash, computed_at)
 		VALUES ($1, $2, $3, $4, now())
 		ON CONFLICT (agent_id) DO UPDATE
@@ -767,19 +818,11 @@ func (s *Store) UpsertBaselineEffective(
 	return nil
 }
 
-// CountBaselineEffective returns the total number of baseline_effective rows
-// (DEBUG helper for verifying upsert persistence).
-func (s *Store) CountBaselineEffective(ctx context.Context) (int, error) {
-	var cnt int
-	err := s.pool.QueryRow(ctx, `SELECT count(*) FROM baseline_effective`).Scan(&cnt)
-	return cnt, err
-}
-
 // GetBaselineEffective returns one agent's materialized merged_state, with
 // found=false when no effective baseline has been computed for it yet.
 func (s *Store) GetBaselineEffective(ctx context.Context, agentID uuid.UUID) (map[string]any, bool, error) {
 	var mergedState map[string]any
-	err := s.pool.QueryRow(ctx, `
+	err := s.db.QueryRow(ctx, `
 		SELECT merged_state FROM baseline_effective WHERE agent_id = $1
 	`, agentID).Scan(&mergedState)
 	if errors.Is(err, pgx.ErrNoRows) {
@@ -808,7 +851,7 @@ type Assessment struct {
 // found=false when there's nothing queued.
 func (s *Store) ClaimNextPendingAssessment(ctx context.Context) (Assessment, bool, error) {
 	var a Assessment
-	err := s.pool.QueryRow(ctx, `
+	err := s.db.QueryRow(ctx, `
 		UPDATE compliance_assessments
 		SET status = 'RUNNING', started_at = now()
 		WHERE id = (
@@ -830,7 +873,7 @@ func (s *Store) ClaimNextPendingAssessment(ctx context.Context) (Assessment, boo
 // separate from the initial claim since resolving scope requires a second
 // query (ListAgentAttributes + selector matching) the claim itself doesn't do.
 func (s *Store) SetAssessmentTotals(ctx context.Context, assessmentID uuid.UUID, serversTotal, rulesTotal int) error {
-	_, err := s.pool.Exec(ctx, `
+	_, err := s.db.Exec(ctx, `
 		UPDATE compliance_assessments SET servers_total = $2, rules_total = $3 WHERE id = $1
 	`, assessmentID, serversTotal, rulesTotal)
 	if err != nil {
@@ -844,7 +887,7 @@ func (s *Store) SetAssessmentTotals(ctx context.Context, assessmentID uuid.UUID,
 // that agent) as RunAssessment works through the matched fleet, so a
 // polling client sees live progress instead of only a final jump to 100%.
 func (s *Store) IncrementAssessmentProgress(ctx context.Context, assessmentID uuid.UUID, serversDone, rulesDone int) error {
-	_, err := s.pool.Exec(ctx, `
+	_, err := s.db.Exec(ctx, `
 		UPDATE compliance_assessments
 		SET servers_done = servers_done + $2, rules_done = rules_done + $3
 		WHERE id = $1
@@ -859,7 +902,7 @@ func (s *Store) IncrementAssessmentProgress(ctx context.Context, assessmentID uu
 // transition RunAssessment always reaches, success or error, so no
 // assessment is ever left stuck in RUNNING after a claim.
 func (s *Store) FinishAssessment(ctx context.Context, assessmentID uuid.UUID, status string) error {
-	_, err := s.pool.Exec(ctx, `
+	_, err := s.db.Exec(ctx, `
 		UPDATE compliance_assessments SET status = $2, completed_at = now() WHERE id = $1
 	`, assessmentID, status)
 	if err != nil {
@@ -875,7 +918,7 @@ func (s *Store) FinishAssessment(ctx context.Context, assessmentID uuid.UUID, st
 // scope-resolved multi-set) — this is single-set, all-domain, used only for
 // the explicit policy_set_id an assessment targets.
 func (s *Store) RulesForPolicySet(ctx context.Context, policySetID uuid.UUID) ([]RuleWithPolicySet, error) {
-	rowsResult, err := s.pool.Query(ctx, `
+	rowsResult, err := s.db.Query(ctx, `
 		SELECT cr.id, cr.rule_key, cr.check_source, cr.check_expr, cr.platform_filter,
 		       cr.expected_value, cr.domain, psr.policy_set_id
 		FROM compliance_rules cr

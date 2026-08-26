@@ -25,7 +25,6 @@ from lokilinux.services.cert_revocation import (
 from lokilinux.events.publish import emit, is_pipeline_enabled
 from lokilinux.services.compliance_ingest_service import (
     diff_domain_hashes,
-    publish_domain_hashes,
     publish_domain_snapshots,
 )
 from lokilinux import metrics
@@ -357,7 +356,6 @@ class AgentServicer:
                     resync_domains: list[str] = []
                     if domain_hashes:
                         resync_domains = await diff_domain_hashes(db, agent.id, domain_hashes)
-                        await publish_domain_hashes(self.nats, agent.id, domain_hashes)
                     if domain_full:
                         await publish_domain_snapshots(
                             self.nats, agent.id, domain_full, domain_hashes

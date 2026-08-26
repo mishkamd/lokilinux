@@ -30,7 +30,8 @@ from lokilinux.models.compliance_rule import (
 )
 from lokilinux.models.job import Job, JobStatus
 from lokilinux.models.rule_evaluation import RuleEvaluation
-from lokilinux.schemas.common import CursorPage, decode_cursor, encode_cursor
+from lokilinux.api.v1.routers.compliance._pagination import paginate_keyset
+from lokilinux.schemas.common import CursorPage
 from lokilinux.schemas.compliance_rule import (
     ComplianceRuleResponse,
     FailingAgent,
@@ -114,23 +115,13 @@ async def list_rules(
     q = select(ComplianceRule).order_by(ComplianceRule.imported_at.desc(), ComplianceRule.id.desc())
     q = _apply_rule_filters(q, search, severity, domain, framework, platform, source, status, check_source)
 
-    if cursor:
-        raw = decode_cursor(cursor)
-        ts_str, rid = raw.rsplit(":", 1)
-        ts = datetime.fromisoformat(ts_str)
-        q = q.where(
-            (ComplianceRule.imported_at < ts)
-            | ((ComplianceRule.imported_at == ts) & (ComplianceRule.id < UUID(rid)))
-        )
-
-    q = q.limit(limit + 1)
-    rows = (await db.execute(q)).scalars().all()
-    has_more = len(rows) > limit
-    items = rows[:limit]
-    next_cursor = None
-    if has_more and items:
-        last = items[-1]
-        next_cursor = encode_cursor(f"{last.imported_at.isoformat()}:{last.id}")
+    items, next_cursor = await paginate_keyset(
+        db, q,
+        ts_col=ComplianceRule.imported_at, tie_col=ComplianceRule.id,
+        cursor=cursor, limit=limit,
+        ts_attr="imported_at",
+        scalars=True,
+    )
 
     # total count (no cursor filter — lightweight approximate, mirrors servers.py)
     count_q = _apply_rule_filters(
@@ -299,22 +290,12 @@ async def list_policy_sets(
     q = select(PolicySet).order_by(PolicySet.created_at.desc(), PolicySet.id.desc())
     if framework:
         q = q.where(PolicySet.framework == framework)
-    if cursor:
-        raw = decode_cursor(cursor)
-        ts_str, pid = raw.rsplit(":", 1)
-        ts = datetime.fromisoformat(ts_str)
-        q = q.where(
-            (PolicySet.created_at < ts)
-            | ((PolicySet.created_at == ts) & (PolicySet.id < UUID(pid)))
-        )
-    q = q.limit(limit + 1)
-    rows = (await db.execute(q)).scalars().all()
-    has_more = len(rows) > limit
-    items = rows[:limit]
-    next_cursor = None
-    if has_more and items:
-        last = items[-1]
-        next_cursor = encode_cursor(f"{last.created_at.isoformat()}:{last.id}")
+    items, next_cursor = await paginate_keyset(
+        db, q,
+        ts_col=PolicySet.created_at, tie_col=PolicySet.id,
+        cursor=cursor, limit=limit,
+        scalars=True,
+    )
     # total count (no cursor filter — lightweight approximate, mirrors servers.py)
     count_q = select(func.count()).select_from(PolicySet)
     if framework:

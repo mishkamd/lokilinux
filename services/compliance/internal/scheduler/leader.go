@@ -8,6 +8,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sync/atomic"
 	"time"
 )
@@ -92,17 +93,23 @@ func (e *LeaderElector) Tick(ctx context.Context) error {
 	}
 }
 
-// Run ticks on interval until ctx is cancelled.
+// Run ticks on interval until ctx is cancelled. A failed tick is logged,
+// never swallowed — a partitioned node that silently stops renewing would
+// otherwise lose leadership with zero trace.
 func (e *LeaderElector) Run(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-	_ = e.Tick(ctx) // attempt immediately on start, don't wait for the first tick
+	if err := e.Tick(ctx); err != nil { // attempt immediately on start, don't wait for the first tick
+		slog.Warn("leader election tick failed", "node_id", e.nodeID, "error", err)
+	}
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			_ = e.Tick(ctx)
+			if err := e.Tick(ctx); err != nil {
+				slog.Warn("leader election tick failed", "node_id", e.nodeID, "error", err)
+			}
 		}
 	}
 }

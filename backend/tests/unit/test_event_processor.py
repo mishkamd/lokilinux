@@ -18,6 +18,12 @@ class _FakeCache:
     async def set_cached(self, key: str, value, ttl=None) -> None:
         self._store[key] = value
 
+    async def set_nx(self, key: str, ttl: int) -> bool:
+        if key in self._store:
+            return False
+        self._store[key] = True
+        return True
+
 
 class _FakeCH:
     def __init__(self) -> None:

@@ -39,6 +39,13 @@ message AgentHeartbeatRequest {
   int32 log_critical        = 25; // error-level entries within the log window
 
   repeated JobResult job_results = 26; // results of jobs completed since the last heartbeat
+
+  // Compliance delta-sync (docs/compliance/04-PROTOCOL.md §3). The wire
+  // transport is the JSON codec (hand-written Go structs in
+  // agent/gen/lokilinux), so these names are the JSON keys, not protobuf
+  // field names — declared here so the contract lives in one place.
+  map<string, string> domain_hashes = 27; // per-domain content hash, every heartbeat
+  map<string, google.protobuf.Struct> domain_full = 28; // full canonical fact bodies, resync only
 }
 
 message AgentHeartbeatResponse {
@@ -48,6 +55,11 @@ message AgentHeartbeatResponse {
     string        reboot_request = 3;
     string        plugin_action  = 4;
   }
+
+  // Compliance domains whose last-reported hash didn't match the server's
+  // latest snapshot — the agent sends a full body for each in domain_full
+  // on its next heartbeat (docs/compliance/04-PROTOCOL.md §3).
+  repeated string resync_domains = 5;
 }
 
 // ============================================================================

@@ -1,3 +1,14 @@
+## [0.5.0] - 2026-08-26
+
+- feat(observability): harden event/signal/correlation pipeline and compliance ingest (ab8394b)
+- feat(frontend): apply enterprise design-system consistency across all pages (76602b5)
+- feat(agent): envelope debug detail on malformed rejection (audit aid) (6187a0a)
+- fix(jobs): normalize target_servers dict/list shapes so PENDING JobResults are created (dispatch bug) (15d224b)
+- fix(grpc): metrics server hook lost in parallel overwrite — reapply (d7247b7)
+- fix(stack): grpc BETTER_AUTH env + metrics port 9091, target_servers shape normalization, signed-job counter (424816d)
+- docs(env): document PUBLIC_URL (agent install command + CORS origin) (e6e46e8)
+- fix(agent-install): enrollment install_command honors configured platform URL (c53ea6b)
+
 ## [0.4.0] - 2026-08-26
 
 - Bump default agent version to 0.37.0 (6fd2fba)

@@ -2,7 +2,6 @@
 LokiLinux — Compliance: Reporting Engine router (docs/compliance/05-API.md §7).
 """
 
-from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response
@@ -12,7 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from lokilinux.auth.dependencies import get_current_user, require_role, safe_user_uuid
 from lokilinux.dependencies import get_db
 from lokilinux.models.compliance_report import ComplianceReport
-from lokilinux.schemas.common import CursorPage, decode_cursor, encode_cursor
+from lokilinux.api.v1.routers.compliance._pagination import paginate_keyset
+from lokilinux.schemas.common import CursorPage
 from lokilinux.schemas.compliance_report import ComplianceReportCreate, ComplianceReportResponse
 from lokilinux.services.report_service import FORMAT_CONTENT_TYPES, generate_report
 
@@ -67,23 +67,13 @@ async def list_reports(
     )
     if status_:
         q = q.where(ComplianceReport.status == status_)
-    if cursor:
-        raw = decode_cursor(cursor)
-        ts_str, rid = raw.rsplit(":", 1)
-        ts = datetime.fromisoformat(ts_str)
-        q = q.where(
-            (ComplianceReport.created_at < ts)
-            | ((ComplianceReport.created_at == ts) & (ComplianceReport.id < UUID(rid)))
-        )
-    q = q.limit(limit + 1)
 
-    rows = (await db.execute(q)).scalars().all()
-    has_more = len(rows) > limit
-    items = rows[:limit]
-    next_cursor = None
-    if has_more and items:
-        last = items[-1]
-        next_cursor = encode_cursor(f"{last.created_at.isoformat()}:{last.id}")
+    items, next_cursor = await paginate_keyset(
+        db, q,
+        ts_col=ComplianceReport.created_at, tie_col=ComplianceReport.id,
+        cursor=cursor, limit=limit,
+        scalars=True,
+    )
 
     # total count (no cursor filter — lightweight approximate, mirrors servers.py)
     count_q = select(func.count()).select_from(ComplianceReport)

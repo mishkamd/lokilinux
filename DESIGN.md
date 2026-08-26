@@ -313,7 +313,7 @@ The visual DAG editor (`components/workflow/*`) layers its own naming convention
 Canvas interaction specifics (Partea II): nodes expose all **four sides** as connection handles (`ConnectionMode.Loose`), visible on hover only — not permanent chrome, to keep the resting canvas quiet. A dropped or reconnected edge defaults to `bottom → top` unless manually re-pinned, so no existing workflow's rendering changes on upgrade. Edge selection opens the same right-side properties slot a node selection would (`on`/`label`/delete) — one slot, one occupant, never both a node panel and an edge panel at once.
 
 ### Navigation
-- **Style:** sidebar sections grouped under `.label-caps` eyebrows (Infrastructure, Automation Engine, Compliance, Observability, Administration); active item gets a Tactical Forest tinted background and green text, inactive items are muted-foreground with a hover accent background.
+- **Style:** sidebar sections grouped under `.label-caps` eyebrows (Overview, Infrastructure, Automation, Security, Compliance, Observability, Administration); active item gets a Tactical Forest tinted background and green text, inactive items are muted-foreground with a hover accent background.
 - **User profile card** (sidebar footer): two lines, not one — display name on top, role label beneath in a smaller muted line. Avatar shows the user's first-initial (`Avatar`'s `fallback` prop), not a generic person icon.
 - **Mobile:** the sidebar becomes a `-translate-x-full` drawer sliding in over a `bg-black/60` backdrop, same visual treatment as desktop otherwise — density and hairline styling do not relax for touch.
 

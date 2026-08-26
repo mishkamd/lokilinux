@@ -93,9 +93,7 @@ func (in *Ingester) runAssessmentBody(ctx context.Context, claimed storage.Asses
 func matchingAgents(selector map[string]any, agents []storage.AgentAttributes) []storage.AgentAttributes {
 	var out []storage.AgentAttributes
 	for _, a := range agents {
-		if scope.Matches(selector, scope.AgentAttributes{
-			OsDistro: a.OsDistro, OsVersion: a.OsVersion, Category: a.Category, Project: a.Project,
-		}) {
+		if scope.Matches(selector, a.ScopeAttrs()) {
 			out = append(out, a)
 		}
 	}

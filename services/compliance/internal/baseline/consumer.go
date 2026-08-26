@@ -52,8 +52,11 @@ func (c *Consumer) Start(ctx context.Context, stream jetstream.Stream, maxAckPen
 		return fmt.Errorf("creating baseline consumer: %w", err)
 	}
 
+	// Same shutdown discipline as ingest's consumer: handlers keep a
+	// non-cancelled context so a deploy drains instead of truncating.
+	handlerCtx := context.WithoutCancel(ctx)
 	consumeCtx, err := consumer.Consume(func(msg jetstream.Msg) {
-		if err := c.handle(ctx, msg); err != nil {
+		if err := c.handle(handlerCtx, msg); err != nil {
 			c.log.Error("failed to process baseline publish event", "subject", msg.Subject(), "error", err)
 			_ = msg.NakWithDelay(5 * time.Second)
 			return
@@ -66,6 +69,7 @@ func (c *Consumer) Start(ctx context.Context, stream jetstream.Stream, maxAckPen
 	defer consumeCtx.Stop()
 
 	<-ctx.Done()
+	consumeCtx.Drain()
 	return nil
 }
 

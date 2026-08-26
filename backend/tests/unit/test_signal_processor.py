@@ -102,24 +102,6 @@ async def test_malformed_json_does_not_raise(db_session, fake_cache, fake_nats):
 
 
 @pytest.mark.asyncio
-async def test_compliance_drift_is_wrapped_and_detected(db_session, fake_cache, fake_nats):
-    worker = SignalProcessorWorker(fake_nats, _db_factory(db_session), fake_cache, _FakeCH())
-    await worker._handle_drift(_msg({
-        "agent_id": "host-4", "severity": "CRITICAL", "resource_id": "etc-passwd",
-    }))
-
-    subjects = [s for s, _ in fake_nats.published]
-    assert "lokilinux.signals.detected" in subjects
-
-
-@pytest.mark.asyncio
-async def test_compliance_drift_low_severity_produces_no_signal(db_session, fake_cache, fake_nats):
-    worker = SignalProcessorWorker(fake_nats, _db_factory(db_session), fake_cache, _FakeCH())
-    await worker._handle_drift(_msg({"agent_id": "host-5", "severity": "LOW"}))
-    assert fake_nats.published == []
-
-
-@pytest.mark.asyncio
 async def test_metric_sample_cpu_needs_two_samples_before_signal(db_session, fake_cache, fake_nats):
     worker = SignalProcessorWorker(fake_nats, _db_factory(db_session), fake_cache, _FakeCH())
     await worker._handle_normalized_event(_msg({

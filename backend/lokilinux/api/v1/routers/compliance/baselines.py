@@ -8,7 +8,6 @@ mutations. AUDITOR gets read access everywhere (matches admin.py's audit-log
 precedent) since compliance state is exactly what an auditor role exists to see.
 """
 
-from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -26,7 +25,8 @@ from lokilinux.schemas.baseline import (
     BaselineVersionResponse,
     EffectiveBaselineResponse,
 )
-from lokilinux.schemas.common import CursorPage, decode_cursor, encode_cursor
+from lokilinux.api.v1.routers.compliance._pagination import paginate_keyset
+from lokilinux.schemas.common import CursorPage
 from lokilinux.services.baseline_service import BaselineService
 
 router = APIRouter()
@@ -46,24 +46,12 @@ async def list_baselines(
     if scope_type:
         q = q.where(Baseline.scope_type == scope_type)
 
-    if cursor:
-        raw = decode_cursor(cursor)
-        try:
-            ts_str, uid = raw.rsplit(":", 1)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Malformed cursor")
-        ts = datetime.fromisoformat(ts_str)
-        q = q.where((Baseline.created_at < ts) | ((Baseline.created_at == ts) & (Baseline.id < UUID(uid))))
-
-    q = q.limit(limit + 1)
-    rows = (await db.execute(q)).scalars().all()
-
-    has_more = len(rows) > limit
-    items = rows[:limit]
-    next_cursor: str | None = None
-    if has_more and items:
-        last = items[-1]
-        next_cursor = encode_cursor(f"{last.created_at.isoformat()}:{last.id}")
+    items, next_cursor = await paginate_keyset(
+        db, q,
+        ts_col=Baseline.created_at, tie_col=Baseline.id,
+        cursor=cursor, limit=limit,
+        scalars=True,
+    )
 
     # total count (no cursor filter — lightweight approximate, mirrors servers.py)
     count_q = select(func.count()).select_from(Baseline)

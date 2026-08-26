@@ -18,12 +18,13 @@ import (
 	"os"
 	"os/signal"
 	"strconv"
+	"sync"
 	"syscall"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
 	"github.com/nats-io/nats.go"
 	"github.com/nats-io/nats.go/jetstream"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"github.com/lokilinux/compliance/internal/baseline"
 	"github.com/lokilinux/compliance/internal/config"
@@ -31,7 +32,6 @@ import (
 	"github.com/lokilinux/compliance/internal/rules"
 	"github.com/lokilinux/compliance/internal/scheduler"
 	"github.com/lokilinux/compliance/internal/storage"
-	"github.com/lokilinux/compliance/internal/telemetry"
 )
 
 // Version is injected at build time via -ldflags "-X main.Version=...".
@@ -79,7 +79,7 @@ func main() {
 		log.Error("DATABASE_URL not set (env or config database.url)")
 		os.Exit(1)
 	}
-	store, err := storage.Open(context.Background(), dbURL)
+	store, err := storage.Open(context.Background(), dbURL, int32(cfg.Database.MaxOpenConns))
 	if err != nil {
 		log.Error("failed to connect to database", "error", err)
 		os.Exit(1)
@@ -110,7 +110,13 @@ func main() {
 		os.Exit(1)
 	}
 	consumer := ingest.NewConsumer(ingester, log)
+
+	// consumers tracks the two JetStream consume loops so shutdown can wait
+	// for them to drain in-flight handlers before the process exits.
+	var consumers sync.WaitGroup
+	consumers.Add(2)
 	go func() {
+		defer consumers.Done()
 		if err := consumer.Start(ctx, stream, cfg.NATS.ConsumerDurable, cfg.NATS.MaxAckPending); err != nil {
 			log.Error("ingest consumer stopped", "error", err)
 		}
@@ -124,6 +130,7 @@ func main() {
 	baselineResolver := baseline.NewResolver(store)
 	baselineConsumer := baseline.NewConsumer(baselineResolver, log)
 	go func() {
+		defer consumers.Done()
 		if err := baselineConsumer.Start(ctx, stream, cfg.NATS.MaxAckPending); err != nil {
 			log.Error("baseline consumer stopped", "error", err)
 		}
@@ -171,23 +178,32 @@ func main() {
 	// Registers this service's counters on the default Prometheus registry
 	// immediately (visible at 0 on /metrics right away); the returned struct
 	// is threaded into ingest/drift/scoring packages as they land.
-	telemetry.New()
-
-	healthApp := fiber.New(fiber.Config{DisableStartupMessage: true})
-	healthApp.Get("/healthz", func(c *fiber.Ctx) error {
+	healthMux := http.NewServeMux()
+	healthMux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
 		if nc.Status() != nats.CONNECTED {
-			return c.Status(fiber.StatusServiceUnavailable).JSON(fiber.Map{"status": "degraded", "nats": nc.Status().String()})
+			w.WriteHeader(http.StatusServiceUnavailable)
+			fmt.Fprintf(w, "{\"status\":\"degraded\",\"nats\":%q}\n", nc.Status().String())
+			return
 		}
-		return c.JSON(fiber.Map{"status": "ok"})
+		fmt.Fprint(w, "{\"status\":\"ok\"}\n")
 	})
 
+	// Counters live in internal/ingest (registered via promauto at init);
+	// the metrics port just serves the default registry.
+	healthServer := &http.Server{
+		Addr:              fmtAddr(cfg.Telemetry.HealthPort),
+		Handler:           healthMux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
 	metricsServer := &http.Server{
-		Addr:    fmtAddr(cfg.Telemetry.MetricsPort),
-		Handler: telemetry.Handler(),
+		Addr:              fmtAddr(cfg.Telemetry.MetricsPort),
+		Handler:           promhttp.Handler(),
+		ReadHeaderTimeout: 5 * time.Second,
 	}
 
 	go func() {
-		if err := healthApp.Listen(fmtAddr(cfg.Telemetry.HealthPort)); err != nil {
+		if err := healthServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Error("healthz server stopped", "error", err)
 		}
 	}()
@@ -207,12 +223,26 @@ func main() {
 	<-sig
 
 	log.Info("shutdown signal received")
-	cancel() // stops the ingest consume loop
+	cancel() // stops the fetch loops; consumers drain in-flight handlers
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
-	_ = healthApp.ShutdownWithContext(shutdownCtx)
+	_ = healthServer.Shutdown(shutdownCtx)
 	_ = metricsServer.Shutdown(shutdownCtx)
+
+	// Bounded wait for the drained consumers — docker's default stop grace
+	// is 10s, so don't spend all of it waiting on a wedged handler.
+	drained := make(chan struct{})
+	go func() {
+		consumers.Wait()
+		close(drained)
+	}()
+	select {
+	case <-drained:
+		log.Info("ingest consumers drained")
+	case <-time.After(6 * time.Second):
+		log.Warn("timed out waiting for ingest consumers to drain")
+	}
 }
 
 func newLogger(level string) *slog.Logger {

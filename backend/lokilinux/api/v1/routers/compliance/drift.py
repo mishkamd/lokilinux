@@ -19,7 +19,8 @@ from lokilinux.auth.dependencies import get_current_user, require_role, safe_use
 from lokilinux.dependencies import get_db
 from lokilinux.models.agent import Agent
 from lokilinux.models.drift import DriftDetail, DriftEvent
-from lokilinux.schemas.common import CursorPage, decode_cursor, encode_cursor
+from lokilinux.api.v1.routers.compliance._pagination import paginate_keyset
+from lokilinux.schemas.common import CursorPage
 from lokilinux.schemas.drift import DriftDetailResponse, DriftEventResponse
 from lokilinux.services.audit_service import AuditService
 
@@ -27,11 +28,8 @@ router = APIRouter()
 
 # OPEN -> ACKNOWLEDGED is the only forward transition acknowledge itself
 # performs; suppress/resolve close the incident outright from any
-# still-open state. A CLOSED incident (RESOLVED/SUPPRESSED/EXCEPTION) never
-# transitions back — a reappearing deviation opens a fresh drift_events row
-# instead (services/compliance/internal/ingest's correlationKey dedup only
-# matches OPEN/ACKNOWLEDGED, docs/compliance §9).
-_OPEN_STATUSES = ("OPEN", "ACKNOWLEDGED", "IN_REMEDIATION")
+# still-open state. The canonical tuple lives in models/drift.py.
+from lokilinux.models.drift import OPEN_DRIFT_STATUSES as _OPEN_STATUSES
 
 
 class SuppressDriftRequest(BaseModel):
@@ -69,22 +67,13 @@ async def list_drift_events(
         )
     if status:
         q = q.where(DriftEvent.status == status)
-    if cursor:
-        raw = decode_cursor(cursor)
-        ts_str, eid = raw.rsplit(":", 1)
-        ts = datetime.fromisoformat(ts_str)
-        q = q.where(
-            (DriftEvent.time < ts) | ((DriftEvent.time == ts) & (DriftEvent.id < UUID(eid)))
-        )
-    q = q.limit(limit + 1)
 
-    rows = (await db.execute(q)).all()
-    has_more = len(rows) > limit
-    items = rows[:limit]
-    next_cursor = None
-    if has_more and items:
-        last = items[-1][0]
-        next_cursor = encode_cursor(f"{last.time.isoformat()}:{last.id}")
+    items, next_cursor = await paginate_keyset(
+        db, q,
+        ts_col=DriftEvent.time, tie_col=DriftEvent.id,
+        cursor=cursor, limit=limit,
+        ts_attr="time",
+    )
 
     # total count (no cursor filter — lightweight approximate, mirrors servers.py)
     count_q = select(func.count()).select_from(DriftEvent)

@@ -60,9 +60,8 @@ class EventProcessorWorker:
 
         if event_id:
             dedup_key = f"ev:dedup:{event_id}"
-            if await self.cache.get_cached(dedup_key):
-                return  # already processed — redelivery, not an error
-            await self.cache.set_cached(dedup_key, True, ttl=_DEDUP_TTL_SECONDS)
+            if not await self.cache.set_nx(dedup_key, ttl=_DEDUP_TTL_SECONDS):
+                return  # another worker claimed it — redelivery, not an error
 
         resolved_ts = validated.timestamp or datetime.now(timezone.utc)
         fp = fingerprint(tenant_id, validated.host_id, validated.type, validated.service)

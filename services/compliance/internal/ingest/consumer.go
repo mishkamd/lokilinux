@@ -49,8 +49,9 @@ func EnsureStream(ctx context.Context, js jetstream.JetStream, streamName string
 }
 
 // Start creates (or reattaches to) a durable pull consumer and processes
-// messages until ctx is cancelled. Returns once the consume loop stops —
-// callers run this in its own goroutine.
+// messages until ctx is cancelled. Returns once the consume loop stops AND
+// all in-flight handlers finished writing — callers run this in its own
+// goroutine.
 func (c *Consumer) Start(ctx context.Context, stream jetstream.Stream, durableName string, maxAckPending int) error {
 	consumer, err := stream.CreateOrUpdateConsumer(ctx, jetstream.ConsumerConfig{
 		Durable:       durableName,
@@ -70,9 +71,14 @@ func (c *Consumer) Start(ctx context.Context, stream jetstream.Stream, durableNa
 		return fmt.Errorf("creating durable consumer %s: %w", durableName, err)
 	}
 
+	// Handlers must not share the shutdown-cancelled ctx: cancelling it
+	// mid-Ingest used to truncate write pipelines on every deploy. They get
+	// an uncancelled derivative instead; draining below bounds their life.
+	handlerCtx := context.WithoutCancel(ctx)
 	consumeCtx, err := consumer.Consume(func(msg jetstream.Msg) {
-		if err := c.handle(ctx, msg); err != nil {
+		if err := c.handle(handlerCtx, msg); err != nil {
 			c.log.Error("failed to ingest snapshot message", "subject", msg.Subject(), "error", err)
+			observeOutcome(err)
 			if isPermanent(err) {
 				// Never going to succeed on retry — Term so it's dropped
 				// from this WorkQueue stream immediately instead of
@@ -86,6 +92,7 @@ func (c *Consumer) Start(ctx context.Context, stream jetstream.Stream, durableNa
 			}
 			return
 		}
+		snapshotsIngested.Inc()
 		_ = msg.Ack()
 	})
 	if err != nil {
@@ -94,6 +101,9 @@ func (c *Consumer) Start(ctx context.Context, stream jetstream.Stream, durableNa
 	defer consumeCtx.Stop()
 
 	<-ctx.Done()
+	// Stop fetching new messages but let already-fetched handlers finish
+	// (and commit their transactions) before returning.
+	consumeCtx.Drain()
 	return nil
 }
 
