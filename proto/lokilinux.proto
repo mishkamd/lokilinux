@@ -275,6 +275,25 @@ message PluginInstallResult {
 }
 
 // ============================================================================
+// CERTIFICATE RENEWAL (PKI Faza 4)
+// ============================================================================
+
+message RenewCertificateRequest {
+  // Must match the CN on the mTLS cert this RPC is called over — checked
+  // server-side, not trusted from the request alone.
+  string agent_id       = 1;
+  // New keypair generated locally by the agent for this renewal — only the
+  // public half crosses the wire. SubjectPublicKeyInfo PEM.
+  string public_key_pem = 2;
+}
+
+message RenewCertificateResponse {
+  string cert_pem       = 1;
+  string ca_cert_pem    = 2;  // current trust chain — covers a CA rotation since last connect
+  int64  not_after_unix = 3;
+}
+
+// ============================================================================
 // SERVICES
 // ============================================================================
 
@@ -288,6 +307,11 @@ service AgentService {
 
   // Agent pulls latest policy configuration
   rpc SyncPolicy(PolicySyncRequest) returns (PolicyConfig);
+
+  // Agent proactively renews its mTLS identity before the current cert
+  // expires — proof of possession comes from the mTLS handshake this RPC
+  // rides on, not from the request body.
+  rpc RenewCertificate(RenewCertificateRequest) returns (RenewCertificateResponse);
 }
 
 // PlatformService — called by control-plane components (internal service-to-service)

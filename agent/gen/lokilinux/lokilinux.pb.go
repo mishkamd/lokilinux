@@ -263,3 +263,16 @@ type PluginInstallResult struct {
 	Success      bool   `json:"success"`
 	ErrorMessage string `json:"error_message,omitempty"`
 }
+
+// ─── Certificate renewal (PKI Faza 4) ──────────────────────────────────────────
+
+type RenewCertificateRequest struct {
+	AgentId      string `json:"agent_id"`
+	PublicKeyPem string `json:"public_key_pem"`
+}
+
+type RenewCertificateResponse struct {
+	CertPem      string `json:"cert_pem"`
+	CaCertPem    string `json:"ca_cert_pem"`
+	NotAfterUnix int64  `json:"not_after_unix"`
+}
