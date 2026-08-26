@@ -150,6 +150,20 @@ func (c *GRPCClient) HeartbeatStream(ctx context.Context) (gen.AgentService_Hear
 	return c.svc.HeartbeatStream(ctx)
 }
 
+// RenewCertificate asks the control plane to sign a new mTLS cert for
+// publicKeyPEM (a freshly-generated key, per cert_renewal.go — never the
+// current one). Proof of possession of the CURRENT identity comes from the
+// mTLS handshake this call rides on, not from anything in the request.
+func (c *GRPCClient) RenewCertificate(ctx context.Context, agentID, publicKeyPEM string) (*gen.RenewCertificateResponse, error) {
+	if err := c.dial(); err != nil {
+		return nil, err
+	}
+	return c.svc.RenewCertificate(ctx, &gen.RenewCertificateRequest{
+		AgentId:      agentID,
+		PublicKeyPem: publicKeyPEM,
+	})
+}
+
 // SendHeartbeat sends one heartbeat over a short-lived stream and returns the response.
 // Payload keys consumed: "agent_id" (string), "packages_checksum" (string).
 // ponytail: map interface preserved for AgentManager compat; HeartbeatManager uses
