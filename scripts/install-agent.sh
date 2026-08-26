@@ -191,7 +191,10 @@ UMask=0027
 
 # Harden service
 ProtectSystem=strict
-ReadWritePaths=/var/lib/lokilinux /var/log/lokilinux
+# /etc/lokilinux/certs is writable too — PKI Faza 4: the agent renews its own
+# mTLS cert+key here in place (atomic tmp+rename, cert_renewal.go) before the
+# current one expires.
+ReadWritePaths=/var/lib/lokilinux /var/log/lokilinux /etc/lokilinux/certs
 ProtectHome=true
 PrivateTmp=true
 NoNewPrivileges=true
@@ -247,6 +250,10 @@ if [ -f /etc/systemd/system/loki-agent-exec.service ] && [ "${AGENT_NON_ROOT:-0}
   chown -R loki-agent:loki-agent /var/lib/lokilinux /var/log/lokilinux
   chown root:loki-agent /etc/lokilinux/certs/agent.key 2>/dev/null || true
   chmod 640 /etc/lokilinux/certs/agent.key 2>/dev/null || true
+  # Renewal (PKI Faza 4) atomic-renames a new agent.key.tmp into place — that
+  # needs write on the DIRECTORY itself, not just the file.
+  chown root:loki-agent /etc/lokilinux/certs
+  chmod 770 /etc/lokilinux/certs
 fi
 
 # ── Exec broker + non-root flip (opt-in, same contract as served template) ────
@@ -284,6 +291,10 @@ if [ -f /etc/systemd/system/loki-agent-exec.service ] && [ "${AGENT_NON_ROOT:-0}
   chown -R loki-agent:loki-agent /var/lib/lokilinux /var/log/lokilinux
   chown root:loki-agent /etc/lokilinux/certs/agent.key 2>/dev/null || true
   chmod 640 /etc/lokilinux/certs/agent.key 2>/dev/null || true
+  # Renewal (PKI Faza 4) atomic-renames a new agent.key.tmp into place — that
+  # needs write on the DIRECTORY itself, not just the file.
+  chown root:loki-agent /etc/lokilinux/certs
+  chmod 770 /etc/lokilinux/certs
 fi
 
 systemctl daemon-reload
