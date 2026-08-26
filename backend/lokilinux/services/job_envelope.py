@@ -142,9 +142,16 @@ def _get_signer() -> Optional[JobSigner]:
     return _signer_instance
 
 
-def maybe_attach_envelope(job, params: dict, agent_version: Optional[str]) -> dict:
+def maybe_attach_envelope(
+    job, params: dict, agent_version: Optional[str], agent_id: Optional[str] = None
+) -> dict:
     """Returns params, with an "_envelope" added when this job/agent pair
-    qualifies for signed execution. Never raises."""
+    qualifies for signed execution. Never raises.
+
+    agent_id: the real recipient — the gRPC dispatch loop passes agent.id here.
+    Job has no single agent_id column (multi-target via target_servers), so
+    falling back to job.agent_id only covers legacy single-target callers.
+    """
     try:
         signer = _get_signer()
         if signer is None:
@@ -159,7 +166,7 @@ def maybe_attach_envelope(job, params: dict, agent_version: Optional[str]) -> di
         payload = {k: v for k, v in (params or {}).items() if k != "_envelope"}
         env = signer.sign(
             job_id=str(getattr(job, "id", "")),
-            agent_id=str(getattr(job, "agent_id", "") or ""),
+            agent_id=str(agent_id or getattr(job, "agent_id", "") or ""),
             tenant_id=str(getattr(job, "tenant_id", "") or ""),
             job_type=job_type,
             payload=payload,

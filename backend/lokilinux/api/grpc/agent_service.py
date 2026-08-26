@@ -312,7 +312,8 @@ class AgentServicer:
                     # handles gating; failures degrade to unsigned, never drop).
                     signed_params = {
                         j.id: maybe_attach_envelope(
-                            j, _parameters_for_agent(j, agent.id), agent_version
+                            j, _parameters_for_agent(j, agent.id), agent_version,
+                            agent_id=str(agent.id),
                         )
                         for j in pending_jobs
                     }
