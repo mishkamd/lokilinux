@@ -78,9 +78,10 @@ func validateAndAuthorize(
 	if err != nil {
 		return rejectResult(jobID, "malformed_envelope", err.Error())
 	}
-	env, err := security.ParseEnvelope(envJSON)
-	if err != nil {
-		return rejectResult(jobID, "malformed_envelope", err.Error())
+	env, perr := security.ParseEnvelope(envJSON)
+	if perr != nil {
+		return rejectResult(jobID, "malformed_envelope",
+			fmt.Sprintf("%v | raw_prefix=%s", perr, string(envJSON[:min(len(envJSON), 160)])))
 	}
 
 	// Payload binding: the signature must cover EXACTLY the parameters that
