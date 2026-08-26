@@ -85,6 +85,11 @@ async def serve() -> None:
     server.add_generic_rpc_handlers([_AgentServiceHandler(servicer)])
     server.add_secure_port(f"[::]:{port}", credentials)
 
+    if os.environ.get("METRICS_ENABLED", "true").lower() == "true":
+        from lokilinux.metrics import start_metrics_server
+
+        start_metrics_server(int(os.environ.get("METRICS_PORT", "9091")))
+
     logger.info("grpc.start port=%d", port)
     await server.start()
 
