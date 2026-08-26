@@ -23,6 +23,7 @@ def key_env(tmp_path, monkeypatch):
     ))
     monkeypatch.setenv("JOB_SIGNING_KEY_PATH", str(path))
     monkeypatch.delenv("JOB_SIGNING_ENVELOPES", raising=False)
+    monkeypatch.delenv("LOKILINUX_KEYS_DIR", raising=False)
     # reset singleton between tests
     monkeypatch.setattr(job_envelope, "_signer_instance", None)
     monkeypatch.setattr(job_envelope, "_signer_init_done", False)
@@ -81,6 +82,37 @@ def test_telemetry_job_types_not_signed(key_env):
     job = _job(job_type="TOTALLY_UNKNOWN")
     out = job_envelope.maybe_attach_envelope(job, {}, "9.9.9")
     assert "_envelope" not in out
+
+
+def test_rotation_reaches_running_signer(key_env, tmp_path, monkeypatch):
+    """Regression: JobSigner() built bare never wired KeyManager in, so
+    rotating via KeyManager silently changed state nothing signed with.
+    LOKILINUX_KEYS_DIR must make _get_signer() pick up the ACTIVE version
+    on every call, not just at singleton construction time."""
+    keys_dir = tmp_path / "keys"
+    monkeypatch.setenv("LOKILINUX_KEYS_DIR", str(keys_dir))
+    job = _job()
+
+    out1 = job_envelope.maybe_attach_envelope(job, {"service_name": "nginx"}, "0.37.0")
+    assert "key_version" not in out1["_envelope"]  # v1 stays implicit (compat)
+    v1_pub = job_envelope._signer_instance.public_key_b64()
+
+    from lokilinux.kms import KeyManager
+
+    def _write(path):
+        k = Ed25519PrivateKey.generate()
+        with open(path, "wb") as f:
+            f.write(k.private_bytes(
+                encoding=serialization.Encoding.PEM,
+                format=serialization.PrivateFormat.PKCS8,
+                encryption_algorithm=serialization.NoEncryption(),
+            ))
+
+    KeyManager(str(keys_dir), "job-signing").rotate(write_key_file=_write)
+
+    out2 = job_envelope.maybe_attach_envelope(job, {"service_name": "nginx"}, "0.37.0")
+    assert out2["_envelope"]["key_version"] == 2
+    assert job_envelope._signer_instance.public_key_b64(version=2) != v1_pub
 
 
 def test_workflow_steps_capabilities_union(key_env):

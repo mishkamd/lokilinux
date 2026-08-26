@@ -24,6 +24,7 @@ from lokilinux.utils.agent_capability import (
     agent_meets_minimum,
 )
 from lokilinux import metrics
+from lokilinux.kms import KeyManager, get_provider
 from lokilinux.services.job_signing import JobSigner
 
 logger = logging.getLogger(__name__)
@@ -82,13 +83,37 @@ def signing_required() -> bool:
     return os.environ.get("JOB_SIGNING_REQUIRED", "").lower() in ("1", "true", "yes")
 
 
+def _bootstrap_versioned_key(key_manager: KeyManager, legacy_key_path: str) -> None:
+    """First activation of the versioned layout: seeds v1 from the existing
+    legacy key file's bytes so rotation has a known starting point, without
+    touching the legacy file agents/installers already trust. No-op once any
+    version is registered (rotation has already taken over)."""
+    if key_manager.active_version() is not None or key_manager.state_of(1) is not None:
+        return
+    with open(legacy_key_path, "rb") as f:
+        raw = f.read()
+
+    def _write(path: str) -> None:
+        with open(path, "wb") as out:
+            out.write(raw)
+
+    key_manager.create(1, write_key_file=_write)
+    key_manager.activate(1)
+
+
 def _get_signer() -> Optional[JobSigner]:
     """Lazily construct the singleton signer. Returns None while no usable
     key is provisioned; a later call re-attempts (cheap file stat).
     Raises when job_signing_required=True and the key never materializes —
-    no-downgrade guarantee (plan C3)."""
+    no-downgrade guarantee (plan C3).
+
+    When LOKILINUX_KEYS_DIR is set, this wires JobSigner to the versioned
+    KeyManager lifecycle (bootstrapping v1 from the legacy file on first use)
+    so admin-triggered rotation actually reaches the running dispatch path —
+    without it, KeyManager.rotate() would mutate state nothing ever reads."""
     global _signer_instance, _signer_init_done
     key_path = os.environ.get("JOB_SIGNING_KEY_PATH", "/etc/lokilinux/certs/job_signing.key")
+    keys_dir = os.environ.get("LOKILINUX_KEYS_DIR", "")
     enabled = os.environ.get("JOB_SIGNING_ENVELOPES", "true").lower() != "false"
     if not enabled:
         if signing_required():
@@ -104,7 +129,13 @@ def _get_signer() -> Optional[JobSigner]:
         return None
     if not _signer_init_done:
         try:
-            _signer_instance = JobSigner()  # reads JOB_SIGNING_KEY_PATH itself
+            if keys_dir:
+                provider = get_provider({"provider": os.environ.get("KMS_PROVIDER", "file"),
+                                         "file": {"key_path": key_path}})
+                _bootstrap_versioned_key(KeyManager(keys_dir, "job-signing"), key_path)
+                _signer_instance = JobSigner(provider=provider, keys_dir=keys_dir)
+            else:
+                _signer_instance = JobSigner()  # legacy layout: implicit v1 only
         except Exception:  # noqa: BLE001 — unusable key must never break dispatch
             logger.exception("job signing key unreadable — envelopes disabled")
         _signer_init_done = True

@@ -2,19 +2,24 @@
 LokiLinux — Admin router: user management, settings, audit log.
 """
 
+import os
 from typing import Optional
 
 import httpx
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lokilinux import metrics
 from lokilinux.auth.dependencies import require_role
 from lokilinux.cache import RedisCache
 from lokilinux.config import get_settings
 from lokilinux.dependencies import get_cache, get_db
+from lokilinux.kms import KeyManager, KMSError
 from lokilinux.models.audit import Setting
 from lokilinux.services import cert_revocation
 from lokilinux.services.audit_service import AuditService
@@ -314,3 +319,50 @@ async def list_revoked_certificates(
 ) -> dict:
     """Admin-only listing; serials are not exposed through any non-admin API."""
     return {"revoked": await cert_revocation.list_revoked(cache)}
+
+
+# ── KMS key rotation (docs/security/KMS.md) ────────────────────────────────────
+
+def _generate_ed25519_key_file(path: str) -> None:
+    key = Ed25519PrivateKey.generate()
+    with open(path, "wb") as f:
+        f.write(key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        ))
+
+
+@router.post("/kms/keys/{key_id}/rotate")
+async def rotate_kms_key(
+    key_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(require_role("ADMIN")),
+) -> dict:
+    """Generates a new key version, activates it, demotes the previous ACTIVE
+    to VERIFY_ONLY (old signatures stay verifiable). Requires LOKILINUX_KEYS_DIR
+    — without a versioned layout there's nothing to rotate into (the legacy
+    single-file deployment has no version 2 slot by design)."""
+    keys_dir = os.environ.get("LOKILINUX_KEYS_DIR", "")
+    if not keys_dir:
+        raise HTTPException(
+            status_code=409,
+            detail="LOKILINUX_KEYS_DIR not configured — versioned key layout is off",
+        )
+    km = KeyManager(keys_dir, key_id)
+    from_version = km.active_version()
+    try:
+        new_ref = km.rotate(write_key_file=_generate_ed25519_key_file)
+    except KMSError as exc:
+        raise HTTPException(status_code=500, detail=f"rotation failed: {exc.reason}") from exc
+    metrics.kms_rotation_total.inc()
+    await AuditService(db).log(
+        action="kms.key.rotated",
+        user_id=current_user.get("id"),
+        actor_name=current_user.get("username") or current_user.get("email"),
+        resource_type="kms_key",
+        resource_id=key_id,
+        changes={"from_version": from_version, "to_version": new_ref.version},
+        status="success",
+    )
+    return {"key_id": key_id, "previous_version": from_version, "active_version": new_ref.version}

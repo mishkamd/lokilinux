@@ -93,6 +93,28 @@ def test_raw_seed_key_supported(tmp_path, monkeypatch):
     assert verify_fixture(s1.public_key_b64(), env)
 
 
+def _counter_total(counter) -> float:
+    return sum(s.value for m in counter.collect() for s in m.samples if s.name.endswith("_total"))
+
+
+def test_sign_increments_kms_success_metric(signer):
+    from lokilinux import metrics
+
+    before = _counter_total(metrics.kms_sign_success_total)
+    signer.sign("j-1", "a-1", "t", "SERVICE", {})
+    assert _counter_total(metrics.kms_sign_success_total) == before + 1
+
+
+def test_sign_failure_increments_kms_failure_metric(signer, key_env):
+    from lokilinux import metrics
+
+    before = _counter_total(metrics.kms_sign_failure_total)
+    os.remove(key_env)  # provider now fails to load the key on next use
+    with pytest.raises(Exception):
+        signer.sign("j-1", "a-1", "t", "SERVICE", {})
+    assert _counter_total(metrics.kms_sign_failure_total) == before + 1
+
+
 def test_rejects_non_ed25519_key(tmp_path, monkeypatch):
     from cryptography.hazmat.primitives.asymmetric import rsa
 

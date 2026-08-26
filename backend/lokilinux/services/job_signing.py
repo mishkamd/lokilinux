@@ -22,6 +22,7 @@ from typing import List, Optional
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
+from lokilinux import metrics
 from lokilinux.kms import KeyManager, get_provider
 from lokilinux.kms.provider import KeyRef, SigningProvider
 
@@ -107,8 +108,23 @@ class JobSigner:
         except Exception:
             return False
 
+    def _provider_sign(self, ref: KeyRef, message: bytes) -> bytes:
+        """Wraps every provider call with the kms_* metrics (plan §19) — the
+        single choke point sign()/sign_message()/sign_approval_claim() share."""
+        t0 = time.monotonic()
+        try:
+            sig = self._provider.sign_message(ref, message)
+        except Exception as exc:
+            reason = getattr(exc, "reason", None) or exc.__class__.__name__
+            metrics.kms_sign_failure_total.labels(reason=reason).inc()
+            raise
+        finally:
+            metrics.kms_provider_latency.observe(time.monotonic() - t0)
+        metrics.kms_sign_success_total.inc()
+        return sig
+
     def sign_message(self, message: bytes) -> bytes:
-        return self._provider.sign_message(self._active_ref(), message)
+        return self._provider_sign(self._active_ref(), message)
 
     # ── envelope signing ──────────────────────────────────────────────────────
     def sign(
@@ -147,7 +163,7 @@ class JobSigner:
             # pointer+omitempty field so canonical bytes stay aligned, and v1
             # envelopes remain byte-identical to pre-KMS releases.
             env["key_version"] = active.version
-        env["signature"] = base64.b64encode(self._provider.sign_message(active, _canonical_unsigned(env))).decode()
+        env["signature"] = base64.b64encode(self._provider_sign(active, _canonical_unsigned(env))).decode()
         return env
 
     def sign_approval_claim(self, *, job_id: str, target_agent_id: str,
@@ -156,7 +172,7 @@ class JobSigner:
         from lokilinux.services.approval_claims import create_claim
 
         return create_claim(
-            lambda msg: self._provider.sign_message(self._active_ref(), msg),
+            lambda msg: self._provider_sign(self._active_ref(), msg),
             job_id=job_id,
             target_agent_id=target_agent_id,
             payload=payload,
