@@ -256,8 +256,16 @@ class JobService:
         if existing.scalar_one_or_none():
             raise ValueError("Duplicate job already active")
 
-        agent_ids: list[str] = target_servers.get("agent_ids", [])
-        agent_uuids = [UUID(aid) for aid in agent_ids]
+        # target_servers arrives as {"<uuid>": true} from the dashboard
+        # checkbox map; older callers pass a list or {"agent_ids":[...]}.
+        agent_uuids: list[UUID] = []
+        if isinstance(target_servers, dict):
+            ids = target_servers.get("agent_ids") or [
+                k for k, v in target_servers.items() if v
+            ]
+            agent_uuids = [UUID(a) for a in ids]
+        elif isinstance(target_servers, list):
+            agent_uuids = [UUID(a) for a in target_servers]
 
         job = Job(
             name=name,
