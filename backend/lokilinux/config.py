@@ -28,6 +28,23 @@ class Settings(BaseSettings):
     # ── Message bus ───────────────────────────────────────────
     nats_url: str = "nats://localhost:4222"
 
+    # ── Event store (observability pipeline) ──────────────────
+    clickhouse_url: str = "http://localhost:8123"
+    clickhouse_user: str = "default"
+    clickhouse_password: str = ""
+    clickhouse_database: str = "lokilinux"
+    event_retention_days: int = 30
+    signal_occurrence_retention_days: int = 90
+    incident_evidence_retention_days: int = 180
+    # NOTE: the pipeline kill switch (event_pipeline_enabled) lives in
+    # settings_schema.py's "observability" group, not here — it's a live,
+    # DB-backed toggle workers re-check every loop, not a deploy-time value
+    # (see the plan's Rollout & rollback section).
+    event_max_payload_bytes: int = 65536
+    event_rate_per_agent_per_min: int = 600
+    event_max_clock_skew_sec: int = 300
+    correlation_state_backend: str = "redis"
+
     # ── gRPC (agent communication) ────────────────────────────
     grpc_port: int = 50051
 
@@ -52,6 +69,19 @@ class Settings(BaseSettings):
     agent_version: str = "0.1.0"
     agent_package_dir: str = "/opt/lokilinux/packages"
     better_auth_admin_token: str = ""
+
+    # ── Certificate revocation (P11) ──────────────────────────
+    # enabled=False = compatibility mode (no lookups, no Redis dependency).
+    # fail_closed=True: Redis unreachable at auth time REJECTS the connection
+    # instead of admitting an un-checkable certificate.
+    certificate_revocation_enabled: bool = True
+    certificate_revocation_fail_closed: bool = True
+
+    # ── Metrics / KMS (plan 2026-08-25) ───────────────────────
+    metrics_enabled: bool = True
+    metrics_port: int = 9090
+    job_signing_required: bool = False   # fail-closed dispatch when True
+    security_profile: str = "development"  # production adds startup validations
 
     @property
     def debug(self) -> bool:

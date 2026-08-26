@@ -11,6 +11,7 @@ import (
 
 	"github.com/lokilinux/agent/internal/communication"
 	"github.com/lokilinux/agent/internal/compliance"
+	"github.com/lokilinux/agent/internal/broker"
 	"github.com/lokilinux/agent/internal/config"
 	"github.com/lokilinux/agent/internal/modules"
 	"github.com/lokilinux/agent/internal/security"
@@ -46,9 +47,10 @@ type Manager struct {
 	// policy is the last-good LocalPolicy from update_policy heartbeats —
 	// guarded by policyMu because handleResponse (heartbeat goroutine) and
 	// job goroutines read it concurrently.
-	verifier *security.Verifier
-	replay   *security.ReplayStore
-	secCfg   configSecurity
+	brokerClient *broker.Client
+	verifier     *security.Verifier
+	replay       *security.ReplayStore
+	secCfg       configSecurity
 	policyMu sync.RWMutex
 	policy   *security.LocalPolicy
 
@@ -113,6 +115,8 @@ func NewManager(cfg *config.Config, log *slog.Logger, version string, logBuf *Lo
 	secCfg := configSecurity{
 		EnforceSignedJobs: cfg.Security.EnforceSignedJobs,
 		SigningPubKeyPath: cfg.Security.SigningPubKeyPath,
+		SigningPubKeys:    cfg.Security.SigningPubKeys,
+		RetiredKeys:       cfg.Security.RetiredKeys,
 	}
 	verifier, err := initVerifier(&secCfg)
 	if err != nil {
@@ -151,10 +155,17 @@ func NewManager(cfg *config.Config, log *slog.Logger, version string, logBuf *Lo
 		verifier: verifier,
 		replay:   security.NewReplayStore(store),
 		secCfg:   secCfg,
+		brokerClient: newBrokerClientIfConfigured(cfg.Security.ExecBrokerSocket),
 		stop:     make(chan struct{}),
 		nudge:    make(chan struct{}, 1),
 		inFlight: make(map[string]struct{}),
 	}
+	if cfg.Security.ExecBrokerSocket != "" {
+		wireBrokerUpdateChecker(mgr, broker.NewClient(cfg.Security.ExecBrokerSocket))
+		wireBrokerRemediation(mgr, broker.NewClient(cfg.Security.ExecBrokerSocket))
+		log.Info("privileged execution delegated to exec broker", "socket", cfg.Security.ExecBrokerSocket)
+	}
+
 	if blob, err := store.GetConfig(context.Background(), "security.local_policy"); err == nil && blob != "" {
 		if lp, err := security.UnmarshalLocalPolicy([]byte(blob)); err == nil {
 			mgr.policy = lp
@@ -491,42 +502,50 @@ func (m *Manager) handleResponse(ctx context.Context, resp map[string]interface{
 // of these job_types carry a `command` param). Wiring the backend to prefer
 // these once a version gate exists is future work, not part of this change.
 func (m *Manager) runJob(ctx context.Context, jobID, jobType string, params map[string]interface{}, timeoutSec int) (modules.JobResult, bool) {
+	if m.brokerClient != nil {
+		return m.runJobViaBroker(jobID, jobType, params, timeoutSec), true
+	}
+	return m.runLocal(ctx, jobID, jobType, params, timeoutSec), true
+}
+
+// runLocal is the legacy in-process dispatch (root mode).
+func (m *Manager) runLocal(ctx context.Context, jobID, jobType string, params map[string]interface{}, timeoutSec int) modules.JobResult {
 	switch jobType {
 	case "REBOOT":
-		return modules.Reboot(ctx, jobID, params, timeoutSec), true
+		return modules.Reboot(ctx, jobID, params, timeoutSec)
 	case "SERVICE":
-		return modules.Service(ctx, jobID, params, timeoutSec), true
+		return modules.Service(ctx, jobID, params, timeoutSec)
 	case "FILE":
-		return modules.File(ctx, jobID, params, timeoutSec), true
+		return modules.File(ctx, jobID, params, timeoutSec)
 	case "WORKFLOW_STEPS":
 		steps, err := parseWorkflowSteps(params)
 		if err != nil {
 			m.log.Warn("workflow_steps parse error", "job_id", jobID, "error", err)
-			return modules.JobResult{JobID: jobID, ExitCode: 1, Error: err.Error()}, true
+			return modules.JobResult{JobID: jobID, ExitCode: 1, Error: err.Error()}
 		}
-		return m.workflowStepsExec.Execute(ctx, jobID, steps, timeoutSec), true
+		return m.workflowStepsExec.Execute(ctx, jobID, steps, timeoutSec)
 	case "PLUGIN_INSTALL":
-		return modules.InstallPlugin(ctx, jobID, params, timeoutSec, m.pluginVerifier()), true
+		return modules.InstallPlugin(ctx, jobID, params, timeoutSec, m.pluginVerifier())
 	case "PACKAGE_UPDATE":
-		return modules.UpdatePackages(ctx, jobID, params, timeoutSec), true
+		return modules.UpdatePackages(ctx, jobID, params, timeoutSec)
 	case "ANSIBLE_PLAYBOOK":
 		playbookContent, _ := params["playbook_content"].(string)
 		extraVars, _ := params["extra_vars"].(map[string]interface{})
 		roles, _ := params["roles"].(map[string]interface{})
 		if playbookContent == "" {
 			m.log.Warn("ansible job has no playbook_content, skipping", "job_id", jobID)
-			return modules.JobResult{JobID: jobID, ExitCode: 1, Error: "missing required parameter: playbook_content"}, true
+			return modules.JobResult{JobID: jobID, ExitCode: 1, Error: "missing required parameter: playbook_content"}
 		}
-		return m.ansibleExec.Execute(ctx, jobID, playbookContent, extraVars, roles, timeoutSec, false), true
+		return m.ansibleExec.Execute(ctx, jobID, playbookContent, extraVars, roles, timeoutSec, false)
 	case "COMPLIANCE_REMEDIATE":
 		actions, err := parseRemediationActions(params)
 		if err != nil {
 			m.log.Warn("compliance_remediate parse error", "job_id", jobID, "error", err)
-			return modules.JobResult{JobID: jobID, ExitCode: 1, Error: err.Error()}, true
+			return modules.JobResult{JobID: jobID, ExitCode: 1, Error: err.Error()}
 		}
 		operation, _ := params["operation"].(string)
 		dryRun := operation == "DRY_RUN"
-		return m.remediationExec.Execute(ctx, jobID, actions, timeoutSec, dryRun), true
+		return m.remediationExec.Execute(ctx, jobID, actions, timeoutSec, dryRun)
 	default:
 		// Any job_type not matched above (including CUSTOM_COMMAND) falls
 		// here — a bare `command` param is enough regardless of job_type,
@@ -534,9 +553,9 @@ func (m *Manager) runJob(ctx context.Context, jobID, jobType string, params map[
 		command, _ := params["command"].(string)
 		if command == "" {
 			m.log.Warn("unsupported job_type, skipping", "job_id", jobID, "job_type", jobType)
-			return modules.JobResult{JobID: jobID, ExitCode: 1, Error: fmt.Sprintf("unsupported job_type %q: no command parameter", jobType)}, true
+			return modules.JobResult{JobID: jobID, ExitCode: 1, Error: fmt.Sprintf("unsupported job_type %q: no command parameter", jobType)}
 		}
-		return m.jobExec.Execute(ctx, jobID, command, timeoutSec), true
+		return m.jobExec.Execute(ctx, jobID, command, timeoutSec)
 	}
 }
 

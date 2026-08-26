@@ -6,6 +6,7 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -19,20 +20,30 @@ import (
 // Enforcement ON without a usable key is a configuration error — refuse to
 // start rather than silently running an unenforceable policy.
 func initVerifier(cfg *configSecurity) (*security.Verifier, error) {
-	raw, err := os.ReadFile(cfg.SigningPubKeyPath)
-	if err != nil {
-		if cfg.EnforceSignedJobs {
+	keys := map[int]string{}
+	for ver, b64 := range cfg.SigningPubKeys {
+		keys[ver] = b64
+	}
+	if _, hasV1 := keys[1]; !hasV1 {
+		raw, err := os.ReadFile(cfg.SigningPubKeyPath)
+		if err == nil && len(raw) > 0 {
+			keys[1] = string(raw)
+		} else if cfg.EnforceSignedJobs {
 			return nil, fmt.Errorf("enforce_signed_jobs=true but signing public key unreadable at %s: %w", cfg.SigningPubKeyPath, err)
 		}
-		return nil, nil // observability mode without key is fine
 	}
-	return security.NewVerifier(string(raw))
+	if len(keys) == 0 {
+		return nil, nil // observability mode without any key is fine
+	}
+	return security.NewVerifierSet(keys, cfg.RetiredKeys)
 }
 
 // configSecurity narrows the fields job validation needs (testability).
 type configSecurity struct {
 	EnforceSignedJobs bool
 	SigningPubKeyPath string
+	SigningPubKeys    map[int]string
+	RetiredKeys       []int
 }
 
 // validateAndAuthorize runs the full pre-dispatch gate. A non-nil result
@@ -67,9 +78,10 @@ func validateAndAuthorize(
 	if err != nil {
 		return rejectResult(jobID, "malformed_envelope", err.Error())
 	}
-	env, err := security.ParseEnvelope(envJSON)
-	if err != nil {
-		return rejectResult(jobID, "malformed_envelope", err.Error())
+	env, perr := security.ParseEnvelope(envJSON)
+	if perr != nil {
+		return rejectResult(jobID, "malformed_envelope",
+			fmt.Sprintf("%v | raw_prefix=%s", perr, string(envJSON[:min(len(envJSON), 160)])))
 	}
 
 	// Payload binding: the signature must cover EXACTLY the parameters that
@@ -78,7 +90,7 @@ func validateAndAuthorize(
 	if cfgSec.EnforceSignedJobs {
 		outer := make(map[string]interface{}, len(params))
 		for k, v := range params {
-			if k != "_envelope" {
+			if k != "_envelope" && k != "_approval_claim" { // transport keys, not job content
 				outer[k] = v
 			}
 		}
@@ -117,12 +129,52 @@ func validateAndAuthorize(
 			return rejectResult(jobID, "capability_gap",
 				fmt.Sprintf("envelope lacks %v required by %s", missing, jobType))
 		}
+
+		// Approval claims (plan §6): a valid signed claim satisfies
+		// require_approval gates; everything else keeps the hard reject.
+		var approvalClaim *security.ApprovalClaim
+		if rawClaim, ok := params["_approval_claim"]; ok {
+			claimJSON, err := json.Marshal(rawClaim)
+			if err != nil {
+				return rejectResult(jobID, "approval_malformed", err.Error())
+			}
+			claim, err := security.ParseApprovalClaim(claimJSON)
+			if err != nil {
+				return rejectResult(jobID, "approval_malformed", err.Error())
+			}
+			payloadCanonical, err := security.Canonical(env.Payload)
+			if err != nil {
+				return rejectResult(jobID, "approval_malformed", err.Error())
+			}
+			jobHash := fmt.Sprintf("%x", sha256.Sum256(payloadCanonical))
+			if err := verifier.VerifyApprovalClaim(
+				claim,
+				env.JobID,
+				jobHash,
+				env.AgentID,
+				env.RequestedCapabilities,
+				replayAdapter{store: replay},
+				now,
+			); err != nil {
+				return rejectResult(jobID, "approval_invalid", err.Error())
+			}
+			approvalClaim = claim
+		}
+
+		approvedByClaim := map[string]bool{}
+		if approvalClaim != nil {
+			for _, cp := range approvalClaim.Capabilities {
+				approvedByClaim[cp] = true
+			}
+		}
+
 		// Local policy enforcement (fail-closed for HIGH/CRITICAL): a bug or
 		// compromise in the control plane must not silently widen execution.
 		if reason, detail := policy.EvaluateAuthorizations(
 			env.RequestedCapabilities,
 			func(c string) string { return string(security.RiskFor(c)) },
 			now,
+			approvedByClaim,
 		); reason != "" {
 			return rejectResult(jobID, string(reason), detail)
 		}

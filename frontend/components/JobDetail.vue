@@ -196,7 +196,7 @@ const packageNames = computed<string[] | null>(() => {
                 <span class="text-xs text-muted-foreground">{{ duration(r.started_at, r.completed_at) }}</span>
               </summary>
               <div class="mt-2 space-y-2">
-                <p v-if="r.error_message" class="text-xs text-red-500 bg-red-500/10 rounded p-2">{{ r.error_message }}</p>
+                <p v-if="r.error_message" class="text-xs text-destructive bg-destructive/10 rounded p-2">{{ r.error_message }}</p>
                 <pre class="text-xs bg-muted rounded p-2 overflow-auto max-h-96">{{ r.stdout || '(empty)' }}</pre>
               </div>
             </details>

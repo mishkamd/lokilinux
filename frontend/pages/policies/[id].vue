@@ -109,18 +109,21 @@ function fmtDate(v: string | null | undefined): string {
     <div v-else-if="!policy" class="text-sm text-muted-foreground">Policy not found.</div>
 
     <div v-else class="space-y-4">
-      <div class="flex items-center gap-3">
-        <h1 class="text-lg font-bold flex-1">{{ policy.name }}</h1>
-        <Badge :color="policy.is_enabled ? 'green' : 'gray'">{{ policy.is_enabled ? 'Active' : 'Inactive' }}</Badge>
-        <Button size="xs" variant="outline" :loading="running" @click="runNow">
-          <Play class="size-3.5" />
-          Run now
-        </Button>
-        <Button v-if="canEdit" size="xs" variant="outline" @click="showWizard = true">
-          <Pencil class="size-3.5" />
-          Edit
-        </Button>
-      </div>
+      <PageHeader :title="policy.name" :back="{ to: '/policies', label: 'Back to policies' }">
+        <template #badges>
+          <Badge :color="policy.is_enabled ? 'green' : 'gray'">{{ policy.is_enabled ? 'Active' : 'Inactive' }}</Badge>
+        </template>
+        <template #actions>
+          <Button size="xs" variant="outline" :loading="running" @click="runNow">
+            <Play class="size-3.5" />
+            Run now
+          </Button>
+          <Button v-if="canEdit" size="xs" variant="outline" @click="showWizard = true">
+            <Pencil class="size-3.5" />
+            Edit
+          </Button>
+        </template>
+      </PageHeader>
 
       <AppTabs :items="tabs" @change="onTabChange">
         <template #overview>
@@ -128,7 +131,7 @@ function fmtDate(v: string | null | undefined): string {
             <dl class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
               <div><dt class="text-muted-foreground">Category</dt><dd>{{ policy.policy_type || '—' }}</dd></div>
               <div><dt class="text-muted-foreground">Severity</dt><dd>{{ policy.severity || '—' }}</dd></div>
-              <div><dt class="text-muted-foreground">Priority</dt><dd>{{ policy.priority }}</dd></div>
+              <div><dt class="text-muted-foreground">Priority</dt><dd class="tabular-nums">{{ policy.priority }}</dd></div>
               <div><dt class="text-muted-foreground">Trigger</dt><dd>{{ policy.trigger_type === 'SCHEDULE' ? `cron: ${policy.cron_expr}` : 'Manual' }}</dd></div>
               <div><dt class="text-muted-foreground">Targets</dt><dd>{{ targetSummary(policy.target_servers) }}</dd></div>
               <div><dt class="text-muted-foreground">Version</dt><dd>v{{ policy.version }}</dd></div>
@@ -152,9 +155,9 @@ function fmtDate(v: string | null | undefined): string {
 
         <template #executions>
           <div v-if="executionsLoading" class="text-sm text-muted-foreground">Loading…</div>
-          <div v-else-if="!executions.length" class="text-sm text-muted-foreground py-8 text-center">
+          <EmptyState v-else-if="!executions.length">
             No executions yet — press "Run now" or wait for next scheduled trigger.
-          </div>
+          </EmptyState>
           <div v-else class="space-y-1">
             <button
               v-for="job in executions"
@@ -172,7 +175,7 @@ function fmtDate(v: string | null | undefined): string {
 
         <template #audit>
           <div v-if="auditLoading" class="text-sm text-muted-foreground">Loading…</div>
-          <div v-else-if="!auditRows.length" class="text-sm text-muted-foreground py-8 text-center">No history.</div>
+          <EmptyState v-else-if="!auditRows.length">No history.</EmptyState>
           <div v-else class="space-y-1">
             <div v-for="row in auditRows" :key="row.id" class="rounded-lg border border-border p-2.5 text-sm">
               <div class="flex items-center gap-2">

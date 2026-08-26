@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { SEVERITY_COLORS } from '~/utils/complianceColors'
 const route = useRoute()
 const policySetId = String(route.params.id)
 
@@ -12,9 +13,6 @@ onMounted(async () => {
   await Promise.all([store.fetchPolicySetRules(policySetId), store.fetchPolicySetCoverage(policySetId)])
 })
 
-const SEVERITY_COLORS: Record<string, string> = {
-  CRITICAL: 'red', HIGH: 'red', MEDIUM: 'amber', LOW: 'gray',
-}
 const STATUS_COLORS: Record<string, string> = {
   DRAFT: 'gray', PUBLISHED: 'green', ARCHIVED: 'gray',
 }
@@ -74,22 +72,18 @@ const columns = [
 
 <template>
   <div v-if="selectedPolicySet">
-    <div class="flex items-center justify-between mb-4">
-      <div>
-        <h2 class="text-lg font-semibold">{{ selectedPolicySet.name }}</h2>
-        <p class="text-sm text-muted-foreground">{{ selectedPolicySet.description || 'No description' }}</p>
-        <p v-if="selectedPolicySet.parent_policy_set_id" class="text-xs text-muted-foreground mt-1">
-          New version of
-          <NuxtLink :to="`/compliance/policies/${selectedPolicySet.parent_policy_set_id}`" class="text-primary hover:underline">
-            a previously published set
-          </NuxtLink>
-        </p>
-      </div>
-      <div class="flex items-center gap-2">
+    <PageHeader
+      :title="selectedPolicySet.name"
+      :description="selectedPolicySet.description || 'No description'"
+      :back="{ to: '/compliance/policies', label: 'Back to policy sets' }"
+    >
+      <template #badges>
         <Badge color="gray">{{ selectedPolicySet.framework }}</Badge>
         <Badge :color="STATUS_COLORS[selectedPolicySet.status] ?? 'gray'">
           {{ selectedPolicySet.status }} · v{{ selectedPolicySet.published_version }}
         </Badge>
+      </template>
+      <template #actions>
         <Button v-if="canEdit && selectedPolicySet.status === 'DRAFT'" size="sm" :loading="busy" @click="publish">
           Publish
         </Button>
@@ -99,8 +93,14 @@ const columns = [
         <Button v-if="isAdmin && selectedPolicySet.status === 'PUBLISHED'" size="sm" color="amber" :loading="busy" @click="archive">
           Archive
         </Button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
+    <p v-if="selectedPolicySet.parent_policy_set_id" class="text-xs text-muted-foreground mb-4">
+      New version of
+      <NuxtLink :to="`/compliance/policies/${selectedPolicySet.parent_policy_set_id}`" class="text-primary hover:underline">
+        a previously published set
+      </NuxtLink>
+    </p>
 
     <AppTabs :items="tabs">
       <template #rules>
@@ -123,16 +123,16 @@ const columns = [
       <template #coverage>
         <div v-if="policySetCoverage" class="grid grid-cols-3 gap-4">
           <Card>
-            <p class="text-xs text-muted-foreground">CEL-mapped (evaluable)</p>
-            <p class="text-2xl font-semibold">{{ policySetCoverage.mapped }}</p>
+            <p class="label-caps mb-1">CEL-mapped (evaluable)</p>
+            <p class="text-2xl font-mono font-semibold tabular-nums">{{ policySetCoverage.mapped }}</p>
           </Card>
           <Card>
-            <p class="text-xs text-muted-foreground">Unmapped</p>
-            <p class="text-2xl font-semibold">{{ policySetCoverage.unmapped }}</p>
+            <p class="label-caps mb-1">Unmapped</p>
+            <p class="text-2xl font-mono font-semibold tabular-nums">{{ policySetCoverage.unmapped }}</p>
           </Card>
           <Card>
-            <p class="text-xs text-muted-foreground">Coverage</p>
-            <p class="text-2xl font-semibold">{{ policySetCoverage.coverage_pct }}%</p>
+            <p class="label-caps mb-1">Coverage</p>
+            <p class="text-2xl font-mono font-semibold tabular-nums">{{ policySetCoverage.coverage_pct }}%</p>
           </Card>
         </div>
       </template>

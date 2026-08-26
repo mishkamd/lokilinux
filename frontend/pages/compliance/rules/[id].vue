@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { SEVERITY_COLORS, CHECK_SOURCE_COLORS } from '~/utils/complianceColors'
 import type { CheckSource } from '~/stores/compliance'
 
 const route = useRoute()
@@ -21,12 +22,6 @@ async function load() {
 }
 onMounted(load)
 
-const SEVERITY_COLORS: Record<string, string> = {
-  CRITICAL: 'red', HIGH: 'red', MEDIUM: 'amber', LOW: 'gray',
-}
-const CHECK_SOURCE_COLORS: Record<CheckSource, string> = {
-  CEL: 'green', OVAL_UNMAPPED: 'gray', OSCAP_FALLBACK: 'amber',
-}
 const COVERAGE_COLORS: Record<string, string> = {
   PASS: 'green', FAIL: 'red', NOT_APPLICABLE: 'gray', ERROR: 'red', NOT_EVALUATED: 'gray',
 }
@@ -48,17 +43,17 @@ const coverageEntries = computed(() => Object.entries(selectedRule.value?.covera
     </div>
 
     <div v-else-if="selectedRule">
-      <div class="flex items-start justify-between mb-4 gap-3">
-        <div class="min-w-0">
-          <h2 class="text-lg font-semibold">{{ selectedRule.title }}</h2>
-          <p class="text-sm text-muted-foreground font-mono">{{ selectedRule.rule_key }} · {{ selectedRule.domain }}</p>
-        </div>
-        <div class="flex items-center gap-2 shrink-0">
+      <PageHeader
+        :title="selectedRule.title"
+        :description="`${selectedRule.rule_key} · ${selectedRule.domain}`"
+        :back="{ to: '/compliance/rules', label: 'Back to rules' }"
+      >
+        <template #badges>
           <Badge :color="SEVERITY_COLORS[selectedRule.severity] ?? 'gray'">{{ selectedRule.severity }}</Badge>
           <Badge :color="CHECK_SOURCE_COLORS[selectedRule.check_source] ?? 'gray'">{{ selectedRule.check_source }}</Badge>
           <Badge :color="selectedRule.is_enabled ? 'green' : 'gray'">{{ selectedRule.is_enabled ? 'Enabled' : 'Disabled' }}</Badge>
-        </div>
-      </div>
+        </template>
+      </PageHeader>
 
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
         <Card>
@@ -100,9 +95,9 @@ const coverageEntries = computed(() => Object.entries(selectedRule.value?.covera
 
       <Card class="mb-4">
         <template #header><p class="label-caps">Framework mappings</p></template>
-        <p v-if="selectedRule.framework_mappings.length === 0" class="text-sm text-muted-foreground py-2 text-center">
+        <EmptyState v-if="selectedRule.framework_mappings.length === 0">
           No framework mappings recorded.
-        </p>
+        </EmptyState>
         <ul v-else class="divide-y divide-border">
           <li v-for="m in selectedRule.framework_mappings" :key="`${m.framework_key}-${m.control_id}`" class="py-2 flex items-center justify-between gap-2">
             <div class="min-w-0">
@@ -116,9 +111,9 @@ const coverageEntries = computed(() => Object.entries(selectedRule.value?.covera
 
       <Card class="mb-4">
         <template #header><p class="label-caps">Coverage</p></template>
-        <p v-if="coverageEntries.length === 0" class="text-sm text-muted-foreground py-2 text-center">
+        <EmptyState v-if="coverageEntries.length === 0">
           Not evaluated on any server yet.
-        </p>
+        </EmptyState>
         <div v-else class="flex flex-wrap gap-2">
           <Badge v-for="[result, n] in coverageEntries" :key="result" :color="COVERAGE_COLORS[result] ?? 'gray'">
             {{ result }}: {{ n }}

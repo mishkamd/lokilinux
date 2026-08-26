@@ -25,7 +25,7 @@
 
 ## 1. Platform Overview
 
-LokiLinux is an enterprise Linux fleet management platform for centralized patch management, vulnerability scanning, compliance automation, and remediation at 10K–100K+ server scale.
+LokiLinux is an Enterprise Linux Operations Platform — a unified control plane for centralized fleet management, vulnerability scanning, compliance automation, and remediation at 10K–100K+ server scale.
 
 ### 1.1 Three-Layer Architecture
 

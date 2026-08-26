@@ -109,13 +109,14 @@ const columns = [
 
 <template>
   <div class="space-y-4">
-    <div class="flex items-center justify-between">
-      <h2 class="text-lg font-semibold">Users</h2>
-      <Button @click="showModal = true">
-        <Plus class="size-4" />
-        Add User
-      </Button>
-    </div>
+    <PageHeader title="Users">
+      <template #actions>
+        <Button @click="showModal = true">
+          <Plus class="size-4" />
+          Add User
+        </Button>
+      </template>
+    </PageHeader>
 
     <DataTable :rows="data?.items ?? []" :columns="columns" :loading="pending">
       <template #role-data="{ row }">
@@ -123,10 +124,10 @@ const columns = [
       </template>
       <template #actions-data="{ row }">
         <div class="flex items-center justify-end gap-1">
-          <Button size="xs" variant="ghost" class="text-muted-foreground" @click="openEdit(row as unknown as User)">
+          <Button size="xs" variant="ghost" class="text-muted-foreground" aria-label="Edit user" @click="openEdit(row as unknown as User)">
             <Pencil class="size-3.5" />
           </Button>
-          <Button size="xs" variant="ghost" class="text-muted-foreground" @click="deletingUser = row as unknown as User">
+          <Button size="xs" variant="ghost" class="text-muted-foreground" aria-label="Delete user" @click="deletingUser = row as unknown as User">
             <Trash2 class="size-3.5" />
           </Button>
         </div>

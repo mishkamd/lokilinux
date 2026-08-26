@@ -136,8 +136,8 @@ async function confirmExecute() {
 
 <template>
   <div>
-    <div class="flex items-center justify-between mb-4">
-      <div class="flex items-center gap-3">
+    <PageHeader>
+      <div class="flex flex-wrap items-center gap-3">
         <Button variant="outline" @click="store.fetchPlaybooks()">
           <RefreshCw class="size-4" />
           Refresh
@@ -163,7 +163,7 @@ async function confirmExecute() {
           New Playbook
         </Button>
       </div>
-    </div>
+    </PageHeader>
 
     <Alert
       color="blue"
@@ -176,6 +176,9 @@ async function confirmExecute() {
       <template #project_id-data="{ row }">
         <Badge color="gray" size="xs">{{ projectName((row as Playbook).project_id) }}</Badge>
       </template>
+      <template #version-data="{ row }">
+        <span class="font-mono text-xs tabular-nums">v{{ (row as Playbook).version }}</span>
+      </template>
       <template #is_enabled-data="{ row }">
         <Badge :color="(row as Playbook).is_enabled ? 'green' : 'gray'" size="xs">
           {{ (row as Playbook).is_enabled ? 'enabled' : 'disabled' }}
@@ -186,13 +189,13 @@ async function confirmExecute() {
       </template>
       <template #actions-data="{ row }">
         <div class="flex items-center justify-end gap-1">
-          <Button size="xs" variant="ghost" class="text-muted-foreground" @click="openExecute(row as Playbook)">
+          <Button size="xs" variant="ghost" class="text-muted-foreground" aria-label="Run playbook" @click="openExecute(row as Playbook)">
             <Play class="size-3.5" />
           </Button>
-          <Button v-if="canEdit" size="xs" variant="ghost" class="text-muted-foreground" @click="openEdit(row as Playbook)">
+          <Button v-if="canEdit" size="xs" variant="ghost" class="text-muted-foreground" aria-label="Edit playbook" @click="openEdit(row as Playbook)">
             <Pencil class="size-3.5" />
           </Button>
-          <Button v-if="canEdit" size="xs" variant="ghost" class="text-muted-foreground" @click="deletingPlaybook = row as Playbook">
+          <Button v-if="canEdit" size="xs" variant="ghost" class="text-muted-foreground" aria-label="Delete playbook" @click="deletingPlaybook = row as Playbook">
             <Trash2 class="size-3.5" />
           </Button>
         </div>

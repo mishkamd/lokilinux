@@ -53,3 +53,12 @@ func (m *Manager) pluginVerifier() *security.Verifier {
 	}
 	return m.verifier
 }
+
+// replayAdapter exposes the ReplayStore through the marker interface the
+// security package defines for claim anti-replay.
+type replayAdapter struct{ store *security.ReplayStore }
+
+func (a replayAdapter) MarkSeen(nonce, jobID string) (bool, error) {
+	ctx := context.Background()
+	return a.store.MarkSeen(ctx, nonce, jobID)
+}

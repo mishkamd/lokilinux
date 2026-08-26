@@ -18,7 +18,7 @@ from typing import Any
 SETTINGS_SCHEMA: dict[str, dict[str, tuple[str, Any]]] = {
     "agent": {
         "platform_url": ("string", ""),
-        "version": ("string", "0.35.3"),
+        "version": ("string", "0.37.0"),
         "download_base": ("string", ""),
     },
     "security": {
@@ -48,6 +48,16 @@ SETTINGS_SCHEMA: dict[str, dict[str, tuple[str, Any]]] = {
     "fleet": {
         "heartbeat_timeout_minutes": ("integer", 5),
         "job_stale_timeout_minutes": ("integer", 60),
+    },
+    "observability": {
+        # Kill switch for the events -> signals -> incidents pipeline (Task A5).
+        # Workers re-check this every loop, so flipping it takes effect without
+        # a redeploy — legacy alerting is unaffected either way.
+        "event_pipeline_enabled": ("boolean", True),
+        # Safe-by-default (Task E2): AUTO-mode runbooks stay no-ops until an
+        # admin explicitly flips this on. MANUAL runbooks are unaffected —
+        # they only ever run when someone clicks "Execute".
+        "incident_autorun_runbooks": ("boolean", False),
     },
     "retention": {
         "metrics_days": ("integer", 365),

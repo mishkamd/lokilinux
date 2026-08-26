@@ -52,7 +52,7 @@ function relativeTime(iso: string): string {
       </NuxtLink>
     </div>
 
-    <div v-if="error" class="text-xs text-red-500">Failed to load recent activity.</div>
+    <div v-if="error" class="text-xs text-destructive">Failed to load recent activity.</div>
     <div v-else-if="pending" class="space-y-1.5">
       <Skeleton v-for="i in 4" :key="i" class="h-7 rounded-md" />
     </div>

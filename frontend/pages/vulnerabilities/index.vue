@@ -115,7 +115,7 @@ const topVulnerabilities = computed(() => [...cves.value].slice(0, 10))
           </div>
         </template>
         <Skeleton v-if="topResourcesLoading" class="h-40 w-full" />
-        <p v-else-if="topResources.length === 0" class="text-sm text-muted-foreground py-6 text-center">No open vulnerabilities on any scanned resource.</p>
+        <EmptyState v-else-if="topResources.length === 0">No open vulnerabilities on any scanned resource.</EmptyState>
         <DataTable v-else :rows="topResources" :columns="resourceColumns" row-key="agent_id" rows-clickable
                    @row-click="(row) => navigateTo(`/servers/${row.agent_id}`)">
           <template #hostname-data="{ row }">
@@ -135,7 +135,7 @@ const topVulnerabilities = computed(() => [...cves.value].slice(0, 10))
       <Card>
         <template #header><p class="label-caps">Top Patchable Vulnerabilities</p></template>
         <Skeleton v-if="patchableLoading" class="h-40 w-full" />
-        <p v-else-if="patchable.length === 0" class="text-sm text-muted-foreground py-6 text-center">No patchable vulnerabilities found.</p>
+        <EmptyState v-else-if="patchable.length === 0">No patchable vulnerabilities found.</EmptyState>
         <DataTable v-else :rows="patchable" :columns="patchableColumns" rows-clickable
                    @row-click="(row) => navigateTo(`/vulnerabilities/${row.cve_id}`)">
           <template #cve_id-data="{ row }"><span class="font-mono text-xs text-primary">{{ row.cve_id }}</span></template>
@@ -144,6 +144,7 @@ const topVulnerabilities = computed(() => [...cves.value].slice(0, 10))
             <span v-else class="text-muted-foreground text-xs">—</span>
           </template>
           <template #fixed_version-data="{ row }"><span class="font-mono text-xs">{{ row.fixed_version || '—' }}</span></template>
+          <template #affected_count-data="{ row }"><span class="font-mono text-xs">{{ row.affected_count }}</span></template>
         </DataTable>
       </Card>
     </div>
@@ -157,15 +158,16 @@ const topVulnerabilities = computed(() => [...cves.value].slice(0, 10))
         </div>
       </template>
       <Skeleton v-if="cvesLoading" class="h-48 w-full" />
-      <p v-else-if="topVulnerabilities.length === 0" class="text-sm text-muted-foreground py-6 text-center">No CVEs recorded yet.</p>
+      <EmptyState v-else-if="topVulnerabilities.length === 0">No CVEs recorded yet.</EmptyState>
       <DataTable v-else :rows="topVulnerabilities" :columns="topVulnColumns" rows-clickable
                  @row-click="(row) => navigateTo(`/vulnerabilities/${row.cve_id}`)">
         <template #cve_id-data="{ row }"><span class="font-mono text-xs text-primary">{{ row.cve_id }}</span></template>
-        <template #cvss_v3_score-data="{ row }">{{ row.cvss_v3_score ?? '—' }}</template>
+        <template #cvss_v3_score-data="{ row }"><span class="font-mono text-xs">{{ row.cvss_v3_score ?? '—' }}</span></template>
         <template #cvss_v3_severity-data="{ row }">
           <Badge v-if="row.cvss_v3_severity" :color="SEVERITY_COLORS[String(row.cvss_v3_severity)] ?? 'gray'" size="xs">{{ row.cvss_v3_severity }}</Badge>
           <span v-else class="text-muted-foreground text-xs">—</span>
         </template>
+        <template #affected_count-data="{ row }"><span class="font-mono text-xs">{{ row.affected_count }}</span></template>
         <template #published_date-data="{ row }">
           <span class="font-mono text-xs">{{ row.published_date ? new Date(String(row.published_date)).toLocaleDateString() : '—' }}</span>
         </template>

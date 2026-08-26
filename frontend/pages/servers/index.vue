@@ -130,7 +130,7 @@ async function saveNewEntity() {
 
 <template>
   <div>
-    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+    <PageHeader>
       <div class="flex flex-wrap items-center gap-3">
         <div class="relative w-56">
           <Search class="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
@@ -160,7 +160,7 @@ async function saveNewEntity() {
       </div>
       <Badge v-if="selectedIds.length" color="green">{{ selectedIds.length }} selected</Badge>
       <Badge color="gray">{{ filteredServers.length }} servers</Badge>
-    </div>
+    </PageHeader>
 
     <DataTable
       :rows="filteredServers"
@@ -209,6 +209,7 @@ async function saveNewEntity() {
             size="xs"
             variant="ghost"
             class="text-muted-foreground"
+            aria-label="Edit server"
             @click.stop="editingServer = row as typeof servers.value[0]"
           >
             <Pencil class="size-3.5" />

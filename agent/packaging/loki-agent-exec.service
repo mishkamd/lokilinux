@@ -1,0 +1,42 @@
+# LokiLinux Exec Broker — systemd unit (shipped by installer when
+# INSTALL_EXEC_BROKER=1). Root daemon; the ONLY privileged component.
+# The agent core may then run as loki-agent (non-root).
+
+[Unit]
+Description=LokiLinux Agent Execution Broker
+Documentation=https://docs.lokilinux.io/agent-broker
+PartOf=lokilinux-agent.service
+After=lokilinux-agent.service
+
+[Service]
+Type=simple
+User=root
+ExecStart=/usr/local/bin/loki-agent-exec --socket /run/lokilinux/exec.sock --agent-user loki-agent
+Restart=always
+RestartSec=5
+
+# Network isolation: unix socket only, no inbound/outbound IP at all.
+RestrictAddressFamilies=AF_UNIX
+IPAddressDeny=any
+
+# Filesystem: needs /run/lokilinux for the socket and /var/lib/lokilinux for
+# job output staging; everything else read-only.
+ProtectSystem=strict
+ReadWritePaths=/run/lokilinux /var/lib/lokilinux
+ProtectHome=true
+PrivateTmp=true
+
+# Broker must spawn transient root units itself — NoNewPrivileges stays OFF
+# here deliberately (documented in EXECUTION_MODEL.md); everything else is
+# still hardened.
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+SystemCallArchitectures=native
+UMask=0027
+TasksMax=64
+
+[Install]
+WantedBy=multi-user.target

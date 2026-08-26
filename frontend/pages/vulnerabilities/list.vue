@@ -40,7 +40,7 @@ const SEVERITY_COLORS: Record<string, string> = {
 // Tailwind needs literal class strings at build time — a `text-${x}` runtime
 // template gets purged. Static lookup instead, same set of colors.
 const SEVERITY_TEXT_CLASS: Record<string, string> = {
-  CRITICAL: 'text-destructive', HIGH: 'text-orange-600 dark:text-orange-400',
+  CRITICAL: 'text-destructive', HIGH: 'text-[var(--severity-high)]',
   MEDIUM: 'text-warning', LOW: 'text-success',
 }
 
@@ -83,7 +83,7 @@ function filterBySeverity(sev: string) {
       </Card>
     </div>
 
-    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+    <PageHeader>
       <div class="flex flex-wrap items-center gap-3">
         <div class="relative w-56">
           <Search class="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
@@ -102,7 +102,7 @@ function filterBySeverity(sev: string) {
         </Button>
       </div>
       <Badge color="gray">{{ cvesTotal }} CVEs</Badge>
-    </div>
+    </PageHeader>
 
     <DataTable :rows="cves" :columns="columns" :loading="cvesLoading" rows-clickable
                @row-click="(row) => navigateTo(`/vulnerabilities/${row.cve_id}`)">
@@ -113,7 +113,8 @@ function filterBySeverity(sev: string) {
         <Badge v-if="row.cvss_v3_severity" :color="SEVERITY_COLORS[String(row.cvss_v3_severity)] ?? 'gray'" size="xs">{{ row.cvss_v3_severity }}</Badge>
         <span v-else class="text-muted-foreground">—</span>
       </template>
-      <template #cvss_v3_score-data="{ row }">{{ row.cvss_v3_score ?? '—' }}</template>
+      <template #cvss_v3_score-data="{ row }"><span class="font-mono">{{ row.cvss_v3_score ?? '—' }}</span></template>
+      <template #affected_count-data="{ row }"><span class="font-mono">{{ row.affected_count }}</span></template>
       <template #is_actively_exploited-data="{ row }">
         <Badge v-if="row.is_actively_exploited" color="red" size="xs">Yes</Badge>
         <span v-else class="text-muted-foreground text-sm">No</span>

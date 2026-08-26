@@ -120,6 +120,51 @@ class RedisCache:
         except Exception as exc:
             logger.warning("cache.invalidate_pattern_error", pattern=pattern, error=str(exc))
 
+    # ── Set operations (certificate revocation, membership checks) ────────────
+    # Unlike the helpers above, these PROPAGATE errors: revocation semantics
+    # need to distinguish "not a member" from "redis unreachable" (fail-closed).
+
+    async def sadd(self, key: str, member: str) -> int:
+        return int(await self._client.sadd(key, member))  # type: ignore[union-attr]
+
+    async def srem(self, key: str, member: str) -> int:
+        return int(await self._client.srem(key, member))  # type: ignore[union-attr]
+
+    async def sismember(self, key: str, member: str) -> bool:
+        return bool(await self._client.sismember(key, member))  # type: ignore[union-attr]
+
+    async def smembers(self, key: str) -> set:
+        return set(await self._client.smembers(key))  # type: ignore[union-attr]
+
+    # ── Sorted-set + lock operations (correlation windows, Phase C) ──────────
+
+    async def zadd(self, key: str, member: str, score: float) -> None:
+        try:
+            await self._client.zadd(key, {member: score})  # type: ignore[union-attr]
+        except Exception as exc:
+            logger.warning("cache.zadd_error", key=key, error=str(exc))
+
+    async def zrangebyscore(self, key: str, min_score: float, max_score: float) -> list:
+        try:
+            return list(await self._client.zrangebyscore(key, min_score, max_score))  # type: ignore[union-attr]
+        except Exception as exc:
+            logger.warning("cache.zrangebyscore_error", key=key, error=str(exc))
+            return []
+
+    async def expire(self, key: str, ttl: int) -> None:
+        try:
+            await self._client.expire(key, ttl)  # type: ignore[union-attr]
+        except Exception as exc:
+            logger.warning("cache.expire_error", key=key, error=str(exc))
+
+    async def set_nx(self, key: str, ttl: int) -> bool:
+        """SETNX + EXPIRE in one shot — True if the lock was newly acquired."""
+        try:
+            return bool(await self._client.set(key, "1", nx=True, ex=ttl))  # type: ignore[union-attr]
+        except Exception as exc:
+            logger.warning("cache.set_nx_error", key=key, error=str(exc))
+            return False
+
     # ── Domain-level invalidation helpers ────────────────────────────────────
 
     async def invalidate_agent(self, agent_id: str) -> None:

@@ -3,7 +3,7 @@ arch: ${ARCH}
 platform: linux
 version: ${VERSION}
 maintainer: LokiLinux Team <ops@lokilinux.io>
-description: LokiLinux enterprise Linux fleet management agent
+description: LokiLinux — enterprise Linux operations agent
 vendor: LokiLinux
 homepage: https://lokilinux.io
 license: Apache-2.0
@@ -11,6 +11,11 @@ license: Apache-2.0
 contents:
   - src: bin/lokilinux-agent-nfpm-src
     dst: /usr/local/bin/lokilinux-agent
+    file_info:
+      mode: 0755
+
+  - src: bin/loki-agent-exec
+    dst: /usr/local/bin/loki-agent-exec
     file_info:
       mode: 0755
 

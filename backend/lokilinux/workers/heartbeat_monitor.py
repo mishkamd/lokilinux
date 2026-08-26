@@ -17,6 +17,7 @@ from datetime import datetime, timedelta, timezone
 import structlog
 from sqlalchemy import select
 
+from lokilinux.events.publish import emit, is_pipeline_enabled
 from lokilinux.models.agent import Agent, AgentStatus
 from lokilinux.nats_topics import AGENT_UNHEALTHY
 from lokilinux.services.agent_service import AgentService
@@ -65,6 +66,7 @@ class HeartbeatMonitorWorker:
                 return
 
             svc = AgentService(db, self.cache)
+            pipeline_enabled = await is_pipeline_enabled(self.cache, db)
             for agent in stale:
                 await svc.mark_inactive(agent.id)
                 logger.info("agent.marked_inactive", agent_id=str(agent.id), last_heartbeat=str(agent.last_heartbeat))
@@ -75,3 +77,5 @@ class HeartbeatMonitorWorker:
                     )
                 except Exception:
                     logger.warning("heartbeat_monitor.nats_publish_failed", agent_id=str(agent.id), exc_info=True)
+                if pipeline_enabled:
+                    await emit(self.nats, "agent", "host.unreachable", severity="CRITICAL", host_id=str(agent.id))

@@ -277,7 +277,7 @@ import {
   FileText, Puzzle, BellDot, Bell, Users, Settings, UserCircle, LogOut, Search, Menu, X,
   PanelLeft, PanelLeftClose, Bot, Layers, FolderKanban, ShieldCheck,
   BookCheck, ListChecks, GitCompare, Wrench, FileSearch, FileChartColumn, ShieldOff, CircleHelp,
-  Workflow,
+  Workflow, Siren, RadioTower, Activity, Network, GitMerge, PlayCircle,
 } from 'lucide-vue-next'
 import { Toaster } from 'vue-sonner'
 
@@ -352,7 +352,7 @@ const navSections = computed((): { title: string; links: NavLink[] }[] => [
   {
     title: 'Infrastructure',
     links: [
-      { to: '/',                label: 'Dashboard',       icon: LayoutDashboard },
+      { to: '/',                label: 'Overview',        icon: LayoutDashboard },
       { to: '/servers',         label: 'Servers',         icon: Server },
       { to: '/agents',          label: 'Agents',          icon: Cpu },
       { to: '/jobs',            label: 'Jobs',            icon: ClipboardList },
@@ -361,7 +361,7 @@ const navSections = computed((): { title: string; links: NavLink[] }[] => [
     ],
   },
   {
-    title: 'Automation Engine',
+    title: 'Automation',
     links: [
       { to: '/workflows', label: 'Workflows', icon: Workflow },
       { to: '/policies', label: 'Policies', icon: FileText },
@@ -400,6 +400,12 @@ const navSections = computed((): { title: string; links: NavLink[] }[] => [
     title: 'Observability',
     links: [
       { to: '/alerts', label: 'Alerts', icon: BellDot },
+      { to: '/incidents', label: 'Incidents', icon: Siren },
+      { to: '/signals', label: 'Signals', icon: RadioTower },
+      { to: '/events', label: 'Events', icon: Activity },
+      { to: '/topology', label: 'Topology', icon: Network },
+      { to: '/correlation', label: 'Correlation', icon: GitMerge },
+      { to: '/runbooks', label: 'Runbooks', icon: PlayCircle },
     ],
   },
 ])

@@ -138,8 +138,8 @@ async function openHistory(template: PlaybookTemplate) {
 
 <template>
   <div>
-    <div class="flex items-center justify-between mb-4">
-      <div class="flex items-center gap-3">
+    <PageHeader>
+      <div class="flex flex-wrap items-center gap-3">
         <Button variant="outline" @click="store.fetchTemplates()">
           <RefreshCw class="size-4" />
           Refresh
@@ -150,7 +150,7 @@ async function openHistory(template: PlaybookTemplate) {
         <Plus class="size-4" />
         New Job Template
       </Button>
-    </div>
+    </PageHeader>
 
     <Alert
       color="blue"
@@ -171,16 +171,16 @@ async function openHistory(template: PlaybookTemplate) {
       </template>
       <template #actions-data="{ row }">
         <div class="flex items-center justify-end gap-1">
-          <Button size="xs" variant="ghost" class="text-green-600" :loading="launching === (row as PlaybookTemplate).id" @click="launch(row as PlaybookTemplate)">
+          <Button size="xs" variant="ghost" class="text-success" aria-label="Launch template" :loading="launching === (row as PlaybookTemplate).id" @click="launch(row as PlaybookTemplate)">
             <Play class="size-3.5" />
           </Button>
-          <Button size="xs" variant="ghost" class="text-muted-foreground" @click="openHistory(row as PlaybookTemplate)">
+          <Button size="xs" variant="ghost" class="text-muted-foreground" aria-label="View history" @click="openHistory(row as PlaybookTemplate)">
             <History class="size-3.5" />
           </Button>
-          <Button v-if="canEdit" size="xs" variant="ghost" class="text-muted-foreground" @click="openEdit(row as PlaybookTemplate)">
+          <Button v-if="canEdit" size="xs" variant="ghost" class="text-muted-foreground" aria-label="Edit template" @click="openEdit(row as PlaybookTemplate)">
             <Pencil class="size-3.5" />
           </Button>
-          <Button v-if="canEdit" size="xs" variant="ghost" class="text-muted-foreground" @click="deletingTemplate = row as PlaybookTemplate">
+          <Button v-if="canEdit" size="xs" variant="ghost" class="text-muted-foreground" aria-label="Delete template" @click="deletingTemplate = row as PlaybookTemplate">
             <Trash2 class="size-3.5" />
           </Button>
         </div>
@@ -236,7 +236,7 @@ async function openHistory(template: PlaybookTemplate) {
       <div v-if="historyTemplate" class="p-6 space-y-4 pt-12">
         <h2 class="text-lg font-bold">{{ historyTemplate.name }} — history</h2>
         <p v-if="historyLoading" class="text-sm text-muted-foreground">Loading…</p>
-        <p v-else-if="!history.length" class="text-sm text-muted-foreground">No launches yet.</p>
+        <EmptyState v-else-if="!history.length">No launches yet.</EmptyState>
         <div v-else class="space-y-1">
           <div v-for="job in history" :key="job.id" class="rounded border border-border p-2 text-sm flex items-center gap-2">
             <Badge :color="statusColor(String(job.status))" size="xs">{{ job.status }}</Badge>

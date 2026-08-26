@@ -91,14 +91,28 @@ async function saveConfig() {
 }
 
 const tokenLabel = ref('')
-const enrollResult = ref<{ token: string; install_command: string } | null>(null)
+interface EnrollResult { token: string; install_command: string; url_source?: 'db' | 'env' }
+const enrollResult = ref<EnrollResult | null>(null)
 const tokenPending = ref(false)
 
 async function generateToken() {
   tokenPending.value = true
   enrollResult.value = null
   try {
-    enrollResult.value = await api.post('/agent/enrollment-token', { label: tokenLabel.value })
+    const res = await api.post<EnrollResult>('/agent/enrollment-token', { label: tokenLabel.value })
+    // url_source=db → admin set Server URL explicitly in Configure URLs — trust it.
+    // Otherwise the backend only knows its env default (often localhost); the live
+    // browser origin is guaranteed reachable from wherever this session works, and
+    // /api/v1/** is same-origin-proxied, so build the command from that instead.
+    if (res.url_source === 'db') {
+      enrollResult.value = res
+    } else {
+      const origin = window.location.origin
+      enrollResult.value = {
+        ...res,
+        install_command: `curl -fsSL ${origin}/api/v1/agent/install.sh | bash -s -- --token=${res.token} --url=${origin}`,
+      }
+    }
   } catch (e: unknown) {
     const err = e as { message?: string }
     toast.add({ title: 'Error', description: err?.message, color: 'red' })
@@ -137,7 +151,7 @@ async function copy(text: string) {
       <Server class="size-4 text-muted-foreground shrink-0" />
       <span class="text-muted-foreground">Server URL:</span>
       <code class="font-mono font-medium flex-1">{{ packages.platform_url }}</code>
-      <Button size="xs" variant="ghost" @click="copy(packages!.platform_url)">
+      <Button size="xs" variant="ghost" aria-label="Copy server URL" @click="copy(packages!.platform_url)">
         <Clipboard class="size-4" />
       </Button>
     </div>
@@ -174,7 +188,7 @@ async function copy(text: string) {
     </div>
 
     <!-- Download cards -->
-    <div v-if="packagesError" class="text-sm text-red-500">Failed to load package URLs.</div>
+    <div v-if="packagesError" class="text-sm text-destructive">Failed to load package URLs.</div>
     <div v-else-if="!packages" class="grid grid-cols-1 md:grid-cols-3 gap-4">
       <Skeleton v-for="i in 3" :key="i" class="h-36 rounded-lg" />
     </div>
@@ -238,7 +252,7 @@ async function copy(text: string) {
             <FormField label="Token">
               <div class="flex gap-2">
                 <Input :model-value="enrollResult.token" readonly class="font-mono text-xs flex-1" />
-                <Button variant="outline" @click="copy(enrollResult.token)">
+                <Button variant="outline" aria-label="Copy token" @click="copy(enrollResult.token)">
                   <Clipboard class="size-4" />
                 </Button>
               </div>
@@ -247,7 +261,7 @@ async function copy(text: string) {
             <FormField label="Install command (run as root on target server)">
               <div class="flex gap-2">
                 <Input :model-value="enrollResult.install_command" readonly class="font-mono text-xs flex-1" />
-                <Button variant="outline" @click="copy(enrollResult.install_command)">
+                <Button variant="outline" aria-label="Copy install command" @click="copy(enrollResult.install_command)">
                   <Clipboard class="size-4" />
                 </Button>
               </div>

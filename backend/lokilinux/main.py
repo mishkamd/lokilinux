@@ -23,6 +23,7 @@ from starlette.responses import JSONResponse
 from lokilinux import __version__
 from lokilinux.api.v1 import router as api_v1_router
 from lokilinux.cache import RedisCache
+from lokilinux.ch import ClickHouseStore
 from lokilinux.config import Settings
 from lokilinux.db import build_engine, build_session_factory
 from lokilinux.middleware.rate_limit import RateLimitMiddleware
@@ -48,6 +49,26 @@ settings = Settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("lokilinux.startup", version=__version__, environment=settings.environment)
+
+    if settings.metrics_enabled:
+        from lokilinux.metrics import start_metrics_server
+
+        start_metrics_server(settings.metrics_port)
+
+    # Production security profile (plan §25): conservative by default —
+    # production demands the full trust model be ON before serving agents.
+    if settings.security_profile == "production":
+        problems = []
+        if not os.environ.get("JOB_SIGNING_REQUIRED", "").lower() in ("1", "true", "yes"):
+            problems.append("JOB_SIGNING_REQUIRED must be true in production")
+        if not settings.certificate_revocation_enabled:
+            problems.append("certificate_revocation_enabled must be true in production")
+        if not settings.certificate_revocation_fail_closed:
+            problems.append("certificate_revocation_fail_closed must be true in production")
+        if os.environ.get("KMS_PROVIDER", "file") == "file" and                 os.environ.get("ALLOW_FILE_KEYS_IN_PRODUCTION", "").lower() not in ("1", "true", "yes"):
+            problems.append("file-based signing keys require ALLOW_FILE_KEYS_IN_PRODUCTION=true (use a KMS provider)")
+        if problems:
+            raise RuntimeError("production security profile violations: " + "; ".join(problems))
 
     # Database
     engine = build_engine(settings.database_url)
@@ -78,10 +99,32 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.cache = cache
     logger.info("cache.ready")
 
+    # ClickHouse — event store (observability pipeline, raw events/signal
+    # occurrences/incident evidence; PostgreSQL never stores these)
+    ch = ClickHouseStore(
+        url=settings.clickhouse_url,
+        user=settings.clickhouse_user,
+        password=settings.clickhouse_password,
+        database=settings.clickhouse_database,
+    )
+    await ch.connect()
+    await ch.ensure_tables(
+        event_retention_days=settings.event_retention_days,
+        signal_occurrence_retention_days=settings.signal_occurrence_retention_days,
+        incident_evidence_retention_days=settings.incident_evidence_retention_days,
+    )
+    app.state.ch = ch
+    logger.info("clickhouse.ready")
+
     # NATS — all topics prefixed lokilinux. (O1)
     nc = await nats.connect(settings.nats_url)
     app.state.nats = nc
     logger.info("nats.ready", url=settings.nats_url)
+
+    # JetStream replay/audit streams for the observability pipeline — plain-core
+    # subscribe stays the delivery path everywhere (see eventbus.py docstring).
+    from lokilinux.eventbus import ensure_streams
+    await ensure_streams(nc)
 
     # Workers — subscribe after NATS is up
     from lokilinux.workers.alert_processor import AlertProcessorWorker
@@ -130,11 +173,34 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from lokilinux.workers.workflow_scheduler import WorkflowSchedulerWorker
     workflow_scheduler_worker = WorkflowSchedulerWorker(session_factory, cache)
     await workflow_scheduler_worker.start()
+    from lokilinux.workers.event_processor import EventProcessorWorker
+    event_processor_worker = EventProcessorWorker(nc, cache, ch)
+    await event_processor_worker.start()
+    from lokilinux.workers.signal_processor import SignalProcessorWorker
+    signal_processor_worker = SignalProcessorWorker(nc, session_factory, cache, ch)
+    await signal_processor_worker.start()
+
+    # Seed the default correlation rule (idempotent, same pattern as the
+    # curated compliance rules above) before CorrelationWorker starts.
+    from lokilinux.correlation.rules import ensure_default_rules
+    async with session_factory() as db:
+        try:
+            await ensure_default_rules(db)
+        except Exception:
+            logger.error("correlation.default_rule_seed_failed", exc_info=True)
+    from lokilinux.workers.correlation_worker import CorrelationWorker
+    correlation_worker = CorrelationWorker(nc, session_factory, cache, ch)
+    await correlation_worker.start()
+    from lokilinux.workers.incident_worker import IncidentWorker
+    incident_worker = IncidentWorker(nc, session_factory, cache, ch)
+    await incident_worker.start()
+
     app.state.workers = [
         job_worker, cve_worker, alert_worker, policy_worker, policy_scheduler_worker, plugin_worker,
         heartbeat_worker, job_timeout_worker, remediation_scheduler_worker, remediation_verification_worker,
         retention_worker, notification_worker, cve_enrichment_worker, workflow_runner_worker,
-        workflow_scheduler_worker,
+        workflow_scheduler_worker, event_processor_worker, signal_processor_worker, correlation_worker,
+        incident_worker,
     ]
     logger.info("workers.ready")
 
@@ -142,6 +208,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     # Shutdown — reverse order
     logger.info("lokilinux.shutdown")
+    await incident_worker.stop()
     await heartbeat_worker.stop()
     await remediation_verification_worker.stop()
     await remediation_scheduler_worker.stop()
@@ -149,7 +216,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await policy_scheduler_worker.stop()
     await retention_worker.stop()
     await cve_enrichment_worker.stop()
+    await event_processor_worker.stop()  # flushes any buffered events to ClickHouse
+    await signal_processor_worker.stop()  # flushes any buffered signal occurrences
     await nc.drain()
+    await ch.disconnect()
     await cache.disconnect()
     await engine.dispose()
 
@@ -159,7 +229,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     title="LokiLinux API",
     version=__version__,
-    description="Enterprise Linux fleet management — backend API",
+    description="Enterprise Linux Operations Platform — unified control plane API",
     lifespan=lifespan,
     docs_url="/docs" if settings.debug else None,
     redoc_url=None,
@@ -221,6 +291,9 @@ async def readiness(request: Request) -> JSONResponse:
 
     if not await request.app.state.cache.ping():
         errors.append("cache: unreachable")
+
+    if not await request.app.state.ch.ping():
+        errors.append("clickhouse: unreachable")
 
     if errors:
         return JSONResponse(status_code=503, content={"status": "not_ready", "errors": errors})

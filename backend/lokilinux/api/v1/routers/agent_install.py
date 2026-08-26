@@ -68,6 +68,16 @@ async def _get_agent_cfg(db: AsyncSession) -> tuple[str, str, str]:
     return base, ver, plat
 
 
+async def _platform_url(db: AsyncSession) -> tuple[str, str]:
+    """(url, sursa) pentru install_command: DB override (UI "Configure URLs") > env."""
+    row = (
+        await db.execute(select(Setting).where(Setting.key == "agent.platform_url"))
+    ).scalar_one_or_none()
+    if row and row.value.strip():
+        return row.value.rstrip("/"), "db"
+    return get_settings().platform_url.rstrip("/"), "env"
+
+
 @router.get("/packages")
 async def get_packages(
     db: AsyncSession = Depends(get_db),
@@ -177,18 +187,20 @@ class EnrollmentTokenRequest(BaseModel):
 async def create_enrollment_token(
     body: EnrollmentTokenRequest = EnrollmentTokenRequest(),
     cache: RedisCache = Depends(get_cache),
+    db: AsyncSession = Depends(get_db),
     _: dict = Depends(require_role("ADMIN", "OPERATOR")),
 ) -> dict:
-    s = get_settings()
+    plat, url_source = await _platform_url(db)
     token = secrets.token_urlsafe(32)
     await cache.set_cached(f"enrollment:{token}", body.label or "active", ttl=_ENROLLMENT_TTL)
     return {
         "token": token,
         "expires_in": _ENROLLMENT_TTL,
         "install_command": (
-            f"curl -fsSL {s.platform_url}/api/v1/agent/install.sh | "
-            f"bash -s -- --token={token} --url={s.platform_url}"
+            f"curl -fsSL {plat}/api/v1/agent/install.sh | "
+            f"bash -s -- --token={token} --url={plat}"
         ),
+        "url_source": url_source,
     }
 
 
@@ -352,7 +364,18 @@ def _verify_reenrollment_proof(cert_pem: str | None, expected_agent_id: str) -> 
         return False
     attrs = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)
     cn = attrs[0].value.strip() if attrs else ""
+    if not (bool(cn) and cn.lower() == expected_agent_id.strip().lower()):
+        return False
+
     return bool(cn) and cn.lower() == expected_agent_id.strip().lower()
+
+
+def _cert_serial_hex(cert_pem: str) -> str | None:
+    """P11 helper: hex serial of a PEM cert, None when unparseable."""
+    try:
+        return format(x509.load_pem_x509_certificate(cert_pem.encode()).serial_number, "x")
+    except Exception:
+        return None
 
 
 def _generate_agent_cert(agent_id: str) -> tuple[str, str, str]:
@@ -429,6 +452,23 @@ async def register_agent(
                     "contact an administrator to decommission the old agent."
                 ),
             )
+
+        # P11: a revoked certificate must not resurrect its identity through
+        # re-enrollment — same fail-closed policy as the heartbeat gate.
+        s = get_settings()
+        serial_hex = _cert_serial_hex(body.existing_cert_pem)
+        try:
+            from lokilinux.services import cert_revocation
+
+            await cert_revocation.assert_not_revoked(
+                cache, serial_hex,
+                enabled=s.certificate_revocation_enabled,
+                fail_closed=s.certificate_revocation_fail_closed,
+            )
+        except cert_revocation.CertificateRevoked:
+            raise HTTPException(status_code=403, detail="certificate revoked")
+        except cert_revocation.RevocationUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
         agent_id = existing.agent_id
         existing.status = AgentStatus.PENDING
         existing.os_distro = body.os_distro

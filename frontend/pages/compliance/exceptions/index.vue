@@ -98,7 +98,7 @@ async function revoke(id: string) {
 
 <template>
   <div>
-    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+    <PageHeader>
       <div class="flex flex-wrap items-center gap-3">
         <Select
           v-model="exceptionFilters.status"
@@ -117,7 +117,7 @@ async function revoke(id: string) {
           <Plus class="size-4" /> New exception
         </Button>
       </div>
-    </div>
+    </PageHeader>
 
     <DataTable :rows="exceptions" :columns="columns" :loading="exceptionsLoading">
       <template #rule_id-data="{ row }">

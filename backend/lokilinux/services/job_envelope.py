@@ -23,6 +23,7 @@ from lokilinux.utils.agent_capability import (
     MIN_AGENT_VERSION_SIGNED_JOBS,
     agent_meets_minimum,
 )
+from lokilinux import metrics
 from lokilinux.services.job_signing import JobSigner
 
 logger = logging.getLogger(__name__)
@@ -73,17 +74,36 @@ def _risk_level(job_type: str) -> str:
     return (_CAPABILITY_REGISTRY.get(job_type) or ("", "HIGH"))[1]
 
 
+def signing_required() -> bool:
+    """True when the deployment demands signed dispatch — envelopes MUST be
+    attachable; an unusable signer then fails closed instead of silently
+    downgrading to unsigned privileged execution."""
+    return os.environ.get("JOB_SIGNING_REQUIRED", "").lower() in ("1", "true", "yes")
+
+
 def _get_signer() -> Optional[JobSigner]:
     """Lazily construct the singleton signer. Returns None while no usable
-    key is provisioned; a later call re-attempts (cheap file stat)."""
+    key is provisioned; a later call re-attempts (cheap file stat).
+    Raises when job_signing_required=True and the key never materializes —
+    no-downgrade guarantee (plan C3)."""
     global _signer_instance, _signer_init_done
     key_path = os.environ.get("JOB_SIGNING_KEY_PATH", "/etc/lokilinux/certs/job_signing.key")
     enabled = os.environ.get("JOB_SIGNING_ENVELOPES", "true").lower() != "false"
-    if not enabled or not os.path.isfile(key_path):
+    if not enabled:
+        if signing_required():
+            raise RuntimeError(
+                "job_signing_required=true but JOB_SIGNING_ENVELOPES disabled — refusing unsigned dispatch"
+            )
+        return None
+    if not os.path.isfile(key_path):
+        if signing_required():
+            raise RuntimeError(
+                f"job_signing_required=true but signing key missing at {key_path} — refusing unsigned dispatch"
+            )
         return None
     if not _signer_init_done:
         try:
-            _signer_instance = JobSigner(key_path)
+            _signer_instance = JobSigner()  # reads JOB_SIGNING_KEY_PATH itself
         except Exception:  # noqa: BLE001 — unusable key must never break dispatch
             logger.exception("job signing key unreadable — envelopes disabled")
         _signer_init_done = True
@@ -96,6 +116,7 @@ def maybe_attach_envelope(job, params: dict, agent_version: Optional[str]) -> di
     try:
         signer = _get_signer()
         if signer is None:
+            metrics.unsigned_privileged_jobs_total.inc()
             return params
         job_type = getattr(job, "job_type", "") or ""
         if job_type not in _CAPABILITY_REGISTRY:

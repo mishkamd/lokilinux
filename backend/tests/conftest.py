@@ -12,6 +12,7 @@ DATABASE_URL is overridden via env var *before* any `lokilinux.*` import, since
 import contextlib
 import os
 import uuid
+from types import SimpleNamespace
 from typing import Any, AsyncIterator
 
 import pytest
@@ -50,7 +51,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from lokilinux.api.v1 import router as api_v1_router
 from lokilinux.auth.dependencies import get_current_user
-from lokilinux.dependencies import get_cache, get_db, get_nats
+from lokilinux.dependencies import get_cache, get_ch, get_db, get_nats
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -83,6 +84,10 @@ class FakeCache:
     async def invalidate(self, key: str) -> None:
         self._store.pop(key, None)
 
+    async def incr(self, key: str, ttl: int) -> int:
+        self._store[key] = int(self._store.get(key, 0)) + 1
+        return self._store[key]
+
     async def invalidate_pattern(self, pattern: str) -> None:
         prefix = pattern.split("*")[0]
         for k in [k for k in self._store if k.startswith(prefix)]:
@@ -105,6 +110,33 @@ class FakeNats:
 
     async def publish(self, subject: str, payload: bytes) -> None:
         self.published.append((subject, payload))
+
+
+class FakeCH:
+    """Stand-in for ClickHouseStore — query() returns whatever a test primed
+    onto queued_rows/queued_columns; insert()/command() just no-op (nothing
+    in the router suite writes to ClickHouse directly)."""
+
+    def __init__(self) -> None:
+        self.queued_rows: list[list[Any]] = []
+        self.queued_columns: list[str] = [
+            "timestamp", "event_id", "tenant", "source", "type", "severity",
+            "host_id", "service", "fingerprint", "schema_version", "payload",
+        ]
+        self.last_query: str | None = None
+        self.last_params: dict[str, Any] | None = None
+        self.inserted: list[tuple[str, list, list]] = []
+
+    async def query(self, sql: str, parameters: dict[str, Any] | None = None) -> SimpleNamespace:
+        self.last_query = sql
+        self.last_params = parameters
+        return SimpleNamespace(result_rows=self.queued_rows, column_names=self.queued_columns)
+
+    async def insert(self, table: str, data: list, column_names: list) -> None:
+        self.inserted.append((table, data, column_names))
+
+    async def ping(self) -> bool:
+        return True
 
 
 @pytest_asyncio.fixture
@@ -136,12 +168,17 @@ def fake_nats() -> FakeNats:
 
 
 @pytest.fixture
+def fake_ch() -> FakeCH:
+    return FakeCH()
+
+
+@pytest.fixture
 def current_user() -> dict[str, Any]:
     return {"id": str(uuid.uuid4()), "role": "ADMIN"}
 
 
 @pytest_asyncio.fixture
-async def client(db_session, fake_cache, fake_nats, current_user) -> AsyncIterator[AsyncClient]:
+async def client(db_session, fake_cache, fake_nats, fake_ch, current_user) -> AsyncIterator[AsyncClient]:
     app = FastAPI()
     app.include_router(api_v1_router, prefix="/api/v1")
 
@@ -163,6 +200,7 @@ async def client(db_session, fake_cache, fake_nats, current_user) -> AsyncIterat
     app.dependency_overrides[get_db] = _get_db
     app.dependency_overrides[get_cache] = lambda: fake_cache
     app.dependency_overrides[get_nats] = lambda: fake_nats
+    app.dependency_overrides[get_ch] = lambda: fake_ch
     app.dependency_overrides[get_current_user] = lambda: current_user
 
     transport = ASGITransport(app=app)

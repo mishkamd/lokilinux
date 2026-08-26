@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"encoding/json"
 	"context"
 	"crypto/sha256"
 	"fmt"
@@ -67,6 +68,18 @@ type PackageManagerModule struct {
 	lastCheck time.Time
 	updates   map[string]updateInfo
 	cves      map[string][]cveRef // package name -> CVEs it's vulnerable to (dnf/yum only)
+
+	// brokerCheck, when set, replaces the local checkXUpdates switch: the
+	// non-root agent core delegates privileged metadata-cache writes to
+	// loki-agent-exec (package.check_updates) instead.
+	brokerCheck func() (map[string]UpdateSnapshot, error)
+}
+
+// SetBrokerUpdateChecker wires the delegated checker (broker mode).
+func (m *PackageManagerModule) SetBrokerUpdateChecker(fn func() (map[string]UpdateSnapshot, error)) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.brokerCheck = fn
 }
 
 func NewPackageManagerModule() *PackageManagerModule { return &PackageManagerModule{} }
@@ -125,6 +138,65 @@ func applyUpdateInfo(pkgs []Package, updates map[string]updateInfo) {
 
 // refreshUpdates returns the cached name->updateInfo map, refreshing it via
 // the package manager's check-for-updates command only once the cache is
+// UpdateSnapshot is the wire form of one update entry.
+type UpdateSnapshot struct {
+	LatestVersion string `json:"latest_version"`
+	Security      bool   `json:"security"`
+}
+
+// UpdateInfoFromSnapshot converts a decoded snapshot back into internal
+// update info (broker client path).
+func UpdateInfoFromSnapshot(snap map[string]UpdateSnapshot) map[string]updateInfo {
+	out := make(map[string]updateInfo, len(snap))
+	for name, u := range snap {
+		out[name] = updateInfo{latestVersion: u.LatestVersion, security: u.Security}
+	}
+	return out
+}
+
+// CheckPackageUpdates runs the platform's update check on demand and returns
+// a JSON-safe snapshot. Exported for the exec broker's read-only
+// package.check_updates operation: when the agent core runs non-root, these
+// checks route through loki-agent-exec because dnf/apt metadata caches need
+// privileged writes.
+func CheckPackageUpdates(ctx context.Context, jobID string) JobResult {
+	start := time.Now()
+	pm := detectPackageManager()
+	var updates map[string]updateInfo
+	var err error
+	switch pm {
+	case "apt":
+		updates, err = checkAptUpdates()
+	case "dnf", "yum":
+		updates, err = checkDnfUpdates(pm)
+	case "zypper":
+		updates, err = checkZypperUpdates()
+	default:
+		return JobResult{JobID: jobID, ExitCode: 1,
+			Error: fmt.Sprintf("unsupported package manager %q", pm), DurationMs: msSince(start)}
+	}
+	if err != nil {
+		return JobResult{JobID: jobID, ExitCode: 1, Error: err.Error(), DurationMs: msSince(start)}
+	}
+	type updateEntry struct {
+		LatestVersion string `json:"latest_version"`
+		Security      bool   `json:"security"`
+	}
+	snapshot := make(map[string]updateEntry, len(updates))
+	for name, info := range updates {
+		snapshot[name] = updateEntry{LatestVersion: info.latestVersion, Security: info.security}
+	}
+	out := struct {
+		PackageManager string                    `json:"package_manager"`
+		Updates        map[string]updateEntry    `json:"updates"`
+	}{pm, snapshot}
+	b, jerr := json.Marshal(out)
+	if jerr != nil {
+		return JobResult{JobID: jobID, ExitCode: 1, Error: jerr.Error(), DurationMs: msSince(start)}
+	}
+	return JobResult{JobID: jobID, ExitCode: 0, Stdout: string(b), DurationMs: msSince(start)}
+}
+
 // older than updateCheckInterval.
 func (m *PackageManagerModule) refreshUpdates(pm string) map[string]updateInfo {
 	m.mu.Lock()
@@ -136,15 +208,21 @@ func (m *PackageManagerModule) refreshUpdates(pm string) map[string]updateInfo {
 
 	var updates map[string]updateInfo
 	var err error
-	switch pm {
-	case "apt":
-		updates, err = checkAptUpdates()
-	case "dnf", "yum":
-		updates, err = checkDnfUpdates(pm)
-	case "zypper":
-		updates, err = checkZypperUpdates()
-	default:
-		updates = map[string]updateInfo{}
+	if m.brokerCheck != nil {
+		snap, cerr := m.brokerCheck()
+		updates = UpdateInfoFromSnapshot(snap)
+		err = cerr
+	} else {
+		switch pm {
+		case "apt":
+			updates, err = checkAptUpdates()
+		case "dnf", "yum":
+			updates, err = checkDnfUpdates(pm)
+		case "zypper":
+			updates, err = checkZypperUpdates()
+		default:
+			updates = map[string]updateInfo{}
+		}
 	}
 	if err != nil {
 		// Non-fatal: installed-package inventory is still useful without

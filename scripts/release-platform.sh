@@ -54,6 +54,13 @@ edit() { # file prefix
   fi
 }
 
+if $DRY_RUN; then
+  echo "  [dry-run] would write VERSION=$NEW"
+else
+  echo "$NEW" > VERSION
+  echo "  wrote VERSION=$NEW"
+fi
+
 edit backend/pyproject.toml 'version = "'
 edit backend/lokilinux/__init__.py '__version__ = "'
 if command -v npm >/dev/null 2>&1; then

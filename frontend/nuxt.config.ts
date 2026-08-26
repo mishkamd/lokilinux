@@ -15,7 +15,7 @@ export default defineNuxtConfig({
         { name: 'color-scheme', content: 'dark light' },
         {
           name: 'description',
-          content: 'Enterprise Linux fleet management — patch management, vulnerability scanning, compliance automation, and remediation at scale.',
+          content: 'Enterprise Linux Operations Platform — operate Linux infrastructure at scale through a unified control plane for fleet management, automation, security, PKI/KMS, observability, and AI-assisted operations.',
         },
         // Every route sits behind auth (server/middleware/auth.ts) — there's
         // no public content here for a search engine to rank, and indexing

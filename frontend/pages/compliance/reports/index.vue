@@ -95,7 +95,7 @@ async function downloadReport(id: string, format: ReportFormat) {
 
 <template>
   <div>
-    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+    <PageHeader>
       <Button variant="outline" @click="store.fetchReports()">
         <RefreshCw class="size-4" /> Refresh
       </Button>
@@ -105,7 +105,7 @@ async function downloadReport(id: string, format: ReportFormat) {
           <Plus class="size-4" /> Generate report
         </Button>
       </div>
-    </div>
+    </PageHeader>
 
     <DataTable :rows="reports" :columns="columns" :loading="reportsLoading">
       <template #report_type-data="{ row }">

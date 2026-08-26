@@ -18,13 +18,14 @@ RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir \
     fastapi==0.138.1 uvicorn[standard]==0.49.0 \
     sqlalchemy[asyncio]==2.0.51 psycopg[async,binary]==3.3.4 alembic==1.18.5 \
-    redis[hiredis]==8.0.1 nats-py==2.15.0 \
+    redis[hiredis]==8.0.1 nats-py==2.15.0 clickhouse-connect==1.7.2 \
+    opentelemetry-proto==1.44.0 \
     grpcio==1.81.1 protobuf==6.33.5 \
     pydantic==2.13.4 pydantic-settings==2.14.2 \
     structlog==26.1.0 orjson==3.11.9 httpx==0.28.1 python-multipart==0.0.32 \
     PyJWT[cryptography]==2.13.0 cryptography==50.0.0 \
     openpyxl==3.1.5 reportlab==5.0.0 \
-    croniter==6.2.4 && \
+    croniter==6.2.4 prometheus-client==0.21.1 && \
     # Transitive-dep security fixes, forced AFTER main install so the
     # resolver cannot downgrade them back:
     # setuptools CVE-2025-47273, wheel CVE-2026-24049, jaraco.context

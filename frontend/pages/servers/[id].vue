@@ -1,5 +1,4 @@
 <script setup lang="ts">
-import { ArrowLeft } from 'lucide-vue-next'
 import { ACTIVE_STATUSES } from '~/stores/jobs'
 
 const route = useRoute()
@@ -206,13 +205,11 @@ const VULN_FILTER_OPTIONS = [
 
 <template>
   <div v-if="server">
-    <div class="flex items-center gap-3 mb-4">
-      <Button to="/servers" variant="ghost" size="sm">
-        <ArrowLeft class="size-4" />
-      </Button>
-      <h1 class="text-lg font-semibold tracking-tight">{{ server.hostname }}</h1>
-      <Badge :color="statusColor(String(server.status))">{{ server.status }}</Badge>
-    </div>
+    <PageHeader :title="server.hostname" :back="{ to: '/servers', label: 'Back to servers' }">
+      <template #badges>
+        <Badge :color="statusColor(String(server.status))">{{ server.status }}</Badge>
+      </template>
+    </PageHeader>
 
     <AppTabs :items="tabs" @change="onTabChange">
       <template #overview>
@@ -269,7 +266,7 @@ const VULN_FILTER_OPTIONS = [
                 {{ formatBytes(row.used_size) }} / {{ formatBytes(row.total_size) }}
               </template>
               <template #percent-data="{ row }">
-                <span :style="{ color: diskPercent(row) > 90 ? 'var(--destructive)' : 'inherit' }">
+                <span class="tabular-nums" :style="{ color: diskPercent(row) > 90 ? 'var(--destructive)' : 'inherit' }">
                   {{ diskPercent(row) }}%
                 </span>
               </template>
@@ -358,7 +355,7 @@ const VULN_FILTER_OPTIONS = [
               <span v-else class="text-muted-foreground text-xs">—</span>
             </template>
             <template #cvss_score-data="{ row }">
-              {{ row.cvss_score ?? '—' }}
+              <span class="tabular-nums">{{ row.cvss_score ?? '—' }}</span>
             </template>
             <template #fix_available-data="{ row }">
               <Badge v-if="row.fix_available" color="green" size="xs">yes</Badge>

@@ -2,7 +2,7 @@
 
 > Documentație generată din cod la commit `77c4220` (v0.3.0), august 2026.
 
-LokiLinux este o platformă enterprise de management al flotelor Linux: patch management centralizat, scanare vulnerabilități, compliance & drift management și remediere automată, dimensionată pentru 10K–100K+ servere.
+LokiLinux este o platformă enterprise de operațiuni pentru infrastructură Linux: managementul flotelor, patch management centralizat, scanare vulnerabilități, compliance & drift management și remediere automată, dimensionată pentru 10K–100K+ servere.
 
 ## Modulele aplicației
 

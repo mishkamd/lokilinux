@@ -10,6 +10,7 @@ from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.cache import RedisCache
+from lokilinux.ch import ClickHouseStore
 
 
 async def get_db(request: Request) -> AsyncGenerator[AsyncSession, None]:
@@ -29,3 +30,7 @@ async def get_cache(request: Request) -> RedisCache:
 
 async def get_nats(request: Request):  # type: ignore[return]
     return request.app.state.nats
+
+
+async def get_ch(request: Request) -> ClickHouseStore:
+    return request.app.state.ch

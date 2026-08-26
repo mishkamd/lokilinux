@@ -79,13 +79,13 @@ async function runAction(action: 'submit' | 'approve' | 'publish' | 'rollback', 
 
 <template>
   <div v-if="selectedBaseline">
-    <div class="flex items-center justify-between mb-4">
-      <div>
-        <h2 class="text-lg font-semibold">{{ selectedBaseline.name }}</h2>
-        <p class="text-sm text-muted-foreground">{{ selectedBaseline.description || 'No description' }}</p>
-      </div>
-      <Badge color="gray">{{ selectedBaseline.scope_type }}</Badge>
-    </div>
+    <PageHeader
+      :title="selectedBaseline.name"
+      :description="selectedBaseline.description || 'No description'"
+      :back="{ to: '/compliance/baselines', label: 'Back to baselines' }"
+    >
+      <template #badges><Badge color="gray">{{ selectedBaseline.scope_type }}</Badge></template>
+    </PageHeader>
 
     <AppTabs :items="tabs">
       <template #versions>
@@ -126,7 +126,7 @@ async function runAction(action: 'submit' | 'approve' | 'publish' | 'rollback', 
               </div>
             </div>
           </Card>
-          <p v-if="versions.length === 0" class="text-sm text-muted-foreground text-center py-6">No versions yet.</p>
+          <EmptyState v-if="versions.length === 0">No versions yet.</EmptyState>
         </div>
       </template>
 

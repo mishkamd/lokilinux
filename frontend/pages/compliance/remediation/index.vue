@@ -142,7 +142,7 @@ async function submitWindow() {
 
 <template>
   <div>
-    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+    <PageHeader>
       <div class="flex flex-wrap items-center gap-3">
         <Select v-model="remediationFilters.status" :options="['', ...STATUSES]" placeholder="Status" class="w-48"
                 @change="store.fetchRemediationPlans()" />
@@ -159,7 +159,7 @@ async function submitWindow() {
           <Plus class="size-4" /> New plan
         </Button>
       </div>
-    </div>
+    </PageHeader>
 
     <Alert v-if="remediationError" color="red" class="mb-4">{{ remediationError }}</Alert>
 

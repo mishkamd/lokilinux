@@ -44,7 +44,7 @@ async function onSubmit() {
   <div class="p-6 space-y-6">
     <div class="text-center">
       <h2 class="text-lg font-semibold tracking-tight">Autentificare</h2>
-      <p class="text-sm text-muted-foreground mt-1">Fleet Management Platform</p>
+      <p class="text-sm text-muted-foreground mt-1">Secure. Automate. Operate.</p>
     </div>
 
     <form class="space-y-4" @submit.prevent="onSubmit">

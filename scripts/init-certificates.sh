@@ -10,6 +10,20 @@ VALIDITY_DAYS="${3:-365}"
 
 mkdir -p "$CERTS_DIR"
 
+# ── CA rotation support (plan P11/CA) ─────────────────────────────────────────
+# rotate-ca.sh needs a dual-trust bundle: CA_old + CA_new concatenated. When a
+# second CA exists (ca-new.crt) refresh the bundle; single-CA installs get one
+# built from ca.crt alone so agents can always consume ca-bundle.crt.
+if [ -f "$CERTS_DIR/ca.crt" ]; then   # fresh dir: CA generation below builds it
+  if [ -f "$CERTS_DIR/ca-new.crt" ]; then
+    cat "$CERTS_DIR/ca.crt" "$CERTS_DIR/ca-new.crt" > "$CERTS_DIR/ca-bundle.crt"
+  else
+    cp "$CERTS_DIR/ca.crt" "$CERTS_DIR/ca-bundle.crt"
+  fi
+  chmod 644 "$CERTS_DIR/ca-bundle.crt" 2>/dev/null || true
+fi
+
+
 # Idempotent: regenerating the CA would break trust for every already-enrolled
 # agent. Skip if certs exist; pass FORCE=1 to deliberately regenerate.
 if [ -f "$CERTS_DIR/ca.crt" ] && [ "${FORCE:-0}" != "1" ]; then

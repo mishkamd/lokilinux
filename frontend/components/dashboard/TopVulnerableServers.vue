@@ -30,7 +30,7 @@ function worstSeverity(r: TopVulnerableResource): { label: string; color: string
       </NuxtLink>
     </div>
 
-    <div v-if="props.error" class="text-xs text-red-500 py-4 text-center">
+    <div v-if="props.error" class="text-xs text-destructive py-4 text-center">
       Failed to load vulnerable servers.
     </div>
     <div v-else-if="props.loading" class="space-y-3">

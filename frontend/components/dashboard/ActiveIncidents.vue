@@ -46,7 +46,7 @@ function duration(triggeredAt: string): string {
       </NuxtLink>
     </div>
 
-    <div v-if="props.error" class="text-xs text-red-500 py-4 text-center">
+    <div v-if="props.error" class="text-xs text-destructive py-4 text-center">
       Failed to load active incidents.
     </div>
     <div v-else-if="props.loading" class="space-y-2">

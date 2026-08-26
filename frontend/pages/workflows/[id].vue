@@ -214,7 +214,7 @@ async function onSaveSchedule() {
 <template>
   <div class="relative -m-3 sm:-m-4 flex h-[calc(100vh-4rem)] flex-col overflow-hidden">
     <div class="flex shrink-0 items-center gap-3 border-b border-border bg-card px-3 py-2 sm:px-4">
-      <NuxtLink to="/workflows" class="flex items-center justify-center rounded-lg p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors">
+      <NuxtLink to="/workflows" aria-label="Back to workflows" class="flex items-center justify-center rounded-lg p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors">
         <ArrowLeft class="size-4" />
       </NuxtLink>
       <div class="min-w-0 flex-1">

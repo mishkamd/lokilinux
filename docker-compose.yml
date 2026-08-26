@@ -12,7 +12,7 @@
 #
 # Network map:
 #   data-net  (internal) : postgres <-> pgbouncer (+ frontend direct DB access)
-#   app-net   (internal) : pgbouncer / nats / redis <-> api / grpc / compliance
+#   app-net   (internal) : pgbouncer / nats / redis / clickhouse <-> api / grpc / compliance
 #   web-net   (internal) : api <-> frontend
 #   gateway-net          : api / grpc / frontend — required for host port
 #                          publishing (internal networks cannot publish ports)
@@ -174,6 +174,40 @@ services:
           memory: 2G
 
   # ============================================================================
+  # EVENT STORE — ClickHouse (raw events, signal occurrences, incident evidence)
+  # ============================================================================
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.8
+    container_name: lokilinux-clickhouse
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_DB: ${CLICKHOUSE_DATABASE:-lokilinux}
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - clickhouse_data:/var/lib/clickhouse
+    networks:
+      - app-net
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus: "2"
+          memory: 2G
+
+  # ============================================================================
   # MIGRATION — rulează alembic upgrade head la fiecare deploy
   # ============================================================================
 
@@ -227,6 +261,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      clickhouse:
+        condition: service_healthy
       lokilinux-migrate:
         condition: service_completed_successfully
     environment:
@@ -234,6 +270,13 @@ services:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pgbouncer:5432/${POSTGRES_DB}
       NATS_URL: nats://${NATS_USER}:${NATS_PASSWORD}@nats:4222
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
+      CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-lokilinux}
+      EVENT_RETENTION_DAYS: ${EVENT_RETENTION_DAYS:-30}
+      SIGNAL_OCCURRENCE_RETENTION_DAYS: ${SIGNAL_OCCURRENCE_RETENTION_DAYS:-90}
+      INCIDENT_EVIDENCE_RETENTION_DAYS: ${INCIDENT_EVIDENCE_RETENTION_DAYS:-180}
       BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
       # Internal fallback: FastAPI fetches JWKS at {BETTER_AUTH_URL}/api/auth/jwks
       # from inside this container, where "localhost" would point at itself,
@@ -250,7 +293,7 @@ services:
       PLATFORM_URL: ${PUBLIC_URL:-http://localhost:3000}
       FRONTEND_URL: ${PUBLIC_URL:-http://localhost:3000}
       AGENT_DOWNLOAD_BASE: ${AGENT_DOWNLOAD_BASE:-}
-      AGENT_VERSION: ${AGENT_VERSION:-0.35.3}
+      AGENT_VERSION: ${AGENT_VERSION:-0.37.0}
     ports:
       - "8000:8000"
       - "9090:9090"
@@ -312,7 +355,13 @@ services:
       CA_KEY_PATH: /etc/lokilinux/certs/ca.key
       SERVER_CERT_PATH: /etc/lokilinux/certs/server.crt
       SERVER_KEY_PATH: /etc/lokilinux/certs/server.key
+      # Required by Settings (Better Auth hardening) — without these the gRPC
+      # servicer 500s every heartbeat with a Settings ValidationError.
+      BETTER_AUTH_URL: ${BETTER_AUTH_INTERNAL_URL:-http://lokilinux-frontend:3000}
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      METRICS_ENABLED: "true"
+      METRICS_PORT: "9091"
     command: ["python", "-m", "lokilinux.grpc_server"]
     ports:
       - "50051:50051"
@@ -484,6 +533,8 @@ volumes:
     name: lokilinux-nats-data
   redis_data:
     name: lokilinux-redis-data
+  clickhouse_data:
+    name: lokilinux-clickhouse-data
   plugins_dir:
     name: lokilinux-plugins
   certs_dir:

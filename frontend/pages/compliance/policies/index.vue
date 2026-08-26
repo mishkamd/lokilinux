@@ -73,7 +73,7 @@ async function submitImport() {
 
 <template>
   <div>
-    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+    <PageHeader>
       <Button variant="outline" @click="store.fetchPolicySets()">
         <RefreshCw class="size-4" /> Refresh
       </Button>
@@ -86,7 +86,7 @@ async function submitImport() {
           <Plus class="size-4" /> New policy set
         </Button>
       </div>
-    </div>
+    </PageHeader>
 
     <DataTable :rows="policySets" :columns="columns" :loading="policySetsLoading" rows-clickable
                @row-click="(row) => navigateTo(`/compliance/policies/${row.id}`)">

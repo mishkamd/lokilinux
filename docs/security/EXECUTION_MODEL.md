@@ -51,3 +51,21 @@ Proprietățile devin `-p` args pe unitatea tranzientă (`systemd_run.go`). Time
 ## Privilege bridge — decizie documentată
 
 Unitățile tranziente moștenesc userul serviciului agent (astăzi root). Trecerea la core non-root FĂRĂ broker ar necesita polkit deschis pe manage-units (= orice proces loki-agent ar putea spawn-ui root units, golind separarea). Decizie: broker dedicat `loki-agent-exec` (socket Unix + peer creds + schema strictă) = Faza 2; userul `loki-agent` e provisionat din instalatoare pentru adoptare fără reinstalare.
+
+
+## Rollout checklist (operational)
+
+1. **Backend deploy** — noua imagine servește cheia (`/agent/signing-key`), revocarea activă, metrics pe 9090. `JOB_SIGNING_REQUIRED` rămâne false.
+2. **Provisionare cheie** — `init-certificates.sh` generează `job_signing.{key,pub,pub.pem}` în certs dir (volum, ro). Verifică `GET /agent/signing-key`.
+3. **Agent release ≥0.37.0** prin fluxul standard (`bump-version` skill → `release.sh`). Agenții noi primesc envelope-uri; vechiul comportament continuă pentru restul.
+4. **Observație 1–2 săptămâni** — metrics: `unsigned_privileged_jobs_total` scade spre 0 pe măsură ce flota se actualizează.
+5. **Enforcement** — per agent: `security.enforce_signed_jobs: true` în config. `JOB_SIGNING_REQUIRED=true` server-side odată ce toți agenții privilegiali sunt ≥0.37.0.
+6. **Non-root** (după DISTRO_RUNBOOK verde): instalezi brokerul + `AGENT_NON_ROOT=1`. COMPLIANCE_REMEDIATE și package-checks merg prin broker.
+7. **Production profile** — `SECURITY_PROFILE=production` validează toate cele de mai sus la startup.
+
+## Broker security model
+
+- Socket `/run/lokilinux/exec.sock` 0770 root:loki-agent; SO_PEERCRED uid==loki-agent obligatoriu.
+- Schema NDJSON strictă (`request_id`, `operation`, `arguments`, `job_id`) — câmpuri necunoscute respinse.
+- Allowlist operații: `package.check_updates`, `package.update`, `service.control`, `file.manage`, `reboot`, `ansible.run`, `python.exec`, `bash.exec`. Fiecare = executorul existent + SandboxProfile; brokerul nu adaugă semantică de execuție.
+- Limită cunoscută: SO_PEERCRED autentifică UID-ul, nu procesul — un proces compromis ca loki-agent poate vorbi cu brokerul; boundary-ul real rămâne signed-job gate-ul din agent.

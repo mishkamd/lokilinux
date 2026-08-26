@@ -12,6 +12,19 @@ from lokilinux.services.job_signing import JobSigner, verify_fixture
 
 
 @pytest.fixture()
+def key_env(tmp_path, monkeypatch):
+    key = Ed25519PrivateKey.generate()
+    path = tmp_path / "job_signing.key"
+    path.write_bytes(key.private_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PrivateFormat.PKCS8,
+        encryption_algorithm=serialization.NoEncryption(),
+    ))
+    monkeypatch.setenv("JOB_SIGNING_KEY_PATH", str(path))
+    return str(path)
+
+
+@pytest.fixture()
 def key_file(tmp_path):
     key = Ed25519PrivateKey.generate()
     pem = key.private_bytes(
@@ -25,8 +38,8 @@ def key_file(tmp_path):
 
 
 @pytest.fixture()
-def signer(key_file):
-    return JobSigner(key_file)
+def signer(key_env):
+    return JobSigner()
 
 
 def _canonical_unsigned(env: dict) -> bytes:
@@ -73,15 +86,14 @@ def test_raw_seed_key_supported(tmp_path, monkeypatch):
     seed = os.urandom(32)
     p = tmp_path / "raw.key"
     p.write_bytes(seed)
-    s1 = JobSigner(str(p))
-    s2 = JobSigner(str(tmp_path / "missing")) if False else None
+    monkeypatch.setenv("JOB_SIGNING_KEY_PATH", str(p))
+    s1 = JobSigner()
     env = s1.sign("j", "a", "", "SERVICE", {})
     assert len(base64.b64decode(s1.public_key_b64())) == 32
     assert verify_fixture(s1.public_key_b64(), env)
-    del s2
 
 
-def test_rejects_non_ed25519_key(tmp_path):
+def test_rejects_non_ed25519_key(tmp_path, monkeypatch):
     from cryptography.hazmat.primitives.asymmetric import rsa
 
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -92,5 +104,6 @@ def test_rejects_non_ed25519_key(tmp_path):
     )
     p = tmp_path / "rsa.key"
     p.write_bytes(pem)
-    with pytest.raises(ValueError, match="not an Ed25519"):
-        JobSigner(str(p))
+    monkeypatch.setenv("JOB_SIGNING_KEY_PATH", str(p))
+    with pytest.raises(Exception):  # ProviderUnavailable wraps the ValueError
+        JobSigner()
