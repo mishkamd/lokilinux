@@ -313,7 +313,12 @@ class AgentServicer:
                     signed_params = {
                         j.id: maybe_attach_envelope(
                             j, _parameters_for_agent(j, agent.id), agent_version,
-                            agent_id=str(agent.id),
+                            # Envelope must carry the wire identity (Agent.agent_id),
+                            # not the PK — the agent validates envelope.agent_id
+                            # against what it reports in its own heartbeats, and
+                            # the two differ whenever re-enrollment assigned a new
+                            # PK for the same host (rocky: PK 9737…, identity 56c8…).
+                            agent_id=str(agent.agent_id),
                         )
                         for j in pending_jobs
                     }
