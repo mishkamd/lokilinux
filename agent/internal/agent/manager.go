@@ -311,6 +311,7 @@ func (m *Manager) sendHeartbeat(ctx context.Context) {
 		return
 	}
 	m.failCount = 0
+	m.maybeRenewCertificate(ctx)
 
 	if len(results) > 0 {
 		m.resultsMu.Lock()

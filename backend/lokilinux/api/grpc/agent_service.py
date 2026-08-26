@@ -95,6 +95,60 @@ async def unrevoke_agent_identity(cache, agent_id: str) -> None:
     await cache.invalidate(_revoked_key(agent_id))
 
 
+class _AuthGateFailure(Exception):
+    """Carries the grpc status to abort with — raised by _authenticate_agent,
+    caught at each RPC's own call site so it can abort its own context/stream."""
+
+    def __init__(self, code: grpc.StatusCode, detail: str) -> None:
+        self.code = code
+        self.detail = detail
+        super().__init__(detail)
+
+
+async def _authenticate_agent(context, requested_agent_id: str, cache, settings) -> None:
+    """Identity gate shared by every RPC that trusts an agent_id claim
+    (docs/security/SECURITY_AUDIT.md CR-03): binds it to the mTLS client
+    cert CN, and rejects revoked identities/certs. Raises _AuthGateFailure
+    on any failure — never returns a verdict, only succeeds or raises."""
+    cert_cn = _peer_cert_common_name(context)
+    if not cert_cn:
+        logger.warning("auth gate: no peer certificate presented")
+        raise _AuthGateFailure(grpc.StatusCode.UNAUTHENTICATED, "client certificate required")
+    if not requested_agent_id or requested_agent_id.lower() != cert_cn.lower():
+        logger.warning(
+            "auth gate identity mismatch: cert CN=%s requested agent_id=%s",
+            cert_cn, requested_agent_id,
+        )
+        raise _AuthGateFailure(
+            grpc.StatusCode.UNAUTHENTICATED, "certificate does not match agent_id"
+        )
+    if await cache.get_cached(_revoked_key(requested_agent_id)):
+        logger.warning("auth gate: revoked agent %s rejected", requested_agent_id)
+        raise _AuthGateFailure(grpc.StatusCode.PERMISSION_DENIED, "agent revoked")
+
+    # Certificate serial revocation (P11 CRL-lite) — one lookup per call,
+    # keyed by the handshake cert's serial (server-side extraction only).
+    cert_serial = _peer_cert_serial(context)
+    try:
+        await assert_not_revoked(
+            cache,
+            cert_serial,
+            enabled=settings.certificate_revocation_enabled,
+            fail_closed=settings.certificate_revocation_fail_closed,
+        )
+    except CertificateRevoked:
+        logger.warning(
+            "auth gate: revoked certificate %s for agent %s", cert_serial, requested_agent_id,
+        )
+        raise _AuthGateFailure(grpc.StatusCode.PERMISSION_DENIED, "certificate revoked")
+    except RevocationUnavailable:
+        logger.error(
+            "auth gate: revocation store unavailable, fail-closed for agent %s",
+            requested_agent_id,
+        )
+        raise _AuthGateFailure(grpc.StatusCode.UNAVAILABLE, "revocation check unavailable")
+
+
 _REJECT_RE = re.compile(r"rejected \[(\w+)\]")
 
 
@@ -165,62 +219,17 @@ class AgentServicer:
         """Bidirectional stream — one response per heartbeat received."""
         async for request in request_iterator:
             # ── Identity gate (docs/security/SECURITY_AUDIT.md CR-03) ─────────
-            # The wire agent_id is untrusted. Bind it to the mTLS client cert
-            # CN and refuse revoked identities. These aborts happen BEFORE the
-            # try/except below so they propagate as real gRPC statuses instead
+            # The wire agent_id is untrusted. This abort happens BEFORE the
+            # try/except below so it propagates as a real gRPC status instead
             # of being swallowed by the generic error handler.
-            cert_cn = _peer_cert_common_name(context)
-            if not cert_cn:
-                logger.warning("HeartbeatStream: no peer certificate presented")
-                await context.abort(
-                    grpc.StatusCode.UNAUTHENTICATED, "client certificate required"
-                )
-                return
-            requested_id = str(getattr(request, "agent_id", "") or "").strip()
-            if not requested_id or requested_id.lower() != cert_cn.lower():
-                logger.warning(
-                    "HeartbeatStream identity mismatch: cert CN=%s requested agent_id=%s",
-                    cert_cn,
-                    requested_id,
-                )
-                await context.abort(
-                    grpc.StatusCode.UNAUTHENTICATED,
-                    "certificate does not match agent_id",
-                )
-                return
-            if await self.cache.get_cached(_revoked_key(requested_id)):
-                logger.warning("HeartbeatStream: revoked agent %s rejected", requested_id)
-                await context.abort(grpc.StatusCode.PERMISSION_DENIED, "agent revoked")
-                return
-
-            # ── Certificate serial revocation (P11 CRL-lite) ─────────────────
-            # One lookup per connection attempt, keyed by the handshake cert's
-            # serial (server-side extraction — agent input is never trusted
-            # for revocation state). Settings control compat/fail-closed.
             from lokilinux.config import get_settings
 
             _settings = get_settings()
-            cert_serial = _peer_cert_serial(context)
+            requested_id = str(getattr(request, "agent_id", "") or "").strip()
             try:
-                await assert_not_revoked(
-                    self.cache,
-                    cert_serial,
-                    enabled=_settings.certificate_revocation_enabled,
-                    fail_closed=_settings.certificate_revocation_fail_closed,
-                )
-            except CertificateRevoked:
-                logger.warning(
-                    "HeartbeatStream: revoked certificate %s for agent %s",
-                    cert_serial, requested_id,
-                )
-                await context.abort(grpc.StatusCode.PERMISSION_DENIED, "certificate revoked")
-                return
-            except RevocationUnavailable:
-                logger.error(
-                    "HeartbeatStream: revocation store unavailable, fail-closed for agent %s",
-                    requested_id,
-                )
-                await context.abort(grpc.StatusCode.UNAVAILABLE, "revocation check unavailable")
+                await _authenticate_agent(context, requested_id, self.cache, _settings)
+            except _AuthGateFailure as exc:
+                await context.abort(exc.code, exc.detail)
                 return
 
             try:
@@ -375,3 +384,65 @@ class AgentServicer:
                 }
             except Exception:
                 logger.error("HeartbeatStream error", exc_info=True)
+
+    async def RenewCertificate(self, request, context):
+        """Issues a new short-lived cert for a keypair the agent generated
+        locally — the mTLS handshake this RPC rides on is the proof of
+        possession of the CURRENT key; renewal itself proves nothing about
+        the NEW key, it's just a delivery channel authenticated by the old one.
+        """
+        from lokilinux.config import get_settings
+
+        settings = get_settings()
+        requested_id = str(getattr(request, "agent_id", "") or "").strip()
+        try:
+            await _authenticate_agent(context, requested_id, self.cache, settings)
+        except _AuthGateFailure as exc:
+            await context.abort(exc.code, exc.detail)
+            return
+
+        public_key_pem = str(getattr(request, "public_key_pem", "") or "")
+        if not public_key_pem:
+            await context.abort(grpc.StatusCode.INVALID_ARGUMENT, "public_key_pem required")
+            return
+
+        rate_key = f"cert_renewal:last:{requested_id}"
+        if await self.cache.get_cached(rate_key):
+            await context.abort(
+                grpc.StatusCode.RESOURCE_EXHAUSTED, "renewal already issued recently"
+            )
+            return
+
+        from lokilinux.services import ca_signer_client
+
+        try:
+            cert_pem = await ca_signer_client.sign_agent_cert(
+                agent_id=requested_id,
+                public_key_pem=public_key_pem,
+                validity_days=settings.agent_cert_ttl_days,
+            )
+        except ca_signer_client.CASignerError:
+            logger.error("RenewCertificate: signing failed for agent %s", requested_id, exc_info=True)
+            await context.abort(grpc.StatusCode.UNAVAILABLE, "certificate signing unavailable")
+            return
+
+        await self.cache.set_cached(rate_key, True, ttl=3600)
+
+        import os
+
+        ca_cert_path = os.path.join(settings.agent_cert_dir, "ca.crt")
+        with open(ca_cert_path) as f:
+            ca_cert_pem = f.read()
+
+        cert = x509.load_pem_x509_certificate(cert_pem.encode())
+        not_after_unix = int(cert.not_valid_after_utc.timestamp())
+
+        logger.info(
+            "RenewCertificate: issued new cert for agent %s, not_after=%s",
+            requested_id, cert.not_valid_after_utc.isoformat(),
+        )
+        return {
+            "cert_pem": cert_pem,
+            "ca_cert_pem": ca_cert_pem,
+            "not_after_unix": not_after_unix,
+        }

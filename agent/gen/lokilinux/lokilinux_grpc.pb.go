@@ -18,6 +18,8 @@ type AgentServiceClient interface {
 	ReportMetrics(ctx context.Context, opts ...grpc.CallOption) (AgentService_ReportMetricsClient, error)
 	// Agent pulls latest policy configuration.
 	SyncPolicy(ctx context.Context, in *PolicySyncRequest, opts ...grpc.CallOption) (*PolicyConfig, error)
+	// Agent proactively renews its mTLS identity before the current cert expires.
+	RenewCertificate(ctx context.Context, in *RenewCertificateRequest, opts ...grpc.CallOption) (*RenewCertificateResponse, error)
 }
 
 type agentServiceClient struct{ cc grpc.ClientConnInterface }
@@ -99,6 +101,16 @@ func (c *agentServiceClient) ReportMetrics(ctx context.Context, opts ...grpc.Cal
 func (c *agentServiceClient) SyncPolicy(ctx context.Context, in *PolicySyncRequest, opts ...grpc.CallOption) (*PolicyConfig, error) {
 	out := new(PolicyConfig)
 	if err := c.cc.Invoke(ctx, "/lokilinux.AgentService/SyncPolicy", in, out, opts...); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+// ── RenewCertificate (unary) ─────────────────────────────────────────────────
+
+func (c *agentServiceClient) RenewCertificate(ctx context.Context, in *RenewCertificateRequest, opts ...grpc.CallOption) (*RenewCertificateResponse, error) {
+	out := new(RenewCertificateResponse)
+	if err := c.cc.Invoke(ctx, "/lokilinux.AgentService/RenewCertificate", in, out, opts...); err != nil {
 		return nil, err
 	}
 	return out, nil

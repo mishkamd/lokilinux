@@ -33,21 +33,32 @@ mkdir -p logs/{api,frontend} backups
 
 # 4. Docker volumes -------------------------------------------------------
 echo "[*] Creating named volumes..."
-docker volume create lokilinux-postgres-data  2>/dev/null || true
-docker volume create lokilinux-nats-data      2>/dev/null || true
-docker volume create lokilinux-redis-data     2>/dev/null || true
-docker volume create lokilinux-plugins        2>/dev/null || true
-docker volume create lokilinux-certs          2>/dev/null || true
+docker volume create lokilinux-postgres-data     2>/dev/null || true
+docker volume create lokilinux-nats-data         2>/dev/null || true
+docker volume create lokilinux-redis-data        2>/dev/null || true
+docker volume create lokilinux-plugins           2>/dev/null || true
+docker volume create lokilinux-certs             2>/dev/null || true
+docker volume create lokilinux-ca-key            2>/dev/null || true
+docker volume create lokilinux-ca-signer-sock    2>/dev/null || true
 
-# 5. Copy certificates into Docker volume ---------------------------------
+# 5. Copy certificates into Docker volumes ---------------------------------
+# PKI Faza 4: ca.key goes into its OWN volume, mounted only into
+# lokilinux-ca-signer — api/grpc/compliance never see it (see docker-compose.yml).
 echo "[*] Copying certificates into lokilinux-certs volume..."
 # chown to uid/gid 10001 (appuser in the backend image): the API and gRPC
-# services run non-root but must read ca.key/server.key from this volume.
+# services run non-root but must read server.key from this volume.
 docker run --rm \
   -v lokilinux-certs:/certs \
   -v "$(pwd)/.certs":/source:ro \
   alpine:latest \
-  sh -c "cp -r /source/* /certs/ && chown -R 10001:10001 /certs && chmod 600 /certs/*.key && chmod 644 /certs/*.crt"
+  sh -c "cp -r /source/* /certs/ && rm -f /certs/ca.key && chown -R 10001:10001 /certs && chmod 600 /certs/*.key 2>/dev/null; chmod 644 /certs/*.crt"
+
+echo "[*] Copying ca.key into isolated lokilinux-ca-key volume..."
+docker run --rm \
+  -v lokilinux-ca-key:/ca-key \
+  -v "$(pwd)/.certs":/source:ro \
+  alpine:latest \
+  sh -c "cp /source/ca.key /ca-key/ca.key && chown -R 10001:10001 /ca-key && chmod 600 /ca-key/ca.key"
 
 # 6. Build images ---------------------------------------------------------
 echo "[*] Building Docker images..."

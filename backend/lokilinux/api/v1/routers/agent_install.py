@@ -17,9 +17,8 @@ import uuid
 from typing import Annotated
 
 from cryptography import x509
-from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel
@@ -32,6 +31,7 @@ from lokilinux.config import get_settings
 from lokilinux.dependencies import get_cache, get_db
 from lokilinux.models.agent import Agent, AgentStatus
 from lokilinux.models.audit import Setting
+from lokilinux.services import ca_signer_client
 
 router = APIRouter()
 register_router = APIRouter()
@@ -378,50 +378,36 @@ def _cert_serial_hex(cert_pem: str) -> str | None:
         return None
 
 
-def _generate_agent_cert(agent_id: str) -> tuple[str, str, str]:
-    """Generate mTLS cert for agent signed by local CA. Returns (cert_pem, key_pem, ca_pem)."""
+async def _generate_agent_cert(agent_id: str) -> tuple[str, str, str]:
+    """Generate mTLS cert for agent, signed by the isolated ca-signer service
+    (this process never touches ca.key — see services/ca_signer_service.py).
+    Returns (cert_pem, key_pem, ca_pem)."""
     s = get_settings()
     ca_cert_path = os.path.join(s.agent_cert_dir, "ca.crt")
-    ca_key_path = os.path.join(s.agent_cert_dir, "ca.key")
 
-    if not (os.path.exists(ca_cert_path) and os.path.exists(ca_key_path)):
+    if not os.path.exists(ca_cert_path):
         return "", "", ""
 
-    with open(ca_cert_path, "rb") as f:
-        ca_cert = x509.load_pem_x509_certificate(f.read())
-    with open(ca_key_path, "rb") as f:
-        ca_key = serialization.load_pem_private_key(f.read(), password=None)
-
     agent_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    public_key_pem = agent_key.public_key().public_bytes(
+        serialization.Encoding.PEM,
+        serialization.PublicFormat.SubjectPublicKeyInfo,
+    ).decode()
 
-    subject = x509.Name([
-        x509.NameAttribute(NameOID.COMMON_NAME, agent_id),
-        x509.NameAttribute(NameOID.ORGANIZATION_NAME, "LokiLinux"),
-    ])
-
-    now = datetime.datetime.now(datetime.timezone.utc)
-    cert = (
-        x509.CertificateBuilder()
-        .subject_name(subject)
-        .issuer_name(ca_cert.subject)
-        .public_key(agent_key.public_key())
-        .serial_number(x509.random_serial_number())
-        .not_valid_before(now)
-        .not_valid_after(now + datetime.timedelta(days=365))
-        .add_extension(
-            x509.ExtendedKeyUsage([ExtendedKeyUsageOID.CLIENT_AUTH]),
-            critical=False,
+    try:
+        cert_pem = await ca_signer_client.sign_agent_cert(
+            agent_id=agent_id,
+            public_key_pem=public_key_pem,
+            validity_days=s.agent_cert_ttl_days,
         )
-        .sign(ca_key, hashes.SHA256())
-    )
+    except ca_signer_client.CASignerError:
+        return "", "", ""
 
     key_pem = agent_key.private_bytes(
         serialization.Encoding.PEM,
         serialization.PrivateFormat.TraditionalOpenSSL,
         serialization.NoEncryption(),
     ).decode()
-
-    cert_pem = cert.public_bytes(serialization.Encoding.PEM).decode()
 
     with open(ca_cert_path) as f:
         ca_pem = f.read()
@@ -492,7 +478,7 @@ async def register_agent(
     # token single-use
     await cache.invalidate(f"enrollment:{token}")
 
-    agent_cert, agent_key, ca_cert = _generate_agent_cert(agent_id)
+    agent_cert, agent_key, ca_cert = await _generate_agent_cert(agent_id)
 
     return {
         "agent_id": agent_id,

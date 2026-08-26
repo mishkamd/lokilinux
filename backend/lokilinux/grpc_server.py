@@ -40,6 +40,12 @@ class _AgentServiceHandler(grpc.GenericRpcHandler):
                 request_deserializer=_from_json,
                 response_serializer=_to_json,
             )
+        if "RenewCertificate" in handler_call_details.method:
+            return grpc.unary_unary_rpc_method_handler(
+                self._servicer.RenewCertificate,
+                request_deserializer=_from_json,
+                response_serializer=_to_json,
+            )
         return None
 
 
