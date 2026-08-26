@@ -68,6 +68,16 @@ async def _get_agent_cfg(db: AsyncSession) -> tuple[str, str, str]:
     return base, ver, plat
 
 
+async def _platform_url(db: AsyncSession) -> tuple[str, str]:
+    """(url, sursa) pentru install_command: DB override (UI "Configure URLs") > env."""
+    row = (
+        await db.execute(select(Setting).where(Setting.key == "agent.platform_url"))
+    ).scalar_one_or_none()
+    if row and row.value.strip():
+        return row.value.rstrip("/"), "db"
+    return get_settings().platform_url.rstrip("/"), "env"
+
+
 @router.get("/packages")
 async def get_packages(
     db: AsyncSession = Depends(get_db),
@@ -177,18 +187,20 @@ class EnrollmentTokenRequest(BaseModel):
 async def create_enrollment_token(
     body: EnrollmentTokenRequest = EnrollmentTokenRequest(),
     cache: RedisCache = Depends(get_cache),
+    db: AsyncSession = Depends(get_db),
     _: dict = Depends(require_role("ADMIN", "OPERATOR")),
 ) -> dict:
-    s = get_settings()
+    plat, url_source = await _platform_url(db)
     token = secrets.token_urlsafe(32)
     await cache.set_cached(f"enrollment:{token}", body.label or "active", ttl=_ENROLLMENT_TTL)
     return {
         "token": token,
         "expires_in": _ENROLLMENT_TTL,
         "install_command": (
-            f"curl -fsSL {s.platform_url}/api/v1/agent/install.sh | "
-            f"bash -s -- --token={token} --url={s.platform_url}"
+            f"curl -fsSL {plat}/api/v1/agent/install.sh | "
+            f"bash -s -- --token={token} --url={plat}"
         ),
+        "url_source": url_source,
     }
 
 

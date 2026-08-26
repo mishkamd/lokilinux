@@ -91,14 +91,28 @@ async function saveConfig() {
 }
 
 const tokenLabel = ref('')
-const enrollResult = ref<{ token: string; install_command: string } | null>(null)
+interface EnrollResult { token: string; install_command: string; url_source?: 'db' | 'env' }
+const enrollResult = ref<EnrollResult | null>(null)
 const tokenPending = ref(false)
 
 async function generateToken() {
   tokenPending.value = true
   enrollResult.value = null
   try {
-    enrollResult.value = await api.post('/agent/enrollment-token', { label: tokenLabel.value })
+    const res = await api.post<EnrollResult>('/agent/enrollment-token', { label: tokenLabel.value })
+    // url_source=db → admin set Server URL explicitly in Configure URLs — trust it.
+    // Otherwise the backend only knows its env default (often localhost); the live
+    // browser origin is guaranteed reachable from wherever this session works, and
+    // /api/v1/** is same-origin-proxied, so build the command from that instead.
+    if (res.url_source === 'db') {
+      enrollResult.value = res
+    } else {
+      const origin = window.location.origin
+      enrollResult.value = {
+        ...res,
+        install_command: `curl -fsSL ${origin}/api/v1/agent/install.sh | bash -s -- --token=${res.token} --url=${origin}`,
+      }
+    }
   } catch (e: unknown) {
     const err = e as { message?: string }
     toast.add({ title: 'Error', description: err?.message, color: 'red' })
