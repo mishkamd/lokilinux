@@ -104,8 +104,8 @@ async function confirmDelete() {
 
 <template>
   <div>
-    <div class="flex items-center justify-between mb-4">
-      <div class="flex items-center gap-3">
+    <PageHeader>
+      <div class="flex flex-wrap items-center gap-3">
         <Button variant="outline" @click="store.fetchRoles()">
           <RefreshCw class="size-4" />
           Refresh
@@ -131,7 +131,7 @@ async function confirmDelete() {
           New Role
         </Button>
       </div>
-    </div>
+    </PageHeader>
 
     <Alert
       color="blue"
@@ -144,6 +144,9 @@ async function confirmDelete() {
       <template #files-data="{ row }">
         <Badge color="gray" size="xs">{{ Object.keys((row as AnsibleRole).files).length }} files</Badge>
       </template>
+      <template #version-data="{ row }">
+        <span class="font-mono text-xs tabular-nums">v{{ (row as AnsibleRole).version }}</span>
+      </template>
       <template #is_enabled-data="{ row }">
         <Badge :color="(row as AnsibleRole).is_enabled ? 'green' : 'gray'" size="xs">
           {{ (row as AnsibleRole).is_enabled ? 'enabled' : 'disabled' }}
@@ -154,10 +157,10 @@ async function confirmDelete() {
       </template>
       <template #actions-data="{ row }">
         <div class="flex items-center justify-end gap-1">
-          <Button v-if="canEdit" size="xs" variant="ghost" class="text-muted-foreground" @click="openEdit(row as AnsibleRole)">
+          <Button v-if="canEdit" size="xs" variant="ghost" class="text-muted-foreground" aria-label="Edit role" @click="openEdit(row as AnsibleRole)">
             <Pencil class="size-3.5" />
           </Button>
-          <Button v-if="canEdit" size="xs" variant="ghost" class="text-muted-foreground" @click="deletingRole = row as AnsibleRole">
+          <Button v-if="canEdit" size="xs" variant="ghost" class="text-muted-foreground" aria-label="Delete role" @click="deletingRole = row as AnsibleRole">
             <Trash2 class="size-3.5" />
           </Button>
         </div>

@@ -29,7 +29,7 @@ function relativeTime(iso: string | null): string {
       </NuxtLink>
     </div>
 
-    <div v-if="props.error" class="flex-1 flex items-center justify-center text-xs text-red-500">
+    <div v-if="props.error" class="flex-1 flex items-center justify-center text-xs text-destructive">
       Failed to load recent jobs.
     </div>
     <div v-else-if="props.loading" class="space-y-3">

@@ -64,7 +64,7 @@ async function submitCreate() {
 
 <template>
   <div>
-    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+    <PageHeader>
       <div class="flex flex-wrap items-center gap-3">
         <Select
           v-model="baselineFilters.scope_type"
@@ -83,7 +83,7 @@ async function submitCreate() {
           <Plus class="size-4" /> New baseline
         </Button>
       </div>
-    </div>
+    </PageHeader>
 
     <DataTable :rows="baselines" :columns="columns" :loading="baselinesLoading" rows-clickable
                @row-click="(row) => navigateTo(`/compliance/baselines/${row.id}`)">

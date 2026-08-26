@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { SEVERITY_COLORS } from '~/utils/complianceColors'
 import { RefreshCw } from 'lucide-vue-next'
 import type { FileChangeKind } from '~/stores/compliance'
 
@@ -14,10 +15,6 @@ const showPathDetail = ref(false)
 async function openPathDetail(path: string) {
   showPathDetail.value = true
   await store.fetchFileChangesByPath(path)
-}
-
-const DRIFT_SEVERITY_COLORS: Record<string, string> = {
-  CRITICAL: 'red', HIGH: 'red', MEDIUM: 'amber', LOW: 'gray',
 }
 
 const agentOptions = ref<{ label: string; value: string }[]>([])
@@ -86,7 +83,7 @@ const changeColumns = [
   <div>
     <AppTabs :items="tabs">
       <template #current>
-        <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <PageHeader>
           <div class="flex flex-wrap items-center gap-3">
             <Select v-model="selectedAgentId" :options="agentOptions" placeholder="Server" class="w-64"
                     @change="onAgentChange" />
@@ -97,7 +94,7 @@ const changeColumns = [
             </Button>
           </div>
           <Badge color="gray">{{ fileHashes.length }} watched files</Badge>
-        </div>
+        </PageHeader>
 
         <DataTable :rows="fileHashes" :columns="hashColumns" :loading="fileHashesLoading">
           <template #path-data="{ row }">
@@ -116,7 +113,7 @@ const changeColumns = [
       </template>
 
       <template #history>
-        <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+        <PageHeader>
           <div class="flex flex-wrap items-center gap-3">
             <Select v-model="fileChangeFilters.change_kind" :options="['', ...CHANGE_KINDS]" placeholder="Change type"
                     class="w-48" @change="store.fetchFileChanges()" />
@@ -125,7 +122,7 @@ const changeColumns = [
             </Button>
           </div>
           <Badge color="gray">{{ fileChangesTotal }} changes</Badge>
-        </div>
+        </PageHeader>
 
         <DataTable :rows="fileChanges" :columns="changeColumns" :loading="fileChangesLoading">
           <template #time-data="{ row }">
@@ -195,7 +192,7 @@ const changeColumns = [
             <ul v-else class="divide-y divide-border">
               <li v-for="d in fileChangePathDetail.related_drift" :key="String(d.id)" class="py-1.5 flex items-center justify-between gap-2">
                 <span class="text-xs truncate">{{ d.summary }}</span>
-                <Badge :color="DRIFT_SEVERITY_COLORS[String(d.severity)] ?? 'gray'" size="xs">{{ d.severity }}</Badge>
+                <Badge :color="SEVERITY_COLORS[String(d.severity)] ?? 'gray'" size="xs">{{ d.severity }}</Badge>
               </li>
             </ul>
           </div>

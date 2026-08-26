@@ -78,6 +78,7 @@ async function resolve(id: string) {
             size="xs"
             variant="ghost"
             class="text-muted-foreground"
+            aria-label="Acknowledge alert"
             :loading="acting === row.id"
             @click="acknowledge(String(row.id))"
           >
@@ -88,6 +89,7 @@ async function resolve(id: string) {
             size="xs"
             variant="ghost"
             class="text-muted-foreground"
+            aria-label="Resolve alert"
             :loading="acting === row.id"
             @click="resolve(String(row.id))"
           >

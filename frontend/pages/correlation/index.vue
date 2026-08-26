@@ -134,6 +134,9 @@ onMounted(() => store.fetchRules())
       <template #incident_severity-data="{ row }">
         <Badge :color="severityColor(String(row.incident_severity))" size="xs">{{ row.incident_severity }}</Badge>
       </template>
+      <template #threshold_score-data="{ row }">
+        <span class="font-mono text-xs tabular-nums">{{ row.threshold_score }}</span>
+      </template>
       <template #window_seconds-data="{ row }">
         <span class="font-mono text-xs">{{ row.window_seconds }}s</span>
       </template>
@@ -141,7 +144,7 @@ onMounted(() => store.fetchRules())
         <Switch :model-value="Boolean(row.enabled)" @update:model-value="toggle(row as CorrelationRule)" />
       </template>
       <template #actions-data="{ row }">
-        <Button size="xs" variant="ghost" class="text-muted-foreground" @click="deletingRule = row as CorrelationRule">
+        <Button size="xs" variant="ghost" class="text-muted-foreground" aria-label="Delete rule" @click="deletingRule = row as CorrelationRule">
           <Trash2 class="size-3.5" />
         </Button>
       </template>
@@ -173,7 +176,7 @@ onMounted(() => store.fetchRules())
               <div v-for="(c, i) in form.conditions" :key="i" class="flex items-center gap-2">
                 <Input v-model="(c as CorrelationCondition).signal" placeholder="cpu.high" class="flex-1" />
                 <Input v-model.number="(c as CorrelationCondition).weight" type="number" min="1" class="w-24" placeholder="weight" />
-                <Button size="xs" variant="ghost" class="text-muted-foreground" @click="removeCondition(i)">
+                <Button size="xs" variant="ghost" class="text-muted-foreground" aria-label="Remove condition" @click="removeCondition(i)">
                   <Trash2 class="size-3.5" />
                 </Button>
               </div>

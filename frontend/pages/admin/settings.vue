@@ -86,7 +86,7 @@ async function saveGroups(...groups: (keyof AllSettings)[]) {
 
 <template>
   <div class="w-full space-y-8">
-    <h2 class="text-lg font-semibold">Platform Settings</h2>
+    <PageHeader title="Platform Settings" />
 
     <div v-if="pending" class="flex justify-center py-8">
       <span class="size-5 animate-spin rounded-full border-2 border-primary border-t-transparent inline-block" />

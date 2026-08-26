@@ -117,6 +117,7 @@ onMounted(() => store.fetchGraph())
             size="xs"
             variant="ghost"
             class="text-muted-foreground"
+            aria-label="Remove dependency"
             :loading="removingEdge === `${e.from_node}:${e.to_node}`"
             @click="removeEdge(e.from_node, e.to_node)"
           >

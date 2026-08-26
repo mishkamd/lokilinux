@@ -126,7 +126,7 @@ onMounted(() => {
         <Switch :model-value="Boolean(row.enabled)" @update:model-value="toggle(row as Runbook)" />
       </template>
       <template #actions-data="{ row }">
-        <Button size="xs" variant="ghost" class="text-muted-foreground" @click="deletingRunbook = row as Runbook">
+        <Button size="xs" variant="ghost" class="text-muted-foreground" aria-label="Delete runbook" @click="deletingRunbook = row as Runbook">
           <Trash2 class="size-3.5" />
         </Button>
       </template>

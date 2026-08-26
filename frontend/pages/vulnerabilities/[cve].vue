@@ -110,19 +110,19 @@ async function rescan() {
   <div>
     <Skeleton v-if="loading" class="h-64 w-full" />
     <div v-else-if="selectedCve">
-      <div class="flex items-center justify-between mb-4 flex-wrap gap-3">
-        <div>
-          <h1 class="page-title font-mono">{{ selectedCve.cve_id }}</h1>
-          <p class="text-sm text-muted-foreground mt-1">{{ selectedCve.description || 'No description available yet — enrichment runs in the background.' }}</p>
-        </div>
-        <div class="flex items-center gap-2">
+      <PageHeader
+        :title="selectedCve.cve_id"
+        :description="selectedCve.description || 'No description available yet — enrichment runs in the background.'"
+        :back="{ to: '/vulnerabilities', label: 'Back to vulnerabilities' }"
+      >
+        <template #badges>
           <Badge v-if="selectedCve.cvss_v3_severity" :color="SEVERITY_COLORS[selectedCve.cvss_v3_severity] ?? 'gray'">
             {{ selectedCve.cvss_v3_severity }}<span v-if="selectedCve.cvss_v3_score"> — {{ selectedCve.cvss_v3_score }}</span>
           </Badge>
           <Badge v-if="selectedCve.is_zero_day" color="red" variant="solid" size="xs">0-day</Badge>
           <Badge v-if="selectedCve.is_actively_exploited" color="red" size="xs">Actively exploited</Badge>
-        </div>
-      </div>
+        </template>
+      </PageHeader>
 
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
         <Card class="lg:col-span-2">
@@ -168,9 +168,9 @@ async function rescan() {
             </div>
           </div>
         </template>
-        <p v-if="selectedCveResources.length === 0" class="text-sm text-muted-foreground py-6 text-center">
+        <EmptyState v-if="selectedCveResources.length === 0">
           No resources currently report this CVE.
-        </p>
+        </EmptyState>
         <DataTable
           v-else :rows="selectedCveResources" :columns="resourceColumns" row-key="agent_id"
           :selectable="canEdit" :selected="selected" @update:selected="selected = $event"

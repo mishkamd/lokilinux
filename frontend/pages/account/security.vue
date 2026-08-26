@@ -92,7 +92,7 @@ async function disable2FA() {
 
 <template>
   <div class="max-w-lg space-y-6">
-    <h2 class="text-lg font-semibold">Account Security</h2>
+    <PageHeader title="Account Security" />
 
     <Card>
       <template #header>Change password</template>
@@ -111,7 +111,7 @@ async function disable2FA() {
       <template #header>Two-factor authentication (TOTP)</template>
       <div class="space-y-4">
         <p class="text-sm">
-          Status: <span :class="isEnabled ? 'text-green-500' : 'text-muted-foreground'">{{ isEnabled ? 'Enabled' : 'Disabled' }}</span>
+          Status: <span :class="isEnabled ? 'text-success' : 'text-muted-foreground'">{{ isEnabled ? 'Enabled' : 'Disabled' }}</span>
         </p>
 
         <template v-if="isEnabled">

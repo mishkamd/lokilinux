@@ -107,7 +107,7 @@ onUnmounted(() => clearInterval(poll))
 
 <template>
   <div>
-    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+    <PageHeader>
       <div class="flex flex-wrap items-center gap-3">
         <Select
           v-model="filters.status"
@@ -141,7 +141,7 @@ onUnmounted(() => clearInterval(poll))
           New Job
         </Button>
       </div>
-    </div>
+    </PageHeader>
 
     <DataTable :rows="jobs" :columns="columns" :loading="loading">
       <template #status-data="{ row }">
@@ -155,14 +155,15 @@ onUnmounted(() => clearInterval(poll))
       </template>
       <template #actions-data="{ row }">
         <div class="flex items-center justify-end gap-1">
-          <Button size="xs" variant="ghost" class="text-muted-foreground" @click="selectedJob = row as typeof jobs.value[0]">
+          <Button size="xs" variant="ghost" class="text-muted-foreground" aria-label="View job" @click="selectedJob = row as typeof jobs.value[0]">
             <Eye class="size-3.5" />
           </Button>
           <Button
             v-if="row.requires_approval && !row.approved_by"
             size="xs"
             variant="ghost"
-            class="text-green-600"
+            class="text-success"
+            aria-label="Approve job"
             :loading="approving === String(row.id)"
             @click="approveJob(row as typeof jobs.value[0])"
           >
@@ -173,6 +174,7 @@ onUnmounted(() => clearInterval(poll))
             size="xs"
             variant="ghost"
             class="text-muted-foreground"
+            aria-label="Cancel job"
             @click="cancellingJob = row as typeof jobs.value[0]"
           >
             <Trash2 class="size-3.5" />

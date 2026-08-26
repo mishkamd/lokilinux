@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { SEVERITY_COLORS, DRIFT_STATUS_COLORS } from '~/utils/complianceColors'
 import { RefreshCw } from 'lucide-vue-next'
 
 const store = useComplianceStore()
@@ -7,14 +8,7 @@ const { canEdit } = useCurrentUser()
 
 onMounted(() => store.fetchDriftEvents())
 
-const SEVERITY_COLORS: Record<string, string> = {
-  CRITICAL: 'red', HIGH: 'red', MEDIUM: 'amber', LOW: 'gray',
-}
 
-const STATUS_COLORS: Record<string, string> = {
-  OPEN: 'red', ACKNOWLEDGED: 'amber', IN_REMEDIATION: 'amber',
-  RESOLVED: 'green', SUPPRESSED: 'gray', EXCEPTION: 'gray',
-}
 
 const columns = [
   { key: 'time', label: 'Detected' },
@@ -33,7 +27,7 @@ async function onSuppress(id: string) {
 
 <template>
   <div>
-    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+    <PageHeader>
       <div class="flex flex-wrap items-center gap-3">
         <Select v-model="driftFilters.severity" :options="['', 'CRITICAL', 'HIGH', 'MEDIUM', 'LOW']"
                 placeholder="Severity" class="w-36" @change="store.fetchDriftEvents()" />
@@ -47,7 +41,7 @@ async function onSuppress(id: string) {
         </Button>
       </div>
       <Badge color="gray">{{ driftTotal }} drift events</Badge>
-    </div>
+    </PageHeader>
 
     <DataTable :rows="driftEvents" :columns="columns" :loading="driftLoading" rows-clickable
                @row-click="(row) => navigateTo(`/compliance/drift/${row.id}`)">
@@ -67,7 +61,7 @@ async function onSuppress(id: string) {
         <span class="font-mono text-xs text-muted-foreground">{{ row.occurrences }}×</span>
       </template>
       <template #status-data="{ row }">
-        <Badge :color="STATUS_COLORS[String(row.status)] ?? 'gray'" size="xs">{{ row.status }}</Badge>
+        <Badge :color="DRIFT_STATUS_COLORS[String(row.status)] ?? 'gray'" size="xs">{{ row.status }}</Badge>
       </template>
       <template #actions-data="{ row }">
         <div v-if="canEdit" class="flex items-center gap-1">

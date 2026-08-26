@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, Save, Play } from 'lucide-vue-next'
+import { Save, Play } from 'lucide-vue-next'
 import type { Playbook } from '~/stores/playbooks'
 
 const route = useRoute()
@@ -106,18 +106,14 @@ async function confirmRun() {
 
 <template>
   <div class="max-w-5xl">
-    <div class="flex items-center justify-between mb-4">
-      <div class="flex items-center gap-3">
-        <NuxtLink to="/automation/ansible/playbooks">
-          <Button variant="ghost" size="sm">
-            <ArrowLeft class="size-4" />
-            Playbooks
-          </Button>
-        </NuxtLink>
-        <h1 class="text-lg font-bold">{{ isNew ? 'New Playbook' : form.name }}</h1>
-        <Badge v-if="playbook" color="gray" size="xs">v{{ playbook.version }}</Badge>
-      </div>
-      <div class="flex items-center gap-2">
+    <PageHeader
+      :title="isNew ? 'New Playbook' : form.name"
+      :back="{ to: '/automation/ansible/playbooks', label: 'Back to playbooks' }"
+    >
+      <template v-if="playbook" #badges>
+        <Badge color="gray" size="xs">v{{ playbook.version }}</Badge>
+      </template>
+      <template #actions>
         <Button v-if="!isNew && playbook" variant="outline" @click="openRun()">
           <Play class="size-4" />
           Run
@@ -126,8 +122,8 @@ async function confirmRun() {
           <Save class="size-4" />
           Save
         </Button>
-      </div>
-    </div>
+      </template>
+    </PageHeader>
 
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
       <FormField label="Name" required>

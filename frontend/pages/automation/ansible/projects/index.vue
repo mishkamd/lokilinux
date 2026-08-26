@@ -79,8 +79,8 @@ async function confirmDelete() {
 
 <template>
   <div>
-    <div class="flex items-center justify-between mb-4">
-      <div class="flex items-center gap-3">
+    <PageHeader>
+      <div class="flex flex-wrap items-center gap-3">
         <Button variant="outline" @click="store.fetchProjects()">
           <RefreshCw class="size-4" />
           Refresh
@@ -91,7 +91,7 @@ async function confirmDelete() {
         <Plus class="size-4" />
         New Project
       </Button>
-    </div>
+    </PageHeader>
 
     <Alert
       color="blue"
@@ -109,10 +109,10 @@ async function confirmDelete() {
       </template>
       <template #actions-data="{ row }">
         <div class="flex items-center justify-end gap-1">
-          <Button v-if="canEdit" size="xs" variant="ghost" class="text-muted-foreground" @click="openEdit(row as AnsibleProject)">
+          <Button v-if="canEdit" size="xs" variant="ghost" class="text-muted-foreground" aria-label="Edit project" @click="openEdit(row as AnsibleProject)">
             <Pencil class="size-3.5" />
           </Button>
-          <Button v-if="canEdit" size="xs" variant="ghost" class="text-muted-foreground" @click="deletingProject = row as AnsibleProject">
+          <Button v-if="canEdit" size="xs" variant="ghost" class="text-muted-foreground" aria-label="Delete project" @click="deletingProject = row as AnsibleProject">
             <Trash2 class="size-3.5" />
           </Button>
         </div>

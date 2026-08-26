@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, Save, Plus, Trash2, FileText } from 'lucide-vue-next'
+import { Save, Plus, Trash2, FileText } from 'lucide-vue-next'
 import type { AnsibleRole } from '~/stores/ansible_roles'
 
 const route = useRoute()
@@ -81,22 +81,20 @@ async function save() {
 
 <template>
   <div class="max-w-6xl">
-    <div class="flex items-center justify-between mb-4">
-      <div class="flex items-center gap-3">
-        <NuxtLink to="/automation/ansible/roles">
-          <Button variant="ghost" size="sm">
-            <ArrowLeft class="size-4" />
-            Roles
-          </Button>
-        </NuxtLink>
-        <h1 class="text-lg font-bold">{{ isNew ? 'New Role' : name }}</h1>
-        <Badge v-if="role" color="gray" size="xs">v{{ role.version }}</Badge>
-      </div>
-      <Button v-if="canEdit" :loading="saving" @click="save">
-        <Save class="size-4" />
-        Save
-      </Button>
-    </div>
+    <PageHeader
+      :title="isNew ? 'New Role' : name"
+      :back="{ to: '/automation/ansible/roles', label: 'Back to roles' }"
+    >
+      <template v-if="role" #badges>
+        <Badge color="gray" size="xs">v{{ role.version }}</Badge>
+      </template>
+      <template #actions>
+        <Button v-if="canEdit" :loading="saving" @click="save">
+          <Save class="size-4" />
+          Save
+        </Button>
+      </template>
+    </PageHeader>
 
     <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
       <FormField label="Name" required>
@@ -134,7 +132,7 @@ async function save() {
             class="text-xs font-mono h-7"
             @keyup.enter="addFile"
           />
-          <Button size="xs" variant="ghost" @click="addFile">
+          <Button size="xs" variant="ghost" aria-label="Add file" @click="addFile">
             <Plus class="size-3.5" />
           </Button>
         </div>

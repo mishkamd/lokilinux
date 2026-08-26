@@ -132,14 +132,16 @@ const actionColumns = [
 
     <!-- Plan detail -->
     <div v-else-if="selectedRemediationPlan">
-      <div class="flex items-center justify-between mb-4">
-        <div>
-          <h2 class="text-lg font-semibold">{{ selectedRemediationPlan.name }}</h2>
-          <p class="text-sm text-muted-foreground">Trigger: {{ selectedRemediationPlan.trigger_type }}</p>
-        </div>
-        <div class="flex items-center gap-2">
+      <PageHeader
+        :title="selectedRemediationPlan.name"
+        :description="`Trigger: ${selectedRemediationPlan.trigger_type}`"
+        :back="{ to: '/compliance/remediation', label: 'Back to remediation' }"
+      >
+        <template #badges>
           <Badge v-if="selectedRemediationPlan.is_emergency" color="red">Emergency</Badge>
           <Badge :color="STATUS_COLORS[selectedRemediationPlan.status]">{{ selectedRemediationPlan.status }}</Badge>
+        </template>
+        <template #actions>
           <Button
             v-if="canEdit && ['DRAFT', 'PENDING_APPROVAL', 'APPROVED'].includes(selectedRemediationPlan.status)"
             size="sm" variant="outline" :loading="dryRunning" @click="dryRun"
@@ -155,8 +157,8 @@ const actionColumns = [
           <Button v-if="canRollback" size="sm" color="amber" :loading="busy" @click="rollback">
             Rollback
           </Button>
-        </div>
-      </div>
+        </template>
+      </PageHeader>
 
       <!-- Execution status -->
       <div v-if="remediationExecution?.job_id" class="mb-6 rounded-lg border p-4">
@@ -183,12 +185,12 @@ const actionColumns = [
             <div class="flex items-center gap-2 mb-1">
               <Badge :color="r.status === 'COMPLETED' ? 'green' : r.status === 'FAILED' ? 'red' : 'gray'" size="xs">{{ r.status }}</Badge>
               <span class="font-mono text-xs">{{ r.hostname || r.agent_id.slice(0, 8) + '…' }}</span>
-              <span v-if="r.exit_code !== null" class="text-muted-foreground text-xs">exit {{ r.exit_code }}</span>
-              <span v-if="r.duration_seconds !== null" class="text-muted-foreground text-xs">{{ r.duration_seconds }}s</span>
+              <span v-if="r.exit_code !== null" class="font-mono text-muted-foreground text-xs">exit {{ r.exit_code }}</span>
+              <span v-if="r.duration_seconds !== null" class="font-mono text-muted-foreground text-xs">{{ r.duration_seconds }}s</span>
             </div>
-            <pre v-if="r.stdout" class="font-mono text-xs whitespace-pre-wrap text-green-700 dark:text-green-400 max-h-32 overflow-auto">{{ r.stdout }}</pre>
-            <pre v-if="r.stderr" class="font-mono text-xs whitespace-pre-wrap text-red-700 dark:text-red-400 max-h-32 overflow-auto">{{ r.stderr }}</pre>
-            <p v-if="r.error_message" class="text-xs text-red-600">{{ r.error_message }}</p>
+            <pre v-if="r.stdout" class="font-mono text-xs whitespace-pre-wrap text-success max-h-32 overflow-auto">{{ r.stdout }}</pre>
+            <pre v-if="r.stderr" class="font-mono text-xs whitespace-pre-wrap text-destructive max-h-32 overflow-auto">{{ r.stderr }}</pre>
+            <p v-if="r.error_message" class="text-xs text-destructive">{{ r.error_message }}</p>
           </div>
         </div>
       </div>
@@ -196,6 +198,9 @@ const actionColumns = [
       <!-- Actions table -->
       <h3 class="text-sm font-semibold mb-2">Actions</h3>
       <DataTable :rows="remediationActions" :columns="actionColumns">
+        <template #sequence-data="{ row }">
+          <span class="font-mono text-xs tabular-nums">{{ row.sequence }}</span>
+        </template>
         <template #agent_id-data="{ row }">
           <span class="font-mono text-xs">{{ row.hostname || row.agent_id }}</span>
         </template>

@@ -104,12 +104,13 @@ async function remove(workflow: Workflow) {
         <Badge size="xs" :color="row.current_version_id ? 'green' : 'gray'">{{ row.current_version_id ? 'Published' : 'Draft only' }}</Badge>
       </template>
       <template #last_run_at-data="{ row }">
-        <span class="text-xs text-muted-foreground">{{ fmtDate(row.last_run_at as string | null) }}</span>
+        <span class="text-xs text-muted-foreground font-mono">{{ fmtDate(row.last_run_at as string | null) }}</span>
       </template>
       <template #actions-data="{ row }">
         <div v-if="canEdit" class="flex items-center justify-end">
           <Button
             size="xs" variant="ghost" class="text-muted-foreground"
+            aria-label="Delete workflow"
             :loading="deletingId === row.id"
             @click.stop="remove(row as unknown as Workflow)"
           >

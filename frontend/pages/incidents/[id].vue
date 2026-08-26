@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {
-  ArrowLeft, ArrowRightLeft, Check, CheckCheck, CirclePlus,
+  ArrowRightLeft, Check, CheckCheck, CirclePlus,
   FileText, PlayCircle, RadioTower, RotateCcw, StickyNote,
 } from 'lucide-vue-next'
 import type { IncidentDetail, IncidentEvidenceItem } from '~/stores/incidents'
@@ -147,28 +147,23 @@ async function executeRunbook(runbookId: string) {
 
 <template>
   <div>
-    <NuxtLink to="/incidents" class="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-4">
-      <ArrowLeft class="size-3.5" />
-      Back to incidents
-    </NuxtLink>
-
     <p v-if="loading" class="text-sm text-muted-foreground">Loading…</p>
     <p v-else-if="!incident" class="text-sm text-muted-foreground">Incident not found.</p>
 
     <div v-else class="space-y-5">
-      <div class="flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <div class="flex items-center gap-2 mb-1">
-            <Badge :color="severityColor(incident.severity)">{{ incident.severity }}</Badge>
-            <Badge :color="statusColor(incident.status)">{{ incident.status }}</Badge>
-            <Badge v-if="incident.confidence !== null" color="gray">
-              {{ Math.round(incident.confidence * 100) }}% confidence
-            </Badge>
-          </div>
-          <h1 class="text-lg font-bold">{{ incident.title }}</h1>
-          <p class="text-xs text-muted-foreground mt-0.5">{{ incident.type }} · started {{ fmtDate(incident.started_at) }}</p>
-        </div>
-        <div class="flex items-center gap-1.5">
+      <PageHeader
+        :title="incident.title"
+        :description="`${incident.type} · started ${fmtDate(incident.started_at)}`"
+        :back="{ to: '/incidents', label: 'Back to incidents' }"
+      >
+        <template #badges>
+          <Badge :color="severityColor(incident.severity)">{{ incident.severity }}</Badge>
+          <Badge :color="statusColor(incident.status)">{{ incident.status }}</Badge>
+          <Badge v-if="incident.confidence !== null" color="gray">
+            {{ Math.round(incident.confidence * 100) }}% confidence
+          </Badge>
+        </template>
+        <template #actions>
           <Button v-if="incident.status === 'OPEN'" variant="outline" size="sm" :loading="acting" @click="ack">
             <Check class="size-3.5" />
             Acknowledge
@@ -181,8 +176,8 @@ async function executeRunbook(runbookId: string) {
             <RotateCcw class="size-3.5" />
             Reopen
           </Button>
-        </div>
-      </div>
+        </template>
+      </PageHeader>
 
       <Separator />
 
@@ -192,7 +187,7 @@ async function executeRunbook(runbookId: string) {
           <Badge :color="severityColor(rootCauseSignal.severity)" size="xs">{{ rootCauseSignal.severity }}</Badge>
           <span class="font-mono">{{ rootCauseSignal.type }}</span>
           <span v-if="rootCauseSignal.host_id" class="text-xs text-muted-foreground">host {{ rootCauseSignal.host_id }}</span>
-          <span class="text-xs text-muted-foreground">{{ rootCauseSignal.occurrence_count }} occurrences</span>
+          <span class="font-mono text-xs text-muted-foreground">{{ rootCauseSignal.occurrence_count }} occurrences</span>
         </div>
       </div>
 
@@ -206,7 +201,7 @@ async function executeRunbook(runbookId: string) {
           >
             <Badge :color="severityColor(s.severity)" size="xs">{{ s.severity }}</Badge>
             <span class="font-mono">{{ s.type }}</span>
-            <span class="text-muted-foreground">×{{ s.occurrence_count }}</span>
+            <span class="font-mono text-muted-foreground">×{{ s.occurrence_count }}</span>
           </div>
           <p v-if="!incident.signals.length" class="text-sm text-muted-foreground">No linked signals.</p>
         </div>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { SEVERITY_COLORS } from '~/utils/complianceColors'
 import { FileText, ShieldCheck, ShieldAlert, Gauge, BookCheck, ShieldOff } from 'lucide-vue-next'
 
 const store = useComplianceStore()
@@ -25,9 +26,6 @@ function onRangeChange(range: string) {
   store.fetchTrend()
 }
 
-const SEVERITY_COLORS: Record<string, string> = {
-  CRITICAL: 'red', HIGH: 'red', MEDIUM: 'amber', LOW: 'gray',
-}
 
 const SEVERITY_RANK: Record<string, number> = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 }
 
@@ -40,6 +38,25 @@ const sortedDrift = computed(() =>
 const ASSESSMENT_STATUS_COLORS: Record<string, string> = {
   PENDING: 'gray', RUNNING: 'amber', COMPLETED: 'green', FAILED: 'red', CANCELLED: 'gray',
 }
+
+const ruleViolationColumns = [
+  { key: 'title', label: 'Rule' },
+  { key: 'severity', label: 'Severity' },
+  { key: 'fail_count', label: 'Fails' },
+]
+const driftColumns = [
+  { key: 'summary', label: 'Change' },
+  { key: 'severity', label: 'Severity' },
+]
+const changedFilesColumns = [
+  { key: 'path', label: 'Path' },
+  { key: 'change_count', label: 'Changes' },
+]
+const baselineColumns = [
+  { key: 'name', label: 'Name' },
+  { key: 'scope_type', label: 'Scope' },
+  { key: 'is_enabled', label: 'Status' },
+]
 
 const showRunAssessment = ref(false)
 const runningAssessment = ref(false)
@@ -167,37 +184,35 @@ async function submitRunAssessment() {
           </div>
         </template>
         <Skeleton v-if="topViolationsLoading" class="h-24 w-full" />
-        <div v-else-if="topViolations.top_rules.length === 0 && sortedDrift.length === 0"
-             class="text-sm text-muted-foreground py-6 text-center">
+        <EmptyState v-else-if="topViolations.top_rules.length === 0 && sortedDrift.length === 0">
           No violations yet — publish a baseline and import policy rules to start scoring.
-        </div>
+        </EmptyState>
         <template v-else>
-          <ul v-if="topViolations.top_rules.length" class="divide-y divide-border">
-            <li v-for="r in topViolations.top_rules.slice(0, 5)" :key="r.rule_id" class="py-2 flex items-center justify-between gap-2">
-              <div class="min-w-0">
-                <p class="text-sm font-medium truncate" :title="r.title">{{ r.title }}</p>
-                <p class="text-xs text-muted-foreground font-mono truncate">{{ r.rule_key }} · {{ r.domain }}</p>
-              </div>
-              <div class="flex items-center gap-2 shrink-0">
-                <Badge :color="SEVERITY_COLORS[r.severity] ?? 'gray'" size="xs">{{ r.severity }}</Badge>
-                <Badge color="gray" size="xs">{{ r.fail_count }}×</Badge>
-              </div>
-            </li>
-          </ul>
-          <ul v-if="sortedDrift.length" class="divide-y divide-border mt-2">
-            <li v-for="d in sortedDrift.slice(0, 5)" :key="String(d.id)" class="py-2 flex items-center justify-between gap-2">
-              <div class="min-w-0">
-                <p class="text-sm font-medium truncate">{{ d.summary }}</p>
-                <p class="text-xs text-muted-foreground font-mono truncate">
-                  {{ new Date(String(d.time)).toLocaleString() }} · {{ d.domain }} · {{ d.compared_against }}
-                </p>
-              </div>
-              <div class="flex items-center gap-2 shrink-0">
-                <Badge :color="SEVERITY_COLORS[String(d.severity)] ?? 'gray'" size="xs">{{ d.severity }}</Badge>
-                <Button variant="ghost" size="xs" @click="navigateTo(`/compliance/drift/${d.id}`)">View</Button>
-              </div>
-            </li>
-          </ul>
+          <DataTable
+            v-if="topViolations.top_rules.length"
+            :rows="topViolations.top_rules.slice(0, 5)" :columns="ruleViolationColumns" row-key="rule_id"
+          >
+            <template #title-data="{ row }">
+              <p class="text-sm font-medium truncate" :title="row.title">{{ row.title }}</p>
+              <p class="text-xs text-muted-foreground font-mono truncate">{{ row.rule_key }} · {{ row.domain }}</p>
+            </template>
+            <template #severity-data="{ row }"><Badge :color="SEVERITY_COLORS[row.severity] ?? 'gray'" size="xs">{{ row.severity }}</Badge></template>
+            <template #fail_count-data="{ row }"><Badge color="gray" size="xs">{{ row.fail_count }}×</Badge></template>
+          </DataTable>
+          <DataTable
+            v-if="sortedDrift.length"
+            class="mt-3"
+            :rows="sortedDrift.slice(0, 5)" :columns="driftColumns" row-key="id" rows-clickable
+            @row-click="(row) => navigateTo(`/compliance/drift/${row.id}`)"
+          >
+            <template #summary-data="{ row }">
+              <p class="text-sm font-medium truncate">{{ row.summary }}</p>
+              <p class="text-xs text-muted-foreground font-mono truncate">
+                {{ new Date(String(row.time)).toLocaleString() }} · {{ row.domain }} · {{ row.compared_against }}
+              </p>
+            </template>
+            <template #severity-data="{ row }"><Badge :color="SEVERITY_COLORS[String(row.severity)] ?? 'gray'" size="xs">{{ row.severity }}</Badge></template>
+          </DataTable>
         </template>
       </Card>
 
@@ -209,20 +224,17 @@ async function submitRunAssessment() {
           </div>
         </template>
         <Skeleton v-if="topChangedFilesLoading" class="h-24 w-full" />
-        <p v-else-if="topChangedFiles.length === 0" class="text-sm text-muted-foreground py-6 text-center">
+        <EmptyState v-else-if="topChangedFiles.length === 0">
           No file changes tracked yet (7-day window).
-        </p>
-        <ul v-else class="divide-y divide-border">
-          <li v-for="f in topChangedFiles.slice(0, 8)" :key="f.path" class="py-2 flex items-center justify-between gap-2">
-            <NuxtLink
-              :to="`/compliance/file-integrity?path=${encodeURIComponent(f.path)}`"
-              class="text-sm font-mono truncate hover:underline hover:text-primary" :title="f.path"
-            >
-              {{ f.path }}
-            </NuxtLink>
-            <Badge color="gray" size="xs">{{ f.change_count }}×</Badge>
-          </li>
-        </ul>
+        </EmptyState>
+        <DataTable
+          v-else
+          :rows="topChangedFiles.slice(0, 8)" :columns="changedFilesColumns" row-key="path" rows-clickable
+          @row-click="(row) => navigateTo(`/compliance/file-integrity?path=${encodeURIComponent(String(row.path))}`)"
+        >
+          <template #path-data="{ row }"><span class="font-mono text-xs truncate" :title="row.path">{{ row.path }}</span></template>
+          <template #change_count-data="{ row }"><Badge color="gray" size="xs">{{ row.change_count }}×</Badge></template>
+        </DataTable>
       </Card>
     </div>
 
@@ -235,19 +247,21 @@ async function submitRunAssessment() {
           </div>
         </template>
         <Skeleton v-if="baselinesLoading" class="h-24 w-full" />
-        <p v-else-if="baselines.length === 0" class="text-sm text-muted-foreground py-4 text-center">
+        <EmptyState v-else-if="baselines.length === 0">
           No baselines yet. <NuxtLink to="/compliance/baselines" class="text-primary hover:underline">Create one</NuxtLink>.
-        </p>
-        <ul v-else class="divide-y divide-border">
-          <li v-for="b in baselines.slice(0, 5)" :key="b.id" class="py-2.5 flex items-center justify-between">
-            <div>
-              <NuxtLink :to="`/compliance/baselines/${b.id}`" class="text-sm font-medium hover:underline">{{ b.name }}</NuxtLink>
-              <p class="text-xs text-muted-foreground font-mono">{{ b.scope_type }}</p>
-            </div>
-            <Badge v-if="b.is_enabled" color="green" size="xs">Enabled</Badge>
+        </EmptyState>
+        <DataTable
+          v-else
+          :rows="baselines.slice(0, 5)" :columns="baselineColumns" row-key="id" rows-clickable
+          @row-click="(row) => navigateTo(`/compliance/baselines/${row.id}`)"
+        >
+          <template #name-data="{ row }"><p class="text-sm font-medium">{{ row.name }}</p></template>
+          <template #scope_type-data="{ row }"><span class="text-xs text-muted-foreground font-mono">{{ row.scope_type }}</span></template>
+          <template #is_enabled-data="{ row }">
+            <Badge v-if="row.is_enabled" color="green" size="xs">Enabled</Badge>
             <Badge v-else color="gray" size="xs">Disabled</Badge>
-          </li>
-        </ul>
+          </template>
+        </DataTable>
       </Card>
 
       <Card>
@@ -258,9 +272,9 @@ async function submitRunAssessment() {
           </div>
         </template>
         <Skeleton v-if="assessmentsLoading" class="h-24 w-full" />
-        <p v-else-if="assessments.length === 0" class="text-sm text-muted-foreground py-4 text-center">
+        <EmptyState v-else-if="assessments.length === 0">
           No assessments yet. Runs on-demand evaluation of the current fleet state against a policy set.
-        </p>
+        </EmptyState>
         <ul v-else class="divide-y divide-border">
           <li v-for="a in assessments" :key="a.id" class="py-2.5">
             <div class="flex items-center justify-between mb-1">

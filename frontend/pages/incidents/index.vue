@@ -54,7 +54,7 @@ onMounted(() => store.fetchIncidents())
 
 <template>
   <div>
-    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+    <PageHeader>
       <div class="flex flex-wrap items-center gap-3">
         <Select v-model="filters.status" :options="STATUSES" placeholder="Status" class="w-40" @change="store.fetchIncidents()" />
         <Select v-model="filters.severity" :options="SEVERITIES" placeholder="Severity" class="w-40" @change="store.fetchIncidents()" />
@@ -67,7 +67,7 @@ onMounted(() => store.fetchIncidents())
         <Badge color="red">{{ openCount }} open</Badge>
         <Badge color="gray">{{ total }} total</Badge>
       </div>
-    </div>
+    </PageHeader>
 
     <DataTable
       :rows="incidents"
@@ -98,6 +98,7 @@ onMounted(() => store.fetchIncidents())
             size="xs"
             variant="ghost"
             class="text-muted-foreground"
+            aria-label="Acknowledge incident"
             :loading="acting === row.id"
             @click="ack(String(row.id))"
           >
@@ -108,6 +109,7 @@ onMounted(() => store.fetchIncidents())
             size="xs"
             variant="ghost"
             class="text-muted-foreground"
+            aria-label="Resolve incident"
             :loading="acting === row.id"
             @click="resolve(String(row.id))"
           >

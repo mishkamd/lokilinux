@@ -151,7 +151,7 @@ async function copy(text: string) {
       <Server class="size-4 text-muted-foreground shrink-0" />
       <span class="text-muted-foreground">Server URL:</span>
       <code class="font-mono font-medium flex-1">{{ packages.platform_url }}</code>
-      <Button size="xs" variant="ghost" @click="copy(packages!.platform_url)">
+      <Button size="xs" variant="ghost" aria-label="Copy server URL" @click="copy(packages!.platform_url)">
         <Clipboard class="size-4" />
       </Button>
     </div>
@@ -188,7 +188,7 @@ async function copy(text: string) {
     </div>
 
     <!-- Download cards -->
-    <div v-if="packagesError" class="text-sm text-red-500">Failed to load package URLs.</div>
+    <div v-if="packagesError" class="text-sm text-destructive">Failed to load package URLs.</div>
     <div v-else-if="!packages" class="grid grid-cols-1 md:grid-cols-3 gap-4">
       <Skeleton v-for="i in 3" :key="i" class="h-36 rounded-lg" />
     </div>
@@ -252,7 +252,7 @@ async function copy(text: string) {
             <FormField label="Token">
               <div class="flex gap-2">
                 <Input :model-value="enrollResult.token" readonly class="font-mono text-xs flex-1" />
-                <Button variant="outline" @click="copy(enrollResult.token)">
+                <Button variant="outline" aria-label="Copy token" @click="copy(enrollResult.token)">
                   <Clipboard class="size-4" />
                 </Button>
               </div>
@@ -261,7 +261,7 @@ async function copy(text: string) {
             <FormField label="Install command (run as root on target server)">
               <div class="flex gap-2">
                 <Input :model-value="enrollResult.install_command" readonly class="font-mono text-xs flex-1" />
-                <Button variant="outline" @click="copy(enrollResult.install_command)">
+                <Button variant="outline" aria-label="Copy install command" @click="copy(enrollResult.install_command)">
                   <Clipboard class="size-4" />
                 </Button>
               </div>

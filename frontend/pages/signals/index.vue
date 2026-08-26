@@ -51,7 +51,7 @@ onMounted(() => store.fetchSignals())
 
 <template>
   <div>
-    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+    <PageHeader>
       <div class="flex flex-wrap items-center gap-3">
         <Select v-model="filters.status" :options="STATUSES" placeholder="Status" class="w-40" @change="store.fetchSignals()" />
         <Select v-model="filters.severity" :options="SEVERITIES" placeholder="Severity" class="w-40" @change="store.fetchSignals()" />
@@ -61,7 +61,7 @@ onMounted(() => store.fetchSignals())
         </Button>
       </div>
       <Badge color="gray">{{ total }} signals</Badge>
-    </div>
+    </PageHeader>
 
     <DataTable :rows="signals" :columns="columns" :loading="loading">
       <template #severity-data="{ row }">
@@ -73,6 +73,9 @@ onMounted(() => store.fetchSignals())
       <template #host_id-data="{ row }">
         <span class="font-mono text-xs text-muted-foreground">{{ row.host_id ?? '—' }}</span>
       </template>
+      <template #occurrence_count-data="{ row }">
+        <span class="font-mono text-xs tabular-nums">{{ row.occurrence_count }}</span>
+      </template>
       <template #last_seen-data="{ row }">
         <span class="font-mono text-xs text-muted-foreground">{{ new Date(String(row.last_seen)).toLocaleString() }}</span>
       </template>
@@ -81,10 +84,10 @@ onMounted(() => store.fetchSignals())
       </template>
       <template #actions-data="{ row }">
         <div v-if="row.status === 'OPEN'" class="flex items-center justify-end gap-1">
-          <Button size="xs" variant="ghost" class="text-muted-foreground" :loading="acting === row.id" @click="resolve(String(row.id))">
+          <Button size="xs" variant="ghost" class="text-muted-foreground" aria-label="Resolve signal" :loading="acting === row.id" @click="resolve(String(row.id))">
             <Check class="size-3.5" />
           </Button>
-          <Button size="xs" variant="ghost" class="text-muted-foreground" :loading="acting === row.id" @click="suppress(String(row.id))">
+          <Button size="xs" variant="ghost" class="text-muted-foreground" aria-label="Suppress signal" :loading="acting === row.id" @click="suppress(String(row.id))">
             <Ban class="size-3.5" />
           </Button>
         </div>

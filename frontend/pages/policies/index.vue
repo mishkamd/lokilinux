@@ -100,7 +100,7 @@ onMounted(() => store.fetchPolicies())
 
 <template>
   <div>
-    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+    <PageHeader>
       <div class="flex flex-wrap items-center gap-3">
         <Select v-model="filters.policy_type" :options="POLICY_TYPES" placeholder="Category" class="w-44" @change="store.fetchPolicies()" />
         <Button variant="outline" @click="store.fetchPolicies()">
@@ -115,7 +115,7 @@ onMounted(() => store.fetchPolicies())
           New policy
         </Button>
       </div>
-    </div>
+    </PageHeader>
 
     <DataTable :rows="policies" :columns="columns" :loading="loading">
       <template #is_enabled-data="{ row }">
@@ -143,18 +143,22 @@ onMounted(() => store.fetchPolicies())
         <span class="font-mono text-xs text-muted-foreground">{{ fmtDate((row as unknown as Policy).next_run_at) }}</span>
       </template>
 
+      <template #priority-data="{ row }">
+        <span class="tabular-nums">{{ row.priority }}</span>
+      </template>
+
       <template #actions-data="{ row }">
         <div class="flex items-center justify-end gap-1">
-          <Button size="xs" variant="ghost" class="text-muted-foreground" :loading="runningId === row.id" @click="runNow(row as unknown as Policy)">
+          <Button size="xs" variant="ghost" class="text-muted-foreground" aria-label="Run now" :loading="runningId === row.id" @click="runNow(row as unknown as Policy)">
             <Play class="size-3.5" />
           </Button>
           <NuxtLink :to="`/policies/${row.id}`">
             <Button size="xs" variant="ghost" class="text-muted-foreground">Details</Button>
           </NuxtLink>
-          <Button v-if="canEdit" size="xs" variant="ghost" class="text-muted-foreground" @click="openEdit(row as unknown as Policy)">
+          <Button v-if="canEdit" size="xs" variant="ghost" class="text-muted-foreground" aria-label="Edit policy" @click="openEdit(row as unknown as Policy)">
             <Pencil class="size-3.5" />
           </Button>
-          <Button v-if="canEdit" size="xs" variant="ghost" class="text-muted-foreground" @click="deletingPolicy = row as unknown as Policy">
+          <Button v-if="canEdit" size="xs" variant="ghost" class="text-muted-foreground" aria-label="Delete policy" @click="deletingPolicy = row as unknown as Policy">
             <Trash2 class="size-3.5" />
           </Button>
         </div>

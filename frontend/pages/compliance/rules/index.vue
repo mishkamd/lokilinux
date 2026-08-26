@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { SEVERITY_COLORS, CHECK_SOURCE_COLORS } from '~/utils/complianceColors'
 import { RefreshCw } from 'lucide-vue-next'
 import type { CheckSource } from '~/stores/compliance'
 
@@ -7,12 +8,6 @@ const { rules, rulesTotal, rulesLoading, rulesNextCursor, ruleFilters } = storeT
 
 onMounted(() => store.fetchRules())
 
-const SEVERITY_COLORS: Record<string, string> = {
-  CRITICAL: 'red', HIGH: 'red', MEDIUM: 'amber', LOW: 'gray',
-}
-const CHECK_SOURCE_COLORS: Record<CheckSource, string> = {
-  CEL: 'green', OVAL_UNMAPPED: 'gray', OSCAP_FALLBACK: 'amber',
-}
 const CHECK_SOURCES: CheckSource[] = ['CEL', 'OVAL_UNMAPPED', 'OSCAP_FALLBACK']
 
 const columns = [
@@ -26,7 +21,7 @@ const columns = [
 
 <template>
   <div>
-    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+    <PageHeader>
       <div class="flex flex-wrap items-center gap-3">
         <Input v-model="ruleFilters.search" placeholder="Search rule ID, title, CCE/NIST/STIG/CIS…" class="w-64"
                @keyup.enter="store.fetchRules()" />
@@ -47,7 +42,7 @@ const columns = [
         </Button>
       </div>
       <Badge color="gray">{{ rulesTotal }} rules</Badge>
-    </div>
+    </PageHeader>
 
     <DataTable :rows="rules" :columns="columns" :loading="rulesLoading" rows-clickable
                @row-click="(row) => navigateTo(`/compliance/rules/${row.id}`)">
