@@ -63,14 +63,5 @@ func (p *AssessmentPoller) Tick(ctx context.Context) bool {
 
 // Run ticks on interval until ctx is cancelled.
 func (p *AssessmentPoller) Run(ctx context.Context, interval time.Duration) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			p.Tick(ctx)
-		}
-	}
+	loop(ctx, interval, func(ctx context.Context) { p.Tick(ctx) })
 }

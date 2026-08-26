@@ -3,7 +3,6 @@ from types import SimpleNamespace
 import pytest
 
 from lokilinux.signals.detectors import (
-    detect_compliance_violation,
     detect_host_unreachable,
     detect_job_failed,
     detect_metric_samples,
@@ -40,19 +39,6 @@ def test_job_failed_is_high():
     assert sig.type == "job.failed"
     assert sig.severity == "HIGH"
     assert sig.metadata["job_id"] == "job-42"
-
-
-def test_compliance_violation_maps_high_and_critical():
-    high = detect_compliance_violation(_event(payload={"severity": "HIGH", "resource_id": "r1"}))
-    critical = detect_compliance_violation(_event(payload={"severity": "CRITICAL", "resource_id": "r1"}))
-    assert high.severity == "HIGH"
-    assert critical.severity == "CRITICAL"
-    assert high.resource == "r1"
-
-
-def test_compliance_violation_ignores_low_and_medium():
-    assert detect_compliance_violation(_event(payload={"severity": "LOW"})) is None
-    assert detect_compliance_violation(_event(payload={"severity": "MEDIUM"})) is None
 
 
 @pytest.mark.asyncio

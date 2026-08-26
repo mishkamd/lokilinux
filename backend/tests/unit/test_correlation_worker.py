@@ -68,11 +68,10 @@ async def test_reaching_threshold_opens_via_sink(db_session, fake_nats):
     worker = CorrelationWorker(fake_nats, _db_factory(db_session), _FakeZSetCache(), _FakeCH(), sink=sink)
 
     await worker._handle_signal(_msg({"type": "cpu.high", "host_id": "host-1"}))
-    await worker._handle_signal(_msg({"type": "load.high", "host_id": "host-1"}))
-    await worker._handle_signal(_msg({"type": "http.latency.high", "host_id": "host-1"}))  # 20+20+25=65
+    await worker._handle_signal(_msg({"type": "memory.high", "host_id": "host-1"}))  # 30+30=60 >= 50
 
     assert len(sink.opened) == 1
-    assert sink.opened[0].rule.incident_type == "application_degradation"
+    assert sink.opened[0].rule.incident_type == "host_resource_exhaustion"
 
 
 @pytest.mark.asyncio
@@ -94,12 +93,11 @@ async def test_default_sink_creates_a_real_incident(db_session, fake_nats):
     worker = CorrelationWorker(fake_nats, _db_factory(db_session), _FakeZSetCache(), _FakeCH())
 
     await worker._handle_signal(_msg({"type": "cpu.high", "host_id": "host-3"}))
-    await worker._handle_signal(_msg({"type": "load.high", "host_id": "host-3"}))
-    await worker._handle_signal(_msg({"type": "http.latency.high", "host_id": "host-3"}))
+    await worker._handle_signal(_msg({"type": "disk.usage.high", "host_id": "host-3"}))  # 30+30=60 >= 50
 
     rows = (await db_session.execute(select(Incident))).scalars().all()
     assert len(rows) == 1
-    assert rows[0].type == "application_degradation"
+    assert rows[0].type == "host_resource_exhaustion"
 
 
 @pytest.mark.asyncio
@@ -108,8 +106,7 @@ async def test_explicit_noop_sink_drops_without_raising(db_session, fake_nats):
     worker = CorrelationWorker(fake_nats, _db_factory(db_session), _FakeZSetCache(), _FakeCH(), sink=NoOpIncidentSink())
 
     await worker._handle_signal(_msg({"type": "cpu.high", "host_id": "host-4"}))
-    await worker._handle_signal(_msg({"type": "load.high", "host_id": "host-4"}))
-    await worker._handle_signal(_msg({"type": "http.latency.high", "host_id": "host-4"}))
+    await worker._handle_signal(_msg({"type": "disk.usage.high", "host_id": "host-4"}))  # 30+30=60 >= 50
 
     rows = (await db_session.execute(select(Incident))).scalars().all()
     assert rows == []

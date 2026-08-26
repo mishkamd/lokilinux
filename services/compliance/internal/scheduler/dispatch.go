@@ -49,14 +49,5 @@ func (d *Dispatcher) Tick(ctx context.Context) int64 {
 
 // Run ticks on interval until ctx is cancelled.
 func (d *Dispatcher) Run(ctx context.Context, interval time.Duration) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			d.Tick(ctx)
-		}
-	}
+	loop(ctx, interval, func(ctx context.Context) { d.Tick(ctx) })
 }

@@ -5,14 +5,12 @@ package baseline
 
 import (
 	"context"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"sort"
 
 	"github.com/google/uuid"
-	"lukechampine.com/blake3"
 
+	"github.com/lokilinux/compliance/internal/hashing"
 	"github.com/lokilinux/compliance/internal/scope"
 	"github.com/lokilinux/compliance/internal/storage"
 )
@@ -66,6 +64,18 @@ func (r *Resolver) Resolve(ctx context.Context, agentID uuid.UUID) (Effective, e
 		return Effective{}, err
 	}
 
+	return r.effectiveFor(agentID, attrs, published)
+}
+
+// effectiveFor merges and hashes one agent's state against a pre-loaded
+// baseline list — split from Resolve so fleet-wide passes can load the
+// published baselines ONCE instead of once per agent (the old
+// Resolve-per-agent loop was O(agents × full-table-scan)).
+func (r *Resolver) effectiveFor(
+	agentID uuid.UUID,
+	attrs storage.AgentAttributes,
+	published []storage.PublishedBaseline,
+) (Effective, error) {
 	eff := mergeForAgent(agentID, attrs, published)
 	hash, err := canonicalHash(eff.MergedState)
 	if err != nil {
@@ -117,8 +127,56 @@ func (r *Resolver) RecomputeAll(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	published, err := r.store.LoadPublishedBaselines(ctx)
+	if err != nil {
+		return 0, err
+	}
+	return r.recomputeAgents(ctx, agentIDs, published, false)
+}
+
+// ReconcileOnStartup recomputes baseline_effective for every agent that
+// lacks a row, but ONLY when at least one published baseline exists.
+// Called from main.go on startup so baseline_effective rows survive
+// service restarts (restart loses the NATS message backlog so the
+// COMPLIANCE_BASELINE_PUBLISHED consumer would never re-trigger).
+func (r *Resolver) ReconcileOnStartup(ctx context.Context) error {
+	published, err := r.store.LoadPublishedBaselines(ctx)
+	if err != nil {
+		return err
+	}
+	if len(published) == 0 {
+		return nil // no baselines published yet — nothing to reconcile
+	}
+	agentIDs, err := r.store.ListAgentIDs(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = r.recomputeAgents(ctx, agentIDs, published, true)
+	return err
+}
+
+// recomputeAgents is the shared materialization loop: one pass over the
+// agents with the baseline list loaded once up front. skipExisting keeps
+// rows that already have a baseline_effective entry (startup reconciliation).
+func (r *Resolver) recomputeAgents(
+	ctx context.Context,
+	agentIDs []uuid.UUID,
+	published []storage.PublishedBaseline,
+	skipExisting bool,
+) (int, error) {
 	for _, id := range agentIDs {
-		eff, err := r.Resolve(ctx, id)
+		if skipExisting {
+			if _, found, err := r.store.GetBaselineEffective(ctx, id); err != nil {
+				return 0, err
+			} else if found {
+				continue // already has a row
+			}
+		}
+		attrs, err := r.store.LoadAgentAttributes(ctx, id)
+		if err != nil {
+			return 0, fmt.Errorf("loading attributes for agent %s: %w", id, err)
+		}
+		eff, err := r.effectiveFor(id, attrs, published)
 		if err != nil {
 			return 0, fmt.Errorf("resolving baseline for agent %s: %w", id, err)
 		}
@@ -129,52 +187,13 @@ func (r *Resolver) RecomputeAll(ctx context.Context) (int, error) {
 	return len(agentIDs), nil
 }
 
-// ReconcileOnStartup recomputes baseline_effective for every agent that
-// lacks a row, but ONLY when at least one published baseline exists.
-// Called from main.go on startup so baseline_effective rows survive
-// service restarts (restart loses the NATS message backlog so the
-// COMPLIANCE_BASELINE_PUBLISHED consumer would never re-trigger).
-func (r *Resolver) ReconcileOnStartup(ctx context.Context) error {
-	baselines, err := r.store.LoadPublishedBaselines(ctx)
-	if err != nil {
-		return err
-	}
-	if len(baselines) == 0 {
-		return nil // no baselines published yet — nothing to reconcile
-	}
-	agentIDs, err := r.store.ListAgentIDs(ctx)
-	if err != nil {
-		return err
-	}
-	for _, id := range agentIDs {
-		_, found, err := r.store.GetBaselineEffective(ctx, id)
-		if err != nil {
-			return err
-		}
-		if found {
-			continue // already has a row
-		}
-		eff, err := r.Resolve(ctx, id)
-		if err != nil {
-			return err
-		}
-		if err := r.store.UpsertBaselineEffective(ctx, id, eff.BaselineVersionIDs, eff.MergedState, eff.MergedHash); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 // selectorMatches evaluates a scope_selector against an agent's attributes.
 // Thin forwarder to scope.Matches (internal/scope/selector.go) — the actual
 // matching rule is shared with policy set resolution (internal/policy) and
 // lives there once; kept as a same-named wrapper here so this package's
 // existing tests (resolver_test.go) needed no changes.
 func selectorMatches(selector map[string]any, attrs storage.AgentAttributes) bool {
-	return scope.Matches(selector, scope.AgentAttributes{
-		OsDistro: attrs.OsDistro, OsVersion: attrs.OsVersion,
-		Category: attrs.Category, Project: attrs.Project,
-	})
+	return scope.Matches(selector, attrs.ScopeAttrs())
 }
 
 // deepMergeOverwrite merges src into dst per-key, recursing into nested
@@ -197,15 +216,8 @@ func deepMergeOverwrite(dst, src map[string]any) {
 	}
 }
 
-// canonicalHash hashes the merged state deterministically: encoding/json
-// sorts map keys, so the output is stable across runs and processes.
-// BLAKE3 matches the agent collectors' canonical hashing choice
-// (04-PROTOCOL.md §1, 06-BASELINE.md §3).
+// canonicalHash hashes the merged state deterministically — shared recipe
+// with the snapshot ingest path via internal/hashing.
 func canonicalHash(state map[string]any) (string, error) {
-	body, err := json.Marshal(state)
-	if err != nil {
-		return "", fmt.Errorf("canonicalizing merged baseline state: %w", err)
-	}
-	sum := blake3.Sum256(body)
-	return hex.EncodeToString(sum[:]), nil
+	return hashing.Canonical(state)
 }

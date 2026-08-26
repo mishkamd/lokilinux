@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from lokilinux.auth.dependencies import get_current_user
 from lokilinux.dependencies import get_db
 from lokilinux.models.agent import Agent
+from lokilinux.models.drift import OPEN_DRIFT_STATUSES
 from lokilinux.models.drift import DriftEvent
 from lokilinux.models.file_integrity import FileChange, FileHash
 from lokilinux.schemas.common import CursorPage, decode_cursor, encode_cursor
@@ -173,7 +174,7 @@ async def get_file_changes_by_path(
                 .where(
                     DriftEvent.domain.in_(domains),
                     DriftEvent.agent_id.in_(servers),
-                    DriftEvent.status.in_(["OPEN", "ACKNOWLEDGED", "IN_REMEDIATION"]),
+                    DriftEvent.status.in_(OPEN_DRIFT_STATUSES),
                 )
                 .order_by(DriftEvent.time.desc())
                 .limit(20)

@@ -19,6 +19,7 @@ import (
 	"lukechampine.com/blake3"
 
 	"github.com/lokilinux/compliance/internal/drift"
+	"github.com/lokilinux/compliance/internal/hashing"
 	"github.com/lokilinux/compliance/internal/policy"
 	"github.com/lokilinux/compliance/internal/rules"
 	"github.com/lokilinux/compliance/internal/scope"
@@ -67,19 +68,10 @@ type Result struct {
 	DriftDetected  bool
 }
 
-// canonicalHash mirrors agent/internal/compliance/canonical.go's Hash
-// function exactly (encoding/json + BLAKE3) so a snapshot's claimed
-// content_hash can be verified server-side. Deliberately duplicated rather
-// than imported — the agent and this service are separate Go modules with
-// no shared internal package today; if a third consumer ever needs the
-// same hashing, that's the point to extract a shared module, not before.
+// canonicalHash verifies a snapshot's claimed content_hash against the same
+// recipe the agent used — shared with the baseline resolver via internal/hashing.
 func canonicalHash(facts map[string]any) (string, error) {
-	body, err := json.Marshal(facts)
-	if err != nil {
-		return "", fmt.Errorf("canonicalizing facts: %w", err)
-	}
-	sum := blake3.Sum256(body)
-	return hex.EncodeToString(sum[:]), nil
+	return hashing.Canonical(facts)
 }
 
 // Ingester ties storage and rule evaluation together for one snapshot.
@@ -92,11 +84,24 @@ func NewIngester(store *storage.Store, evaluator rules.Evaluator) *Ingester {
 	return &Ingester{store: store, evaluator: evaluator}
 }
 
+// withStore returns a shallow copy bound to a different storage handle (the
+// transaction-scoped one during Ingest) sharing the same evaluator.
+func (in *Ingester) withStore(s *storage.Store) *Ingester {
+	return &Ingester{store: s, evaluator: in.evaluator}
+}
+
 // Ingest verifies, stores, and evaluates one snapshot. Returns an error
 // only for infrastructure failures (DB unreachable, etc.) — a hash
 // mismatch is reported as an error too, since storing an unverifiable
 // snapshot would poison drift detection and scoring for this agent/domain
 // going forward.
+//
+// The entire pipeline runs in one Postgres transaction: any failure rolls
+// back every write, so JetStream redelivery retries a clean slate instead
+// of compounding partial state. Replaying an already-stored snapshot
+// (unchanged) skips the blob/snapshot writes entirely — re-inserting them
+// on redelivery used to duplicate inventory_snapshots rows and inflate
+// inventory_blobs.ref_count on every retry.
 func (in *Ingester) Ingest(ctx context.Context, snap Snapshot) (Result, error) {
 	body, err := json.Marshal(snap.Facts)
 	if err != nil {
@@ -120,51 +125,67 @@ func (in *Ingester) Ingest(ctx context.Context, snap Snapshot) (Result, error) {
 	}
 	unchanged := hadPrevious && previousHash == computedHash
 
-	// Fetch the previous domain body *before* overwriting anything — this is
-	// the "vs previous snapshot" comparison from docs/compliance/08-DRIFT-FIM.md §1.
-	var driftDetected bool
-	if hadPrevious && !unchanged {
-		driftDetected, err = in.detectDrift(ctx, snap, previousHash)
+	var result Result
+	err = in.store.Transact(ctx, func(tx *storage.Store) error {
+		txIn := in.withStore(tx)
+
+		// Fetch the previous domain body *before* overwriting anything — this is
+		// the "vs previous snapshot" comparison from docs/compliance/08-DRIFT-FIM.md §1.
+		var driftDetected bool
+		if hadPrevious && !unchanged {
+			detected, err := txIn.detectDrift(ctx, snap, previousHash)
+			if err != nil {
+				return err
+			}
+			driftDetected = detected
+		}
+
+		if !unchanged {
+			if err := tx.UpsertInventoryBlob(ctx, computedHash, body, "blake3"); err != nil {
+				return err
+			}
+			snapshotID, err := tx.InsertInventorySnapshot(ctx, snap.AgentID, snap.Domain, computedHash)
+			if err != nil {
+				return err
+			}
+			result.SnapshotID = snapshotID
+		}
+
+		// "vs baseline" comparison (08-DRIFT-FIM.md §1) — independent of whether
+		// the state changed since the previous snapshot: a deviation from the
+		// effective baseline is reportable even on the very first snapshot, and
+		// is recorded once per distinct diff state, not once per heartbeat.
+		baselineDrift, err := txIn.detectBaselineDrift(ctx, snap)
 		if err != nil {
-			return Result{}, err
+			return err
 		}
-	}
+		driftDetected = driftDetected || baselineDrift
 
-	if err := in.store.UpsertInventoryBlob(ctx, computedHash, body, "blake3"); err != nil {
-		return Result{}, err
-	}
-	snapshotID, err := in.store.InsertInventorySnapshot(ctx, snap.AgentID, snap.Domain, computedHash)
+		evaluated, err := txIn.evaluateRules(ctx, snap)
+		if err != nil {
+			return err
+		}
+		if evaluated > 0 {
+			if err := txIn.updateComplianceScores(ctx, snap.AgentID); err != nil {
+				return err
+			}
+		}
+
+		if snap.Domain == "file_integrity" && !unchanged {
+			if err := txIn.ingestFileIntegrity(ctx, snap); err != nil {
+				return err
+			}
+		}
+
+		result.Unchanged = unchanged
+		result.RulesEvaluated = evaluated
+		result.DriftDetected = driftDetected
+		return nil
+	})
 	if err != nil {
 		return Result{}, err
 	}
-
-	// "vs baseline" comparison (08-DRIFT-FIM.md §1) — independent of whether
-	// the state changed since the previous snapshot: a deviation from the
-	// effective baseline is reportable even on the very first snapshot, and
-	// is recorded once per distinct diff state, not once per heartbeat.
-	baselineDrift, err := in.detectBaselineDrift(ctx, snap)
-	if err != nil {
-		return Result{}, err
-	}
-	driftDetected = driftDetected || baselineDrift
-
-	evaluated, err := in.evaluateRules(ctx, snap)
-	if err != nil {
-		return Result{}, err
-	}
-	if evaluated > 0 {
-		if err := in.updateComplianceScores(ctx, snap.AgentID); err != nil {
-			return Result{}, err
-		}
-	}
-
-	if snap.Domain == "file_integrity" && !unchanged {
-		if err := in.ingestFileIntegrity(ctx, snap); err != nil {
-			return Result{}, err
-		}
-	}
-
-	return Result{SnapshotID: snapshotID, Unchanged: unchanged, RulesEvaluated: evaluated, DriftDetected: driftDetected}, nil
+	return result, nil
 }
 
 // ingestFileIntegrity is the per-file breakdown that rides alongside the
@@ -297,6 +318,7 @@ func (in *Ingester) recordOrCorrelateDrift(ctx context.Context, agentID uuid.UUI
 	); err != nil {
 		return false, err
 	}
+	driftEvents.WithLabelValues(string(event.Severity)).Inc()
 	return true, nil
 }
 
@@ -516,10 +538,7 @@ func filterRulesByID(activeRules []storage.RuleWithPolicySet, wanted []uuid.UUID
 // by the caller; this only tags which exception waived it
 // (docs/compliance §17: never silently overwrite).
 func matchException(exceptions []storage.ActiveException, ruleID, agentID uuid.UUID, attrs storage.AgentAttributes) (uuid.UUID, bool) {
-	sAttrs := scope.AgentAttributes{
-		OsDistro: attrs.OsDistro, OsVersion: attrs.OsVersion,
-		Category: attrs.Category, Project: attrs.Project,
-	}
+	sAttrs := attrs.ScopeAttrs()
 	for _, ex := range exceptions {
 		if ex.RuleID != ruleID {
 			continue

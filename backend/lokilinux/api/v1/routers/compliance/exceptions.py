@@ -20,7 +20,8 @@ from lokilinux.dependencies import get_db
 from lokilinux.models.agent import Agent
 from lokilinux.models.compliance_exception import ComplianceException
 from lokilinux.models.compliance_rule import ComplianceRule
-from lokilinux.schemas.common import CursorPage, decode_cursor, encode_cursor
+from lokilinux.api.v1.routers.compliance._pagination import paginate_keyset
+from lokilinux.schemas.common import CursorPage
 from lokilinux.schemas.compliance_exception import ExceptionCreate, ExceptionResponse
 from lokilinux.services.compliance_exception_service import ExceptionService
 
@@ -50,26 +51,11 @@ async def list_exceptions(
     if agent_id:
         q = q.where(ComplianceException.agent_id == agent_id)
 
-    if cursor:
-        raw = decode_cursor(cursor)
-        try:
-            ts_str, eid = raw.rsplit(":", 1)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Malformed cursor")
-        ts = datetime.fromisoformat(ts_str)
-        q = q.where(
-            (ComplianceException.created_at < ts)
-            | ((ComplianceException.created_at == ts) & (ComplianceException.id < UUID(eid)))
-        )
-    q = q.limit(limit + 1)
-
-    rows = (await db.execute(q)).all()
-    has_more = len(rows) > limit
-    items = rows[:limit]
-    next_cursor = None
-    if has_more and items:
-        last = items[-1][0]
-        next_cursor = encode_cursor(f"{last.created_at.isoformat()}:{last.id}")
+    items, next_cursor = await paginate_keyset(
+        db, q,
+        ts_col=ComplianceException.created_at, tie_col=ComplianceException.id,
+        cursor=cursor, limit=limit,
+    )
 
     count_q = select(func.count()).select_from(ComplianceException)
     if status:

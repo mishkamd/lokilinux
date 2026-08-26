@@ -27,13 +27,10 @@ PLUGIN_UNINSTALL = "lokilinux.plugin.uninstall"
 
 # Compliance module — snapshot ingest (published by the gRPC servicer passthrough,
 # consumed by the lokilinux-compliance Go service, docs/compliance/04-PROTOCOL.md)
-COMPLIANCE_HASHES_REPORTED = "lokilinux.compliance.hashes.reported"
 COMPLIANCE_SNAPSHOT_DOMAIN = "lokilinux.compliance.snapshot"  # + ".{domain}" subject suffix per publish
 
-# Compliance module — results (published by lokilinux-compliance, consumed by
-# lokilinux-api NATS workers for WebSocket push / cache invalidation)
-COMPLIANCE_DRIFT_DETECTED = "lokilinux.compliance.drift.detected"
-COMPLIANCE_SCORE_UPDATED = "lokilinux.compliance.score.updated"
+# Compliance module — baseline invalidation (published by BaselineService,
+# consumed by the lokilinux-compliance Go service, docs/compliance/06-BASELINE.md)
 COMPLIANCE_BASELINE_PUBLISHED = "lokilinux.compliance.baseline.published"
 
 # Observability pipeline (Observation -> Event -> Signal -> Correlation -> Incident)

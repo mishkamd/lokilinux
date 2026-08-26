@@ -2,7 +2,6 @@
 LokiLinux — Compliance Remediation API routes.
 """
 
-from datetime import datetime
 from uuid import UUID
 
 import zoneinfo
@@ -22,7 +21,8 @@ from lokilinux.models.remediation import (
     RemediationJob,
     RemediationPlan,
 )
-from lokilinux.schemas.common import CursorPage, decode_cursor, encode_cursor
+from lokilinux.api.v1.routers.compliance._pagination import paginate_keyset
+from lokilinux.schemas.common import CursorPage
 from lokilinux.schemas.remediation import (
     MaintenanceWindowCreate,
     MaintenanceWindowResponse,
@@ -111,19 +111,12 @@ async def list_remediation_plans(
     q = select(RemediationPlan).order_by(RemediationPlan.created_at.desc(), RemediationPlan.id.desc())
     if status_:
         q = q.where(RemediationPlan.status == status_)
-    if cursor:
-        raw = decode_cursor(cursor)
-        ts_str, pid = raw.rsplit(":", 1)
-        ts = datetime.fromisoformat(ts_str)
-        q = q.where((RemediationPlan.created_at < ts) | ((RemediationPlan.created_at == ts) & (RemediationPlan.id < UUID(pid))))
-    q = q.limit(limit + 1)
-    rows = (await db.execute(q)).scalars().all()
-    has_more = len(rows) > limit
-    items = rows[:limit]
-    next_cursor = None
-    if has_more and items:
-        last = items[-1]
-        next_cursor = encode_cursor(f"{last.created_at.isoformat()}:{last.id}")
+    items, next_cursor = await paginate_keyset(
+        db, q,
+        ts_col=RemediationPlan.created_at, tie_col=RemediationPlan.id,
+        cursor=cursor, limit=limit,
+        scalars=True,
+    )
     return CursorPage[RemediationPlanResponse](
         items=[RemediationPlanResponse.model_validate(p) for p in items],
         next_cursor=next_cursor,

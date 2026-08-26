@@ -29,24 +29,6 @@ export interface BaselineVersion {
   deprecated_at: string | null
 }
 
-export interface InventorySnapshot {
-  id: string
-  agent_id: string
-  domain: string
-  content_hash: string
-  taken_at: string
-  facts: Record<string, unknown> | null
-}
-
-export interface InventoryDelta {
-  time: string
-  agent_id: string
-  domain: string
-  prev_hash: string | null
-  new_hash: string
-  diff: Record<string, unknown> | null
-}
-
 export type CheckSource = 'CEL' | 'OVAL_UNMAPPED' | 'OSCAP_FALLBACK'
 
 export interface ComplianceRule {
@@ -333,6 +315,32 @@ export interface ComplianceException {
 export const useComplianceStore = defineStore('compliance', () => {
   const api = useApi()
 
+  // Shared cursor-pagination fetch — replaces eight verbatim copies of the
+  // build-params / append-or-replace / total / next-cursor dance. Errors
+  // propagate; callers that swallow them wrap the call in try/catch.
+  async function fetchCursorPage<T>(
+    path: string,
+    params: URLSearchParams,
+    targets: {
+      items: { value: T[] }
+      total: { value: number }
+      nextCursor: { value: string | null }
+      loading: { value: boolean }
+    },
+    cursor?: string,
+  ) {
+    targets.loading.value = true
+    try {
+      if (cursor) params.set('cursor', cursor)
+      const data = await api.get<{ items: T[]; next_cursor: string | null; total: number }>(`${path}?${params}`)
+      targets.items.value = cursor ? [...targets.items.value, ...data.items] : data.items
+      targets.total.value = data.total ?? 0
+      targets.nextCursor.value = data.next_cursor
+    } finally {
+      targets.loading.value = false
+    }
+  }
+
   const baselines = ref<Baseline[]>([])
   const baselinesTotal = ref(0)
   const baselinesLoading = ref(false)
@@ -344,25 +352,11 @@ export const useComplianceStore = defineStore('compliance', () => {
   const versionsLoading = ref(false)
 
   async function fetchBaselines(cursor?: string) {
-    baselinesLoading.value = true
-    try {
-      const params = new URLSearchParams()
-      if (cursor) params.set('cursor', cursor)
-      if (baselineFilters.value.scope_type) params.set('scope_type', baselineFilters.value.scope_type)
-
-      const data = await api.get<{ items: Baseline[]; next_cursor: string | null; total: number }>(
-        `/compliance/baselines?${params}`,
-      )
-      if (cursor) {
-        baselines.value = [...baselines.value, ...data.items]
-      } else {
-        baselines.value = data.items
-      }
-      baselinesTotal.value = data.total ?? 0
-      baselinesNextCursor.value = data.next_cursor
-    } finally {
-      baselinesLoading.value = false
-    }
+    const params = new URLSearchParams()
+    if (baselineFilters.value.scope_type) params.set('scope_type', baselineFilters.value.scope_type)
+    await fetchCursorPage<Baseline>('/compliance/baselines', params, {
+      items: baselines, total: baselinesTotal, nextCursor: baselinesNextCursor, loading: baselinesLoading,
+    }, cursor)
   }
 
   async function createBaseline(body: {
@@ -416,33 +410,6 @@ export const useComplianceStore = defineStore('compliance', () => {
 
   async function rollbackVersion(baselineId: string, versionId: string) {
     _patchVersion(await api.post<BaselineVersion>(`/compliance/baselines/${baselineId}/versions/${versionId}/rollback`))
-  }
-
-  // ── Inventory ────────────────────────────────────────────────────────────
-
-  const inventorySnapshot = ref<InventorySnapshot | null>(null)
-  const inventorySnapshotError = ref<string | null>(null)
-  const inventoryHistory = ref<InventoryDelta[]>([])
-  const inventoryLoading = ref(false)
-
-  async function fetchInventorySnapshot(agentId: string, domain: string) {
-    inventoryLoading.value = true
-    inventorySnapshotError.value = null
-    inventorySnapshot.value = null
-    try {
-      inventorySnapshot.value = await api.get<InventorySnapshot>(`/compliance/agents/${agentId}/inventory/${domain}`)
-    } catch (err) {
-      inventorySnapshotError.value = 'No snapshot found for this agent/domain yet.'
-    } finally {
-      inventoryLoading.value = false
-    }
-  }
-
-  async function fetchInventoryHistory(agentId: string, domain: string) {
-    const data = await api.get<{ items: InventoryDelta[]; next_cursor: string | null; total: number }>(
-      `/compliance/agents/${agentId}/inventory/${domain}/history`,
-    )
-    inventoryHistory.value = data.items
   }
 
   // ── Policy Engine ────────────────────────────────────────────────────────
@@ -568,28 +535,17 @@ export const useComplianceStore = defineStore('compliance', () => {
   const driftDetails = ref<DriftDetail[]>([])
 
   async function fetchDriftEvents(cursor?: string) {
-    driftLoading.value = true
+    const f = driftFilters.value
+    const params = new URLSearchParams()
+    for (const key of ['severity', 'domain', 'acknowledged', 'status'] as const) {
+      if (f[key]) params.set(key, f[key])
+    }
     try {
-      const params = new URLSearchParams()
-      if (cursor) params.set('cursor', cursor)
-      if (driftFilters.value.severity) params.set('severity', driftFilters.value.severity)
-      if (driftFilters.value.domain) params.set('domain', driftFilters.value.domain)
-      if (driftFilters.value.acknowledged) params.set('acknowledged', driftFilters.value.acknowledged)
-      if (driftFilters.value.status) params.set('status', driftFilters.value.status)
-      const data = await api.get<{ items: DriftEvent[]; next_cursor: string | null; total: number }>(
-        `/compliance/drift-events?${params}`,
-      )
-      if (cursor) {
-        driftEvents.value = [...driftEvents.value, ...data.items]
-      } else {
-        driftEvents.value = data.items
-      }
-      driftTotal.value = data.total ?? 0
-      driftNextCursor.value = data.next_cursor
+      await fetchCursorPage<DriftEvent>('/compliance/drift-events', params, {
+        items: driftEvents, total: driftTotal, nextCursor: driftNextCursor, loading: driftLoading,
+      }, cursor)
     } catch {
       // swallow — global onResponseError already surfaces a toast; keep last-known-good list
-    } finally {
-      driftLoading.value = false
     }
   }
 
@@ -638,24 +594,11 @@ export const useComplianceStore = defineStore('compliance', () => {
   const exceptionFilters = ref({ status: '' })
 
   async function fetchExceptions(cursor?: string) {
-    exceptionsLoading.value = true
-    try {
-      const params = new URLSearchParams()
-      if (cursor) params.set('cursor', cursor)
-      if (exceptionFilters.value.status) params.set('status', exceptionFilters.value.status)
-      const data = await api.get<{ items: ComplianceException[]; next_cursor: string | null; total: number }>(
-        `/compliance/exceptions?${params}`,
-      )
-      if (cursor) {
-        exceptions.value = [...exceptions.value, ...data.items]
-      } else {
-        exceptions.value = data.items
-      }
-      exceptionsTotal.value = data.total ?? 0
-      exceptionsNextCursor.value = data.next_cursor
-    } finally {
-      exceptionsLoading.value = false
-    }
+    const params = new URLSearchParams()
+    if (exceptionFilters.value.status) params.set('status', exceptionFilters.value.status)
+    await fetchCursorPage<ComplianceException>('/compliance/exceptions', params, {
+      items: exceptions, total: exceptionsTotal, nextCursor: exceptionsNextCursor, loading: exceptionsLoading,
+    }, cursor)
   }
 
   async function createException(body: {
@@ -715,26 +658,15 @@ export const useComplianceStore = defineStore('compliance', () => {
   const maintenanceWindows = ref<MaintenanceWindow[]>([])
 
   async function fetchRemediationPlans(cursor?: string) {
-    remediationLoading.value = true
     remediationError.value = null
+    const params = new URLSearchParams()
+    if (remediationFilters.value.status) params.set('status', remediationFilters.value.status)
     try {
-      const params = new URLSearchParams()
-      if (cursor) params.set('cursor', cursor)
-      if (remediationFilters.value.status) params.set('status', remediationFilters.value.status)
-      const data = await api.get<{ items: RemediationPlan[]; next_cursor: string | null; total: number }>(
-        `/compliance/remediation-plans?${params}`,
-      )
-      if (cursor) {
-        remediationPlans.value = [...remediationPlans.value, ...data.items]
-      } else {
-        remediationPlans.value = data.items
-      }
-      remediationTotal.value = data.total ?? 0
-      remediationNextCursor.value = data.next_cursor
+      await fetchCursorPage<RemediationPlan>('/compliance/remediation-plans', params, {
+        items: remediationPlans, total: remediationTotal, nextCursor: remediationNextCursor, loading: remediationLoading,
+      }, cursor)
     } catch (err) {
       remediationError.value = (err as { data?: { detail?: string } })?.data?.detail ?? 'Failed to load remediation plans'
-    } finally {
-      remediationLoading.value = false
     }
   }
 
@@ -841,26 +773,15 @@ export const useComplianceStore = defineStore('compliance', () => {
   }
 
   async function fetchFileChanges(cursor?: string) {
-    fileChangesLoading.value = true
+    const params = new URLSearchParams()
+    if (fileChangeFilters.value.agent_id) params.set('agent_id', fileChangeFilters.value.agent_id)
+    if (fileChangeFilters.value.change_kind) params.set('change_kind', fileChangeFilters.value.change_kind)
     try {
-      const params = new URLSearchParams()
-      if (cursor) params.set('cursor', cursor)
-      if (fileChangeFilters.value.agent_id) params.set('agent_id', fileChangeFilters.value.agent_id)
-      if (fileChangeFilters.value.change_kind) params.set('change_kind', fileChangeFilters.value.change_kind)
-      const data = await api.get<{ items: FileChange[]; next_cursor: string | null; total: number }>(
-        `/compliance/file-changes?${params}`,
-      )
-      if (cursor) {
-        fileChanges.value = [...fileChanges.value, ...data.items]
-      } else {
-        fileChanges.value = data.items
-      }
-      fileChangesTotal.value = data.total ?? 0
-      fileChangesNextCursor.value = data.next_cursor
+      await fetchCursorPage<FileChange>('/compliance/file-changes', params, {
+        items: fileChanges, total: fileChangesTotal, nextCursor: fileChangesNextCursor, loading: fileChangesLoading,
+      }, cursor)
     } catch {
       // swallow — global onResponseError already surfaces a toast; keep last-known-good list
-    } finally {
-      fileChangesLoading.value = false
     }
   }
 
@@ -888,23 +809,9 @@ export const useComplianceStore = defineStore('compliance', () => {
   const reportsNextCursor = ref<string | null>(null)
 
   async function fetchReports(cursor?: string) {
-    reportsLoading.value = true
-    try {
-      const params = new URLSearchParams()
-      if (cursor) params.set('cursor', cursor)
-      const data = await api.get<{ items: ComplianceReport[]; next_cursor: string | null; total: number }>(
-        `/compliance/reports?${params}`,
-      )
-      if (cursor) {
-        reports.value = [...reports.value, ...data.items]
-      } else {
-        reports.value = data.items
-      }
-      reportsTotal.value = data.total ?? 0
-      reportsNextCursor.value = data.next_cursor
-    } finally {
-      reportsLoading.value = false
-    }
+    await fetchCursorPage<ComplianceReport>('/compliance/reports', new URLSearchParams(), {
+      items: reports, total: reportsTotal, nextCursor: reportsNextCursor, loading: reportsLoading,
+    }, cursor)
   }
 
   async function createReport(body: { report_type: ReportType; format: ReportFormat; params?: Record<string, unknown> }) {
@@ -984,20 +891,11 @@ export const useComplianceStore = defineStore('compliance', () => {
     return created
   }
 
-  async function fetchAssessment(id: string) {
-    const updated = await api.get<ComplianceAssessment>(`/compliance/assessments/${id}`)
-    const idx = assessments.value.findIndex((a) => a.id === id)
-    if (idx !== -1) assessments.value[idx] = updated
-    return updated
-  }
-
   return {
     baselines, baselinesTotal, baselinesLoading, baselinesNextCursor, baselineFilters,
     selectedBaseline, versions, versionsLoading,
     fetchBaselines, createBaseline, fetchBaseline, fetchVersions, createVersion,
     submitVersion, approveVersion, publishVersion, rollbackVersion,
-    inventorySnapshot, inventorySnapshotError, inventoryHistory, inventoryLoading,
-    fetchInventorySnapshot, fetchInventoryHistory,
     rules, rulesTotal, rulesLoading, rulesNextCursor, ruleFilters, fetchRules,
     selectedRule, fetchRule,
     policySets, policySetsTotal, policySetsLoading, policySetsNextCursor, selectedPolicySet, policySetRules, policySetCoverage,
@@ -1022,6 +920,6 @@ export const useComplianceStore = defineStore('compliance', () => {
     fetchTopViolations, fetchTopChangedFiles,
     overview, overviewLoading, fetchOverview,
     trend, trendLoading, trendRange, fetchTrend,
-    assessments, assessmentsLoading, fetchAssessments, createAssessment, fetchAssessment,
+    assessments, assessmentsLoading, fetchAssessments, createAssessment,
   }
 })

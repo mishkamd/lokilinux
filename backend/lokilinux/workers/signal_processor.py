@@ -1,12 +1,8 @@
 """
-LokiLinux — SignalProcessorWorker: EVENT_NORMALIZED + COMPLIANCE_DRIFT_DETECTED
--> detectors -> SignalService.
+LokiLinux — SignalProcessorWorker: EVENT_NORMALIZED -> detectors -> SignalService.
 
-Subscribes both streams. Compliance drift payloads (their own shape, from
-the lokilinux-compliance Go service — docs/compliance/04-PROTOCOL.md) get
-wrapped into the minimal event-like object detectors actually read
-(type/host_id/payload) before running through the same registry as
-everything else — one detection path, not two.
+Subscribes the normalized-event stream and runs each event through the same
+detector registry as everything else.
 """
 
 from types import SimpleNamespace
@@ -17,7 +13,7 @@ import structlog
 
 from lokilinux.ch import ClickHouseStore
 from lokilinux.models.agent import Agent
-from lokilinux.nats_topics import COMPLIANCE_DRIFT_DETECTED, EVENT_NORMALIZED
+from lokilinux.nats_topics import EVENT_NORMALIZED
 from lokilinux.signals.detectors import (
     DETECTORS,
     METRIC_SAMPLE_EVENT_TYPE,
@@ -41,7 +37,6 @@ class SignalProcessorWorker:
 
     async def start(self) -> None:
         await self.nats.subscribe(EVENT_NORMALIZED, cb=self._handle_normalized_event)
-        await self.nats.subscribe(COMPLIANCE_DRIFT_DETECTED, cb=self._handle_drift)
         logger.info("SignalProcessorWorker started")
 
     async def stop(self) -> None:
@@ -77,19 +72,6 @@ class SignalProcessorWorker:
             type=data.get("type"), host_id=data.get("host_id"), payload=data.get("payload") or {},
         )
         await self._process(event, tenant_id=data.get("tenant_id") or "default")
-
-    async def _handle_drift(self, msg) -> None:
-        try:
-            data = json.loads(msg.data)
-        except Exception:
-            logger.error("signal_processor.malformed_drift_json", exc_info=True)
-            return
-        event = SimpleNamespace(
-            type="compliance.drift.detected",
-            host_id=data.get("agent_id") or data.get("host_id"),
-            payload=data,
-        )
-        await self._process(event, tenant_id="default")
 
     async def _process(self, event, *, tenant_id: str) -> None:
         try:

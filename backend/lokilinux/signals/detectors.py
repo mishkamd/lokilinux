@@ -1,10 +1,8 @@
 """
 LokiLinux — Phase B detectors: NormalizedEvent -> DetectedSignal(s).
 
-Registry keyed by event type. Two input streams feed the same registry
-(SignalProcessorWorker, Task B2): EVENT_NORMALIZED (this pipeline's own
-producers) and COMPLIANCE_DRIFT_DETECTED, wrapped into the same shape before
-reaching here — see signal_processor.py.
+Registry keyed by event type, fed by SignalProcessorWorker's
+EVENT_NORMALIZED subscription.
 
 Sustain counters (cpu/memory need 2 consecutive over-threshold samples) live
 in Redis, keyed sig:thr:{host}:{metric}, reset on any under-threshold sample.
@@ -25,8 +23,6 @@ SUSTAIN_WINDOW_SEC = 600
 # the DETECTORS registry below.
 RECOVERY_EVENT_TYPE = "host.heartbeat.ok"
 RECOVERY_RESOLVES_SIGNAL_TYPE = "host.unreachable"
-
-_DRIFT_SEVERITY_MAP = {"HIGH": "HIGH", "CRITICAL": "CRITICAL"}  # LOW/MEDIUM/unknown -> no signal
 
 
 @dataclass
@@ -52,24 +48,12 @@ def detect_job_failed(event: Any) -> DetectedSignal | None:
     )
 
 
-def detect_compliance_violation(event: Any) -> DetectedSignal | None:
-    payload = event.payload or {}
-    mapped = _DRIFT_SEVERITY_MAP.get(str(payload.get("severity", "")).upper())
-    if not mapped:
-        return None
-    return DetectedSignal(
-        type="compliance.violation", severity=mapped, host_id=event.host_id,
-        resource=payload.get("resource_id"),
-    )
-
-
 # Direct 1:1 detectors — pure functions, no I/O. metric.sample is handled by
 # detect_metric_samples() below (async: needs Redis for the sustain counter,
 # and can emit 0-3 signals from one event instead of exactly one).
 DETECTORS = {
     "host.unreachable": detect_host_unreachable,
     "job.failed": detect_job_failed,
-    "compliance.drift.detected": detect_compliance_violation,
 }
 
 METRIC_SAMPLE_EVENT_TYPE = "metric.sample"

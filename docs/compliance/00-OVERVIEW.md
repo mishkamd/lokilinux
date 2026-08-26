@@ -77,8 +77,6 @@ flowchart LR
     NATS --> Compliance["lokilinux-compliance<br/>(NEW, Go)<br/>ingest · diff · evaluate · score · schedule"]
     Compliance -- "read/write" --> PG[("PostgreSQL / TimescaleDB")]
     API["lokilinux-api<br/>(existing, FastAPI)<br/>/api/v1/compliance/*"] -- "read/write" --> PG
-    Compliance -- "publish results" --> NATS
-    API -- "subscribe" --> NATS
     UI["Nuxt frontend<br/>pages/compliance/*"] -- "/api/v1 (proxied)" --> API
     API -- "create Job (remediation)" --> JobEngine["Job Engine (existing)"]
     JobEngine -- "pending_jobs on next heartbeat" --> Agent

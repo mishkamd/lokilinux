@@ -35,7 +35,7 @@ func newTestIngester(t *testing.T) (*Ingester, *storage.Store) {
 	if dbURL == "" {
 		t.Skip("DATABASE_URL not set — skipping integration test")
 	}
-	store, err := storage.Open(context.Background(), dbURL)
+	store, err := storage.Open(context.Background(), dbURL, 0)
 	if err != nil {
 		t.Fatalf("storage.Open() error = %v", err)
 	}

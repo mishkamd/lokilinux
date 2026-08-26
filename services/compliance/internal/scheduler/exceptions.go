@@ -44,14 +44,5 @@ func (e *Expirer) Tick(ctx context.Context) int64 {
 
 // Run ticks on interval until ctx is cancelled.
 func (e *Expirer) Run(ctx context.Context, interval time.Duration) {
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			e.Tick(ctx)
-		}
-	}
+	loop(ctx, interval, func(ctx context.Context) { e.Tick(ctx) })
 }

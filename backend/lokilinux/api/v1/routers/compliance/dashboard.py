@@ -22,16 +22,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from lokilinux.auth.dependencies import get_current_user
 from lokilinux.dependencies import get_db
 from lokilinux.models.agent import Agent
+from lokilinux.models.drift import OPEN_DRIFT_STATUSES as _OPEN_DRIFT_STATUSES
 from lokilinux.models.drift import DriftEvent
 from lokilinux.schemas.drift import DriftEventResponse
 
 router = APIRouter()
 
 _DASHBOARD_WINDOW = "interval '7 days'"
-
-# Matches drift.py's _OPEN_STATUSES — an incident someone still needs to act
-# on, whether or not it's been acknowledged yet.
-_OPEN_DRIFT_STATUSES = ("OPEN", "ACKNOWLEDGED", "IN_REMEDIATION")
 
 _TREND_RANGES = {"7d": "7 days", "30d": "30 days", "90d": "90 days", "1y": "365 days"}
 

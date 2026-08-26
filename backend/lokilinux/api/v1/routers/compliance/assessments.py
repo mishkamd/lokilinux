@@ -11,7 +11,6 @@ assessment.go). This endpoint returning 202 with servers_total=0 is correct
 fleet.
 """
 
-from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -21,7 +20,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from lokilinux.auth.dependencies import get_current_user, require_role, safe_user_uuid
 from lokilinux.dependencies import get_db
 from lokilinux.models.compliance_assessment import ComplianceAssessment
-from lokilinux.schemas.common import CursorPage, decode_cursor, encode_cursor
+from lokilinux.api.v1.routers.compliance._pagination import paginate_keyset
+from lokilinux.schemas.common import CursorPage
 from lokilinux.schemas.compliance_assessment import AssessmentCreate, AssessmentResponse
 
 router = APIRouter()
@@ -57,26 +57,12 @@ async def list_assessments(
     if status:
         q = q.where(ComplianceAssessment.status == status)
 
-    if cursor:
-        raw = decode_cursor(cursor)
-        try:
-            ts_str, aid = raw.rsplit(":", 1)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Malformed cursor")
-        ts = datetime.fromisoformat(ts_str)
-        q = q.where(
-            (ComplianceAssessment.created_at < ts)
-            | ((ComplianceAssessment.created_at == ts) & (ComplianceAssessment.id < UUID(aid)))
-        )
-    q = q.limit(limit + 1)
-
-    rows = (await db.execute(q)).scalars().all()
-    has_more = len(rows) > limit
-    items = rows[:limit]
-    next_cursor = None
-    if has_more and items:
-        last = items[-1]
-        next_cursor = encode_cursor(f"{last.created_at.isoformat()}:{last.id}")
+    items, next_cursor = await paginate_keyset(
+        db, q,
+        ts_col=ComplianceAssessment.created_at, tie_col=ComplianceAssessment.id,
+        cursor=cursor, limit=limit,
+        scalars=True,
+    )
 
     count_q = select(func.count()).select_from(ComplianceAssessment)
     if status:

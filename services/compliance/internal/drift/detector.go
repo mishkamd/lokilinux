@@ -15,7 +15,6 @@ type ComparedAgainst string
 const (
 	ComparedAgainstBaseline         ComparedAgainst = "BASELINE"
 	ComparedAgainstPreviousSnapshot ComparedAgainst = "PREVIOUS_SNAPSHOT"
-	ComparedAgainstDesiredState     ComparedAgainst = "DESIRED_STATE"
 )
 
 // Severity mirrors drift_events.severity.

@@ -93,29 +93,6 @@
           </ul>
         </div>
 
-        <div v-if="isAdmin">
-          <p class="label-caps px-3 pb-1.5">Administration</p>
-          <ul class="space-y-0.5">
-            <li v-for="link in adminLinks" :key="link.to">
-              <NuxtLink
-                :to="link.to"
-                :aria-current="isActive(link.to) ? 'page' : undefined"
-                class="group relative flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[14px] font-medium transition-colors duration-200"
-                :class="isActive(link.to)
-                  ? 'bg-[color-mix(in_oklch,var(--primary-active)_15%,transparent)] text-primary-active'
-                  : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground'"
-              >
-                <span
-                  class="flex items-center justify-center size-5 rounded-md shrink-0 transition-colors"
-                  :class="isActive(link.to) ? 'text-primary-active' : 'text-sidebar-foreground/60 group-hover:text-sidebar-foreground'"
-                >
-                  <component :is="link.icon" class="size-3.5" />
-                </span>
-                {{ link.label }}
-              </NuxtLink>
-            </li>
-          </ul>
-        </div>
       </nav>
 
       <!-- User profile card -->
@@ -273,7 +250,7 @@
 
 <script setup lang="ts">
 import {
-  LayoutDashboard, Server, Cpu, ClipboardList, ShieldAlert,
+  LayoutDashboard, Server, Cpu, ClipboardList, ShieldAlert, Shield,
   FileText, Puzzle, BellDot, Bell, Users, Settings, UserCircle, LogOut, Search, Menu, X,
   PanelLeft, PanelLeftClose, Bot, Layers, FolderKanban, ShieldCheck,
   BookCheck, ListChecks, GitCompare, Wrench, FileSearch, FileChartColumn, ShieldOff, CircleHelp,
@@ -350,22 +327,25 @@ onMounted(async () => {
 
 const navSections = computed((): { title: string; links: NavLink[] }[] => [
   {
+    title: 'Overview',
+    links: [
+      { to: '/', label: 'Overview', icon: LayoutDashboard },
+    ],
+  },
+  {
     title: 'Infrastructure',
     links: [
-      { to: '/',                label: 'Overview',        icon: LayoutDashboard },
-      { to: '/servers',         label: 'Servers',         icon: Server },
-      { to: '/agents',          label: 'Agents',          icon: Cpu },
-      { to: '/jobs',            label: 'Jobs',            icon: ClipboardList },
-      { to: '/vulnerabilities', label: 'Vulnerabilities', icon: ShieldAlert },
-      { to: '/vulnerabilities/list', label: 'CVE Catalog', icon: ListChecks },
+      { to: '/servers', label: 'Servers', icon: Server },
+      { to: '/agents',  label: 'Agents',  icon: Cpu },
     ],
   },
   {
     title: 'Automation',
     links: [
+      { to: '/jobs',      label: 'Jobs',      icon: ClipboardList },
       { to: '/workflows', label: 'Workflows', icon: Workflow },
-      { to: '/policies', label: 'Policies', icon: FileText },
-      { to: '/plugins',  label: 'Plugins',  icon: Puzzle },
+      { to: '/runbooks',  label: 'Runbooks',  icon: PlayCircle },
+      { to: '/policies',  label: 'Policies',  icon: FileText },
       ...(ansibleEnabled.value ? [{
         to: '/automation/ansible/playbooks', label: 'Ansible', icon: Bot,
         children: [
@@ -375,6 +355,14 @@ const navSections = computed((): { title: string; links: NavLink[] }[] => [
           { to: '/automation/ansible/templates', label: 'Job Templates', icon: ClipboardList },
         ],
       }] : []),
+    ],
+  },
+  {
+    title: 'Security',
+    links: [
+      { to: '/security',             label: 'Overview',        icon: Shield },
+      { to: '/vulnerabilities',      label: 'Vulnerabilities', icon: ShieldAlert },
+      { to: '/vulnerabilities/list', label: 'CVE Catalog',     icon: ListChecks },
     ],
   },
   {
@@ -399,22 +387,26 @@ const navSections = computed((): { title: string; links: NavLink[] }[] => [
   {
     title: 'Observability',
     links: [
-      { to: '/alerts', label: 'Alerts', icon: BellDot },
-      { to: '/incidents', label: 'Incidents', icon: Siren },
-      { to: '/signals', label: 'Signals', icon: RadioTower },
-      { to: '/events', label: 'Events', icon: Activity },
-      { to: '/topology', label: 'Topology', icon: Network },
+      { to: '/alerts',      label: 'Alerts',      icon: BellDot },
+      { to: '/incidents',   label: 'Incidents',   icon: Siren },
+      { to: '/signals',     label: 'Signals',     icon: RadioTower },
+      { to: '/events',      label: 'Events',      icon: Activity },
+      { to: '/topology',    label: 'Topology',    icon: Network },
       { to: '/correlation', label: 'Correlation', icon: GitMerge },
-      { to: '/runbooks', label: 'Runbooks', icon: PlayCircle },
     ],
   },
+  // Admin-gated: Plugins lives here too (it manages what the whole fleet can
+  // run), so non-admins lose it from the nav — the route itself stays reachable.
+  ...(isAdmin.value ? [{
+    title: 'Administration',
+    links: [
+      { to: '/admin/settings', label: 'Settings',  icon: Settings },
+      { to: '/admin/users',    label: 'Users',     icon: Users },
+      { to: '/plugins',        label: 'Plugins',   icon: Puzzle },
+      { to: '/admin/audit',    label: 'Audit Log', icon: ClipboardList },
+    ],
+  }] : []),
 ])
-
-const adminLinks: NavLink[] = [
-  { to: '/admin/users',    label: 'Users',     icon: Users },
-  { to: '/admin/audit',    label: 'Audit Log', icon: ClipboardList },
-  { to: '/admin/settings', label: 'Settings',  icon: Settings },
-]
 
 function isActive(to: string): boolean {
   // Exact match for index-style links that are themselves a path-prefix of a
@@ -425,9 +417,9 @@ function isActive(to: string): boolean {
 }
 
 const currentPageTitle = computed((): string => {
+  // navSections already includes the admin-gated Administration section.
   const allLinks = navSections.value.flatMap((s) => s.links.flatMap((l) => [l, ...(l.children ?? [])]))
   const match = allLinks.find((l) => isActive(l.to))
-    ?? adminLinks.find((l) => isActive(l.to))
   return match?.label ?? companyName.value
 })
 
