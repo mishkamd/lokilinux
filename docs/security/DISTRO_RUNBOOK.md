@@ -1,7 +1,13 @@
 # DISTRO RUNBOOK — Live systemd Security Testing
 
-Status: **NOT EXECUTED** (mediul de dezvoltare nu are VM-uri Ubuntu/Rocky).
-Rulează manual pe fiecare distro înainte de rollout-ul non-root.
+Status: **PARȚIAL EXECUTAT.** Rocky Linux 9.8 (`devapp.mishka.md`, systemd 252)
+live-verificat 2026-08-27 — `PrivateDevices`+`MemoryDenyWriteExecute` aplicate
+via drop-in peste unit-ul deployat, agent stabil 4 cicluri heartbeat
+(`NRestarts=0`), `systemd-analyze security` 8.7→8.0, `e2e_signed_job.sh` 8/8.
+Pașii 7-8 (flip non-root) **neexecutați** — în afara scopului acelei sesiuni.
+Ubuntu 22.04/24.04 și al doilea agent din flotă ("rocky") rămân netestate —
+fără VM-uri/acces SSH disponibile din mediul care a rulat verificarea.
+Rulează restul manual pe fiecare distro rămas înainte de rollout-ul non-root.
 
 ## Ținte
 
@@ -9,7 +15,7 @@ Rulează manual pe fiecare distro înainte de rollout-ul non-root.
 |---|---|---|
 | Ubuntu 22.04 | 249 | RestrictNamespaces OK, MemoryDenyWriteExecute OK cu Go |
 | Ubuntu 24.04 | 255 | + SetCredentialExposes nu e folosit; comportament identic 22.04 așteptat |
-| Rocky Linux 9 | 252 | SELinux activ — unit-urile rulează sub policy `init_t` implicit; SELinux dedicat = Faza viitoare |
+| Rocky Linux 9 | 252 | SELinux activ — unit-urile rulează sub policy `init_t` implicit; SELinux dedicat = Faza viitoare. **`PrivateDevices`+`MemoryDenyWriteExecute` live-verificate 2026-08-27 pe `devapp.mishka.md` — vezi jos.** |
 
 ## Procedură per distro (≈20 min)
 
@@ -59,8 +65,9 @@ RestrictNamespaces | ✓ | ✓ | ✓ (systemd≥239)
 SystemCallArchitectures=native | ✓ | ✓ | ✓
 LockPersonality / RestrictSUIDSGID | ✓ | ✓ | ✓
 ProtectKernel*/ControlGroups/Clock/Hostname | ✓ | ✓ | ✓
-MemoryDenyWriteExecute | **de testat** — dacă Go runtime crapă la startup, rămâne comentată (comentariul din installer explică)
+MemoryDenyWriteExecute | de testat | de testat | ✓ **testat 2026-08-27** pe devapp.mishka.md — Go runtime pornește curat, 4 cicluri heartbeat fără restart
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 | ✓ agent | ✓ | ⚠ verifică netlink pentru systemd-run din broker (brokerul are doar AF_UNIX)
+PrivateDevices | de testat | de testat | ✓ **testat 2026-08-27** pe devapp.mishka.md — stabil, fără regresie
 
 ## Criteriu de închidere
 

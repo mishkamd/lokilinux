@@ -55,8 +55,11 @@ Erorile KMS conțin doar `key_id`, `version`, `reason`. Materialul privat nu aju
 
 Planul [`2026-08-25-kms-and-hardening-completion.md`](../superpowers/plans/2026-08-25-kms-and-hardening-completion.md) marca întreaga Fază F ca implementată printr-un singur commit (`d182bf7`), dar acoperea doar F1 (provider+`KeyManager`) și F2 (`JobSigner` versionat). F3 (rotație operațională, audit, metrics) a fost completată ulterior — endpoint, wiring `_get_signer()`→`KeyManager` (altfel rotația nu ajungea niciodată la semnatorul care rulează efectiv), metrics și audit, toate testate (`test_kms.py`, `test_job_signing.py`, `test_job_envelope.py::test_rotation_reaches_running_signer`, `test_admin_kms_router.py`).
 
-Rămân deschise:
+Rotație operațională end-to-end (endpoint-uri stage/status/activate/retire,
+`GET /agent/signing-keys` versionat consumat de ambele installere, script +
+runbook) — vezi [`JOB_SIGNING_ROTATION.md`](JOB_SIGNING_ROTATION.md).
 
-1. **`/agent/signing-key` (+`.pem`) nu e legat de `KeyManager`.** `routers/agent_install.py` citește direct din fișiere statice (`JOB_SIGNING_PUB_PATH`, `JOB_SIGNING_PUB_PEM_PATH`), independent de layout-ul versionat. O rotație prin admin API nu schimbă ce primesc agenții noi la enrollment — singurul loc unde o cheie nouă ajunge la agenți e harta `signing_pub_keys` din config-ul lor local, populată manual per-agent. Ar trebui fie versionat endpoint-ul (servește toate cheile VERIFY_ONLY+ACTIVE), fie documentat explicit ca pas manual în runbook-ul de rotație (punctul 2).
-2. **Fără runbook/script de rotație** — spre deosebire de CA rotation (`scripts/security/rotate-ca.sh` + `docs/security/CERTIFICATE_ROTATION.md`), job-signing key nu are echivalent care să acopere: apel endpoint → distribuire `signing_pub_keys` nou pe flotă → verificare → retire versiune veche.
-3. Vault/HSM rămân deliberat `NotImplementedError` în `get_provider()` — interfața (`SigningProvider`) e stabilă, dar implementarea concretă e viitor, nu un gap de urgență.
+Rămâne deschis:
+
+- Vault/HSM rămân deliberat `NotImplementedError` în `get_provider()` — interfața (`SigningProvider`) e stabilă, dar implementarea concretă e viitor, nu un gap de urgență.
+- **Fără push runtime de chei** — agentul citește `signing_pub_keys` doar la startup; o rotație ajunge la agenți vii doar prin re-install/Ansible, documentat explicit ca pas manual în runbook. Un canal de push ar cere RPC nou + release de agent — nu e planificat.

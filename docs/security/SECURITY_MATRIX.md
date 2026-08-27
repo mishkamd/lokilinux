@@ -24,7 +24,7 @@
 | Agent config | Token în command line install | LOW | ps/history expunere | Token via stdin/file/env injection | Open(P2) |
 | Telemetry | IP self-reported | LOW | ip_address din payload | Folosire peer addr ca sursă adevăr | Open(P2) |
 | Sessions | Raw token ca Redis key; lag revocare 60s | MEDIUM | ba:session:<token> | Hash token la key; invalidare activă la logout | Open(P2) |
-| systemd agent | Sandbox incomplet | MEDIUM | Set de bază prezent | ProtectKernel*/PrivateDevices/MemoryDenyWriteExecute/SystemCallArchitectures/RestrictNamespaces/RestrictSUIDSGID (testat incremental) | Open(P2) |
+| systemd agent | Sandbox incomplet pe Ubuntu | LOW (Rocky), MEDIUM (Ubuntu) | Toate directivele prezente în cod; PrivateDevices+MemoryDenyWriteExecute live-verificate 2026-08-27 pe Rocky 9.8 (devapp.mishka.md), NRestarts=0, e2e_signed_job.sh 8/8 | Test live pe Ubuntu 22.04/24.04 (fără VM disponibil) | Closed(Rocky) / Open(Ubuntu, P3) |
 | Info disclosure | /ready DB exception; auth detail leak | LOW | Excepții raw în răspunsuri | Generic messages + log intern | Open(P2) |
 | Frontend | XSS surface / better-auth config | Unknown | Neauditat profund | Audit dedicat frontend | Unknown |
 
