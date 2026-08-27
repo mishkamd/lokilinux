@@ -43,16 +43,16 @@ _SCORES_SQL = text("""
 """)
 
 _FINDINGS_SQL = text("""
-    SELECT cvss_severity, count(*) AS n
+    SELECT severity, count(*) AS n
     FROM (
         SELECT DISTINCT ON (re.agent_id, re.rule_id)
-               re.agent_id, re.rule_id, cr.cvss_v3_severity AS cvss_severity
+               re.agent_id, re.rule_id, cr.severity AS severity
         FROM rule_evaluations re
         JOIN compliance_rules cr ON cr.id = re.rule_id
         WHERE re.result = 'FAIL'
-        ORDER BY re.agent_id, re.rule_id, re.evaluated_at DESC
+        ORDER BY re.agent_id, re.rule_id, re.time DESC
     ) latest
-    GROUP BY cvss_severity
+    GROUP BY severity
 """)
 
 _DRIFT_SQL = text("""
@@ -63,13 +63,12 @@ _DRIFT_SQL = text("""
 """)
 
 _STANDARDS_SQL = text("""
-    SELECT ps.source_framework || ' ' || COALESCE(ps.source_version, '') AS standard,
+    SELECT ps.framework || ' ' || COALESCE(ps.source_profile, '') AS standard,
            count(*) AS total_rules,
            count(*) FILTER (WHERE cr.check_source = 'CEL') AS executable_rules
     FROM policy_set_rules psr
     JOIN policy_sets ps ON ps.id = psr.policy_set_id
     LEFT JOIN compliance_rules cr ON cr.id = psr.rule_id
-    WHERE ps.source_framework IS NOT NULL
     GROUP BY standard
     ORDER BY standard
 """)
