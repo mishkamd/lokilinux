@@ -16,6 +16,17 @@ type Config struct {
 	Security      SecurityConfig      `yaml:"security"`
 	Logging       LoggingConfig       `yaml:"logging"`
 	FileIntegrity FileIntegrityConfig `yaml:"file_integrity"`
+	Policy        PolicyManagerConfig `yaml:"policy"`
+}
+
+// PolicyManagerConfig wires the desired-state policy engine (plan Faza 2).
+// Enabled=false (default) skips every code path — agents opt in by carrying
+// a trusted signing key. TrustedKeys maps signing_key_id → base64 raw
+// ed25519 public key; unlisted ids are rejected (no TOFU).
+type PolicyManagerConfig struct {
+	Enabled     bool            `yaml:"enabled"`
+	StateDir    string          `yaml:"state_dir"` // default /var/lib/lokilinux-agent/policy
+	TrustedKeys map[string]string `yaml:"trusted_keys"`
 }
 
 type PlatformConfig struct {

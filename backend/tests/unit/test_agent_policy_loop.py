@@ -71,6 +71,7 @@ def _db(get_models=None, select_result=None):
         return res
 
     db.execute = execute
+    db.commit = AsyncMock()
     return db
 
 

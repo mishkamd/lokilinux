@@ -8,7 +8,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, String, text
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, text
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -45,6 +45,19 @@ class Agent(Base):
     # Versions
     agent_version: Mapped[str | None] = mapped_column(String(50))
     platform_version: Mapped[str | None] = mapped_column(String(50))
+
+    # Desired-state policy (migration 038, agent-policy-modernization plan)
+    desired_policy_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agent_policy_versions.id", ondelete="SET NULL")
+    )
+    current_policy_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agent_policy_versions.id", ondelete="SET NULL")
+    )
+    policy_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="idle"
+    )  # idle|syncing|pending|failed
+    policy_last_error: Mapped[str | None] = mapped_column(Text)
+    policy_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # Server identity — names match AgentResponse schema fields
     hostname: Mapped[str | None] = mapped_column(String(255))

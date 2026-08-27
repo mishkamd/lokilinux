@@ -33,15 +33,22 @@ DEPLOYMENT_TTL_SECONDS = 86400  # give up refreshing an envelope after a day
 
 
 async def _pending_policy_envelope(db: AsyncSession, agent: Agent) -> dict | None:
-    """Returns the wire envelope for a pending deployment, marking it
-    delivered; None when nothing pending. The envelope embeds everything the
-    agent needs to verify: payload (canonical), hash, signature, key id."""
+    """Returns the wire envelope for an unsettled deployment (pending OR
+    delivered-but-unconfirmed), marking it delivered; None when the agent's
+    desired == current state has already converged.
+
+    Delivered must NOT be terminal here: an agent running a build without
+    policy support silently ignores the envelope, so the heartbeat keeps
+    re-offering it until either an apply report arrives or the platform
+    operator changes the assignment. This is what makes upgrades of the
+    agent fleet mid-rollout safe.
+    """
     deployment = (
         await db.execute(
             select(AgentPolicyDeployment)
             .where(
                 AgentPolicyDeployment.agent_id == agent.id,
-                AgentPolicyDeployment.status == "pending",
+                AgentPolicyDeployment.status.in_(["pending", "delivered"]),
             )
             .order_by(AgentPolicyDeployment.started_at.desc())
             .limit(1)
@@ -72,6 +79,7 @@ async def _pending_policy_envelope(db: AsyncSession, agent: Agent) -> dict | Non
     }
     deployment.status = "delivered"
     agent.policy_status = "syncing"
+    await db.commit()
     return envelope
 
 
@@ -134,7 +142,11 @@ async def _apply_policy_report(
             agent.current_policy_version_id
         )  # freeze desired at last-good so we don't re-push the broken doc forever
         logger.warning(
-            "policy apply failed: agent=%s error=%s", agent.agent_id, target.error
+            "policy apply failed: agent=%s version=%s error=%s", agent.agent_id, version_num, target.error
         )
 
     await cache.invalidate_pattern(f"agent:*{agent.id}*")
+    # The HeartbeatStream session spans many heartbeats and never commits
+    # otherwise (only get_pending_jobs commits on its own path) — without this
+    # the deployment/agent updates are lost when the session closes.
+    await db.commit()

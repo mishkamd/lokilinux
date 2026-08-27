@@ -153,6 +153,8 @@ fi
 # gRPC is a separate mTLS port (50051); derive host from the platform URL
 # (strip scheme + any http port), keep the standard gRPC port.
 GRPC_HOST="$(echo "$PLATFORM_URL" | sed -E 's#^https?://##; s#[:/].*$##')"
+POLICY_DIR="/var/lib/lokilinux/policy"
+install -d -m 700 "$POLICY_DIR"
 cat > /etc/lokilinux/agent.yaml <<EOF
 platform:
   url: $PLATFORM_URL
@@ -179,6 +181,14 @@ $SECURITY_YAML
 logging:
   level: info
   output: /var/log/lokilinux/agent.log
+file_integrity:
+  watch_paths: []
+  ignore_paths: []
+policy:
+  enabled: true
+  state_dir: $POLICY_DIR
+  trusted_keys:
+    policy-signing-v1: "$(curl -fsSL "$PLATFORM_URL/api/v1/agent/policy-signing-key" 2>/dev/null || echo '')"
 EOF
 chmod 640 /etc/lokilinux/agent.yaml
 

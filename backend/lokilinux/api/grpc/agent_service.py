@@ -23,6 +23,10 @@ from lokilinux.services.cert_revocation import (
     assert_not_revoked,
 )
 from lokilinux.events.publish import emit, is_pipeline_enabled
+from lokilinux.services.agent_policy_service import (
+    _apply_policy_report,
+    _pending_policy_envelope,
+)
 from lokilinux.services.compliance_ingest_service import (
     diff_domain_hashes,
     publish_domain_snapshots,
@@ -376,18 +380,31 @@ class AgentServicer:
                             self.nats, agent.id, domain_full, domain_hashes
                         )
 
-                yield {
-                    "pending_jobs": [
-                        {
-                            "job_id": str(j.id),
-                            "job_type": j.job_type,
-                            "parameters": signed_params[j.id],
-                            **({"timeout_seconds": job_timeouts[j.id]} if job_timeouts.get(j.id) else {}),
-                        }
-                        for j in pending_jobs
-                    ],
-                    "resync_domains": resync_domains,
-                }
+                    # Agent policy reconciliation (plan Faza 2): process the
+                    # apply report from the previous cycle, then attach the
+                    # desired envelope when a deployment is still pending.
+                    policy_report_raw = _as_dict(getattr(request, "policy_report", None))
+                    if isinstance(policy_report_raw, dict) and policy_report_raw.get("policy_id"):
+                        await _apply_policy_report(
+                            db, agent, self.cache, policy_report_raw
+                        )
+
+                    policy_envelope = await _pending_policy_envelope(
+                        db, agent
+                    )
+                    yield {
+                        "pending_jobs": [
+                            {
+                                "job_id": str(j.id),
+                                "job_type": j.job_type,
+                                "parameters": signed_params[j.id],
+                                **({"timeout_seconds": job_timeouts[j.id]} if job_timeouts.get(j.id) else {}),
+                            }
+                            for j in pending_jobs
+                        ],
+                        "resync_domains": resync_domains,
+                        **({"policy_envelope": policy_envelope} if policy_envelope else {}),
+                    }
             except Exception:
                 logger.error("HeartbeatStream error", exc_info=True)
 

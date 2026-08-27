@@ -316,6 +316,17 @@ func payloadToRequest(m map[string]interface{}) *gen.AgentHeartbeatRequest {
 			})
 		}
 	}
+	if report, ok := m["policy_report"].(map[string]interface{}); ok {
+		pr := &gen.PolicyReport{
+			PolicyID:  asString(report, "policy_id"),
+			Version:   int(asFloat(report, "version")),
+			Result:    asString(report, "result"),
+			Error:     asString(report, "error"),
+			DurationMs: int64(asFloat(report, "duration_ms")),
+			DeploymentID: asString(report, "deployment_id"),
+		}
+		req.PolicyReport = pr
+	}
 	if pkgs, ok := m["packages"].([]modules.Package); ok {
 		for _, p := range pkgs {
 			req.Packages = append(req.Packages, &gen.Package{
@@ -388,8 +399,39 @@ func responseToMap(resp *gen.AgentHeartbeatResponse) map[string]interface{} {
 	if len(resp.ResyncDomains) > 0 {
 		result["resync_domains"] = resp.ResyncDomains
 	}
+	if resp.DesiredPolicy != nil {
+		// Desired-state policy envelope (agent-policy-modernization plan
+		// Faza 2) — passed through intact; internal/policy owns verification.
+		result["policy_envelope"] = map[string]interface{}{
+			"deployment_id": resp.DesiredPolicy.DeploymentID,
+			"policy_id":     resp.DesiredPolicy.PolicyID,
+			"version":       float64(resp.DesiredPolicy.Version),
+			"hash":          resp.DesiredPolicy.Hash,
+			"signature":     resp.DesiredPolicy.SignatureB64,
+			"signing_key_id": resp.DesiredPolicy.SigningKeyID,
+			"payload":       resp.DesiredPolicy.Payload,
+		}
+	}
 	if len(result) == 0 {
 		return nil
 	}
 	return result
+}
+
+func asString(m map[string]interface{}, key string) string {
+	s, _ := m[key].(string)
+	return s
+}
+
+func asFloat(m map[string]interface{}, key string) float64 {
+	switch v := m[key].(type) {
+	case float64:
+		return v
+	case int:
+		return float64(v)
+	case int64:
+		return float64(v)
+	default:
+		return 0
+	}
 }

@@ -175,6 +175,17 @@ async def get_signing_keys() -> dict:
     return {"1": await get_signing_key()}
 
 
+@router.get("/policy-signing-key")
+async def get_policy_signing_key() -> str:
+    """base64 raw ed25519 public key that signs desired-state AgentPolicy
+    envelopes. Public by design (only the control plane holds the private
+    half); installers pin it into agent.yaml policy.trusted_keys so the
+    agent rejects any policy document not signed by this key."""
+    from lokilinux.services.agent_policy_compiler import public_key_b64
+
+    return public_key_b64()
+
+
 @router.get("/signing-key.pem", response_class=PlainTextResponse)
 async def get_signing_key_pem() -> str:
     """PEM form of the job-signing public key — consumed by installers that

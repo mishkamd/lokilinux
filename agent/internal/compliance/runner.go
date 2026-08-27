@@ -43,6 +43,16 @@ func NewRunner(registry []Collector, store *storage.Store, log *slog.Logger) *Ru
 	}
 }
 
+// SetRegistry swaps the collector set at runtime — used by desired-state
+// policy applies (internal/policy) to enable/disable collection domains
+// without a restart. Swapping under mu keeps a concurrent tick from iterating
+// the old slice mid-swap.
+func (r *Runner) SetRegistry(registry []Collector) {
+	r.mu.Lock()
+	r.registry = registry
+	r.mu.Unlock()
+}
+
 // LoadState warms the in-memory cache from the SQLite compliance_state
 // table so a restart doesn't force a full domain_full resend for every
 // domain — the agent picks up right where it left off, per
@@ -87,7 +97,10 @@ func (r *Runner) Run(ctx context.Context, baseInterval time.Duration) {
 }
 
 func (r *Runner) tick(ctx context.Context) {
-	for _, c := range r.registry {
+	r.mu.Lock()
+	registry := r.registry
+	r.mu.Unlock()
+	for _, c := range registry {
 		domain := c.Domain()
 
 		r.mu.Lock()

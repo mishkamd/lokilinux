@@ -379,7 +379,7 @@ class AgentPolicyService:
         await _audit(self.db, "assign", "agent_policy_assignment", assignment.id)
         return assignment
 
-    async def deploy(self, policy_id, body: DeployRequest, actor=None) -> list[dict]:
+    async def deploy(self, policy_id, body: DeployRequest, actor=None, nats_client=None) -> list[dict]:
         """Stamp desired policy on matching agents and open deployments.
 
         Fan-out resolution by scope:

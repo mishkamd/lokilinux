@@ -54,6 +54,12 @@ type Manager struct {
 	policyMu sync.RWMutex
 	policy   *security.LocalPolicy
 
+	// desired-state policy reconciliation (agent-policy-modernization plan);
+	// nil when cfg.Policy.Enabled is false.
+	desiredPolicy  *DesiredPolicyManager
+	policyReportMu sync.Mutex
+	policyReport   map[string]interface{}
+
 	failCount int // consecutive heartbeat failures, drives backoff
 
 	// resultsMu guards pendingResults: job results are produced by
@@ -156,14 +162,25 @@ func NewManager(cfg *config.Config, log *slog.Logger, version string, logBuf *Lo
 		replay:   security.NewReplayStore(store),
 		secCfg:   secCfg,
 		brokerClient: newBrokerClientIfConfigured(cfg.Security.ExecBrokerSocket),
-		stop:     make(chan struct{}),
-		nudge:    make(chan struct{}, 1),
-		inFlight: make(map[string]struct{}),
+		stop:         make(chan struct{}),
+		nudge:        make(chan struct{}, 1),
+		inFlight:     make(map[string]struct{}),
 	}
 	if cfg.Security.ExecBrokerSocket != "" {
 		wireBrokerUpdateChecker(mgr, broker.NewClient(cfg.Security.ExecBrokerSocket))
 		wireBrokerRemediation(mgr, broker.NewClient(cfg.Security.ExecBrokerSocket))
 		log.Info("privileged execution delegated to exec broker", "socket", cfg.Security.ExecBrokerSocket)
+	}
+
+	if cfg.Policy.Enabled {
+		baseRegistry := compliance.BuildRegistry(cfg.FileIntegrity.WatchPaths, cfg.FileIntegrity.Ignores)
+		dpm, derr := newDesiredPolicyManager(cfg, mgr.complianceRunner, baseRegistry)
+		if derr != nil {
+			return nil, fmt.Errorf("desired policy manager: %w", derr)
+		}
+		mgr.desiredPolicy = dpm
+		log.Info("desired-state policy reconciliation enabled",
+			"trusted_key_ids", len(cfg.Policy.TrustedKeys))
 	}
 
 	if blob, err := store.GetConfig(context.Background(), "security.local_policy"); err == nil && blob != "" {
@@ -297,6 +314,16 @@ func (m *Manager) sendHeartbeat(ctx context.Context) {
 
 	payload := buildPayload(m.cfg.Identity.AgentID, sysInfo, pkgs, checksum, m.version, recentLogs, connCount, infoCount, critCount, health, results, domainHashes, domainFull, vulns)
 
+	// Desired-policy apply report from the previous cycle (queued by
+	// handleResponse) rides this heartbeat — after a confirmed successful
+	// send the queued copy is cleared, same lifecycle as pendingResults.
+	m.policyReportMu.Lock()
+	if m.policyReport != nil {
+		payload["policy_report"] = m.policyReport
+	}
+	policyReport := m.policyReport
+	m.policyReportMu.Unlock()
+
 	resp, err := m.client.SendHeartbeat(ctx, payload)
 	if err != nil {
 		m.failCount++
@@ -327,6 +354,15 @@ func (m *Manager) sendHeartbeat(ctx context.Context) {
 		m.resyncMu.Lock()
 		m.resyncDomains = nil
 		m.resyncMu.Unlock()
+	}
+
+	if policyReport != nil {
+		m.policyReportMu.Lock()
+		if m.policyReport != nil && m.policyReport["policy_id"] == policyReport["policy_id"] &&
+			m.policyReport["version"] == policyReport["version"] {
+			m.policyReport = nil
+		}
+		m.policyReportMu.Unlock()
 	}
 
 	m.log.Info("heartbeat sent",
@@ -382,6 +418,20 @@ func buildPayload(
 
 // handleResponse processes jobs and policy deltas from the server response.
 func (m *Manager) handleResponse(ctx context.Context, resp map[string]interface{}) {
+	// Desired-state policy (agent-policy-modernization plan Faza 2) — runs
+	// regardless of whether jobs came along, and queues the apply report for
+	// the NEXT heartbeat's policy_report field.
+	if envelopeRaw, ok := resp["policy_envelope"]; ok {
+		if envelope, ok := envelopeRaw.(map[string]interface{}); ok {
+			report := m.desiredPolicy.HandleEnvelope(ctx, envelope, m.complianceRunner)
+			if report != nil {
+				m.policyReportMu.Lock()
+				m.policyReport = report
+				m.policyReportMu.Unlock()
+			}
+		}
+	}
+
 	if domains, ok := resp["resync_domains"].([]string); ok && len(domains) > 0 {
 		m.resyncMu.Lock()
 		m.resyncDomains = domains

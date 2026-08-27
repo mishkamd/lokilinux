@@ -28,6 +28,11 @@ type AgentHeartbeatRequest struct {
 	LogCritical      int32            `json:"log_critical,omitempty"`
 	JobResults       []*JobResult     `json:"job_results,omitempty"`
 
+	// PolicyReport reports the outcome of the previous cycle's desired-state
+	// policy apply (agent-policy-modernization plan Faza 2). Present only in
+	// the heartbeat right after an attempt.
+	PolicyReport *PolicyReport `json:"policy_report,omitempty"`
+
 	// DomainHashes/DomainFull carry the compliance module's per-domain delta
 	// sync (docs/compliance/04-PROTOCOL.md §3) — DomainHashes goes out every
 	// heartbeat (cheap), DomainFull only for domains the previous response's
@@ -50,6 +55,34 @@ type AgentHeartbeatResponse struct {
 	// match the server's latest snapshot — the agent sends a full body for
 	// each of these in DomainFull on its *next* heartbeat (04-PROTOCOL.md §3).
 	ResyncDomains []string `json:"resync_domains,omitempty"`
+
+	// DesiredPolicy carries a pending desired-state policy envelope (plan
+	// Faza 2). Present only when a deployment is pending; the agent verifies,
+	// applies, and reports back via PolicyReport on the next heartbeat.
+	DesiredPolicy *PolicyEnvelope `json:"policy_envelope,omitempty"`
+}
+
+// ─── Desired-state policy (agent-policy-modernization plan) ──────────────────
+
+type PolicyEnvelope struct {
+	DeploymentID string `json:"deployment_id"`
+	PolicyID     string `json:"policy_id"`
+	Version      int    `json:"version"`
+	Hash         string `json:"hash"`
+	SignatureB64 string `json:"signature"`
+	SigningKeyID string `json:"signing_key_id"`
+	// Payload is canonical JSON as a STRING — the agent hashes and verifies
+	// these exact bytes; never re-serialized anywhere along the path.
+	Payload string `json:"payload"`
+}
+
+type PolicyReport struct {
+	PolicyID     string `json:"policy_id"`
+	Version      int    `json:"version"`
+	Result       string `json:"result"` // applied|failed
+	Error        string `json:"error,omitempty"`
+	DurationMs   int64  `json:"duration_ms,omitempty"`
+	DeploymentID string `json:"deployment_id,omitempty"`
 }
 
 // ─── System ───────────────────────────────────────────────────────────────────
