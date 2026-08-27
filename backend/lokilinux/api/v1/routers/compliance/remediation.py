@@ -10,7 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lokilinux.auth.dependencies import get_current_user, require_role, safe_user_uuid
+from lokilinux.auth.dependencies import get_current_user, require_permission, safe_user_uuid
 from lokilinux.cache import RedisCache
 from lokilinux.dependencies import get_cache, get_db, get_nats
 from lokilinux.models.agent import Agent
@@ -58,7 +58,9 @@ async def list_maintenance_windows(
 async def create_maintenance_window(
     body: MaintenanceWindowCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(require_role("ADMIN", "OPERATOR")),
+    current_user: dict = Depends(
+        require_permission("compliance.remediation.maintenance_windows.manage")
+    ),
 ) -> MaintenanceWindowResponse:
     # Validate timezone
     try:
@@ -130,7 +132,7 @@ async def create_remediation_plan(
     db: AsyncSession = Depends(get_db),
     cache: RedisCache = Depends(get_cache),
     nats=Depends(get_nats),
-    current_user: dict = Depends(require_role("ADMIN", "OPERATOR")),
+    current_user: dict = Depends(require_permission("compliance.remediation.create")),
 ) -> RemediationPlanResponse:
     svc = RemediationService(db, JobService(db, cache, nats))
     plan = await svc.create_plan(
@@ -182,7 +184,7 @@ async def submit_remediation_plan(
     db: AsyncSession = Depends(get_db),
     cache: RedisCache = Depends(get_cache),
     nats=Depends(get_nats),
-    current_user: dict = Depends(require_role("ADMIN", "OPERATOR")),
+    current_user: dict = Depends(require_permission("compliance.remediation.execute")),
 ) -> RemediationPlanResponse:
     svc = RemediationService(db, JobService(db, cache, nats))
     plan = await svc.submit(plan_id, current_user)
@@ -195,7 +197,7 @@ async def dry_run_remediation_plan(
     db: AsyncSession = Depends(get_db),
     cache: RedisCache = Depends(get_cache),
     nats=Depends(get_nats),
-    current_user: dict = Depends(require_role("ADMIN", "OPERATOR")),
+    current_user: dict = Depends(require_permission("compliance.remediation.execute")),
 ) -> RemediationPlanResponse:
     """Runs each action's real check mode (ansible --check --diff, sh -n,
     Python ast.parse) without applying anything. Poll GET
@@ -212,7 +214,7 @@ async def approve_remediation_plan(
     db: AsyncSession = Depends(get_db),
     cache: RedisCache = Depends(get_cache),
     nats=Depends(get_nats),
-    current_user: dict = Depends(require_role("ADMIN", "OPERATOR")),
+    current_user: dict = Depends(require_permission("compliance.remediation.approve")),
 ) -> RemediationPlanResponse:
     svc = RemediationService(db, JobService(db, cache, nats))
     plan = await svc.approve(plan_id, current_user)
@@ -289,7 +291,7 @@ async def rollback_remediation_plan(
     db: AsyncSession = Depends(get_db),
     cache: RedisCache = Depends(get_cache),
     nats=Depends(get_nats),
-    current_user: dict = Depends(require_role("ADMIN")),
+    current_user: dict = Depends(require_permission("compliance.remediation.rollback")),
 ) -> RemediationPlanResponse:
     svc = RemediationService(db, JobService(db, cache, nats))
     plan = await svc.rollback(plan_id, current_user)

@@ -19,7 +19,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, R
 from sqlalchemy import String, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lokilinux.auth.dependencies import get_current_user, require_role, safe_user_uuid
+from lokilinux.auth.dependencies import get_current_user, require_permission, safe_user_uuid
 from lokilinux.dependencies import get_db
 from lokilinux.models.compliance_rule import (
     ComplianceRule,
@@ -313,7 +313,7 @@ async def list_policy_sets(
 async def create_policy_set(
     body: PolicySetCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(require_role("ADMIN", "OPERATOR")),
+    current_user: dict = Depends(require_permission("compliance.policies.manage")),
 ) -> PolicySetResponse:
     """Creates a DRAFT policy set (docs/compliance §6) — add rules via
     POST .../rules, then POST .../publish to make it live. is_enabled stays
@@ -338,7 +338,7 @@ async def create_policy_set(
 async def publish_policy_set(
     policy_set_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(require_role("ADMIN", "OPERATOR")),
+    current_user: dict = Depends(require_permission("compliance.policies.manage")),
 ) -> PolicySetResponse:
     policy_set = await PolicySetService(db).publish(policy_set_id, current_user)
     return PolicySetResponse.model_validate(policy_set)
@@ -348,7 +348,7 @@ async def publish_policy_set(
 async def archive_policy_set(
     policy_set_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(require_role("ADMIN")),
+    current_user: dict = Depends(require_permission("compliance.policies.archive")),
 ) -> PolicySetResponse:
     policy_set = await PolicySetService(db).archive(policy_set_id, current_user)
     return PolicySetResponse.model_validate(policy_set)
@@ -358,7 +358,7 @@ async def archive_policy_set(
 async def new_policy_set_version(
     policy_set_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(require_role("ADMIN", "OPERATOR")),
+    current_user: dict = Depends(require_permission("compliance.policies.manage")),
 ) -> PolicySetResponse:
     """Clones a PUBLISHED policy set's rules into a new DRAFT — the
     published row is never mutated, matching baselines' immutable-once-
@@ -373,7 +373,7 @@ async def import_policy_set(
     request: Request,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(require_role("ADMIN")),
+    current_user: dict = Depends(require_permission("compliance.policies.import")),
 ) -> PolicySetImportResponse:
     """Fetches body.datastream_url, parses it as an XCCDF 1.2 datastream,
     and upserts compliance_rules/policy_sets/policy_set_rules — see
@@ -502,7 +502,7 @@ async def add_policy_set_rule(
     policy_set_id: UUID,
     body: PolicySetRuleAdd,
     db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(require_role("ADMIN", "OPERATOR")),
+    current_user: dict = Depends(require_permission("compliance.policies.manage")),
 ) -> dict:
     policy_set = (
         await db.execute(select(PolicySet).where(PolicySet.id == policy_set_id))
@@ -606,7 +606,7 @@ async def list_policy_assignments(
 async def create_policy_assignment(
     body: PolicyAssignmentCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(require_role("ADMIN", "OPERATOR")),
+    current_user: dict = Depends(require_permission("compliance.policies.manage")),
 ) -> PolicyAssignmentResponse:
     policy_set = (
         await db.execute(select(PolicySet).where(PolicySet.id == body.policy_set_id))
