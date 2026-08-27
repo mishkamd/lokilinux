@@ -68,6 +68,18 @@ class RemediationService:
         if not actions:
             raise HTTPException(status_code=400, detail="A remediation plan needs at least one action")
 
+        from lokilinux.services.auto_remediation import is_monitor_only
+
+        for a in actions:
+            if a.rule_id is not None and await is_monitor_only(self.db, a.rule_id):
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"Rule {a.rule_id} is covered only by MONITOR-mode policies — "
+                        "remediation is disabled for it (plan U7)"
+                    ),
+                )
+
         if maintenance_window_id is not None:
             window = await self.db.get(MaintenanceWindow, maintenance_window_id)
             if window is None or not window.is_enabled:

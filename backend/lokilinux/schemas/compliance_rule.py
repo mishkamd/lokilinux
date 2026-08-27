@@ -113,11 +113,18 @@ class PolicySetResponse(BaseModel):
     published_at: datetime | None = None
     published_version: int = 1
     parent_policy_set_id: UUID | None = None
+    remediation: dict | None = None
 
     model_config = {"from_attributes": True}
 
 
 PolicySetListResponse = CursorPage[PolicySetResponse]
+
+
+class PolicySetRemediationUpdate(BaseModel):
+    mode: str  # MONITOR | ASSISTED | AUTOMATIC
+    allowed: list[str] = []
+    forbidden: list[str] = []
 
 
 class PolicySetCoverageResponse(BaseModel):

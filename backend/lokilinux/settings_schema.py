@@ -62,6 +62,17 @@ SETTINGS_SCHEMA: dict[str, dict[str, tuple[str, Any]]] = {
     "retention": {
         "metrics_days": ("integer", 365),
     },
+    "compliance": {
+        # Master kill-switch for AUTOMATIC-mode remediation (Enterprise
+        # Compliance plan U7/KTD8, Autopilot A2) — off by default, same
+        # safe-by-default precedent as observability.incident_autorun_runbooks.
+        # A policy_set with remediation.mode=AUTOMATIC has zero effect while
+        # this is false; ASSISTED/MONITOR are untouched either way.
+        "auto_remediation_enabled": ("boolean", False),
+        # Anti-storm cap shared across the whole fleet, not per policy —
+        # counts AUTOMATIC-trigger_type plans created today.
+        "auto_remediation_max_plans_per_day": ("integer", 10),
+    },
     "cve": {
         "feed_source_url": ("string", ""),
         "sync_interval_hours": ("integer", 24),

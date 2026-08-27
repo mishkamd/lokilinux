@@ -77,6 +77,10 @@ class PolicySet(Base):
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     published_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     parent_policy_set_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("policy_sets.id"))
+    # Migration 041 (Enterprise Compliance plan U7/KTD8) — nullable JSONB
+    # {mode: MONITOR|ASSISTED|AUTOMATIC, allowed: [domain,...], forbidden: [domain,...]}.
+    # NULL means ASSISTED — the pre-U7 behavior every existing policy set keeps.
+    remediation: Mapped[dict | None] = mapped_column(JSONB)
 
 
 class PolicySetRule(Base):

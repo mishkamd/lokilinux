@@ -42,6 +42,7 @@ from lokilinux.schemas.compliance_rule import (
     PolicySetCreate,
     PolicySetImportRequest,
     PolicySetImportResponse,
+    PolicySetRemediationUpdate,
     PolicySetResponse,
     PolicySetRuleAdd,
     RemediationTemplateResponse,
@@ -365,6 +366,41 @@ async def new_policy_set_version(
     published rule. Edit the returned draft's rules, then publish it."""
     clone = await PolicySetService(db).create_new_version(policy_set_id, current_user)
     return PolicySetResponse.model_validate(clone)
+
+
+@router.patch("/policy-sets/{policy_set_id}/remediation", response_model=PolicySetResponse)
+async def set_policy_set_remediation(
+    policy_set_id: UUID,
+    body: PolicySetRemediationUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(require_permission("compliance.policies.manage")),
+) -> PolicySetResponse:
+    """Sets this policy's remediation mode (plan U7/KTD8) — NULL/unset means
+    ASSISTED, the pre-U7 behavior. AUTOMATIC additionally requires the
+    global compliance.auto_remediation_enabled kill-switch; this endpoint
+    only configures the policy-level allowlist, it never flips that switch."""
+    if body.mode not in ("MONITOR", "ASSISTED", "AUTOMATIC"):
+        raise HTTPException(status_code=422, detail="mode must be MONITOR, ASSISTED, or AUTOMATIC")
+    policy_set = await db.get(PolicySet, policy_set_id)
+    if policy_set is None:
+        raise HTTPException(status_code=404, detail="Policy set not found")
+
+    policy_set.remediation = {
+        "mode": body.mode,
+        "allowed": body.allowed,
+        "forbidden": body.forbidden,
+    }
+    await db.commit()
+
+    await AuditService(db).log(
+        action="compliance.policy_set_remediation_updated",
+        user_id=current_user.get("id"),
+        actor_name=current_user.get("username") or current_user.get("email"),
+        resource_type="policy_set",
+        resource_id=str(policy_set_id),
+        changes=policy_set.remediation,
+    )
+    return PolicySetResponse.model_validate(policy_set)
 
 
 @router.post("/policy-sets/import", response_model=PolicySetImportResponse, status_code=202)
