@@ -122,7 +122,7 @@ def _severity_counts(rows) -> dict:
     return {r[0] or "UNKNOWN": int(r[1]) for r in rows}
 
 
-@router.get("/overview")
+@router.get("/fleet-compliance")
 async def compliance_overview(
     db: AsyncSession = Depends(get_db),
     cache: RedisCache = Depends(get_cache),

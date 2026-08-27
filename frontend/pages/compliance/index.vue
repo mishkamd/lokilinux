@@ -39,8 +39,8 @@ interface FleetOverview {
 }
 
 const { data: agg, pending: aggPending, refresh: aggRefresh } = await useAsyncData(
-  'compliance-overview-u10',
-  () => useApi().get<FleetOverview>('/compliance/overview'),
+  'compliance-fleet-overview-u10',
+  () => useApi().get<FleetOverview>('/compliance/fleet-compliance'),
   { lazy: true },
 )
 
