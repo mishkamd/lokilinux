@@ -352,7 +352,7 @@ services:
       PLATFORM_URL: ${PUBLIC_URL:-http://localhost:3000}
       FRONTEND_URL: ${PUBLIC_URL:-http://localhost:3000}
       AGENT_DOWNLOAD_BASE: ${AGENT_DOWNLOAD_BASE:-}
-      AGENT_VERSION: ${AGENT_VERSION:-0.39.0}
+      AGENT_VERSION: ${AGENT_VERSION:-0.40.0}
     ports:
       - "8000:8000"
       - "9090:9090"
