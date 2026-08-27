@@ -33,6 +33,9 @@ PERMISSIONS: dict[str, frozenset[str]] = {
     "compliance.remediation.execute": frozenset({"OPERATOR"}),  # submit + dry-run
     "compliance.remediation.approve": frozenset({"OPERATOR"}),
     "compliance.remediation.rollback": frozenset(),  # ADMIN-only today
+    # Findings — routers/compliance/findings.py (new, no prior require_role
+    # to preserve; mirrors drift-event acknowledge's own role set)
+    "compliance.findings.acknowledge": frozenset({"OPERATOR"}),
     # Policies — routers/compliance/policy_engine.py
     # create/publish/new-version/add-rule/assignments
     "compliance.policies.manage": frozenset({"OPERATOR"}),

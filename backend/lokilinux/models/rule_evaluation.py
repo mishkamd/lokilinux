@@ -37,6 +37,10 @@ class RuleEvaluation(Base):
     # Set when an active compliance_exceptions row covered this verdict — the
     # real FAIL result is still stored, never silently overwritten (§17).
     exception_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    # Migration 039 (Enterprise Compliance plan U4) — finding-level
+    # acknowledgment, same shape as DriftEvent.acknowledged_by/at.
+    acknowledged_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class ComplianceScore(Base):

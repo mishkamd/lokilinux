@@ -118,6 +118,39 @@ export interface DriftDetail {
   new_value: unknown
 }
 
+// A finding is a read-model projection over rule_evaluations, not its own
+// table (Enterprise Compliance plan U4/KTD1) — `id` is an opaque server
+// -encoded key, not a real row id.
+export interface Finding {
+  id: string
+  time: string
+  agent_id: string
+  hostname: string | null
+  rule_id: string
+  rule_key: string
+  title: string
+  domain: string
+  severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
+  result: 'PASS' | 'FAIL' | 'ERROR' | 'NOT_APPLICABLE' | 'NOT_EVALUATED' | 'UNKNOWN'
+  exception_id: string | null
+  acknowledged_by: string | null
+  acknowledged_at: string | null
+}
+
+export interface FindingDetail extends Finding {
+  policy_set_id: string
+  actual_value: unknown
+  expected_value: unknown
+  evidence: Record<string, unknown> | null
+  evidence_hash: string | null
+  error_message: string | null
+  source: string | null
+  snapshot_id: string | null
+  snapshot_taken_at: string | null
+  snapshot_content_hash: string | null
+  open_drift_event_id: string | null
+}
+
 export type RemediationPlanStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'EXECUTING' | 'VERIFYING' | 'COMPLETED' | 'FAILED' | 'ROLLED_BACK'
 
 export interface RemediationPlan {
@@ -584,6 +617,45 @@ export const useComplianceStore = defineStore('compliance', () => {
     }
   }
 
+  // ── Findings ─────────────────────────────────────────────────────────────
+
+  const findings = ref<Finding[]>([])
+  const findingsTotal = ref(0)
+  const findingsLoading = ref(false)
+  const findingsNextCursor = ref<string | null>(null)
+  const findingFilters = ref({ severity: '', domain: '', agent_id: '', result: 'FAIL' })
+
+  const selectedFinding = ref<FindingDetail | null>(null)
+
+  async function fetchFindings(cursor?: string) {
+    const f = findingFilters.value
+    const params = new URLSearchParams()
+    for (const key of ['severity', 'domain', 'agent_id', 'result'] as const) {
+      if (f[key]) params.set(key, f[key])
+    }
+    try {
+      await fetchCursorPage<Finding>(
+        '/compliance/findings',
+        params,
+        { items: findings, total: findingsTotal, nextCursor: findingsNextCursor, loading: findingsLoading },
+        cursor,
+      )
+    } catch {
+      // swallow — global onResponseError already surfaces a toast; keep last-known-good list
+    }
+  }
+
+  async function fetchFinding(id: string) {
+    selectedFinding.value = await api.get<FindingDetail>(`/compliance/findings/${id}`)
+  }
+
+  async function acknowledgeFinding(id: string) {
+    const updated = await api.post<FindingDetail>(`/compliance/findings/${id}/acknowledge`)
+    const idx = findings.value.findIndex((f) => f.id === id)
+    if (idx !== -1) findings.value[idx] = { ...findings.value[idx], ...updated }
+    if (selectedFinding.value?.id === id) selectedFinding.value = updated
+  }
+
   // ── Exceptions ───────────────────────────────────────────────────────────
 
   const exceptions = ref<ComplianceException[]>([])
@@ -903,6 +975,8 @@ export const useComplianceStore = defineStore('compliance', () => {
     driftEvents, driftTotal, driftLoading, driftNextCursor, driftFilters,
     selectedDriftEvent, driftDetails,
     fetchDriftEvents, fetchDriftEvent, fetchDriftDetails, acknowledgeDrift, suppressDrift, resolveDrift,
+    findings, findingsTotal, findingsLoading, findingsNextCursor, findingFilters, selectedFinding,
+    fetchFindings, fetchFinding, acknowledgeFinding,
     exceptions, exceptionsTotal, exceptionsLoading, exceptionsNextCursor, exceptionFilters,
     fetchExceptions, createException, approveException, revokeException,
     remediationPlans, remediationTotal, remediationLoading, remediationNextCursor, remediationError, remediationFilters,
