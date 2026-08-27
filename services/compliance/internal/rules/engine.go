@@ -29,6 +29,12 @@ const (
 	ResultError         Result = "ERROR"
 	ResultNotApplicable Result = "NOT_APPLICABLE"
 	ResultNotEvaluated  Result = "NOT_EVALUATED"
+	// ResultUnknown (Enterprise Compliance plan U4/KTD3): a declared
+	// EvidencePath is absent from this snapshot's facts. Distinct from
+	// ResultError (a check_expr/compile failure) — the rule itself is fine,
+	// the collector just hasn't reported that fact yet. Never counted as
+	// PASS anywhere (scoring, coverage, UI).
+	ResultUnknown Result = "UNKNOWN"
 )
 
 // CheckSource mirrors compliance_rules.check_source.
@@ -59,6 +65,7 @@ type Rule struct {
 // Verdict is the outcome of evaluating one rule against one fact document.
 type Verdict struct {
 	Result       Result
+	Reason       string // set on ResultUnknown; explains why (plan U4/KTD3)
 	ActualValue  any
 	Evidence     map[string]any
 	EvidenceHash string // blake3(canonical evidence JSON) — tamper-evidence per docs/compliance §21
@@ -122,6 +129,21 @@ func (e *CELEvaluator) Evaluate(ctx context.Context, rule Rule, facts map[string
 		return Verdict{Result: ResultNotEvaluated}
 	}
 
+	if missing := missingPaths(facts, rule.EvidencePaths); len(missing) > 0 {
+		// A rule without any declared EvidencePaths has nothing to be
+		// honest about, so it can never land here (len(missing) is
+		// always 0 for an empty rule.EvidencePaths).
+		const reason = "required fact not collected"
+		return Verdict{
+			Result: ResultUnknown,
+			Reason: reason,
+			Evidence: map[string]any{
+				"reason":        reason,
+				"missing_paths": missing,
+			},
+		}
+	}
+
 	prg, err := e.compiled(rule)
 	if err != nil {
 		return Verdict{Result: ResultError, Err: err}
@@ -176,6 +198,20 @@ func actualByPath(facts map[string]any, paths []string) map[string]any {
 		}
 	}
 	return out
+}
+
+// missingPaths returns the subset of paths absent from facts, preserving
+// rule.EvidencePaths order — the UNKNOWN precheck's honesty guardrail
+// (plan U4/KTD3): a rule can only be evaluated if every fact it declared
+// needing was actually collected.
+func missingPaths(facts map[string]any, paths []string) []string {
+	var missing []string
+	for _, p := range paths {
+		if _, ok := extractPath(facts, p); !ok {
+			missing = append(missing, p)
+		}
+	}
+	return missing
 }
 
 // extractPath walks a dot-separated path (e.g. "sshd.PermitRootLogin")

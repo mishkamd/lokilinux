@@ -39,8 +39,6 @@ class DriftEvent(Base):
     severity: Mapped[str] = mapped_column(String(20), nullable=False)
     change_type: Mapped[str] = mapped_column(String(30), nullable=False)
     summary: Mapped[str] = mapped_column(Text, nullable=False)
-    changed_by_user: Mapped[str | None] = mapped_column(String(255))
-    root_cause: Mapped[dict | None] = mapped_column(JSONB)
     acknowledged_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Lifecycle + dedup (migration 025) — see services/compliance ingest.go's

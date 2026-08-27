@@ -551,12 +551,30 @@ func matchException(exceptions []storage.ActiveException, ruleID, agentID uuid.U
 	return uuid.Nil, false
 }
 
+// severityWeight implements the Enterprise Compliance plan KTD4 weight
+// table. Unrecognized/blank severity (legacy evaluations predating rule
+// severity, or any future value not in this list) weighs zero rather than
+// poisoning the weighted score with a guessed default.
+var severityWeight = map[string]float64{
+	"CRITICAL": 10,
+	"HIGH":     5,
+	"MEDIUM":   2,
+	"LOW":      1,
+}
+
 // categoryScore is one category's computed score sample, ready for
 // storage.InsertComplianceScore.
 type categoryScore struct {
 	category                      string
 	score                         float64
 	passed, failed, notApplicable int
+	// weightedScore, unknown, unknownShare, breakdown are the plan U5/KTD4
+	// severity-weighted projection, additive alongside the legacy fields
+	// above (which keep their exact pre-existing meaning/formula).
+	weightedScore float64
+	unknown       int
+	unknownShare  float64
+	breakdown     map[string]map[string]int // severity -> {"passed": n, "failed": m}
 }
 
 // computeCategoryScores is the pure half of updateComplianceScores — given
@@ -567,24 +585,43 @@ type categoryScore struct {
 // Split out from the DB-writing method so this is testable without a real
 // Postgres.
 func computeCategoryScores(evaluations []storage.EvaluationSummary) []categoryScore {
-	type bucket struct{ passed, failed, notApplicable int }
+	type bucket struct {
+		passed, failed, notApplicable, unknown int
+		passedWeight, failedWeight             float64
+		breakdown                              map[string]map[string]int
+	}
 	buckets := map[string]*bucket{}
 	var order []string
 	for _, e := range evaluations {
 		category := scoring.Classify(e.Domain)
 		b, ok := buckets[category]
 		if !ok {
-			b = &bucket{}
+			b = &bucket{breakdown: map[string]map[string]int{}}
 			buckets[category] = b
 			order = append(order, category)
+		}
+		w := severityWeight[e.Severity]
+		bump := func(field string) {
+			sev := b.breakdown[e.Severity]
+			if sev == nil {
+				sev = map[string]int{}
+				b.breakdown[e.Severity] = sev
+			}
+			sev[field]++
 		}
 		switch rules.Result(e.Result) {
 		case rules.ResultPass:
 			b.passed++
+			b.passedWeight += w
+			bump("passed")
 		case rules.ResultFail:
 			b.failed++
+			b.failedWeight += w
+			bump("failed")
 		case rules.ResultNotApplicable:
 			b.notApplicable++
+		case rules.ResultUnknown:
+			b.unknown++
 		}
 	}
 
@@ -600,7 +637,31 @@ func computeCategoryScores(evaluations []storage.EvaluationSummary) []categorySc
 			scoredSum += score
 			scoredCount++
 		}
-		out = append(out, categoryScore{category: category, score: score, passed: b.passed, failed: b.failed, notApplicable: b.notApplicable})
+		var weightedScore float64
+		weightedTotal := b.passedWeight + b.failedWeight
+		if weightedTotal > 0 {
+			weightedScore = 100.0 * b.passedWeight / weightedTotal
+		}
+		var unknownShare float64
+		// Denominator matches the plan's own definition (docs comment):
+		// every judged-relevant entry — PASS/FAIL/UNKNOWN/NOT_APPLICABLE —
+		// so a category that's mostly UNKNOWN can't hide behind an empty
+		// share just because nothing was PASS/FAIL yet.
+		shareTotal := b.passed + b.failed + b.unknown + b.notApplicable
+		if shareTotal > 0 {
+			unknownShare = float64(b.unknown) / float64(shareTotal)
+		}
+		out = append(out, categoryScore{
+			category:      category,
+			score:         score,
+			passed:        b.passed,
+			failed:        b.failed,
+			notApplicable: b.notApplicable,
+			weightedScore: weightedScore,
+			unknown:       b.unknown,
+			unknownShare:  unknownShare,
+			breakdown:     b.breakdown,
+		})
 	}
 
 	if scoredCount > 0 {
@@ -621,7 +682,10 @@ func (in *Ingester) updateComplianceScores(ctx context.Context, agentID uuid.UUI
 	}
 
 	for _, cs := range computeCategoryScores(evaluations) {
-		if err := in.store.InsertComplianceScore(ctx, agentID, cs.category, cs.score, cs.passed, cs.failed, cs.notApplicable); err != nil {
+		if err := in.store.InsertComplianceScore(
+			ctx, agentID, cs.category, cs.score, cs.passed, cs.failed, cs.notApplicable,
+			cs.weightedScore, cs.breakdown, cs.unknown,
+		); err != nil {
 			return err
 		}
 	}

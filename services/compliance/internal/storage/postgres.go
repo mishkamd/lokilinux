@@ -590,8 +590,9 @@ func (s *Store) RulesForResourcePaths(ctx context.Context, resourceType string, 
 // EvaluationSummary is one agent's latest verdict for one rule, joined with
 // the rule's domain — the input to per-category score computation.
 type EvaluationSummary struct {
-	Domain string
-	Result string
+	Domain   string
+	Result   string
+	Severity string // compliance_rules.severity — LOW/MEDIUM/HIGH/CRITICAL (plan U5/KTD4 weighting)
 }
 
 // LatestEvaluationsForAgent returns the most recent verdict per rule for
@@ -600,7 +601,7 @@ type EvaluationSummary struct {
 // rescore needs after any domain's rule_evaluations change.
 func (s *Store) LatestEvaluationsForAgent(ctx context.Context, agentID uuid.UUID) ([]EvaluationSummary, error) {
 	rowsResult, err := s.db.Query(ctx, `
-		SELECT DISTINCT ON (re.rule_id) cr.domain, re.result
+		SELECT DISTINCT ON (re.rule_id) cr.domain, re.result, cr.severity
 		FROM rule_evaluations re
 		JOIN compliance_rules cr ON cr.id = re.rule_id
 		WHERE re.agent_id = $1
@@ -614,7 +615,7 @@ func (s *Store) LatestEvaluationsForAgent(ctx context.Context, agentID uuid.UUID
 	var out []EvaluationSummary
 	for rowsResult.Next() {
 		var e EvaluationSummary
-		if err := rowsResult.Scan(&e.Domain, &e.Result); err != nil {
+		if err := rowsResult.Scan(&e.Domain, &e.Result, &e.Severity); err != nil {
 			return nil, fmt.Errorf("scanning evaluation summary row: %w", err)
 		}
 		out = append(out, e)
@@ -625,17 +626,38 @@ func (s *Store) LatestEvaluationsForAgent(ctx context.Context, agentID uuid.UUID
 // InsertComplianceScore records one category's score sample for an agent —
 // an append-only hypertable row (migration 016), the raw input
 // compliance_scores_daily aggregates for the fleet trend chart.
+//
+// weightedScore/severityBreakdown/unknownCount are the plan U5/KTD4
+// projection (migration 037, nullable alongside the legacy score/*_count
+// columns above which keep their exact pre-existing meaning). breakdown may
+// be nil (never scored / no severity data) — stored as SQL NULL, not "{}",
+// so a consumer can tell "not computed" apart from "computed, all zero".
 func (s *Store) InsertComplianceScore(
 	ctx context.Context,
 	agentID uuid.UUID,
 	category string,
 	score float64,
 	passedCount, failedCount, notApplicableCount int,
+	weightedScore float64,
+	severityBreakdown map[string]map[string]int,
+	unknownCount int,
 ) error {
+	var breakdownJSON []byte
+	if len(severityBreakdown) > 0 {
+		var err error
+		breakdownJSON, err = json.Marshal(severityBreakdown)
+		if err != nil {
+			return fmt.Errorf("marshaling severity breakdown (agent=%s category=%s): %w", agentID, category, err)
+		}
+	}
 	_, err := s.db.Exec(ctx, `
-		INSERT INTO compliance_scores (time, agent_id, category, score, passed_count, failed_count, not_applicable_count)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`, time.Now().UTC(), agentID, category, score, passedCount, failedCount, notApplicableCount)
+		INSERT INTO compliance_scores (
+			time, agent_id, category, score, passed_count, failed_count, not_applicable_count,
+			weighted_score, severity_breakdown, unknown_count
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+	`, time.Now().UTC(), agentID, category, score, passedCount, failedCount, notApplicableCount,
+		weightedScore, breakdownJSON, unknownCount)
 	if err != nil {
 		return fmt.Errorf("inserting compliance score (agent=%s category=%s): %w", agentID, category, err)
 	}

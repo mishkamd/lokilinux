@@ -101,7 +101,7 @@ func TestComputeCategoryScores_Weighted(t *testing.T) {
 	if security.unknown != 1 {
 		t.Errorf("security.unknown = %d, want 1 (UNKNOWN tracked, never a PASS)", security.unknown)
 	}
-	wantShare := float64(1) / float64(4+1+1+1) // unknown/(pass+fail+unknown+N.A.)
+	wantShare := float64(1) / float64(2+2+1+1) // unknown/(pass+fail+unknown+N.A.)
 	if diff := security.unknownShare - wantShare; diff > 1e-9 || diff < -1e-9 {
 		t.Errorf("security.unknownShare = %v, want %v", security.unknownShare, wantShare)
 	}

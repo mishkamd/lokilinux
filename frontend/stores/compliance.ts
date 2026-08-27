@@ -100,7 +100,6 @@ export interface DriftEvent {
   severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
   change_type: string
   summary: string
-  root_cause: Record<string, unknown> | null
   acknowledged_by: string | null
   acknowledged_at: string | null
   status: 'OPEN' | 'ACKNOWLEDGED' | 'IN_REMEDIATION' | 'RESOLVED' | 'SUPPRESSED' | 'EXCEPTION'
