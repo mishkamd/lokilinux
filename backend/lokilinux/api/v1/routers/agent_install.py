@@ -7,6 +7,7 @@ GET  /agent/download           — servește binary local (enrollment token, fă
 GET  /agent/download-latest    — servește binary versiunea curentă, public (folosit de `loki update`)
 GET  /agent/download-direct    — servește binary local direct din dashboard (JWT ADMIN/OPERATOR)
 GET  /agent/signing-key        — public key Ed25519 pt signed jobs, base64 raw (public by design — nu e secret)
+GET  /agent/signing-keys       — hartă {"v":"b64"} ACTIVE+VERIFY_ONLY, pt installere/rotație
 POST /agents/register          — înregistrare agent cu enrollment token + generare cert mTLS
 """
 
@@ -153,6 +154,25 @@ async def get_signing_key() -> str:
     import base64 as _b64
 
     return _b64.b64encode(raw).decode()
+
+
+@router.get("/signing-keys")
+async def get_signing_keys() -> dict:
+    """Versioned job-signing public keys — {"1": "<b64>", "2": "<b64>", ...},
+    ACTIVE+VERIFY_ONLY only (RETIRED never served). Installers write this
+    into agent.yaml security.signing_pub_keys so a rotation via the admin
+    KMS endpoints reaches agents enrolling AFTER it — /signing-key above
+    only ever serves the single legacy key and is kept for old installers.
+    Falls back to that same legacy key (as version "1") when no versioned
+    signer is running on this platform."""
+    from lokilinux.services.job_envelope import _get_signer
+
+    signer = _get_signer()
+    if signer is not None:
+        keys = signer.public_keys()
+        if keys:
+            return keys
+    return {"1": await get_signing_key()}
 
 
 @router.get("/signing-key.pem", response_class=PlainTextResponse)

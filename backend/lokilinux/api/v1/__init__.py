@@ -9,6 +9,7 @@ from fastapi import APIRouter
 from .routers.admin import router as admin_router
 from .routers.agent_install import register_router as agent_register_router
 from .routers.agent_install import router as agent_install_router
+from .routers.agent_policies import router as agent_policies_router
 from .routers.alerts import router as alerts_router
 from .routers.ansible_projects import router as ansible_projects_router
 from .routers.ansible_roles import router as ansible_roles_router
@@ -59,3 +60,4 @@ router.include_router(signals_router, prefix="/signals", tags=["signals"])
 router.include_router(correlation_router, prefix="/correlation", tags=["correlation"])
 router.include_router(observability_router, prefix="/observability", tags=["observability"])
 router.include_router(otlp_router, prefix="/otlp/v1", tags=["otlp"])
+router.include_router(agent_policies_router, prefix="/agent-policies", tags=["agent-policies"])

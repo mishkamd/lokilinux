@@ -59,6 +59,10 @@ class KeyManager:
     def state_of(self, version: int) -> Optional[str]:
         return self._read_meta().get(str(version))
 
+    def versions(self) -> Dict[str, str]:
+        """All known versions -> state, e.g. {"1": "VERIFY_ONLY", "2": "ACTIVE"}."""
+        return self._read_meta()
+
     def ref(self, version: int) -> KeyRef:
         return KeyRef(self.key_id, version)
 
