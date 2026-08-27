@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Plus, FileCode2, Rocket, History } from 'lucide-vue-next'
+import { Plus, FileCode2, Rocket, History, ScrollText, Users } from 'lucide-vue-next'
 
 definePageMeta({ layout: 'default' })
 
@@ -169,12 +169,71 @@ async function doDeploy() {
     deploying.value = false
   }
 }
+
+// ── audit view ────────────────────────────────────────────────────────────────
+const showAudit = ref(false)
+const auditRows = ref<{ action: string; result: string; old_version: number | null; new_version: number | null; created_at: string }[]>([])
+const auditLoading = ref(false)
+const auditFor = ref<PolicyRow | null>(null)
+
+async function openAudit(p: PolicyRow) {
+  auditFor.value = p
+  showAudit.value = true
+  auditLoading.value = true
+  try {
+    const res = await api.get<{ items: typeof auditRows.value }>(`/agent-policies/${p.id}/audit`)
+    auditRows.value = res?.items ?? []
+  } catch (e: unknown) {
+    toast.add({ title: 'Audit load failed', description: errMsg(e), color: 'red' })
+  } finally {
+    auditLoading.value = false
+  }
+}
+
+// ── groups ────────────────────────────────────────────────────────────────────
+const showGroups = ref(false)
+const groups = ref<{ id: string; name: string }[]>([])
+const newGroupName = ref('')
+const groupSaving = ref(false)
+
+async function openGroups() {
+  showGroups.value = true
+  await reloadGroups()
+}
+
+async function reloadGroups() {
+  try {
+    const res = await api.get<{ items: { id: string; name: string }[] }>('/agent-policies/groups/list')
+    groups.value = res?.items ?? []
+  } catch (e: unknown) {
+    toast.add({ title: 'Groups load failed', description: errMsg(e), color: 'red' })
+  }
+}
+
+async function createGroup() {
+  if (!newGroupName.value.trim()) return
+  groupSaving.value = true
+  try {
+    await api.post('/agent-policies/groups', { name: newGroupName.value.trim() })
+    newGroupName.value = ''
+    await reloadGroups()
+    toast.add({ title: 'Group created', color: 'green' })
+  } catch (e: unknown) {
+    toast.add({ title: 'Create failed', description: errMsg(e), color: 'red' })
+  } finally {
+    groupSaving.value = false
+  }
+}
 </script>
 
 <template>
   <div class="space-y-4">
     <PageHeader title="Agent Policies" description="Desired-state configuration for the fleet — signed, versioned, applied autonomously.">
       <template #actions>
+        <Button variant="outline" @click="openGroups">
+          <Users class="size-4" />
+          Groups
+        </Button>
         <Button @click="openCreate">
           <Plus class="size-4" />
           New Policy
@@ -209,6 +268,11 @@ async function doDeploy() {
           <Tooltip text="Edit draft">
             <Button size="xs" variant="ghost" aria-label="Edit policy" @click="openEdit(row as PolicyRow)">
               <FileCode2 class="size-3.5" />
+            </Button>
+          </Tooltip>
+          <Tooltip text="Audit trail">
+            <Button size="xs" variant="ghost" aria-label="View audit" @click="openAudit(row as PolicyRow)">
+              <ScrollText class="size-3.5" />
             </Button>
           </Tooltip>
           <Tooltip v-if="row.status === 'draft'" text="Publish (sign + freeze)">
@@ -262,5 +326,50 @@ async function doDeploy() {
         <Button :loading="deploying" @click="doDeploy">Deploy</Button>
       </template>
     </Dialog>
+
+    <Dialog v-model="showAudit" :title="`Audit — ${auditFor?.name ?? ''}`" size="lg">
+      <template #body>
+        <p v-if="auditLoading" class="text-sm text-muted-foreground">Loading…</p>
+        <p v-else-if="!auditRows.length" class="text-sm text-muted-foreground">No audit entries yet.</p>
+        <ul v-else class="divide-y divide-border text-sm">
+          <li v-for="(r, i) in auditRows" :key="i" class="py-2 flex items-center justify-between gap-3">
+            <div>
+              <span class="font-medium">{{ r.action }}</span>
+              <span v-if="r.old_version != null || r.new_version != null" class="text-xs text-muted-foreground ml-2">
+                v{{ r.old_version ?? '—' }} → v{{ r.new_version ?? '—' }}
+              </span>
+            </div>
+            <div class="flex items-center gap-2">
+              <Badge :color="r.result === 'ok' ? 'green' : 'red'" size="xs">{{ r.result }}</Badge>
+              <span class="text-xs text-muted-foreground font-mono">{{ new Date(r.created_at).toLocaleString() }}</span>
+            </div>
+          </li>
+        </ul>
+      </template>
+    </Dialog>
+
+    <Dialog v-model="showGroups" title="Agent Groups" size="sm">
+      <template #body>
+        <div class="space-y-3">
+          <div class="flex items-end gap-2">
+            <FormField label="New group" class="flex-1">
+              <Input v-model="newGroupName" placeholder="production-eu..." @keyup.enter="createGroup" />
+            </FormField>
+            <Button size="sm" :loading="groupSaving" @click="createGroup">Add</Button>
+          </div>
+          <p v-if="!groups.length" class="text-sm text-muted-foreground">No groups yet.</p>
+          <ul v-else class="divide-y divide-border text-sm">
+            <li v-for="g in groups" :key="g.id" class="py-1.5">{{ g.name }}</li>
+          </ul>
+          <p class="text-xs text-muted-foreground">
+            GROUP-scope assignments bind through enrollment tokens (agent_group) — set the group at token issuance.
+          </p>
+        </div>
+      </template>
+      <template #footer>
+        <Button variant="ghost" @click="showGroups = false">Close</Button>
+      </template>
+    </Dialog>
+
   </div>
 </template>

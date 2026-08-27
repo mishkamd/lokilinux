@@ -510,17 +510,34 @@ class AgentPolicyService:
         return {"deployment_id": str(deployment.id), "to_version": target.version}
 
     async def agent_policy_state(self, agent_row_id) -> dict:
-        """Desired vs actual for one agent — feeds the UI drift panel."""
+        """Desired vs actual for one agent — feeds the UI drift panel.
+        Also returns the desired policy's published versions so the UI can
+        offer rollback targets without a second round-trip."""
         agent = (
             await self.db.execute(select(Agent).where(Agent.id == agent_row_id))
         ).scalar_one_or_none()
         if not agent:
             raise HTTPException(404, "Agent not found")
         desired = actual = None
+        desired_policy_id = None
+        versions: list[dict] = []
         if agent.desired_policy_version_id:
             row = await self.db.get(AgentPolicyVersion, agent.desired_policy_version_id)
             pol = await self.db.get(AgentPolicy, row.policy_id)
-            desired = {"policy": pol.name, "version": row.version, "hash": row.payload_hash}
+            desired_policy_id = str(row.policy_id)
+            desired = {"policy": pol.name, "policy_id": desired_policy_id,
+                       "version": row.version, "hash": row.payload_hash}
+            vrows = (
+                await self.db.execute(
+                    select(AgentPolicyVersion)
+                    .where(
+                        AgentPolicyVersion.policy_id == row.policy_id,
+                        AgentPolicyVersion.status == "published",
+                    )
+                    .order_by(AgentPolicyVersion.version.desc())
+                )
+            ).scalars().all()
+            versions = [{"version": v.version, "hash": v.payload_hash[:16]} for v in vrows]
         if agent.current_policy_version_id:
             row = await self.db.get(AgentPolicyVersion, agent.current_policy_version_id)
             pol = await self.db.get(AgentPolicy, row.policy_id)
@@ -532,6 +549,7 @@ class AgentPolicyService:
             "in_sync": in_sync,
             "status": agent.policy_status,
             "last_error": agent.policy_last_error,
+            "versions": versions,
         }
 
     # ── Groups ────────────────────────────────────────────────────────────────
