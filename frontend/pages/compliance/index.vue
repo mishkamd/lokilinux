@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { SEVERITY_COLORS } from '~/utils/complianceColors'
-import { FileText, ShieldCheck, ShieldAlert, Gauge, BookCheck, ShieldOff } from 'lucide-vue-next'
+import { FileText, ShieldCheck, ShieldAlert, Gauge, BookCheck, ShieldOff, HelpCircle } from 'lucide-vue-next'
 
 const store = useComplianceStore()
 const {
@@ -10,6 +10,46 @@ const {
 } = storeToRefs(store)
 const { canEdit } = useCurrentUser()
 const toast = useToast()
+
+// ── U10 aggregate ("how compliant are we?") — one cached endpoint ─────────────
+interface OverviewCategory {
+  category: string
+  agents_scored: number
+  score: number
+  weighted_score: number
+  unknown_total: number
+}
+interface StandardsCoverage {
+  standard: string
+  total_rules: number
+  executable_rules: number
+  coverage_pct: number
+}
+interface FleetOverview {
+  generated_at: string
+  overall: OverviewCategory | null
+  categories: OverviewCategory[]
+  findings_by_severity: Record<string, number>
+  open_findings_total: number
+  drift_by_severity: Record<string, number>
+  open_drift_total: number
+  standards: StandardsCoverage[]
+  fleet: { active_agents: number; scored_agents_24h: number; unscored_agents: number }
+  cached: boolean
+}
+
+const { data: agg, pending: aggPending, refresh: aggRefresh } = await useAsyncData(
+  'compliance-overview-u10',
+  () => useApi().get<FleetOverview>('/compliance/overview'),
+  { lazy: true },
+)
+
+const aggOverall = computed(() => agg.value?.overall ?? null)
+const aggUnscored = computed(() => agg.value?.fleet.unscored_agents ?? 0)
+
+function sevTotal(sev: Record<string, number> | undefined, name: string): number {
+  return sev?.[name] ?? 0
+}
 
 onMounted(() => {
   store.fetchBaselines()
@@ -97,6 +137,94 @@ async function submitRunAssessment() {
 
 <template>
   <div>
+    <!-- U10 hero: the weighted answer to "how compliant are we?" -->
+    <Card class="mb-4">
+      <template #header>
+        <div class="flex items-center justify-between">
+          <p class="label-caps">Fleet compliance (weighted)</p>
+          <div class="flex items-center gap-2">
+            <span v-if="agg?.cached" class="text-[10px] text-muted-foreground">cached 60s</span>
+            <Button variant="ghost" size="xs" :loading="aggPending" @click="aggRefresh()">Refresh</Button>
+          </div>
+        </div>
+      </template>
+      <Skeleton v-if="aggPending && !agg" class="h-24 w-full" />
+      <template v-else>
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-4 items-end">
+          <div>
+            <p class="text-4xl font-mono font-semibold tabular-nums">
+              {{ aggOverall ? `${Number(aggOverall.weighted_score).toFixed(1)}` : '—' }}<span class="text-lg text-muted-foreground">%</span>
+            </p>
+            <p class="text-xs text-muted-foreground mt-1">weighted overall · {{ aggOverall?.agents_scored ?? 0 }} agents</p>
+          </div>
+          <div class="space-y-1">
+            <p class="text-xs text-muted-foreground flex items-center gap-1">
+              <ShieldAlert class="size-3.5" /> Open findings
+            </p>
+            <p class="text-2xl font-mono font-semibold tabular-nums">{{ agg?.open_findings_total ?? '—' }}</p>
+            <div class="flex gap-1">
+              <Badge :color="SEVERITY_COLORS.CRITICAL" size="xs">{{ sevTotal(agg?.findings_by_severity, 'CRITICAL') }} C</Badge>
+              <Badge :color="SEVERITY_COLORS.HIGH" size="xs">{{ sevTotal(agg?.findings_by_severity, 'HIGH') }} H</Badge>
+              <Badge :color="SEVERITY_COLORS.MEDIUM" size="xs">{{ sevTotal(agg?.findings_by_severity, 'MEDIUM') }} M</Badge>
+              <Badge :color="SEVERITY_COLORS.LOW" size="xs">{{ sevTotal(agg?.findings_by_severity, 'LOW') }} L</Badge>
+            </div>
+          </div>
+          <div class="space-y-1">
+            <p class="text-xs text-muted-foreground flex items-center gap-1">
+              <ShieldOff class="size-3.5" /> Open drift
+            </p>
+            <p class="text-2xl font-mono font-semibold tabular-nums">{{ agg?.open_drift_total ?? '—' }}</p>
+          </div>
+          <div class="space-y-1">
+            <p class="text-xs text-muted-foreground flex items-center gap-1">
+              <ShieldCheck class="size-3.5" /> Scored agents (24h)
+            </p>
+            <p class="text-2xl font-mono font-semibold tabular-nums">
+              {{ agg?.fleet.scored_agents_24h ?? '—' }}<span class="text-sm text-muted-foreground">/{{ agg?.fleet.active_agents ?? '—' }}</span>
+            </p>
+          </div>
+          <div class="space-y-1">
+            <p class="text-xs text-muted-foreground flex items-center gap-1">
+              <HelpCircle class="size-3.5" /> Unknown basis
+            </p>
+            <p class="text-2xl font-mono font-semibold tabular-nums" :class="aggUnscored > 0 ? 'text-amber-500' : ''">
+              {{ agg?.fleet.unscored_agents ?? '—' }}
+            </p>
+            <p class="text-[11px] text-muted-foreground">
+              {{ aggUnscored > 0 ? 'agents unreported — NOT counted as compliant' : 'full fleet reported' }}
+            </p>
+          </div>
+        </div>
+
+        <div v-if="agg?.categories?.length" class="mt-4 grid grid-cols-2 md:grid-cols-4 gap-3">
+          <div v-for="c in agg.categories" :key="c.category" class="rounded-lg border border-border p-2.5">
+            <p class="label-caps mb-1">{{ c.category }}</p>
+            <p class="text-xl font-mono font-semibold tabular-nums">{{ Number(c.weighted_score).toFixed(1) }}%</p>
+            <div class="h-1 w-full rounded-full bg-muted overflow-hidden mt-1.5">
+              <div class="h-full bg-primary transition-all" :style="{ width: `${Number(c.weighted_score)}%` }" />
+            </div>
+            <p class="text-[11px] text-muted-foreground mt-1">{{ c.agents_scored }} agents</p>
+          </div>
+        </div>
+
+        <div v-if="agg?.standards?.length" class="mt-4">
+          <p class="label-caps mb-2">Standards coverage (CEL-executable / total)</p>
+          <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div v-for="s in agg.standards" :key="s.standard" class="rounded-lg border border-border p-2.5">
+              <div class="flex items-center justify-between">
+                <p class="text-sm font-medium truncate" :title="s.standard">{{ s.standard }}</p>
+                <span class="text-xs font-mono tabular-nums">{{ s.coverage_pct }}%</span>
+              </div>
+              <div class="h-1 w-full rounded-full bg-muted overflow-hidden mt-1.5">
+                <div class="h-full bg-primary transition-all" :style="{ width: `${s.coverage_pct}%` }" />
+              </div>
+              <p class="text-[11px] text-muted-foreground mt-1">{{ s.executable_rules }}/{{ s.total_rules }} rules executable</p>
+            </div>
+          </div>
+        </div>
+      </template>
+    </Card>
+
     <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
       <MetricCard
         :icon="Gauge"

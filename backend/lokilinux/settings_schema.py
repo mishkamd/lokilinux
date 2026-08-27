@@ -72,6 +72,14 @@ SETTINGS_SCHEMA: dict[str, dict[str, tuple[str, Any]]] = {
         # Anti-storm cap shared across the whole fleet, not per policy —
         # counts AUTOMATIC-trigger_type plans created today.
         "auto_remediation_max_plans_per_day": ("integer", 10),
+        # ponytail: Autopilot A1 (docs/modules/10-compliance-autopilot.md)
+        # — the value this setting is meant to drive
+        # (compliance_assessment_scheduler.py, a worker reading this key and
+        # creating a GLOBAL assessment every N days) isn't built. This is
+        # config-only today: the wizard's Schedule step (plan U10) reads and
+        # writes it so an admin's choice survives the moment A1 ships,
+        # rather than defining the key twice. 0 = off either way.
+        "auto_assessment_days": ("integer", 0),
     },
     "cve": {
         "feed_source_url": ("string", ""),

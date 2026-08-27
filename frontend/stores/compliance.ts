@@ -577,6 +577,14 @@ export const useComplianceStore = defineStore('compliance', () => {
     policySetRules.value = await api.get<ComplianceRule[]>(`/compliance/policy-sets/${id}/rules`)
   }
 
+  async function addPolicySetRule(id: string, ruleId: string) {
+    return await api.post(`/compliance/policy-sets/${id}/rules`, { rule_id: ruleId })
+  }
+
+  async function createPolicyAssignment(body: { policy_set_id: string; scope_type: ScopeType; scope_selector: Record<string, unknown> }) {
+    return await api.post('/compliance/policy-assignments', body)
+  }
+
   async function fetchPolicySetCoverage(id: string) {
     policySetCoverage.value = await api.get<PolicySetCoverage>(`/compliance/policy-sets/${id}/coverage`)
   }
@@ -1048,6 +1056,7 @@ export const useComplianceStore = defineStore('compliance', () => {
     policySets, policySetsTotal, policySetsLoading, policySetsNextCursor, selectedPolicySet, policySetRules, policySetCoverage,
     fetchPolicySets, createPolicySet, fetchPolicySet, fetchPolicySetRules, fetchPolicySetCoverage, importPolicySet,
     publishPolicySet, archivePolicySet, newPolicySetVersion, setPolicySetRemediation,
+    addPolicySetRule, createPolicyAssignment,
     driftEvents, driftTotal, driftLoading, driftNextCursor, driftFilters,
     selectedDriftEvent, driftDetails,
     fetchDriftEvents, fetchDriftEvent, fetchDriftDetails, acknowledgeDrift, suppressDrift, resolveDrift,
