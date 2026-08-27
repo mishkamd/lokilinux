@@ -347,11 +347,12 @@ services:
       CA_SIGNER_SOCKET_PATH: /run/lokilinux/ca-signer/sign.sock
       PLUGIN_DIR: /opt/lokilinux/plugins
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      POLICY_SIGNING_KEY_PATH: /var/lib/lokilinux/policy-key/policy-signing.key
       # Single public entry point — agent install URLs + CORS origin both derive from it.
       PLATFORM_URL: ${PUBLIC_URL:-http://localhost:3000}
       FRONTEND_URL: ${PUBLIC_URL:-http://localhost:3000}
       AGENT_DOWNLOAD_BASE: ${AGENT_DOWNLOAD_BASE:-}
-      AGENT_VERSION: ${AGENT_VERSION:-0.38.0}
+      AGENT_VERSION: ${AGENT_VERSION:-0.39.0}
     ports:
       - "8000:8000"
       - "9090:9090"
@@ -361,6 +362,10 @@ services:
       - plugins_dir:/opt/lokilinux/plugins
       - ./logs/api:/var/log/lokilinux
       - ./agent/bin:/opt/lokilinux/packages:ro
+      # Desired-state policy signing key (agent-policy-modernization plan):
+      # ed25519 private half lives in its own named volume; generated on
+      # first start, public half served at /agent/policy-signing-key.
+      - policy_key:/var/lib/lokilinux/policy-key
     networks:
       - app-net
       - web-net
@@ -607,3 +612,5 @@ volumes:
     name: lokilinux-ca-key
   ca_signer_sock:
     name: lokilinux-ca-signer-sock
+  policy_key:
+    name: lokilinux-policy-key
