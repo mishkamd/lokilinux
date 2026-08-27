@@ -164,12 +164,6 @@ export interface ValidationIssue {
   step_id?: string | null
 }
 
-export interface ValidationResult {
-  valid: boolean
-  errors: ValidationIssue[]
-  warnings: ValidationIssue[]
-}
-
 export interface DryRunStepResult {
   id: string
   type: string

@@ -2,10 +2,8 @@
 LokiLinux — Database layer (PostgreSQL, SQLAlchemy async)
 
 Engine is created once at startup and stored in app.state.db_engine.
-get_db is a FastAPI dependency that yields a session per request.
+The FastAPI get_db dependency lives in lokilinux.dependencies.
 """
-
-from typing import AsyncGenerator
 
 import structlog
 from sqlalchemy.ext.asyncio import (
@@ -43,16 +41,3 @@ def build_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSessio
         expire_on_commit=False,
         autoflush=False,
     )
-
-
-# ── FastAPI dependency ─────────────────────────────────────────────────────────
-
-async def get_db(session_factory: async_sessionmaker[AsyncSession]) -> AsyncGenerator[AsyncSession, None]:
-    """Yield a database session; roll back on error, close always."""
-    async with session_factory() as session:
-        try:
-            yield session
-            await session.commit()
-        except Exception:
-            await session.rollback()
-            raise

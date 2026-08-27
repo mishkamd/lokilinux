@@ -165,11 +165,3 @@ class PluginService:
                 json.dumps({"plugin_id": str(plugin_id)}).encode(),
             )
         return PluginResponse.model_validate(plugin)
-
-    async def validate_manifest(self, manifest: dict) -> bool:
-        required = {"name", "version", "description", "author", "entrypoint", "permissions"}
-        return required.issubset(manifest.keys())
-
-    @staticmethod
-    def compute_checksum(plugin_bytes: bytes) -> str:
-        return hashlib.sha256(plugin_bytes).hexdigest()

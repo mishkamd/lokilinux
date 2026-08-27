@@ -18,7 +18,7 @@ import json
 import os
 import time
 import uuid
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
@@ -98,6 +98,21 @@ class JobSigner:
             format=serialization.PublicFormat.Raw,
         )
         return base64.b64encode(raw).decode()
+
+    def public_keys(self) -> Dict[str, str]:
+        """Version -> base64(raw32 pub) for every publicly-servable version
+        (ACTIVE + VERIFY_ONLY; RETIRED never exposed — a retired key must
+        stop being trusted by anyone still holding it, not just by new
+        verifiers). Legacy (unversioned) layout has exactly one entry, "1".
+        Backs GET /agent/signing-keys."""
+        if self._key_manager is None:
+            return {"1": self.public_key_b64()}
+        out: Dict[str, str] = {}
+        for v, state in self._key_manager.versions().items():
+            if state not in ("ACTIVE", "VERIFY_ONLY"):
+                continue
+            out[v] = self.public_key_b64(version=int(v))
+        return out
 
     def verify_allowed_version(self, version: int) -> bool:
         if self._key_manager is None:

@@ -272,12 +272,12 @@ func TestEvaluate_EvidenceHash_StableAndSensitive(t *testing.T) {
 	}
 }
 
-// TestEvaluate_MissingEvidencePath_OmittedNotErrored locks that an
-// EvidencePaths entry absent from this snapshot's facts is simply left out
-// of the evidence map rather than failing the whole evaluation — the CEL
-// check itself already handles a missing fact (ERROR), evidence extraction
-// is best-effort on top of that real result.
-func TestEvaluate_MissingEvidencePath_OmittedNotErrored(t *testing.T) {
+// TestEvaluate_MissingEvidencePath_Unknown locks the Enterprise Compliance
+// plan U4/KTD3 semantics: when a rule declares its evidence paths and any of
+// them is absent from the snapshot, the verdict is UNKNOWN with a reason —
+// not a silent PASS whose evidence just happens to be incomplete. Only
+// rules without declared FACT_PATHs keep evaluating as before.
+func TestEvaluate_MissingEvidencePath_Unknown(t *testing.T) {
 	e := newTestEvaluator(t)
 	rule := Rule{
 		ID: "checks_present_field_only", CheckSource: CheckSourceCEL,
@@ -287,11 +287,45 @@ func TestEvaluate_MissingEvidencePath_OmittedNotErrored(t *testing.T) {
 	facts := map[string]any{"sshd": map[string]any{"PermitRootLogin": "no"}}
 
 	v := e.Evaluate(context.Background(), rule, facts, "")
-	if v.Result != ResultPass {
-		t.Fatalf("Result = %v, want PASS", v.Result)
+	if v.Result != ResultUnknown {
+		t.Fatalf("Result = %v, want UNKNOWN", v.Result)
 	}
-	actual := v.Evidence["actual"].(map[string]any)
-	if len(actual) != 1 {
-		t.Errorf("actual = %#v, want exactly 1 entry (missing path omitted, not errored)", actual)
+	if v.Reason == "" {
+		t.Error("Reason must explain the UNKNOWN verdict")
+	}
+	if v.Evidence["reason"] != "required fact not collected" {
+		t.Errorf("evidence reason = %#v, want %q", v.Evidence["reason"], "required fact not collected")
+	}
+	missing, ok := v.Evidence["missing_paths"].([]string)
+	if !ok || len(missing) != 1 || missing[0] != "sshd.NeverCollectedField" {
+		t.Errorf("missing_paths = %#v, want [sshd.NeverCollectedField]", v.Evidence["missing_paths"])
+	}
+
+	// Same rule against a fully-populated snapshot evaluates normally.
+	vFull := e.Evaluate(context.Background(), rule,
+		map[string]any{"sshd": map[string]any{"PermitRootLogin": "no", "NeverCollectedField": "x"}}, "")
+	if vFull.Result != ResultPass {
+		t.Errorf("Result = %v, want PASS once every declared path exists", vFull.Result)
+	}
+	actual := vFull.Evidence["actual"].(map[string]any)
+	if len(actual) != 2 {
+		t.Errorf("actual = %#v, want both declared entries", actual)
+	}
+}
+
+// TestEvaluate_NoDeclaredPaths_NeverUnknown locks that a rule without any
+// declared evidence paths cannot produce UNKNOWN — unknown detection needs
+// declared paths to be honest about; nothing declared means nothing to miss.
+func TestEvaluate_NoDeclaredPaths_NeverUnknown(t *testing.T) {
+	e := newTestEvaluator(t)
+	rule := Rule{
+		ID: "mounts_no_paths", CheckSource: CheckSourceCEL,
+		CheckExpr: `facts.mounts.exists(m, m.target == "/tmp" && "noexec" in m.options)`,
+	}
+	facts := map[string]any{"mounts": []any{map[string]any{"target": "/tmp", "options": []any{"rw", "noexec"}}}}
+
+	v := e.Evaluate(context.Background(), rule, facts, "")
+	if v.Result != ResultPass {
+		t.Fatalf("Result = %v, want PASS (no declared paths)", v.Result)
 	}
 }

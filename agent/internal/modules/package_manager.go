@@ -25,7 +25,6 @@ type Package struct {
 	Name         string
 	Version      string
 	Architecture string
-	InstalledAt  time.Time
 
 	// Populated from the package manager's own "check for updates" command
 	// (refreshed at most once per updateCheckInterval, not every heartbeat —

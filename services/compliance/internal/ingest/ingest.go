@@ -65,7 +65,6 @@ type Result struct {
 	SnapshotID     uuid.UUID
 	Unchanged      bool // content_hash matched the latest known snapshot; still stored (immutable log) but nothing new to evaluate against
 	RulesEvaluated int
-	DriftDetected  bool
 }
 
 // canonicalHash verifies a snapshot's claimed content_hash against the same
@@ -131,13 +130,12 @@ func (in *Ingester) Ingest(ctx context.Context, snap Snapshot) (Result, error) {
 
 		// Fetch the previous domain body *before* overwriting anything — this is
 		// the "vs previous snapshot" comparison from docs/compliance/08-DRIFT-FIM.md §1.
-		var driftDetected bool
+		// The result only feeds detectBaselineDrift's union below; Result no
+		// longer carries it (logging/metrics callers never read it).
 		if hadPrevious && !unchanged {
-			detected, err := txIn.detectDrift(ctx, snap, previousHash)
-			if err != nil {
+			if _, err := txIn.detectDrift(ctx, snap, previousHash); err != nil {
 				return err
 			}
-			driftDetected = detected
 		}
 
 		if !unchanged {
@@ -155,11 +153,9 @@ func (in *Ingester) Ingest(ctx context.Context, snap Snapshot) (Result, error) {
 		// the state changed since the previous snapshot: a deviation from the
 		// effective baseline is reportable even on the very first snapshot, and
 		// is recorded once per distinct diff state, not once per heartbeat.
-		baselineDrift, err := txIn.detectBaselineDrift(ctx, snap)
-		if err != nil {
+		if _, err := txIn.detectBaselineDrift(ctx, snap); err != nil {
 			return err
 		}
-		driftDetected = driftDetected || baselineDrift
 
 		evaluated, err := txIn.evaluateRules(ctx, snap)
 		if err != nil {
@@ -179,7 +175,6 @@ func (in *Ingester) Ingest(ctx context.Context, snap Snapshot) (Result, error) {
 
 		result.Unchanged = unchanged
 		result.RulesEvaluated = evaluated
-		result.DriftDetected = driftDetected
 		return nil
 	})
 	if err != nil {
