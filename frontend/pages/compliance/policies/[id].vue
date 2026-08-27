@@ -60,7 +60,41 @@ async function newVersion() {
 const tabs = [
   { label: 'Rules', slot: 'rules' },
   { label: 'Coverage', slot: 'coverage' },
+  { label: 'Remediation', slot: 'remediation' },
 ]
+
+// Remediation mode form (plan U7/KTD8) — a policy_set with remediation
+// unset behaves as ASSISTED, so the form defaults there too rather than
+// showing an empty/undefined mode.
+const remediationMode = ref<'MONITOR' | 'ASSISTED' | 'AUTOMATIC'>(
+  selectedPolicySet.value?.remediation?.mode ?? 'ASSISTED',
+)
+const remediationAllowed = ref<string[]>(selectedPolicySet.value?.remediation?.allowed ?? [])
+const remediationForbidden = ref<string[]>(selectedPolicySet.value?.remediation?.forbidden ?? [])
+watch(selectedPolicySet, (p) => {
+  remediationMode.value = p?.remediation?.mode ?? 'ASSISTED'
+  remediationAllowed.value = p?.remediation?.allowed ?? []
+  remediationForbidden.value = p?.remediation?.forbidden ?? []
+})
+
+const domainOptions = computed(() => [...new Set(policySetRules.value.map((r) => String(r.domain)))].sort())
+
+const savingRemediation = ref(false)
+async function saveRemediation() {
+  savingRemediation.value = true
+  try {
+    await store.setPolicySetRemediation(policySetId, {
+      mode: remediationMode.value,
+      allowed: remediationAllowed.value,
+      forbidden: remediationForbidden.value,
+    })
+    toast.add({ title: 'Remediation mode saved' })
+  } catch (err) {
+    toast.add({ title: (err as { data?: { detail?: string } })?.data?.detail ?? 'Failed to save', color: 'red' })
+  } finally {
+    savingRemediation.value = false
+  }
+}
 
 const columns = [
   { key: 'title', label: 'Rule' },
@@ -142,6 +176,49 @@ const columns = [
             <p class="text-2xl font-mono font-semibold tabular-nums">{{ policySetCoverage.coverage_pct }}%</p>
           </Card>
         </div>
+      </template>
+
+      <template #remediation>
+        <Card class="max-w-xl">
+          <div class="space-y-4">
+            <div>
+              <p class="label-caps mb-1.5">Mode</p>
+              <Select
+                v-model="remediationMode"
+                :options="[
+                  { label: 'MONITOR — findings only, no remediation ever', value: 'MONITOR' },
+                  { label: 'ASSISTED — manual approve + dispatch (default)', value: 'ASSISTED' },
+                  { label: 'AUTOMATIC — auto-fixes when every safety gate passes', value: 'AUTOMATIC' },
+                ]"
+                class="w-full"
+              />
+            </div>
+
+            <div v-if="remediationMode === 'AUTOMATIC'">
+              <p class="label-caps mb-1.5">Allowed domains</p>
+              <MultiSelect v-model="remediationAllowed" :options="domainOptions" placeholder="All domains this policy covers" />
+              <p class="text-xs text-muted-foreground mt-1">Empty = every domain this policy covers is eligible.</p>
+            </div>
+
+            <div v-if="remediationMode === 'AUTOMATIC'">
+              <p class="label-caps mb-1.5">Forbidden domains</p>
+              <MultiSelect v-model="remediationForbidden" :options="domainOptions" placeholder="None" />
+              <p class="text-xs text-muted-foreground mt-1">Always excluded, even if listed as allowed.</p>
+            </div>
+
+            <Alert v-if="remediationMode === 'AUTOMATIC'" color="amber">
+              AUTOMATIC also requires the platform-wide kill-switch
+              (Settings → Compliance → Auto-remediation) to be on, a matching
+              remediation template with a rollback step, and an open
+              maintenance window covering each agent — this list alone
+              doesn't make anything run.
+            </Alert>
+
+            <Button v-if="canEdit" :loading="savingRemediation" @click="saveRemediation">
+              Save
+            </Button>
+          </div>
+        </Card>
       </template>
     </AppTabs>
   </div>

@@ -81,6 +81,9 @@ export interface PolicySet {
   published_at: string | null
   published_version: number
   parent_policy_set_id: string | null
+  // NULL means ASSISTED (plan U7/KTD8) — the pre-U7 behavior every policy
+  // set defaults to until someone explicitly sets a mode.
+  remediation: { mode: 'MONITOR' | 'ASSISTED' | 'AUTOMATIC'; allowed: string[]; forbidden: string[] } | null
 }
 
 export interface PolicySetCoverage {
@@ -598,6 +601,15 @@ export const useComplianceStore = defineStore('compliance', () => {
     return await api.post<PolicySet>(`/compliance/policy-sets/${id}/new-version`)
   }
 
+  async function setPolicySetRemediation(
+    id: string,
+    body: { mode: string; allowed: string[]; forbidden: string[] },
+  ) {
+    const updated = await api.patch<PolicySet>(`/compliance/policy-sets/${id}/remediation`, body)
+    if (selectedPolicySet.value?.id === id) selectedPolicySet.value = updated
+    return updated
+  }
+
   // ── Drift ────────────────────────────────────────────────────────────────
 
   const driftEvents = ref<DriftEvent[]>([])
@@ -1035,7 +1047,7 @@ export const useComplianceStore = defineStore('compliance', () => {
     selectedRule, fetchRule,
     policySets, policySetsTotal, policySetsLoading, policySetsNextCursor, selectedPolicySet, policySetRules, policySetCoverage,
     fetchPolicySets, createPolicySet, fetchPolicySet, fetchPolicySetRules, fetchPolicySetCoverage, importPolicySet,
-    publishPolicySet, archivePolicySet, newPolicySetVersion,
+    publishPolicySet, archivePolicySet, newPolicySetVersion, setPolicySetRemediation,
     driftEvents, driftTotal, driftLoading, driftNextCursor, driftFilters,
     selectedDriftEvent, driftDetails,
     fetchDriftEvents, fetchDriftEvent, fetchDriftDetails, acknowledgeDrift, suppressDrift, resolveDrift,

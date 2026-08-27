@@ -91,6 +91,28 @@ describe('useComplianceStore', () => {
       expect(apiMocks.post).toHaveBeenCalledWith('/compliance/policy-sets/import', expect.objectContaining({ content_version: 'v1' }))
       expect(result.job_id).toBe('job-1')
     })
+
+    it('setPolicySetRemediation patches selectedPolicySet in place', async () => {
+      const store = useComplianceStore()
+      store.selectedPolicySet = { id: 'ps1', remediation: null } as any
+      apiMocks.patch.mockResolvedValueOnce({
+        id: 'ps1',
+        remediation: { mode: 'AUTOMATIC', allowed: ['sshd'], forbidden: [] },
+      })
+
+      const updated = await store.setPolicySetRemediation('ps1', {
+        mode: 'AUTOMATIC',
+        allowed: ['sshd'],
+        forbidden: [],
+      })
+
+      expect(apiMocks.patch).toHaveBeenCalledWith(
+        '/compliance/policy-sets/ps1/remediation',
+        { mode: 'AUTOMATIC', allowed: ['sshd'], forbidden: [] },
+      )
+      expect(updated.remediation?.mode).toBe('AUTOMATIC')
+      expect(store.selectedPolicySet?.remediation?.mode).toBe('AUTOMATIC')
+    })
   })
 
   describe('drift', () => {
