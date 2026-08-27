@@ -261,6 +261,15 @@ class ComplianceAsCodeImporter:
                     standard_refs=r.standard_refs,
                     source="complianceascode",
                     source_version=content_version,
+                    # is_enabled defaults True on the model — force it off
+                    # here (plan U8 Task 3): check_source already keeps
+                    # this rule out of every evaluation/score regardless,
+                    # but is_enabled=True on an unexecutable rule reads as
+                    # a lie in the Rule Catalog UI. Only at creation, same
+                    # as check_source above — a later hand-curated CEL
+                    # mapping (which does update is_enabled) must survive
+                    # untouched here.
+                    is_enabled=False,
                 )
                 self.db.add(row)
                 await self.db.flush()

@@ -164,6 +164,31 @@ describe('useComplianceStore', () => {
     })
   })
 
+  describe('standards', () => {
+    it('fetchStandards populates the list', async () => {
+      apiMocks.get.mockResolvedValueOnce([
+        { key: 'cis', name: 'CIS Benchmarks', version: '8.0', rules_total: 10, executable: 4, reference_only: 6, coverage_executable_pct: 40 },
+      ])
+      const store = useComplianceStore()
+
+      await store.fetchStandards()
+
+      expect(apiMocks.get).toHaveBeenCalledWith('/compliance/standards')
+      expect(store.standards).toHaveLength(1)
+      expect(store.standards[0]!.coverage_executable_pct).toBe(40)
+    })
+
+    it('fetchStandard populates selectedStandard', async () => {
+      apiMocks.get.mockResolvedValueOnce({ key: 'cis', name: 'CIS Benchmarks', version: '8.0', controls: [] })
+      const store = useComplianceStore()
+
+      await store.fetchStandard('cis', '8.0')
+
+      expect(apiMocks.get).toHaveBeenCalledWith('/compliance/standards/cis/8.0')
+      expect(store.selectedStandard?.name).toBe('CIS Benchmarks')
+    })
+  })
+
   describe('remediation', () => {
     it('fetchRemediationPlans populates the plan list', async () => {
       apiMocks.get.mockResolvedValueOnce({ items: [{ id: 'p1', status: 'DRAFT' }], next_cursor: null, total: 1 })

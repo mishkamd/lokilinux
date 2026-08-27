@@ -26,6 +26,11 @@ class ComplianceFramework(Base):
     key: Mapped[str] = mapped_column(String(30), nullable=False, unique=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
+    # Migration 040 (Enterprise Compliance plan U8/KTD6) — optional, no
+    # backfill; UI falls back to key/name alone when unset.
+    publisher: Mapped[str | None] = mapped_column(String(255))
+    description: Mapped[str | None] = mapped_column(Text)
+    status: Mapped[str | None] = mapped_column(String(20))
 
 
 class ComplianceFrameworkVersion(Base):

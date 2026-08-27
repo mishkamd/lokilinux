@@ -137,6 +137,49 @@ export interface Finding {
   acknowledged_at: string | null
 }
 
+// Standards are a read-only aggregation, not a new content type (Enterprise
+// Compliance plan U8/KTD6) — over the same frameworks/versions/controls/
+// rule_mappings the ComplianceAsCode importer and curated loader already
+// write.
+export interface Standard {
+  key: string
+  name: string
+  version: string
+  publisher: string | null
+  description: string | null
+  status: string | null
+  rules_total: number
+  executable: number
+  reference_only: number
+  coverage_executable_pct: number
+}
+
+export interface StandardControlRule {
+  id: string
+  rule_key: string
+  title: string
+  severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
+  check_source: CheckSource
+  is_enabled: boolean
+}
+
+export interface StandardControl {
+  control_id: string
+  title: string
+  description: string | null
+  rules: StandardControlRule[]
+}
+
+export interface StandardDetail {
+  key: string
+  name: string
+  version: string
+  publisher: string | null
+  description: string | null
+  status: string | null
+  controls: StandardControl[]
+}
+
 export interface FindingDetail extends Finding {
   policy_set_id: string
   actual_value: unknown
@@ -656,6 +699,27 @@ export const useComplianceStore = defineStore('compliance', () => {
     if (selectedFinding.value?.id === id) selectedFinding.value = updated
   }
 
+  // ── Standards ────────────────────────────────────────────────────────────
+
+  const standards = ref<Standard[]>([])
+  const standardsLoading = ref(false)
+  const selectedStandard = ref<StandardDetail | null>(null)
+
+  async function fetchStandards() {
+    standardsLoading.value = true
+    try {
+      standards.value = await api.get<Standard[]>('/compliance/standards')
+    } finally {
+      standardsLoading.value = false
+    }
+  }
+
+  async function fetchStandard(key: string, version: string) {
+    selectedStandard.value = await api.get<StandardDetail>(
+      `/compliance/standards/${key}/${version}`,
+    )
+  }
+
   // ── Exceptions ───────────────────────────────────────────────────────────
 
   const exceptions = ref<ComplianceException[]>([])
@@ -977,6 +1041,7 @@ export const useComplianceStore = defineStore('compliance', () => {
     fetchDriftEvents, fetchDriftEvent, fetchDriftDetails, acknowledgeDrift, suppressDrift, resolveDrift,
     findings, findingsTotal, findingsLoading, findingsNextCursor, findingFilters, selectedFinding,
     fetchFindings, fetchFinding, acknowledgeFinding,
+    standards, standardsLoading, selectedStandard, fetchStandards, fetchStandard,
     exceptions, exceptionsTotal, exceptionsLoading, exceptionsNextCursor, exceptionFilters,
     fetchExceptions, createException, approveException, revokeException,
     remediationPlans, remediationTotal, remediationLoading, remediationNextCursor, remediationError, remediationFilters,

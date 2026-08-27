@@ -55,6 +55,11 @@ const coverageEntries = computed(() => Object.entries(selectedRule.value?.covera
         </template>
       </PageHeader>
 
+      <p v-if="selectedRule.check_source !== 'CEL'" class="text-sm text-muted-foreground mb-4">
+        Imported as reference catalog — not executable. This rule never runs, never scores,
+        and never counts toward coverage until a CEL check is hand-mapped to it.
+      </p>
+
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
         <Card>
           <template #header><p class="label-caps">Description</p></template>
