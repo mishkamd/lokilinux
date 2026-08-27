@@ -10,15 +10,16 @@ import json
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.cache import RedisCache
 from lokilinux.models.approval import ApprovalClaim
+from lokilinux.models.drift import DriftEvent
 from lokilinux.models.job import Job, JobResult, JobStatus
 from lokilinux.models.plugin import Plugin, PluginInstallation, PluginStatus
-from lokilinux.models.remediation import RemediationJob, RemediationPlan
+from lokilinux.models.remediation import RemediationAction, RemediationJob, RemediationPlan
 from lokilinux.nats_topics import JOB_CREATED
 
 # Job types that execute arbitrary code as root on agents. These always
@@ -166,9 +167,13 @@ async def _sync_remediation_plan(db: AsyncSession, job: Job) -> None:
             plan.status = "ROLLED_BACK"
         else:
             plan.status = "FAILED"
+        # Plan U6/incident wiring: either way the fix is gone (undone, or
+        # never landed) — the drift this plan was addressing is still real.
+        await _revert_drift_to_open(db, plan_id)
     else:  # APPLY
         if job.status != JobStatus.COMPLETED:
             plan.status = "FAILED"
+            await _revert_drift_to_open(db, plan_id)
         elif await _plan_has_verifiable_actions(db, plan_id):
             # The agent's exit code only means the commands ran without
             # error — not that the desired state actually holds
@@ -180,6 +185,33 @@ async def _sync_remediation_plan(db: AsyncSession, job: Job) -> None:
             # No rule_id on any action — nothing to verify against, so the
             # old exit-code-based COMPLETED is the honest answer here.
             plan.status = "COMPLETED"
+
+
+async def _revert_drift_to_open(db: AsyncSession, plan_id: UUID) -> None:
+    """Plan U6/incident wiring counterpart to _dispatch's EXECUTING ->
+    IN_REMEDIATION: a failed apply or a completed rollback means whatever
+    this plan was fixing is unfixed again — only ever moves a drift_event
+    this plan itself put into IN_REMEDIATION, never a state some other
+    actor (ack/suppress/a different plan) already changed it to."""
+    drift_event_ids = (
+        (
+            await db.execute(
+                select(RemediationAction.drift_event_id).where(
+                    RemediationAction.remediation_plan_id == plan_id,
+                    RemediationAction.drift_event_id.isnot(None),
+                )
+            )
+        )
+        .scalars()
+        .all()
+    )
+    if not drift_event_ids:
+        return
+    await db.execute(
+        update(DriftEvent)
+        .where(DriftEvent.id.in_(drift_event_ids), DriftEvent.status == "IN_REMEDIATION")
+        .values(status="OPEN", last_seen=datetime.now(timezone.utc))
+    )
 
 
 async def _plan_has_verifiable_actions(db: AsyncSession, plan_id: UUID) -> bool:

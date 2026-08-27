@@ -18,9 +18,10 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lokilinux.models.drift import OPEN_DRIFT_STATUSES, DriftEvent
 from lokilinux.models.remediation import (
     MaintenanceWindow,
     RemediationAction,
@@ -194,6 +195,24 @@ class RemediationService:
 
         self.db.add(RemediationJob(remediation_plan_id=plan.id, job_id=job.id))
         plan.status = "EXECUTING"
+
+        # Plan U6/incident wiring: an open drift incident this plan is
+        # addressing shouldn't still read OPEN while a fix for it is
+        # actually running — IN_REMEDIATION until the outcome is known
+        # (verification COMPLETED resolves it; FAILED/ROLLED_BACK reverts
+        # it, see job_service._sync_remediation_plan and
+        # remediation_verification.py).
+        drift_event_ids = [a.drift_event_id for a in actions if a.drift_event_id is not None]
+        if drift_event_ids:
+            await self.db.execute(
+                update(DriftEvent)
+                .where(
+                    DriftEvent.id.in_(drift_event_ids),
+                    DriftEvent.status.in_(OPEN_DRIFT_STATUSES),
+                )
+                .values(status="IN_REMEDIATION")
+            )
+
         await self.db.commit()
 
     async def dry_run(self, plan_id: UUID, actor: dict) -> RemediationPlan:
