@@ -56,6 +56,7 @@ export interface Server {
   listening_ports: ServerListeningPort[] | null
   category_id: string | null
   project_id: string | null
+  agent_group_id: string | null
 }
 
 export interface Category {
@@ -236,10 +237,20 @@ export const useServersStore = defineStore('servers', () => {
     return created
   }
 
-  async function assignServer(id: string, categoryId: string | null, projectId: string | null) {
+  // categoryId/projectId/agentGroupId are a full replace, not a partial
+  // patch — the backend always overwrites all three, so every caller must
+  // round-trip the two fields it isn't changing (mirrors how the existing
+  // category/project selects already pass each other's current value).
+  async function assignServer(
+    id: string,
+    categoryId: string | null,
+    projectId: string | null,
+    agentGroupId: string | null,
+  ) {
     const updated = await api.patch<Server>(`/servers/${id}/assignment`, {
       category_id: categoryId,
       project_id: projectId,
+      agent_group_id: agentGroupId,
     })
     const idx = servers.value.findIndex((s: Server) => s.id === id)
     if (idx !== -1) servers.value[idx] = updated

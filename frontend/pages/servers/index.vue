@@ -64,7 +64,7 @@ const savingRowId = ref<string | null>(null)
 async function updateCategory(row: (typeof servers.value)[0], value: string) {
   savingRowId.value = String(row.id)
   try {
-    await assignServer(String(row.id), value || null, row.project_id)
+    await assignServer(String(row.id), value || null, row.project_id, row.agent_group_id)
   } catch {
     toast.add({ title: 'Failed to update category', color: 'red' })
   } finally {
@@ -75,7 +75,7 @@ async function updateCategory(row: (typeof servers.value)[0], value: string) {
 async function updateProject(row: (typeof servers.value)[0], value: string) {
   savingRowId.value = String(row.id)
   try {
-    await assignServer(String(row.id), row.category_id, value || null)
+    await assignServer(String(row.id), row.category_id, value || null, row.agent_group_id)
   } catch {
     toast.add({ title: 'Failed to update project', color: 'red' })
   } finally {

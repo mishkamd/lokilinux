@@ -140,22 +140,39 @@ function errMsg(e: unknown): string {
 // ── deploy modal ──────────────────────────────────────────────────────────────
 const showDeploy = ref(false)
 const deployTarget = ref<PolicyRow | null>(null)
-const deployForm = reactive({ agent_id: '' })
+const ROLLOUT_STRATEGIES = [
+  { label: 'Immediate', value: 'immediate' },
+  { label: 'Canary (soon)', value: 'canary' },
+  { label: 'Percentage (soon)', value: 'percentage' },
+]
+const deployForm = reactive({
+  scope_type: 'AGENT' as 'AGENT' | 'GROUP' | 'TENANT',
+  agent_id: '',
+  group_id: '',
+  rollout_strategy: 'immediate',
+})
 const deploying = ref(false)
 
 function openDeploy(p: PolicyRow) {
   deployTarget.value = p
+  deployForm.scope_type = 'AGENT'
   deployForm.agent_id = ''
+  deployForm.group_id = ''
+  deployForm.rollout_strategy = 'immediate'
   showDeploy.value = true
+  void reloadGroups()
 }
 
 async function doDeploy() {
-  if (!deployTarget.value || !deployForm.agent_id.trim()) return
+  if (!deployTarget.value) return
+  const scopeRef = deployForm.scope_type === 'GROUP' ? deployForm.group_id : deployForm.agent_id.trim()
+  if (deployForm.scope_type !== 'TENANT' && !scopeRef) return
   deploying.value = true
   try {
     const res = await api.post<{ deployments: unknown[]; count: number }>(`/agent-policies/${deployTarget.value.id}/deploy`, {
-      scope_type: 'AGENT',
-      scope_ref: deployForm.agent_id.trim(),
+      scope_type: deployForm.scope_type,
+      scope_ref: deployForm.scope_type === 'TENANT' ? undefined : scopeRef,
+      rollout_strategy: deployForm.rollout_strategy,
     })
     toast.add({
       title: `Deployed to ${res?.count ?? 0} agent(s)`,
@@ -313,8 +330,31 @@ async function createGroup() {
     <Dialog v-model="showDeploy" :title="`Deploy ${deployTarget?.name ?? ''}`" size="sm">
       <template #body>
         <div class="space-y-3">
-          <FormField label="Agent ID (UUID)" required help="Deployments fan out per-agent; the agent applies on its next heartbeat.">
+          <FormField label="Scope">
+            <Select
+              v-model="deployForm.scope_type"
+              :options="[
+                { label: 'Single agent', value: 'AGENT' },
+                { label: 'Group', value: 'GROUP' },
+                { label: 'Entire tenant', value: 'TENANT' },
+              ]"
+            />
+          </FormField>
+          <FormField v-if="deployForm.scope_type === 'AGENT'" label="Agent ID (UUID)" required help="Deployments fan out per-agent; the agent applies on its next heartbeat.">
             <Input v-model="deployForm.agent_id" placeholder="973717bf-2d10-4b5f-a97f-1ab13beffd14" />
+          </FormField>
+          <FormField v-else-if="deployForm.scope_type === 'GROUP'" label="Group" required>
+            <Select
+              v-model="deployForm.group_id"
+              :options="groups.map((g) => ({ label: g.name, value: g.id }))"
+              :placeholder="groups.length ? 'Select group...' : 'No groups yet — create one first'"
+            />
+          </FormField>
+          <FormField label="Rollout strategy">
+            <Select v-model="deployForm.rollout_strategy" :options="ROLLOUT_STRATEGIES" />
+            <p v-if="deployForm.rollout_strategy !== 'immediate'" class="text-xs text-muted-foreground mt-1">
+              Reserved for a future phase — deploying now still applies immediately to every matched agent.
+            </p>
           </FormField>
           <p class="text-xs text-muted-foreground">
             The document is verified (ed25519 + hash + version monotonicity) before apply; a failed health check keeps the last-good policy active.

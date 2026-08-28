@@ -15,6 +15,38 @@ const { jobs, loading: jobsLoading } = useJobs()
 const packagesLoaded = ref(false)
 const metricsLoaded = ref(false)
 
+// ── Agent group assignment (agent-policy-modernization plan Phase 4) ───────
+const groups = ref<{ id: string; name: string }[]>([])
+const groupSelection = ref('')
+const groupSaving = ref(false)
+
+onMounted(async () => {
+  try {
+    const res = await useApi().get<{ items: { id: string; name: string }[] }>('/agent-policies/groups/list')
+    groups.value = res?.items ?? []
+  } catch {
+    // group list is a convenience — the rest of the tab still works without it
+  }
+})
+
+watch(server, (s) => { groupSelection.value = s?.agent_group_id ?? '' }, { immediate: true })
+
+async function saveGroup() {
+  if (!server.value) return
+  groupSaving.value = true
+  try {
+    await store.assignServer(
+      String(server.value.id), server.value.category_id, server.value.project_id,
+      groupSelection.value || null,
+    )
+    toast.add({ title: 'Group updated', color: 'green' })
+  } catch {
+    toast.add({ title: 'Failed to update group', color: 'red' })
+  } finally {
+    groupSaving.value = false
+  }
+}
+
 const tabs = [
   { label: 'Overview', slot: 'overview' },
   { label: 'Hardware', slot: 'hardware' },
@@ -494,6 +526,19 @@ const VULN_FILTER_OPTIONS = [
                 Sync Now
               </Button>
             </div>
+          </div>
+
+          <div v-if="groups.length" class="flex items-end gap-2">
+            <FormField label="Group" help="GROUP-scope policy deploys target agents by this assignment.">
+              <Select
+                v-model="groupSelection"
+                :options="[{ label: 'No group', value: '' }, ...groups.map((g) => ({ label: g.name, value: g.id }))]"
+                class="w-48"
+              />
+            </FormField>
+            <Button variant="outline" size="sm" :loading="groupSaving" :disabled="groupSelection === (server?.agent_group_id ?? '')" @click="saveGroup">
+              Save
+            </Button>
           </div>
 
           <p v-if="policyLoading && !policyState" class="text-sm text-muted-foreground">Loading…</p>
