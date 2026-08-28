@@ -36,6 +36,7 @@ class AgentBase(BaseModel):
     listening_ports: list[dict] | None = None
     category_id: UUID | None = None
     project_id: UUID | None = None
+    agent_group_id: UUID | None = None
 
 
 class AgentCreate(AgentBase):
@@ -46,6 +47,7 @@ class AgentCreate(AgentBase):
 class AgentAssignmentUpdate(BaseModel):
     category_id: UUID | None = None
     project_id: UUID | None = None
+    agent_group_id: UUID | None = None
 
 
 class AgentResponse(AgentBase):

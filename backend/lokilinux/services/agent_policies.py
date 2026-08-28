@@ -415,7 +415,7 @@ class AgentPolicyService:
         if body.scope_type == "GROUP":
             if not body.scope_ref:
                 raise HTTPException(422, "scope_ref required for GROUP scope")
-            q = q.where(Agent.enrollment_group_id == uuid.UUID(body.scope_ref))
+            q = q.where(Agent.agent_group_id == uuid.UUID(body.scope_ref))
         elif body.scope_type == "AGENT":
             q = q.where(Agent.id == uuid.UUID(body.scope_ref))
         agents = (await self.db.execute(q)).scalars().all()
@@ -641,10 +641,17 @@ class AgentPolicyService:
             row.revoked_at = datetime.now(timezone.utc)
             await _audit(self.db, "revoke_token", "enrollment_token", row.id)
 
-    async def validate_enrollment_token(self, plaintext: str) -> EnrollmentToken:
-        """Single validation entry point used by POST /agents/register. Checks
-        hash → expiry → revocation → single-use. Marks used atomically enough
-        for the fleet's enrollment volume (one admin action per host)."""
+    async def validate_enrollment_token(
+        self, plaintext: str, *, consume: bool = True
+    ) -> EnrollmentToken:
+        """Single validation entry point for both /agent/download and
+        POST /agents/register — the offline installer spends the SAME token
+        on both calls in sequence (install_agent.sh.tmpl), so only the
+        register call may actually consume a single-use token; download
+        passes consume=False to just check validity without spending it.
+        Checks hash → expiry → revocation → single-use. Marks used
+        atomically enough for the fleet's enrollment volume (one admin
+        action per host)."""
         row = (
             await self.db.execute(
                 select(EnrollmentToken).where(EnrollmentToken.token_hash == self.hash_token(plaintext))
@@ -658,6 +665,6 @@ class AgentPolicyService:
             raise HTTPException(403, "Token expired")
         if row.single_use and row.used_at:
             raise HTTPException(403, "Token already used (single-use)")
-        if row.single_use:
+        if row.single_use and consume:
             row.used_at = datetime.now(timezone.utc)
         return row

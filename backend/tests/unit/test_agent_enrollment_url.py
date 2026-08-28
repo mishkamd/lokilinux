@@ -23,8 +23,12 @@ async def _set_db_platform_url(db_session, url):
 
 
 @pytest.mark.asyncio
-async def test_install_command_uses_env_url_by_default(client):
+async def test_install_command_uses_env_url_by_default(client, db_session):
+    from sqlalchemy import select
+
     from lokilinux.config import get_settings
+    from lokilinux.models.agent_policy import EnrollmentToken
+    from lokilinux.services.agent_policies import AgentPolicyService
 
     resp = await client.post("/api/v1/agent/enrollment-token", json={})
     assert resp.status_code == 200
@@ -35,6 +39,18 @@ async def test_install_command_uses_env_url_by_default(client):
     assert body["install_command"].startswith(f"curl -fsSL {expected}/api/v1/agent/install.sh")
     assert f"--url={expected}" in body["install_command"]
     assert f"--token={body['token']}" in body["install_command"]
+
+    # plan U0/agent-policy-modernization P0: DB-backed store, not Redis —
+    # the token issued via this legacy endpoint must be the same one
+    # AgentPolicyService.validate_enrollment_token can find.
+    row = (
+        await db_session.execute(
+            select(EnrollmentToken).where(
+                EnrollmentToken.token_hash == AgentPolicyService.hash_token(body["token"])
+            )
+        )
+    ).scalar_one_or_none()
+    assert row is not None
 
 
 @pytest.mark.asyncio

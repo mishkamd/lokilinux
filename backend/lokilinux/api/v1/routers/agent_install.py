@@ -13,13 +13,13 @@ POST /agents/register          — înregistrare agent cu enrollment token + gen
 
 import datetime
 import os
-import secrets
 import uuid
 from typing import Annotated
 
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.x509.oid import NameOID
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from fastapi.responses import FileResponse, PlainTextResponse
 from pydantic import BaseModel
@@ -31,8 +31,10 @@ from lokilinux.cache import RedisCache
 from lokilinux.config import get_settings
 from lokilinux.dependencies import get_cache, get_db
 from lokilinux.models.agent import Agent, AgentStatus
+from lokilinux.models.agent_policy import EnrollmentToken
 from lokilinux.models.audit import Setting
 from lokilinux.services import ca_signer_client
+from lokilinux.services.agent_policies import AgentPolicyService, EnrollmentTokenCreate
 
 router = APIRouter()
 register_router = APIRouter()
@@ -40,19 +42,26 @@ register_router = APIRouter()
 _ENROLLMENT_TTL = 86400  # 24h
 
 
-# ── Enrollment token dependency (Redis, nu JWKS) ──────────────────────────────
+# ── Enrollment token dependency (DB-backed — agent-policy-modernization P0) ──
+#
+# One store, one validator (AgentPolicyService.validate_enrollment_token) —
+# no more parallel Redis TTL-only tokens. The offline installer spends the
+# SAME token on two separate HTTP calls in sequence (download, then
+# register — see install_agent.sh.tmpl), so this is a dependency FACTORY:
+# /agent/download checks validity without spending a single-use token,
+# only /agents/register actually consumes it.
 
-async def _verify_enrollment_token(
-    authorization: Annotated[str | None, Header()] = None,
-    cache: RedisCache = Depends(get_cache),
-) -> str:
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Enrollment token required")
-    token = authorization.removeprefix("Bearer ").strip()
-    exists = await cache.exists(f"enrollment:{token}")
-    if not exists:
-        raise HTTPException(status_code=403, detail="Invalid or expired enrollment token")
-    return token
+def _verify_enrollment_token(*, consume: bool = False):
+    async def _dep(
+        authorization: Annotated[str | None, Header()] = None,
+        db: AsyncSession = Depends(get_db),
+    ) -> EnrollmentToken:
+        if not authorization or not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Enrollment token required")
+        token = authorization.removeprefix("Bearer ").strip()
+        return await AgentPolicyService(db).validate_enrollment_token(token, consume=consume)
+
+    return _dep
 
 
 # ── GET /agent/packages ───────────────────────────────────────────────────────
@@ -212,18 +221,26 @@ async def get_install_script(db: AsyncSession = Depends(get_db)) -> str:
 
 class EnrollmentTokenRequest(BaseModel):
     label: str = ""
+    agent_group: str | None = None
 
 
 @router.post("/enrollment-token")
 async def create_enrollment_token(
     body: EnrollmentTokenRequest = EnrollmentTokenRequest(),
-    cache: RedisCache = Depends(get_cache),
     db: AsyncSession = Depends(get_db),
     _: dict = Depends(require_role("ADMIN", "OPERATOR")),
 ) -> dict:
+    """"Quick" convenience path over the exact same DB-backed store as
+    POST /agent-policies/enrollment-tokens (plural) — kept as its own route
+    for the existing "Add Agent" dialog (zero frontend break), single-use,
+    24h TTL fixed."""
     plat, url_source = await _platform_url(db)
-    token = secrets.token_urlsafe(32)
-    await cache.set_cached(f"enrollment:{token}", body.label or "active", ttl=_ENROLLMENT_TTL)
+    result = await AgentPolicyService(db).issue_enrollment_token(
+        EnrollmentTokenCreate(
+            label=body.label, ttl_hours=24, single_use=True, agent_group=body.agent_group
+        )
+    )
+    token = result["token"]
     return {
         "token": token,
         "expires_in": _ENROLLMENT_TTL,
@@ -316,7 +333,7 @@ async def download_agent(
     pkg_os: str = Query(..., alias="os"),
     arch: str = Query(...),
     db: AsyncSession = Depends(get_db),
-    token: str = Depends(_verify_enrollment_token),
+    _token: EnrollmentToken = Depends(_verify_enrollment_token()),
 ) -> FileResponse:
     _, ver, _ = await _get_agent_cfg(db)
     filepath, filename = _resolve_package(pkg_os, arch, ver)
@@ -451,7 +468,7 @@ async def register_agent(
     body: RegisterRequest,
     db: AsyncSession = Depends(get_db),
     cache: RedisCache = Depends(get_cache),
-    token: str = Depends(_verify_enrollment_token),
+    token: EnrollmentToken = Depends(_verify_enrollment_token(consume=True)),
 ) -> dict:
     existing = (
         await db.execute(select(Agent).where(Agent.hostname == body.hostname))
@@ -492,6 +509,8 @@ async def register_agent(
         existing.os_version = body.os_version
         existing.arch = body.arch
         existing.kernel_version = body.kernel_version
+        if token.agent_group is not None:
+            existing.agent_group_id = token.agent_group
     else:
         agent_id = str(uuid.uuid4())
         db.add(Agent(
@@ -502,12 +521,10 @@ async def register_agent(
             os_version=body.os_version,
             arch=body.arch,
             kernel_version=body.kernel_version,
+            agent_group_id=token.agent_group,
         ))
     await db.flush()
     await db.commit()
-
-    # token single-use
-    await cache.invalidate(f"enrollment:{token}")
 
     agent_cert, agent_key, ca_cert = await _generate_agent_cert(agent_id)
 

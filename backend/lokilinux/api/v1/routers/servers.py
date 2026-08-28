@@ -269,6 +269,7 @@ async def set_assignment(
 
     row.category_id = body.category_id
     row.project_id = body.project_id
+    row.agent_group_id = body.agent_group_id
     await db.flush()
     await cache.invalidate_agent(agent_id)
 

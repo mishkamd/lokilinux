@@ -90,6 +90,9 @@ class Agent(Base):
 
     category_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("categories.id", ondelete="SET NULL"))
     project_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="SET NULL"))
+    # Migration 043 — agent-policy-modernization plan Phase 3/4: GROUP-scope
+    # policy deploys and enrollment-token group binding both key off this.
+    agent_group_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("agent_groups.id", ondelete="SET NULL"))
 
     # Active policy (nullable FK — policies created first)
     current_policy_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("policies.id", use_alter=True, name="fk_agent_current_policy"))
