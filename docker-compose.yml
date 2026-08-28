@@ -345,21 +345,19 @@ services:
       # ca.key itself never mounts here — PKI Faza 4, signing goes through
       # lokilinux-ca-signer over this UDS (see services/ca_signer_client.py).
       CA_SIGNER_SOCKET_PATH: /run/lokilinux/ca-signer/sign.sock
-      PLUGIN_DIR: /opt/lokilinux/plugins
       LOG_LEVEL: ${LOG_LEVEL:-info}
       POLICY_SIGNING_KEY_PATH: /var/lib/lokilinux/policy-key/policy-signing.key
       # Single public entry point — agent install URLs + CORS origin both derive from it.
       PLATFORM_URL: ${PUBLIC_URL:-http://localhost:3000}
       FRONTEND_URL: ${PUBLIC_URL:-http://localhost:3000}
       AGENT_DOWNLOAD_BASE: ${AGENT_DOWNLOAD_BASE:-}
-      AGENT_VERSION: ${AGENT_VERSION:-0.40.0}
+      AGENT_VERSION: ${AGENT_VERSION:-0.40.1}
     ports:
       - "8000:8000"
       - "9090:9090"
     volumes:
       - certs_dir:/etc/lokilinux/certs:ro
       - ca_signer_sock:/run/lokilinux/ca-signer
-      - plugins_dir:/opt/lokilinux/plugins
       - ./logs/api:/var/log/lokilinux
       - ./agent/bin:/opt/lokilinux/packages:ro
       # Desired-state policy signing key (agent-policy-modernization plan):

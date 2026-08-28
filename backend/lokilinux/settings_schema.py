@@ -18,7 +18,7 @@ from typing import Any
 SETTINGS_SCHEMA: dict[str, dict[str, tuple[str, Any]]] = {
     "agent": {
         "platform_url": ("string", ""),
-        "version": ("string", "0.40.0"),
+        "version": ("string", "0.40.1"),
         "download_base": ("string", ""),
     },
     "security": {
