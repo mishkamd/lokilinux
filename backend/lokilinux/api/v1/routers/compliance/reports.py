@@ -15,8 +15,22 @@ from lokilinux.api.v1.routers.compliance._pagination import paginate_keyset
 from lokilinux.schemas.common import CursorPage
 from lokilinux.schemas.compliance_report import ComplianceReportCreate, ComplianceReportResponse
 from lokilinux.services.report_service import FORMAT_CONTENT_TYPES, generate_report
+from lokilinux.settings_schema import get_setting_value
 
 router = APIRouter()
+
+
+@router.get("/reports/formats")
+async def list_report_formats(
+    db: AsyncSession = Depends(get_db),
+    _: dict = Depends(get_current_user),
+) -> dict[str, bool]:
+    """Plan R10: JSON/CSV are always available; XLSX/PDF follow the
+    `reports.xlsx_pdf_enabled` settings flag — the UI reads this instead of
+    hardcoding the format list, so a disabled office format never shows up
+    as a pickable option rather than failing after the fact."""
+    xlsx_pdf = bool(await get_setting_value(db, "reports.xlsx_pdf_enabled"))
+    return {"JSON": True, "CSV": True, "XLSX": xlsx_pdf, "PDF": xlsx_pdf}
 
 
 @router.post("/reports", response_model=ComplianceReportResponse, status_code=202)

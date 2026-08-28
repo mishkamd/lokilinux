@@ -7,15 +7,31 @@ from datetime import datetime, timezone
 import pytest
 
 from lokilinux.models.agent import Agent, AgentStatus
+from lokilinux.models.compliance_report import ComplianceReport
 from lokilinux.models.compliance_rule import ComplianceRule, PolicySet, PolicySetRule
 from lokilinux.models.rule_evaluation import RuleEvaluation
 from lokilinux.services.report_service import (
     build_fleet_summary_data,
+    generate_report,
     to_csv,
     to_json,
     to_pdf,
     to_xlsx,
 )
+
+
+async def _set_xlsx_pdf_enabled(db_session, enabled: bool) -> None:
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    from lokilinux.models.audit import Setting
+
+    value = "true" if enabled else "false"
+    await db_session.execute(
+        pg_insert(Setting)
+        .values(key="reports.xlsx_pdf_enabled", value=value, value_type="boolean")
+        .on_conflict_do_update(index_elements=["key"], set_={"value": value})
+    )
+    await db_session.commit()
 
 
 async def _seed_rule_and_evaluation(
@@ -141,3 +157,57 @@ def test_to_pdf_handles_no_violations():
     data = {**_SAMPLE_REPORT_DATA, "top_violations": []}
     body = to_pdf(data)
     assert body[:5] == b"%PDF-"
+
+
+@pytest.mark.asyncio
+async def test_generate_report_xlsx_fails_when_disabled(db_session):
+    await _set_xlsx_pdf_enabled(db_session, False)
+    report = ComplianceReport(report_type="FLEET_SUMMARY", format="XLSX", params={})
+    db_session.add(report)
+    await db_session.flush()
+
+    await generate_report(db_session, report)
+
+    assert report.status == "FAILED"
+    assert "disabled" in report.error_message
+    assert report.body is None
+
+
+@pytest.mark.asyncio
+async def test_generate_report_pdf_fails_when_disabled(db_session):
+    await _set_xlsx_pdf_enabled(db_session, False)
+    report = ComplianceReport(report_type="FLEET_SUMMARY", format="PDF", params={})
+    db_session.add(report)
+    await db_session.flush()
+
+    await generate_report(db_session, report)
+
+    assert report.status == "FAILED"
+    assert "disabled" in report.error_message
+
+
+@pytest.mark.asyncio
+async def test_generate_report_json_unaffected_when_xlsx_pdf_disabled(db_session):
+    await _set_xlsx_pdf_enabled(db_session, False)
+    report = ComplianceReport(report_type="FLEET_SUMMARY", format="JSON", params={})
+    db_session.add(report)
+    await db_session.flush()
+
+    await generate_report(db_session, report)
+
+    assert report.status == "COMPLETED"
+    assert report.body is not None
+
+
+@pytest.mark.asyncio
+async def test_generate_report_xlsx_succeeds_by_default(db_session):
+    # No _set_xlsx_pdf_enabled call — proves the settings key's own default
+    # (True) is what's in effect, not just a test fixture always enabling it.
+    report = ComplianceReport(report_type="FLEET_SUMMARY", format="XLSX", params={})
+    db_session.add(report)
+    await db_session.flush()
+
+    await generate_report(db_session, report)
+
+    assert report.status == "COMPLETED"
+    assert report.body is not None

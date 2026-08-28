@@ -20,6 +20,7 @@ interface AllSettings {
   branding: { company_name: string; logo_url: string }
   plugins: { marketplace_url: string }
   repo: { default_mirror_url: string }
+  reports: { xlsx_pdf_enabled: boolean }
 }
 
 const api = useApi()
@@ -41,6 +42,7 @@ const form = reactive<AllSettings>({
   branding: { company_name: 'LokiLinux', logo_url: '/logo.svg' },
   plugins: { marketplace_url: '' },
   repo: { default_mirror_url: '' },
+  reports: { xlsx_pdf_enabled: true },
 })
 
 const saving = reactive<Record<string, boolean>>({})
@@ -56,6 +58,7 @@ const { pending } = await useAsyncData('platform-settings', async () => {
   Object.assign(form.branding, cfg.branding)
   Object.assign(form.plugins, cfg.plugins)
   Object.assign(form.repo, cfg.repo)
+  Object.assign(form.reports, cfg.reports)
   return cfg
 })
 
@@ -280,6 +283,22 @@ async function saveGroups(...groups: (keyof AllSettings)[]) {
             </div>
             <div class="flex justify-end pt-1">
               <Button :loading="saving.branding" @click="saveGroup('branding')">Save</Button>
+            </div>
+          </div>
+        </Card>
+
+        <Card>
+          <template #header>Reporting</template>
+          <div class="space-y-4">
+            <div class="flex items-center justify-between">
+              <div>
+                <span class="text-sm">Allow XLSX/PDF report formats</span>
+                <p class="text-xs text-muted-foreground">JSON/CSV always stay available. Disabling this only stops new XLSX/PDF requests — a report already queued in that format fails with a clear reason instead of downloading.</p>
+              </div>
+              <Switch v-model="form.reports.xlsx_pdf_enabled" />
+            </div>
+            <div class="flex justify-end pt-1">
+              <Button :loading="saving.reports" @click="saveGroup('reports')">Save</Button>
             </div>
           </div>
         </Card>

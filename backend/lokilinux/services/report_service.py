@@ -36,6 +36,7 @@ from lokilinux.models.compliance_exception import ComplianceException
 from lokilinux.models.compliance_report import ComplianceReport
 from lokilinux.models.compliance_rule import ComplianceRule, PolicySetRule
 from lokilinux.models.rule_evaluation import RuleEvaluation
+from lokilinux.settings_schema import get_setting_value
 
 CATEGORY_BY_DOMAIN = {
     "sshd": "security",
@@ -445,6 +446,12 @@ async def generate_report(db: AsyncSession, report: ComplianceReport) -> None:
     await db.commit()
 
     try:
+        xlsx_pdf_enabled = await get_setting_value(db, "reports.xlsx_pdf_enabled")
+        if report.format in ("XLSX", "PDF") and not xlsx_pdf_enabled:
+            raise ValueError(
+                "XLSX/PDF reports are disabled — enable reports.xlsx_pdf_enabled in Settings, "
+                "or request JSON/CSV instead"
+            )
         agent_id = UUID(report.params["agent_id"]) if report.params.get("agent_id") else None
         if report.report_type == "POLICY_SET":
             if not report.params.get("policy_set_id"):

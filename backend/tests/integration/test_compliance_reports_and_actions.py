@@ -88,3 +88,32 @@ async def test_list_reports(client: AsyncClient):
 async def test_download_report_404(client: AsyncClient):
     resp = await client.get(f"/api/v1/compliance/reports/{uuid.uuid4()}/download")
     assert resp.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_report_formats_json_csv_always_true(client: AsyncClient):
+    resp = await client.get("/api/v1/compliance/reports/formats")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["JSON"] is True
+    assert body["CSV"] is True
+
+
+@pytest.mark.asyncio
+async def test_report_formats_reflects_xlsx_pdf_setting(client: AsyncClient, db_session):
+    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+    from lokilinux.models.audit import Setting
+
+    await db_session.execute(
+        pg_insert(Setting)
+        .values(key="reports.xlsx_pdf_enabled", value="false", value_type="boolean")
+        .on_conflict_do_update(index_elements=["key"], set_={"value": "false"})
+    )
+    await db_session.commit()
+
+    resp = await client.get("/api/v1/compliance/reports/formats")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["XLSX"] is False
+    assert body["PDF"] is False

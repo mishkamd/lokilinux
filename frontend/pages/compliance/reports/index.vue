@@ -12,7 +12,16 @@ const { reports, reportsTotal, reportsLoading, reportsNextCursor } = storeToRefs
 onMounted(() => {
   store.fetchReports()
   fetchPolicySetPicks()
+  fetchFormatAvailability()
 })
+
+// Plan R10 — XLSX/PDF are gated by settings key reports.xlsx_pdf_enabled;
+// JSON/CSV always report true. Fetched once, not stored globally: this
+// page is the only consumer.
+const formatAvailability = ref<Record<string, boolean>>({ JSON: true, CSV: true, XLSX: true, PDF: true })
+async function fetchFormatAvailability() {
+  formatAvailability.value = await api.get<Record<string, boolean>>('/compliance/reports/formats')
+}
 
 // local fetch, not store.fetchPolicySets() — this is a one-off picker for
 // the create dialog, no reason to couple it to the Policy Sets page's own state.
@@ -32,7 +41,7 @@ const STATUS_COLORS: Record<ReportStatus, string> = {
 const REPORT_TYPES: ReportType[] = [
   'FLEET_SUMMARY', 'POLICY_SET', 'DATACENTER', 'CUSTOM', 'FRAMEWORK', 'EXCEPTION', 'EXECUTIVE_SUMMARY',
 ]
-const REPORT_FORMATS: ReportFormat[] = ['JSON', 'CSV', 'XLSX', 'PDF']
+const ALL_REPORT_FORMATS: ReportFormat[] = ['JSON', 'CSV', 'XLSX', 'PDF']
 
 const columns = [
   { key: 'report_type', label: 'Type' },
@@ -71,6 +80,8 @@ async function submitCreate() {
     creating.value = false
   }
 }
+
+const availableReportFormats = computed(() => ALL_REPORT_FORMATS.filter((f) => formatAvailability.value[f]))
 
 const downloading = ref<string | null>(null)
 
@@ -155,8 +166,9 @@ async function downloadReport(id: string, format: ReportFormat) {
           <FormField v-if="form.report_type === 'POLICY_SET'" label="Policy set" required>
             <Select v-model="form.policy_set_id" :options="policySetOptions" />
           </FormField>
-          <FormField label="Format" required>
-            <Select v-model="form.format" :options="REPORT_FORMATS" />
+          <FormField label="Format" required
+                     :help="availableReportFormats.length < ALL_REPORT_FORMATS.length ? 'XLSX/PDF disabled by an administrator (Settings → Reporting)' : undefined">
+            <Select v-model="form.format" :options="availableReportFormats" />
           </FormField>
           <Alert v-if="createError" color="red">{{ createError }}</Alert>
         </div>

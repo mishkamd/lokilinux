@@ -96,6 +96,15 @@ SETTINGS_SCHEMA: dict[str, dict[str, tuple[str, Any]]] = {
     "repo": {
         "default_mirror_url": ("string", ""),
     },
+    "reports": {
+        # Enterprise Compliance plan R10/U8 Task 4 — office-format serializers
+        # (openpyxl/reportlab) are heavier and less audited than the JSON/CSV
+        # paths, which stay always-on regardless of this flag. Default True
+        # to avoid surprising anyone relying on the existing behavior; an
+        # operator flips it off as a deliberate ops decision (plan's own
+        # wording), not something this change decides for them.
+        "xlsx_pdf_enabled": ("boolean", True),
+    },
 }
 
 # Keys never echoed back in plaintext once set.
