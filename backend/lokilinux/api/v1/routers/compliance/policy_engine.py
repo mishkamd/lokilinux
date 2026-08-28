@@ -61,7 +61,7 @@ router = APIRouter()
 # ── Rule catalog (read-only) ──────────────────────────────────────────────────
 
 
-def _apply_rule_filters(q, search, severity, domain, framework, platform, source, status, check_source):
+def _apply_rule_filters(q, search, severity, domain, framework, platform, source, status, check_source, rule_status):
     """Shared WHERE-clause builder for list_rules' item query and its count
     query — kept as one function so the two can never drift apart
     (docs/compliance §18: Rule Catalog filters on domain/severity/platform/
@@ -91,6 +91,8 @@ def _apply_rule_filters(q, search, severity, domain, framework, platform, source
         q = q.where(ComplianceRule.is_enabled.is_(True))
     elif status == "disabled":
         q = q.where(ComplianceRule.is_enabled.is_(False))
+    if rule_status:
+        q = q.where(ComplianceRule.status == rule_status)
     return q
 
 
@@ -110,11 +112,12 @@ async def list_rules(
     source: str | None = Query(None, description="e.g. 'complianceascode'"),
     status: str | None = Query(None, description="'enabled' or 'disabled'"),
     check_source: str | None = Query(None, description="CEL / OVAL_UNMAPPED / OSCAP_FALLBACK"),
+    rule_status: str | None = Query(None, description="ACTIVE / DISABLED / REFERENCE_ONLY / DEPRECATED"),
     db: AsyncSession = Depends(get_db),
     _: dict = Depends(get_current_user),
 ) -> CursorPage[ComplianceRuleResponse]:
     q = select(ComplianceRule).order_by(ComplianceRule.imported_at.desc(), ComplianceRule.id.desc())
-    q = _apply_rule_filters(q, search, severity, domain, framework, platform, source, status, check_source)
+    q = _apply_rule_filters(q, search, severity, domain, framework, platform, source, status, check_source, rule_status)
 
     items, next_cursor = await paginate_keyset(
         db, q,
@@ -127,7 +130,7 @@ async def list_rules(
     # total count (no cursor filter — lightweight approximate, mirrors servers.py)
     count_q = _apply_rule_filters(
         select(func.count()).select_from(ComplianceRule),
-        search, severity, domain, framework, platform, source, status, check_source,
+        search, severity, domain, framework, platform, source, status, check_source, rule_status,
     )
     total = (await db.execute(count_q)).scalar()
 
