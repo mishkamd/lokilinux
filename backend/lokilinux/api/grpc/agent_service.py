@@ -9,6 +9,9 @@ Heartbeat flow:
   server → HeartbeatResponse(pending_jobs, policy_delta)
 """
 
+import base64
+import gzip
+import json
 import logging
 import re
 
@@ -212,6 +215,40 @@ def _parameters_for_agent(job, agent_id) -> dict:
         "operation": params.get("operation"),
         "actions": agent_actions,
     }
+
+_COLLECTOR_POLICY_KEY = "observability.collector_policy"
+
+
+async def _get_collector_policy(db) -> dict:
+    """Global (fleet-wide) collector policy for Phase G2's SyncPolicy RPC —
+    stored directly in the settings table, deliberately NOT routed through
+    settings_schema.py's SETTINGS_SCHEMA (that system is for typed, admin
+    UI-editable scalars; this is a machine-internal JSON blob with no admin
+    UI in this phase). Same underlying table as the rest of platform
+    settings, just bypassing the schema-validation layer. No write path
+    exists yet — nothing in this phase sets this key, so an unset row
+    means every agent gets an empty collector map (all defaults) until an
+    operator or a future admin surface writes one."""
+    from sqlalchemy import select
+
+    from lokilinux.models.audit import Setting
+
+    row = (
+        await db.execute(select(Setting).where(Setting.key == _COLLECTOR_POLICY_KEY))
+    ).scalar_one_or_none()
+    if not row or not row.value:
+        return {"version": "0", "collectors": {}}
+    try:
+        parsed = json.loads(row.value)
+    except (TypeError, ValueError):
+        logger.warning("collector_policy: stored value is not valid JSON, using empty default")
+        return {"version": "0", "collectors": {}}
+    if not isinstance(parsed, dict):
+        return {"version": "0", "collectors": {}}
+    parsed.setdefault("version", "0")
+    parsed.setdefault("collectors", {})
+    return parsed
+
 
 class AgentServicer:
     def __init__(self, db_factory, cache, nats) -> None:
@@ -468,4 +505,84 @@ class AgentServicer:
             "cert_pem": cert_pem,
             "ca_cert_pem": ca_cert_pem,
             "not_after_unix": not_after_unix,
+        }
+
+    async def ReportEvents(self, request_iterator, context):
+        """Client-streaming (Phase G2): agent sends one or more gzip'd
+        EventBatch messages, servicer publishes each record to NATS via the
+        existing emit() helper, preserving the agent-issued event_id so
+        EventProcessorWorker's set_nx dedup (Task A4) makes redelivery/
+        retransmission idempotent end-to-end — see events/publish.py."""
+        from lokilinux.config import get_settings
+
+        settings = get_settings()
+        accepted = 0
+        authenticated = False
+
+        async for batch in request_iterator:
+            requested_id = str(getattr(batch, "agent_id", "") or "").strip()
+            if not authenticated:
+                try:
+                    await _authenticate_agent(context, requested_id, self.cache, settings)
+                except _AuthGateFailure as exc:
+                    await context.abort(exc.code, exc.detail)
+                    return {"accepted": False, "events_accepted": accepted, "error_message": exc.detail}
+                authenticated = True
+
+            raw_b64 = getattr(batch, "events_gzip", None)
+            if not raw_b64:
+                continue
+            try:
+                raw = gzip.decompress(base64.b64decode(raw_b64))
+                records = json.loads(raw)
+            except Exception:
+                logger.warning("ReportEvents: malformed batch from %s", requested_id, exc_info=True)
+                continue
+            if not isinstance(records, list):
+                continue
+
+            for rec in records:
+                if not isinstance(rec, dict):
+                    continue
+                rec_type = rec.get("type")
+                if not rec_type:
+                    continue
+                try:
+                    await emit(
+                        self.nats,
+                        source="agent",
+                        type_=rec_type,
+                        host_id=rec.get("host_id") or requested_id,
+                        service=rec.get("service"),
+                        severity=rec.get("severity") or "INFO",
+                        payload=rec.get("payload") or {},
+                        event_id=rec.get("event_id"),
+                    )
+                    accepted += 1
+                except Exception:
+                    logger.error("ReportEvents: emit failed for agent %s", requested_id, exc_info=True)
+
+        return {"accepted": True, "events_accepted": accepted, "error_message": ""}
+
+    async def SyncPolicy(self, request, context):
+        """Unary (Phase G2): agent pulls the current global collector
+        policy. Version comparison is the agent's job (it only rebuilds
+        local collector state when the returned version differs from what
+        it already has) — this RPC always returns the current policy."""
+        from lokilinux.config import get_settings
+
+        settings = get_settings()
+        requested_id = str(getattr(request, "agent_id", "") or "").strip()
+        try:
+            await _authenticate_agent(context, requested_id, self.cache, settings)
+        except _AuthGateFailure as exc:
+            await context.abort(exc.code, exc.detail)
+            return
+
+        async with self.db_factory() as db:
+            policy = await _get_collector_policy(db)
+
+        return {
+            "version": policy["version"],
+            "collectors": policy["collectors"],
         }

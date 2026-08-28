@@ -40,10 +40,11 @@ async def emit(
     service: str | None = None,
     severity: str = "INFO",
     payload: dict[str, Any] | None = None,
+    event_id: str | None = None,
 ) -> None:
     event = {
         "schema_version": 1,
-        "event_id": str(uuid4()),
+        "event_id": event_id or str(uuid4()),
         "tenant_id": _TENANT_ID,
         "source": source,
         "type": type_,
