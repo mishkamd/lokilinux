@@ -25,6 +25,10 @@ message AgentHeartbeatRequest {
   repeated Vulnerability vulnerabilities = 8;
   AgentHealth health           = 9;
   int32 pending_jobs           = 10;
+  // Repurposed (Phase G2) to report the observability collector policy
+  // version the agent is currently running — was declared but never set
+  // or read anywhere before this. If a future feature wants a generic
+  // "config version" again, give it its own field instead.
   string config_version        = 11;
 
   // fields 12-19 reserved for future use

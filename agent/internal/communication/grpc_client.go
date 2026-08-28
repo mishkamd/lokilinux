@@ -164,6 +164,24 @@ func (c *GRPCClient) RenewCertificate(ctx context.Context, agentID, publicKeyPEM
 	})
 }
 
+// ReportEvents opens a client-streaming call to send a batch of observability
+// events (Phase G2). Caller sends exactly one EventBatch then calls
+// CloseAndRecv — see agent/internal/agent/eventqueue.go.
+func (c *GRPCClient) ReportEvents(ctx context.Context) (gen.AgentService_ReportEventsClient, error) {
+	if err := c.dial(); err != nil {
+		return nil, err
+	}
+	return c.svc.ReportEvents(ctx)
+}
+
+// SyncPolicy pulls the current collector policy (Phase G2).
+func (c *GRPCClient) SyncPolicy(ctx context.Context, agentID, currentVersion string) (*gen.PolicyConfig, error) {
+	if err := c.dial(); err != nil {
+		return nil, err
+	}
+	return c.svc.SyncPolicy(ctx, &gen.PolicySyncRequest{AgentId: agentID, CurrentVersion: currentVersion})
+}
+
 // SendHeartbeat sends one heartbeat over a short-lived stream and returns the response.
 // Payload keys consumed: "agent_id" (string), "packages_checksum" (string).
 // ponytail: map interface preserved for AgentManager compat; HeartbeatManager uses
@@ -202,6 +220,9 @@ func payloadToRequest(m map[string]interface{}) *gen.AgentHeartbeatRequest {
 	}
 	if v, ok := m["agent_version"].(string); ok {
 		req.AgentVersion = v
+	}
+	if v, ok := m["config_version"].(string); ok {
+		req.ConfigVersion = v
 	}
 	if v, ok := m["recent_logs"].([]string); ok {
 		req.RecentLogs = v

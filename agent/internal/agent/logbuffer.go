@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"sync"
+	"time"
 )
 
 // logEntry is one buffered log record — enough to render a formatted line
@@ -24,10 +25,23 @@ type LogRingBuffer struct {
 	size    int
 	next    int
 	full    bool
+
+	// onCritical, when set, is called (outside the lock) for every
+	// error-level-or-above entry — the Phase G2 proof-path producer for
+	// internal/eq (see manager.go's SetOnCritical wiring). nil by default:
+	// no queue means no-op, this buffer works standalone either way.
+	onCritical func(line string, t time.Time)
 }
 
 func NewLogRingBuffer(inner slog.Handler, size int) *LogRingBuffer {
 	return &LogRingBuffer{inner: inner, entries: make([]logEntry, size), size: size}
+}
+
+// SetOnCritical wires a callback invoked for every error-level-or-above log
+// entry going forward. Not safe to call concurrently with Handle — call it
+// once during startup wiring, before the logger is in use.
+func (b *LogRingBuffer) SetOnCritical(fn func(line string, t time.Time)) {
+	b.onCritical = fn
 }
 
 func (b *LogRingBuffer) Enabled(ctx context.Context, level slog.Level) bool {
@@ -56,7 +70,12 @@ func (b *LogRingBuffer) Handle(ctx context.Context, r slog.Record) error {
 	if b.next == 0 {
 		b.full = true
 	}
+	onCritical := b.onCritical
 	b.mu.Unlock()
+
+	if onCritical != nil && entry.level >= slog.LevelError {
+		onCritical(entry.line, r.Time)
+	}
 	return b.inner.Handle(ctx, r)
 }
 

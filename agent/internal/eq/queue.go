@@ -26,16 +26,18 @@ const (
 const DefaultCapacity = 10_000
 
 // EventRecord is the queue's internal event shape — enough to batch and
-// gzip later without any gRPC-generated type in this package.
+// gzip later without any gRPC-generated type in this package. JSON tags
+// match the wire contract the backend's ReportEvents servicer parses
+// (agent_service.py), since GzipJSON marshals this struct directly.
 type EventRecord struct {
-	EventID       string
-	Type          string
-	Severity      string
-	HostID        string
-	Service       string
-	Timestamp     time.Time
-	Payload       map[string]interface{}
-	PriorityClass Priority
+	EventID       string                 `json:"event_id"`
+	Type          string                 `json:"type"`
+	Severity      string                 `json:"severity"`
+	HostID        string                 `json:"host_id,omitempty"`
+	Service       string                 `json:"service,omitempty"`
+	Timestamp     time.Time              `json:"timestamp"`
+	Payload       map[string]interface{} `json:"payload,omitempty"`
+	PriorityClass Priority               `json:"-"` // internal queue concern only, not sent server-side
 }
 
 type item struct {

@@ -9,10 +9,14 @@ import (
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
+	gen "github.com/lokilinux/agent/gen/lokilinux"
 	"github.com/lokilinux/agent/internal/communication"
 	"github.com/lokilinux/agent/internal/compliance"
 	"github.com/lokilinux/agent/internal/broker"
 	"github.com/lokilinux/agent/internal/config"
+	"github.com/lokilinux/agent/internal/eq"
 	"github.com/lokilinux/agent/internal/modules"
 	"github.com/lokilinux/agent/internal/security"
 	"github.com/lokilinux/agent/internal/storage"
@@ -92,6 +96,18 @@ type Manager struct {
 	// just deadlock each other on its lock file).
 	inFlightMu sync.Mutex
 	inFlight   map[string]struct{}
+
+	// eventQueue/eventFlusher: Phase G2 observability event pipeline. nil
+	// when cfg.EventQueue.Enabled is false — every call site guards on
+	// this, so the feature is fully off by default with zero overhead.
+	eventQueue   *eq.Queue
+	eventFlusher *eq.Flusher
+
+	// collectorPolicy*: Phase G2 SyncPolicy pull loop state, guarded
+	// separately from policyMu (unrelated security LocalPolicy above).
+	collectorPolicyMu      sync.RWMutex
+	collectorPolicyVersion string
+	collectorPolicies      map[string]gen.CollectorPolicy
 }
 
 const (
@@ -190,6 +206,35 @@ func NewManager(cfg *config.Config, log *slog.Logger, version string, logBuf *Lo
 				"received_at", lp.ReceivedAt.Format(time.RFC3339))
 		}
 	}
+
+	if cfg.EventQueue.Enabled {
+		mgr.eventQueue = eq.NewQueue(cfg.EventQueue.Capacity)
+		mgr.eventFlusher = eq.NewFlusher(
+			mgr.eventQueue,
+			cfg.EventQueue.FlushMaxEvents,
+			cfg.EventQueue.FlushMaxBytes,
+			time.Duration(cfg.EventQueue.FlushIntervalSec)*time.Second,
+		)
+		// Phase G2 proof-path producer: route critical-level log entries
+		// into the queue. Every other event source (compliance collectors,
+		// job executor, security package) is explicitly out of scope for
+		// this phase — see docs/superpowers/plans/2026-08-24-observability-
+		// event-intelligence.md Phase G2 decision #3.
+		if logBuf != nil {
+			logBuf.SetOnCritical(func(line string, t time.Time) {
+				mgr.eventQueue.Push(eq.EventRecord{
+					EventID:   uuid.New().String(),
+					Type:      "agent.log.critical",
+					Severity:  "ERROR",
+					HostID:    cfg.Identity.AgentID,
+					Timestamp: t,
+					Payload:   map[string]interface{}{"line": line},
+				}, eq.CRITICAL)
+			})
+		}
+		log.Info("observability event queue enabled", "capacity", cfg.EventQueue.Capacity)
+	}
+
 	return mgr, nil
 }
 
@@ -205,6 +250,11 @@ func (m *Manager) Run(ctx context.Context) {
 		m.log.Warn("loading persisted compliance state failed", "error", err)
 	}
 	go m.complianceRunner.Run(ctx, complianceTickInterval)
+
+	if m.eventFlusher != nil {
+		go m.eventFlusher.Run(ctx, m.sendEventBatch)
+		go m.syncPolicyLoop(ctx)
+	}
 
 	// fire immediately on start, then on each computed delay
 	m.sendHeartbeat(ctx)
@@ -313,6 +363,15 @@ func (m *Manager) sendHeartbeat(ctx context.Context) {
 	}
 
 	payload := buildPayload(m.cfg.Identity.AgentID, sysInfo, pkgs, checksum, m.version, recentLogs, connCount, infoCount, critCount, health, results, domainHashes, domainFull, vulns)
+
+	// Phase G2: report the collector policy version we're currently
+	// running, repurposing the previously-dormant config_version field
+	// (confirmed unused anywhere before this — see G2-1 commit message).
+	if m.eventFlusher != nil {
+		if v := m.currentCollectorPolicyVersion(); v != "" {
+			payload["config_version"] = v
+		}
+	}
 
 	// Desired-policy apply report from the previous cycle (queued by
 	// handleResponse) rides this heartbeat — after a confirmed successful

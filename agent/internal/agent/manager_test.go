@@ -8,6 +8,9 @@ import (
 	"testing"
 	"time"
 
+	gen "github.com/lokilinux/agent/gen/lokilinux"
+	"github.com/lokilinux/agent/internal/communication"
+	"github.com/lokilinux/agent/internal/config"
 	"github.com/lokilinux/agent/internal/modules"
 	"github.com/lokilinux/agent/internal/security"
 )
@@ -159,5 +162,39 @@ func TestPopulateAuditFields_NoEnvelope_LeavesPolicyIDEmpty(t *testing.T) {
 
 	if result.PolicyID != "" {
 		t.Fatalf("PolicyID = %q, want empty (no envelope present)", result.PolicyID)
+	}
+}
+
+// TestSyncPolicyOnce_RetainsPreviousOnClientError locks Phase G2's
+// "malformed push never widens enforcement" invariant (same rule
+// policy_cache.go documents for the unrelated security LocalPolicy): a
+// failed SyncPolicy call must leave the previously-applied collector
+// policy untouched. The client here dials a bogus cert path, so the RPC
+// fails at dial() — a real error path, not a mock.
+func TestSyncPolicyOnce_RetainsPreviousOnClientError(t *testing.T) {
+	m := &Manager{
+		log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		cfg: &config.Config{Identity: config.IdentityConfig{AgentID: "agent-1"}},
+		client: communication.NewGRPCClient(
+			"127.0.0.1:0", "/nonexistent/cert.pem", "/nonexistent/key.pem", "/nonexistent/ca.pem",
+		),
+	}
+	m.collectorPolicyVersion = "5"
+	m.collectorPolicies = map[string]gen.CollectorPolicy{"cpu": {Enabled: true}}
+
+	m.syncPolicyOnce(context.Background())
+
+	if got := m.currentCollectorPolicyVersion(); got != "5" {
+		t.Fatalf("collectorPolicyVersion = %q, want retained %q after a failed sync", got, "5")
+	}
+	if got := m.currentCollectorPolicies(); len(got) != 1 {
+		t.Fatalf("collectorPolicies = %v, want the previous map retained", got)
+	}
+}
+
+func TestCurrentCollectorPolicyVersion_DefaultsEmpty(t *testing.T) {
+	m := &Manager{}
+	if got := m.currentCollectorPolicyVersion(); got != "" {
+		t.Fatalf("currentCollectorPolicyVersion() = %q, want empty on a fresh Manager", got)
 	}
 }
