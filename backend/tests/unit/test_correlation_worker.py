@@ -35,6 +35,9 @@ class _FakeZSetCache:
         self._locks.add(key)
         return True
 
+    async def ping(self) -> bool:
+        return True
+
 
 class _FakeCH:
     async def insert(self, table, data, column_names) -> None:
