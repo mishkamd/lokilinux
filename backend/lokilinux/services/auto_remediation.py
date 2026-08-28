@@ -1,9 +1,12 @@
 """
 LokiLinux — AUTOMATIC remediation eligibility (Enterprise Compliance plan
 U7/KTD8, Autopilot A2 §docs/modules/10-compliance-autopilot.md). Pure
-precondition checks, no side effects and no plan creation here — this is
-the "can this (agent, rule) be auto-remediated right now" question in
-isolation, so it's testable without a scheduler tick or a real Job.
+precondition checks and read-only queries, no plan creation or Job
+dispatch here — this is the "which (agent, rule) pairs can be
+auto-remediated right now" question in isolation, so it's testable without
+a scheduler tick or a real Job. The actual create-plan/dry-run/approve
+orchestration lives in workers/remediation_scheduler.py, which calls
+find_automatic_candidates + eligible_for_automatic every tick.
 
 Full precondition list (plan U7 Task 2), evaluated in order:
   global kill-switch (compliance.auto_remediation_enabled)  -- checked by caller
@@ -31,6 +34,7 @@ from lokilinux.models.compliance_rule import (
     RemediationTemplate,
 )
 from lokilinux.models.remediation import MaintenanceWindow, RemediationAction, RemediationPlan
+from lokilinux.models.rule_evaluation import RuleEvaluation
 from lokilinux.services.remediation_service import _is_window_open, agent_matches_window_scope
 
 
@@ -68,40 +72,36 @@ async def find_automatic_policy(db: AsyncSession, rule_id: UUID) -> PolicySet | 
     return None
 
 
-async def eligible_for_automatic(
-    db: AsyncSession, agent_id: UUID, rule: ComplianceRule, policy: PolicySet
-) -> tuple[bool, str]:
-    """Returns (eligible, reason) — reason is empty on success, otherwise
-    names the first precondition that failed."""
-    if not domain_allowed(policy.remediation, rule.domain):
-        return False, "domain not in policy allowlist"
-
-    template = (
+async def find_active_template(db: AsyncSession, rule_key: str) -> RemediationTemplate | None:
+    """Newest RemediationTemplate for a rule_key — shared by
+    eligible_for_automatic (existence check) and the scheduler (needs the
+    actual template to build the plan's action body)."""
+    return (
         await db.execute(
             select(RemediationTemplate)
-            .where(RemediationTemplate.rule_key == rule.rule_key)
+            .where(RemediationTemplate.rule_key == rule_key)
             .order_by(RemediationTemplate.version.desc())
             .limit(1)
         )
     ).scalar_one_or_none()
-    if template is None:
-        return False, "no remediation template for this rule"
-    if not template.rollback_body:
-        return False, "template has no rollback_body"
 
-    agent = await db.get(Agent, agent_id)
-    if agent is None:
-        return False, "agent not found"
 
+async def find_open_window(db: AsyncSession, agent: Agent) -> MaintenanceWindow | None:
+    """The first open maintenance window covering `agent`, or None. Shared
+    by eligible_for_automatic (existence check) and the scheduler, which
+    needs the actual window id to attach to the plan — a window open at
+    eligibility-check time is not guaranteed to still be open a tick or two
+    later when the dry-run completes; attaching it lets approve()'s
+    existing window-gated dispatch logic re-validate freshness at the real
+    dispatch moment instead of trusting a stale check."""
     windows = (
         (await db.execute(select(MaintenanceWindow).where(MaintenanceWindow.is_enabled.is_(True))))
         .scalars()
         .all()
     )
     now = datetime.now(timezone.utc)
-    covered = any(
-        _is_window_open(w, now)
-        and agent_matches_window_scope(
+    for w in windows:
+        if _is_window_open(w, now) and agent_matches_window_scope(
             agent_os_distro=agent.os_distro,
             agent_os_version=agent.os_version,
             agent_tags=agent.tags or {},
@@ -115,10 +115,30 @@ async def eligible_for_automatic(
             category_name=None,
             project_name=None,
             window=w,
-        )
-        for w in windows
-    )
-    if not covered:
+        ):
+            return w
+    return None
+
+
+async def eligible_for_automatic(
+    db: AsyncSession, agent_id: UUID, rule: ComplianceRule, policy: PolicySet
+) -> tuple[bool, str]:
+    """Returns (eligible, reason) — reason is empty on success, otherwise
+    names the first precondition that failed."""
+    if not domain_allowed(policy.remediation, rule.domain):
+        return False, "domain not in policy allowlist"
+
+    template = await find_active_template(db, rule.rule_key)
+    if template is None:
+        return False, "no remediation template for this rule"
+    if not template.rollback_body:
+        return False, "template has no rollback_body"
+
+    agent = await db.get(Agent, agent_id)
+    if agent is None:
+        return False, "agent not found"
+
+    if await find_open_window(db, agent) is None:
         return False, "no open maintenance window covers this agent"
 
     already_running = (
@@ -175,3 +195,61 @@ async def plans_created_today(db: AsyncSession, since: datetime) -> int:
             .where(RemediationPlan.trigger_type == "AUTOMATIC", RemediationPlan.created_at >= since)
         )
     ).scalar_one()
+
+
+async def already_attempted_today(
+    db: AsyncSession, agent_id: UUID, rule_id: UUID, since: datetime
+) -> bool:
+    """True if an AUTOMATIC plan already targeted this (agent, rule) today —
+    the anti-loop guard (Autopilot A2: "nu se reîncearcă automat pe același
+    incident în aceeași zi"), regardless of that plan's outcome. A finding
+    that's still FAIL after a COMPLETED remediation would mean verification
+    itself is broken, not something a same-day retry would fix; a FAILED
+    dry-run or FAILED verification both correctly block further attempts
+    until tomorrow."""
+    row = (
+        await db.execute(
+            select(RemediationAction.id)
+            .join(RemediationPlan, RemediationPlan.id == RemediationAction.remediation_plan_id)
+            .where(
+                RemediationAction.agent_id == agent_id,
+                RemediationAction.rule_id == rule_id,
+                RemediationPlan.trigger_type == "AUTOMATIC",
+                RemediationPlan.created_at >= since,
+            )
+            .limit(1)
+        )
+    ).first()
+    return row is not None
+
+
+async def find_automatic_candidates(db: AsyncSession) -> list[dict]:
+    """Latest-verdict FAIL findings (no active exception, ACTIVE-status rule
+    per U3/KTD2 — REFERENCE_ONLY/DISABLED rules never auto-remediate) that
+    belong to at least one AUTOMATIC-mode policy. Deliberately returns the
+    raw candidate pool only — eligible_for_automatic (per-candidate
+    preconditions), already_attempted_today (anti-loop) and the daily cap
+    are all the caller's job, same separation of concerns as
+    eligible_for_automatic itself."""
+    rows = (
+        await db.execute(
+            select(RuleEvaluation.agent_id, RuleEvaluation.rule_id)
+            .distinct(RuleEvaluation.agent_id, RuleEvaluation.rule_id)
+            .join(ComplianceRule, ComplianceRule.id == RuleEvaluation.rule_id)
+            .where(
+                ComplianceRule.status == "ACTIVE",
+                RuleEvaluation.result == "FAIL",
+                RuleEvaluation.exception_id.is_(None),
+            )
+            .order_by(RuleEvaluation.agent_id, RuleEvaluation.rule_id, RuleEvaluation.time.desc())
+        )
+    ).all()
+
+    candidates = []
+    for agent_id, rule_id in rows:
+        policy = await find_automatic_policy(db, rule_id)
+        if policy is None:
+            continue
+        rule = await db.get(ComplianceRule, rule_id)
+        candidates.append({"agent_id": agent_id, "rule": rule, "policy": policy})
+    return candidates
