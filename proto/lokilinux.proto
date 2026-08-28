@@ -236,11 +236,22 @@ message JobResult {
 // POLICY / CONFIG SYNC
 // ============================================================================
 
+message CollectorPolicy {
+  bool  enabled           = 1;
+  int32 interval_seconds  = 2;
+  map<string, double> thresholds = 3;
+}
+
 message PolicyConfig {
   string version                   = 1;
   google.protobuf.Struct policies  = 2;
   repeated string command_whitelist = 3;
   int32  heartbeat_interval        = 4;   // seconds
+  // Observability collector config (Phase G2), keyed by collector name.
+  // Distinct concern from `policies` above (that Struct carries the
+  // unrelated security LocalPolicy bag) — own typed field, same pattern
+  // as command_whitelist/heartbeat_interval.
+  map<string, CollectorPolicy> collectors = 5;
 }
 
 message PolicySyncRequest {
@@ -262,6 +273,33 @@ message MetricsData {
 
 message MetricsAck {
   bool success = 1;
+}
+
+// ============================================================================
+// OBSERVABILITY EVENT REPORTING (Phase G2)
+// ============================================================================
+
+message EventRecord {
+  string event_id       = 1;   // agent-issued UUID — must survive to NATS unchanged (idempotency)
+  string type            = 2;
+  string severity        = 3;  // DEBUG/INFO/WARNING/ERROR/CRITICAL — matches events/schemas.py SEVERITIES
+  string host_id         = 4;
+  string service         = 5;
+  google.protobuf.Timestamp timestamp = 6;
+  google.protobuf.Struct payload       = 7;
+  string priority_class   = 8; // CRITICAL/HIGH/NORMAL/LOW (internal/eq class) — informational only server-side
+}
+
+message EventBatch {
+  string agent_id    = 1;
+  string batch_id     = 2;  // server-side batch-level logging only, NOT the idempotency key (event_id is)
+  bytes  events_gzip  = 3;  // gzip(json(repeated EventRecord))
+}
+
+message EventAck {
+  bool   accepted        = 1;
+  int32  events_accepted = 2;
+  string error_message   = 3;
 }
 
 // ============================================================================
@@ -311,6 +349,10 @@ service AgentService {
 
   // Agent streams metrics in bulk; server acknowledges
   rpc ReportMetrics(stream MetricsData) returns (MetricsAck);
+
+  // Agent streams batched observability events (gzip'd); server acknowledges
+  // with an accepted count. Client-streaming, mirrors ReportMetrics's shape.
+  rpc ReportEvents(stream EventBatch) returns (EventAck);
 
   // Agent pulls latest policy configuration
   rpc SyncPolicy(PolicySyncRequest) returns (PolicyConfig);

@@ -264,11 +264,21 @@ const (
 
 // ─── Policy ───────────────────────────────────────────────────────────────────
 
+type CollectorPolicy struct {
+	Enabled         bool               `json:"enabled"`
+	IntervalSeconds int32              `json:"interval_seconds,omitempty"`
+	Thresholds      map[string]float64 `json:"thresholds,omitempty"`
+}
+
 type PolicyConfig struct {
 	Version           string            `json:"version"`
 	Policies          map[string]string `json:"policies,omitempty"`
 	CommandWhitelist  []string          `json:"command_whitelist,omitempty"`
 	HeartbeatInterval int32             `json:"heartbeat_interval,omitempty"`
+	// Collectors carries Phase G2 observability collector config, keyed by
+	// collector name — distinct concern from Policies (unrelated security
+	// LocalPolicy bag).
+	Collectors map[string]CollectorPolicy `json:"collectors,omitempty"`
 }
 
 type PolicySyncRequest struct {
@@ -288,6 +298,31 @@ type MetricsData struct {
 
 type MetricsAck struct {
 	Success bool `json:"success"`
+}
+
+// ─── Observability events (Phase G2) ───────────────────────────────────────────
+
+type EventRecord struct {
+	EventId       string                 `json:"event_id"`
+	Type          string                 `json:"type"`
+	Severity      string                 `json:"severity"`
+	HostId        string                 `json:"host_id,omitempty"`
+	Service       string                 `json:"service,omitempty"`
+	Timestamp     time.Time              `json:"timestamp"`
+	Payload       map[string]interface{} `json:"payload,omitempty"`
+	PriorityClass string                 `json:"priority_class,omitempty"`
+}
+
+type EventBatch struct {
+	AgentId    string `json:"agent_id"`
+	BatchId    string `json:"batch_id"`
+	EventsGzip []byte `json:"events_gzip,omitempty"` // encoding/json base64-encodes []byte automatically
+}
+
+type EventAck struct {
+	Accepted       bool   `json:"accepted"`
+	EventsAccepted int32  `json:"events_accepted,omitempty"`
+	ErrorMessage   string `json:"error_message,omitempty"`
 }
 
 // ─── Plugins ──────────────────────────────────────────────────────────────────

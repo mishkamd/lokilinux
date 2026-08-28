@@ -16,6 +16,8 @@ type AgentServiceClient interface {
 	HeartbeatStream(ctx context.Context, opts ...grpc.CallOption) (AgentService_HeartbeatStreamClient, error)
 	// Agent streams metrics in bulk; server acknowledges.
 	ReportMetrics(ctx context.Context, opts ...grpc.CallOption) (AgentService_ReportMetricsClient, error)
+	// Agent streams batched observability events (gzip'd); server acknowledges.
+	ReportEvents(ctx context.Context, opts ...grpc.CallOption) (AgentService_ReportEventsClient, error)
 	// Agent pulls latest policy configuration.
 	SyncPolicy(ctx context.Context, in *PolicySyncRequest, opts ...grpc.CallOption) (*PolicyConfig, error)
 	// Agent proactively renews its mTLS identity before the current cert expires.
@@ -94,6 +96,41 @@ func (c *agentServiceClient) ReportMetrics(ctx context.Context, opts ...grpc.Cal
 		return nil, err
 	}
 	return &agentServiceReportMetricsClient{stream}, nil
+}
+
+// ── ReportEvents (client streaming) ──────────────────────────────────────────
+
+type AgentService_ReportEventsClient interface {
+	Send(*EventBatch) error
+	CloseAndRecv() (*EventAck, error)
+	grpc.ClientStream
+}
+
+type agentServiceReportEventsClient struct{ grpc.ClientStream }
+
+func (x *agentServiceReportEventsClient) Send(m *EventBatch) error {
+	return x.ClientStream.SendMsg(m)
+}
+
+func (x *agentServiceReportEventsClient) CloseAndRecv() (*EventAck, error) {
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	m := new(EventAck)
+	if err := x.ClientStream.RecvMsg(m); err != nil {
+		return nil, err
+	}
+	return m, nil
+}
+
+func (c *agentServiceClient) ReportEvents(ctx context.Context, opts ...grpc.CallOption) (AgentService_ReportEventsClient, error) {
+	stream, err := c.cc.NewStream(ctx,
+		&grpc.StreamDesc{ClientStreams: true},
+		"/lokilinux.AgentService/ReportEvents", opts...)
+	if err != nil {
+		return nil, err
+	}
+	return &agentServiceReportEventsClient{stream}, nil
 }
 
 // ── SyncPolicy (unary) ───────────────────────────────────────────────────────
