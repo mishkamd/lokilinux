@@ -515,6 +515,7 @@ func (m *Manager) handleResponse(ctx context.Context, resp map[string]interface{
 			if !ok {
 				return
 			}
+			result = populateAuditFields(result, jobType, params)
 
 			m.log.Info("job executed",
 				"job_id", jobID,
@@ -557,6 +558,24 @@ func (m *Manager) runJob(ctx context.Context, jobID, jobType string, params map[
 		return m.runJobViaBroker(jobID, jobType, params, timeoutSec), true
 	}
 	return m.runLocal(ctx, jobID, jobType, params, timeoutSec), true
+}
+
+// populateAuditFields stamps capability/risk (plan P10) from the same
+// security.Registry the pre-dispatch trust gate already consulted, and
+// policy_id from the job's signed envelope when present — a free function
+// (no Manager state needed) so it's testable without spinning up the
+// dispatch goroutine.
+func populateAuditFields(result modules.JobResult, jobType string, params map[string]interface{}) modules.JobResult {
+	if capInfo, known := security.Registry[jobType]; known {
+		result.Capability = capInfo.Name
+		result.Risk = string(capInfo.Risk)
+	}
+	if envelope, signed := params["_envelope"].(map[string]interface{}); signed {
+		if pid, ok := envelope["policy_id"].(string); ok {
+			result.PolicyID = pid
+		}
+	}
+	return result
 }
 
 // runLocal is the legacy in-process dispatch (root mode).

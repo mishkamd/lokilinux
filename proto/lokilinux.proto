@@ -223,6 +223,13 @@ message JobResult {
   int32  exit_code       = 5;
   string error_message   = 6;
   google.protobuf.Timestamp updated_at = 7;
+  // Audit fields (Enterprise Compliance / agent-security-hardening plan
+  // P10) — populated by the agent from its security.Registry capability
+  // lookup and the job's signed envelope, when present.
+  string capability   = 8;
+  string risk_level    = 9;
+  string policy_id     = 10;
+  int64  duration_ms   = 11;
 }
 
 // ============================================================================

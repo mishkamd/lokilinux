@@ -370,6 +370,20 @@ class AgentService:
             row.error_message = r.get("error_message") or None
             row.stdout = r.get("output") or None
             row.completed_at = datetime.now(timezone.utc)
+
+            # Audit fields (agent-security-hardening plan P10) — reuses the
+            # otherwise-unused resources_used JSONB column rather than a new
+            # migration; only present when the agent actually populated them
+            # (capability/risk from a known job_type, policy_id from a
+            # signed envelope — see manager.go's populateAuditFields).
+            audit_meta = {
+                k: r.get(k)
+                for k in ("capability", "risk_level", "policy_id", "duration_ms")
+                if r.get(k)
+            }
+            if audit_meta:
+                row.resources_used = audit_meta
+
             touched_job_ids.add(UUID(job_id))
 
         for jid in touched_job_ids:

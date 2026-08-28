@@ -1,6 +1,7 @@
 package modules
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
@@ -21,6 +22,26 @@ func TestSandboxProfileArgs(t *testing.T) {
 	}
 	if nilp := (*SandboxProfile)(nil); len(nilp.args()) != 0 {
 		t.Fatal("nil profile must contribute no properties")
+	}
+}
+
+func TestSandboxProfileArgs_EnvAllowlist(t *testing.T) {
+	t.Setenv("PATH", "/usr/bin:/bin")
+	t.Setenv("LOKI_TEST_NOT_ALLOWED", "leak-me")
+
+	p := SandboxProfile{EnvAllowlist: []string{"PATH", "LANG", "HOME"}}
+	got := strings.Join(p.args(), " ")
+
+	if !strings.Contains(got, "-p Environment=PATH=/usr/bin:/bin") {
+		t.Fatalf("allowlisted PATH missing from args: %q", got)
+	}
+	if strings.Contains(got, "LOKI_TEST_NOT_ALLOWED") {
+		t.Fatalf("non-allowlisted env var leaked into args: %q", got)
+	}
+	// LANG/HOME may be unset in the test environment — only asserting they
+	// never appear when genuinely absent (os.LookupEnv guards that).
+	if v, ok := os.LookupEnv("LANG"); ok && !strings.Contains(got, "-p Environment=LANG="+v) {
+		t.Fatalf("LANG is set but missing from args: %q", got)
 	}
 }
 

@@ -240,6 +240,14 @@ type JobResult struct {
 	ExitCode        int32     `json:"exit_code,omitempty"`
 	ErrorMessage    string    `json:"error_message,omitempty"`
 	UpdatedAt       time.Time `json:"updated_at,omitempty"`
+	// Audit fields (agent-security-hardening plan P10) — see
+	// proto/lokilinux.proto's JobResult message for the source of truth;
+	// this hand-written struct is what's actually wire-serialized (JSON
+	// codec, not real protobuf — see this file's own header comment).
+	Capability string `json:"capability,omitempty"`
+	RiskLevel  string `json:"risk_level,omitempty"`
+	PolicyId   string `json:"policy_id,omitempty"`
+	DurationMs int64  `json:"duration_ms,omitempty"`
 }
 
 type JobState int32

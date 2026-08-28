@@ -313,6 +313,13 @@ func payloadToRequest(m map[string]interface{}) *gen.AgentHeartbeatRequest {
 				ExitCode:     int32(r.ExitCode),
 				ErrorMessage: r.Error,
 				UpdatedAt:    time.Now(),
+				// DurationMs was already computed by every executor but
+				// never reached the backend before (plan P10 fix) — the
+				// other three are new audit fields, populated by manager.go.
+				DurationMs: r.DurationMs,
+				Capability: r.Capability,
+				RiskLevel:  r.Risk,
+				PolicyId:   r.PolicyID,
 			})
 		}
 	}
