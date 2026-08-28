@@ -9,6 +9,17 @@ Ubuntu 22.04/24.04 și al doilea agent din flotă ("rocky") rămân netestate �
 fără VM-uri/acces SSH disponibile din mediul care a rulat verificarea.
 Rulează restul manual pe fiecare distro rămas înainte de rollout-ul non-root.
 
+## Status live-test (tracking)
+
+| Țintă | systemd | Pași 1-6 | Pași 7-8 (flip non-root) |
+|---|---|---|---|
+| Rocky 9.8 `devapp.mishka.md` | 252 | ✅ 2026-08-27 | ❌ neexecutat nicăieri |
+| Ubuntu 22.04 | 249 | ❌ blocat, fără VM/SSH | ❌ |
+| Ubuntu 24.04 | 255 | ❌ blocat, fără VM/SSH | ❌ |
+| al doilea host flotă ("rocky") | 252 | ❌ blocat — agent DOWN, are nevoie de acces consolă pt. reparat `/etc/lokilinux/agent.yaml` | ❌ |
+
+Blocat pe infra (acces VM/SSH), nu pe cod — vezi Criteriul de închidere de mai jos înainte de orice flip `AGENT_NON_ROOT=1` fleet-wide.
+
 ## Ținte
 
 | Distro | systemd | Note |
