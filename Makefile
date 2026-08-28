@@ -111,6 +111,10 @@ agent-package: agent-build agent-build-arm64
 agent-test:
 	cd $(AGENT_DIR) && go test ./... -v -race -cover
 
+## Run agent observability event-queue benchmarks against the committed budget baseline
+agent-bench:
+	cd $(AGENT_DIR) && go test ./internal/eq/... -run TestBudgetGates -bench . -benchmem
+
 # ── Compliance service ─────────────────────────────────────────────────────────
 
 COMPLIANCE_DIR = services/compliance

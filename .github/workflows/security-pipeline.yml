@@ -34,6 +34,7 @@ jobs:
         with:
           go-version-file: agent/go.mod
       - run: make agent-test compliance-test
+      - run: make agent-bench
 
       # Python backend tests
       - uses: actions/setup-python@v5

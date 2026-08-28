@@ -1,0 +1,5 @@
+{
+  "max_goroutine_delta": 2,
+  "max_rss_delta_kb": 2968,
+  "max_cpu_ticks_delta": 10
+}
