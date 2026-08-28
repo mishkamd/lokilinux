@@ -25,3 +25,11 @@ export const CHECK_SOURCE_COLORS: Record<CheckSource, string> = {
   OVAL_UNMAPPED: 'gray',
   OSCAP_FALLBACK: 'amber',
 }
+
+// Enterprise Compliance plan U3/KTD2 — ACTIVE has no badge (expected/default
+// state, not worth the visual noise on every row).
+export const RULE_STATUS_COLORS: Record<string, string> = {
+  DISABLED: 'amber',
+  REFERENCE_ONLY: 'gray',
+  DEPRECATED: 'gray',
+}

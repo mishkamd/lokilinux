@@ -2,7 +2,9 @@
 persistence — Enterprise Compliance plan U8 Task 3 regression: imported
 rules must land is_enabled=False (check_source=OVAL_UNMAPPED already keeps
 them out of every evaluation, but is_enabled=True on an unexecutable rule
-reads as a lie in the Rule Catalog UI)."""
+reads as a lie in the Rule Catalog UI) — and plan U3/KTD2: status must land
+REFERENCE_ONLY, the field services/compliance's Go evaluator actually
+filters on now."""
 
 import pytest
 from sqlalchemy import select
@@ -37,6 +39,7 @@ async def test_import_creates_rule_disabled_and_unmapped(db_session: AsyncSessio
     ).scalar_one()
     assert rule.check_source == "OVAL_UNMAPPED"
     assert rule.is_enabled is False
+    assert rule.status == "REFERENCE_ONLY"
 
 
 @pytest.mark.asyncio
@@ -49,10 +52,12 @@ async def test_reimport_does_not_re_disable_hand_curated_rule(db_session: AsyncS
     ).scalar_one()
 
     # Simulates an operator hand-curating a CEL check for this rule after
-    # import — check_source/is_enabled both flip, same as check_expr would.
+    # import — check_source/is_enabled/status all flip together, same as
+    # curated_rules_loader.py does for its own managed rules.
     rule.check_source = "CEL"
     rule.check_expr = "facts.sshd.PermitRootLogin == 'no'"
     rule.is_enabled = True
+    rule.status = "ACTIVE"
     await db_session.commit()
 
     result = await ComplianceAsCodeImporter(db_session).import_datastream(DATASTREAM, "1.1")
@@ -65,3 +70,6 @@ async def test_reimport_does_not_re_disable_hand_curated_rule(db_session: AsyncS
     ).scalar_one()
     assert rule_after.check_source == "CEL"
     assert rule_after.is_enabled is True
+    # Reimport's existing-row branch never touches status — the same
+    # non-clobbering guarantee it already gives check_source/is_enabled.
+    assert rule_after.status == "ACTIVE"

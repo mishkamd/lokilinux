@@ -247,8 +247,10 @@ func (s *Store) LoadActivePolicyAssignments(ctx context.Context) ([]PolicyAssign
 	return out, rowsResult.Err()
 }
 
-// RulesForPolicySetsAndDomain returns enabled CEL/OVAL_UNMAPPED/OSCAP_FALLBACK
-// rules for a domain that belong to any of policySetIDs — the caller (ingest.go)
+// RulesForPolicySetsAndDomain returns ACTIVE (Enterprise Compliance plan
+// U3/KTD2 — REFERENCE_ONLY/DISABLED never reach the evaluator) CEL/
+// OVAL_UNMAPPED/OSCAP_FALLBACK rules for a domain that belong to any of
+// policySetIDs — the caller (ingest.go)
 // resolves policySetIDs via policy.MatchingSetIDs first, keeping scope
 // resolution and rule loading as separate, independently testable steps.
 // An empty policySetIDs returns no rows (no matching assignment for this
@@ -262,7 +264,7 @@ func (s *Store) RulesForPolicySetsAndDomain(ctx context.Context, policySetIDs []
 		       cr.platform_filter, cr.expected_value, psr.policy_set_id
 		FROM compliance_rules cr
 		JOIN policy_set_rules psr ON psr.rule_id = cr.id
-		WHERE cr.domain = $1 AND cr.is_enabled = true AND psr.policy_set_id = ANY($2)
+		WHERE cr.domain = $1 AND cr.status = 'ACTIVE' AND psr.policy_set_id = ANY($2)
 	`, domain, policySetIDs)
 	if err != nil {
 		return nil, fmt.Errorf("querying rules for domain %s: %w", domain, err)
@@ -569,7 +571,7 @@ func (s *Store) RulesForResourcePaths(ctx context.Context, resourceType string, 
 		SELECT DISTINCT crr.rule_id, cr.domain
 		FROM compliance_rule_resources crr
 		JOIN compliance_rules cr ON cr.id = crr.rule_id
-		WHERE crr.resource_type = $1 AND crr.resource_path = ANY($2) AND cr.is_enabled = true
+		WHERE crr.resource_type = $1 AND crr.resource_path = ANY($2) AND cr.status = 'ACTIVE'
 	`, resourceType, paths)
 	if err != nil {
 		return nil, fmt.Errorf("querying rules for resource paths: %w", err)
@@ -945,7 +947,7 @@ func (s *Store) RulesForPolicySet(ctx context.Context, policySetID uuid.UUID) ([
 		       cr.expected_value, cr.domain, psr.policy_set_id
 		FROM compliance_rules cr
 		JOIN policy_set_rules psr ON psr.rule_id = cr.id
-		WHERE psr.policy_set_id = $1 AND cr.is_enabled = true
+		WHERE psr.policy_set_id = $1 AND cr.status = 'ACTIVE'
 	`, policySetID)
 	if err != nil {
 		return nil, fmt.Errorf("querying rules for policy set %s: %w", policySetID, err)

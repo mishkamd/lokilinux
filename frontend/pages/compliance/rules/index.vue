@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { SEVERITY_COLORS, CHECK_SOURCE_COLORS } from '~/utils/complianceColors'
+import { SEVERITY_COLORS, CHECK_SOURCE_COLORS, RULE_STATUS_COLORS } from '~/utils/complianceColors'
 import { RefreshCw } from 'lucide-vue-next'
-import type { CheckSource } from '~/stores/compliance'
+import type { CheckSource, RuleStatus } from '~/stores/compliance'
 
 const store = useComplianceStore()
 const { rules, rulesTotal, rulesLoading, rulesNextCursor, ruleFilters } = storeToRefs(store)
@@ -9,6 +9,7 @@ const { rules, rulesTotal, rulesLoading, rulesNextCursor, ruleFilters } = storeT
 onMounted(() => store.fetchRules())
 
 const CHECK_SOURCES: CheckSource[] = ['CEL', 'OVAL_UNMAPPED', 'OSCAP_FALLBACK']
+const RULE_STATUSES: RuleStatus[] = ['ACTIVE', 'DISABLED', 'REFERENCE_ONLY', 'DEPRECATED']
 
 const columns = [
   { key: 'title', label: 'Rule' },
@@ -37,6 +38,8 @@ const columns = [
                @keyup.enter="store.fetchRules()" />
         <Select v-model="ruleFilters.status" :options="[{ label: 'All', value: '' }, { label: 'Enabled', value: 'enabled' }, { label: 'Disabled', value: 'disabled' }]"
                 placeholder="Status" class="w-32" @change="store.fetchRules()" />
+        <Select v-model="ruleFilters.rule_status" :options="['', ...RULE_STATUSES]"
+                placeholder="Lifecycle" class="w-36" @change="store.fetchRules()" />
         <Button variant="outline" @click="store.fetchRules()">
           <RefreshCw class="size-4" /> Refresh
         </Button>
@@ -56,7 +59,12 @@ const columns = [
     >
       <template #title-data="{ row }">
         <div>
-          <p class="font-medium">{{ row.title }}</p>
+          <div class="flex items-center gap-2">
+            <p class="font-medium">{{ row.title }}</p>
+            <Badge v-if="row.status !== 'ACTIVE'" :color="RULE_STATUS_COLORS[row.status] ?? 'gray'" size="xs">
+              {{ row.status }}
+            </Badge>
+          </div>
           <p class="text-xs text-muted-foreground font-mono">{{ row.rule_key }}</p>
         </div>
       </template>

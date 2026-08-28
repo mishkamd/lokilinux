@@ -40,6 +40,11 @@ class ComplianceRule(Base):
     source: Mapped[str] = mapped_column(String(30), default="complianceascode", nullable=False)
     source_version: Mapped[str | None] = mapped_column(String(50))
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # Migration 036 (Enterprise Compliance plan U3/KTD2) — explicit lifecycle,
+    # ACTIVE/DISABLED/REFERENCE_ONLY/DEPRECATED. Only ACTIVE rules reach the
+    # Go evaluator (services/compliance/internal/storage/postgres.go rule
+    # queries filter on this column directly).
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="ACTIVE")
     imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
 
 

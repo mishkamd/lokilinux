@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { SEVERITY_COLORS, CHECK_SOURCE_COLORS } from '~/utils/complianceColors'
+import { SEVERITY_COLORS, CHECK_SOURCE_COLORS, RULE_STATUS_COLORS } from '~/utils/complianceColors'
 import type { CheckSource } from '~/stores/compliance'
 
 const route = useRoute()
@@ -51,7 +51,7 @@ const coverageEntries = computed(() => Object.entries(selectedRule.value?.covera
         <template #badges>
           <Badge :color="SEVERITY_COLORS[selectedRule.severity] ?? 'gray'">{{ selectedRule.severity }}</Badge>
           <Badge :color="CHECK_SOURCE_COLORS[selectedRule.check_source] ?? 'gray'">{{ selectedRule.check_source }}</Badge>
-          <Badge :color="selectedRule.is_enabled ? 'green' : 'gray'">{{ selectedRule.is_enabled ? 'Enabled' : 'Disabled' }}</Badge>
+          <Badge :color="selectedRule.status === 'ACTIVE' ? 'green' : (RULE_STATUS_COLORS[selectedRule.status] ?? 'gray')">{{ selectedRule.status }}</Badge>
         </template>
       </PageHeader>
 

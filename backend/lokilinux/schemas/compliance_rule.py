@@ -36,6 +36,7 @@ class ComplianceRuleResponse(BaseModel):
     source: str
     source_version: str | None = None
     is_enabled: bool
+    status: str  # ACTIVE / DISABLED / REFERENCE_ONLY / DEPRECATED
     imported_at: datetime
 
     model_config = {"from_attributes": True}

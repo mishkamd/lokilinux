@@ -270,6 +270,7 @@ class ComplianceAsCodeImporter:
                     # mapping (which does update is_enabled) must survive
                     # untouched here.
                     is_enabled=False,
+                    status="REFERENCE_ONLY",
                 )
                 self.db.add(row)
                 await self.db.flush()

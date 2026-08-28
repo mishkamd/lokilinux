@@ -30,6 +30,7 @@ export interface BaselineVersion {
 }
 
 export type CheckSource = 'CEL' | 'OVAL_UNMAPPED' | 'OSCAP_FALLBACK'
+export type RuleStatus = 'ACTIVE' | 'DISABLED' | 'REFERENCE_ONLY' | 'DEPRECATED'
 
 export interface ComplianceRule {
   id: string
@@ -45,6 +46,7 @@ export interface ComplianceRule {
   source: string
   source_version: string | null
   is_enabled: boolean
+  status: RuleStatus
   imported_at: string
 }
 
@@ -498,6 +500,7 @@ export const useComplianceStore = defineStore('compliance', () => {
   const rulesNextCursor = ref<string | null>(null)
   const ruleFilters = ref({
     domain: '', check_source: '', severity: '', search: '', framework: '', platform: '', source: '', status: '',
+    rule_status: '',
   })
   const selectedRule = ref<RuleDetail | null>(null)
 
@@ -522,6 +525,7 @@ export const useComplianceStore = defineStore('compliance', () => {
       if (ruleFilters.value.platform) params.set('platform', ruleFilters.value.platform)
       if (ruleFilters.value.source) params.set('source', ruleFilters.value.source)
       if (ruleFilters.value.status) params.set('status', ruleFilters.value.status)
+      if (ruleFilters.value.rule_status) params.set('rule_status', ruleFilters.value.rule_status)
       const data = await api.get<{ items: ComplianceRule[]; next_cursor: string | null; total: number }>(
         `/compliance/rules?${params}`,
       )
