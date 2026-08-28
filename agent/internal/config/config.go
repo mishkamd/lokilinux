@@ -17,6 +17,7 @@ type Config struct {
 	Logging       LoggingConfig       `yaml:"logging"`
 	FileIntegrity FileIntegrityConfig `yaml:"file_integrity"`
 	Policy        PolicyManagerConfig `yaml:"policy"`
+	EventQueue    EventQueueConfig    `yaml:"event_queue"`
 }
 
 // PolicyManagerConfig wires the desired-state policy engine (plan Faza 2).
@@ -30,6 +31,8 @@ type PolicyManagerConfig struct {
 }
 
 type PlatformConfig struct {
+	// URL is kept in the YAML for loki-cli.sh (which greps it as text) but
+	// the agent binary itself only dials GRPCEndpoint — never read in Go.
 	URL          string `yaml:"url"`
 	GRPCEndpoint string `yaml:"grpc_endpoint"`
 }
@@ -42,22 +45,25 @@ type IdentityConfig struct {
 }
 
 type HeartbeatConfig struct {
-	IntervalSec     int `yaml:"interval_sec"`
-	TimeoutSec      int `yaml:"timeout_sec"`
-	RetryBackoffMax int `yaml:"retry_backoff_max"`
+	IntervalSec int `yaml:"interval_sec"`
+	// TimeoutSec/RetryBackoffMax removed (Faza 3.2 cleanup): the timeout was
+	// never applied to the gRPC call and the backoff cap is hardcoded in
+	// manager.go — the operator values were silently ignored. Re-add only
+	// together with the code that honors them.
 }
 
 type CacheConfig struct {
-	Enabled       bool   `yaml:"enabled"`
-	Path          string `yaml:"path"`
-	SQLiteDB      string `yaml:"sqlite_db"`
-	RetentionDays int    `yaml:"retention_days"`
+	// Only SQLiteDB is read (storage.Open). Enabled/Path/RetentionDays had
+	// no consumers — the queue purge runs on a fixed window instead of a
+	// configured retention.
+	SQLiteDB string `yaml:"sqlite_db"`
 }
 
 type JobExecConfig struct {
-	MaxParallelJobs int  `yaml:"max_parallel_jobs"`
-	TimeoutSeconds  int  `yaml:"timeout_seconds"`
-	SandboxEnabled  bool `yaml:"sandbox_enabled"`
+	// MaxParallelJobs/SandboxEnabled removed (Faza 3.2): jobs run unbounded
+	// goroutines on the in-process systemd-run path — both fields were
+	// decorative. TimeoutSeconds is the one wired knob.
+	TimeoutSeconds int `yaml:"timeout_seconds"`
 }
 
 // SecurityConfig gates the signed-job trust model. EnforceSignedJobs starts
@@ -79,8 +85,9 @@ type SecurityConfig struct {
 }
 
 type LoggingConfig struct {
-	Level  string `yaml:"level"`
-	Output string `yaml:"output"`
+	// Output removed (Faza 3.2): logs always go to the systemd journal —
+	// the field was never read.
+	Level string `yaml:"level"`
 }
 
 // FileIntegrityConfig lets an operator override the compiled-in FIM watch
@@ -91,6 +98,18 @@ type LoggingConfig struct {
 type FileIntegrityConfig struct {
 	WatchPaths []string `yaml:"watch_paths"`
 	Ignores    []string `yaml:"ignore_paths"`
+}
+
+// EventQueueConfig tunes internal/eq's bounded priority queue + flusher
+// (Phase G2). Zero values fall back to internal/eq's own defaults (10k
+// capacity, 100 events / 256KB / 1s flush triggers) — every field here is
+// an override, not a required setting.
+type EventQueueConfig struct {
+	Enabled          bool `yaml:"enabled"`
+	Capacity         int  `yaml:"capacity"`
+	FlushMaxEvents   int  `yaml:"flush_max_events"`
+	FlushMaxBytes    int  `yaml:"flush_max_bytes"`
+	FlushIntervalSec int  `yaml:"flush_interval_sec"`
 }
 
 // Load reads and parses the YAML config file at path.
@@ -111,20 +130,8 @@ func applyDefaults(cfg *Config) {
 	if cfg.Heartbeat.IntervalSec == 0 {
 		cfg.Heartbeat.IntervalSec = 60
 	}
-	if cfg.Heartbeat.TimeoutSec == 0 {
-		cfg.Heartbeat.TimeoutSec = 30
-	}
-	if cfg.Heartbeat.RetryBackoffMax == 0 {
-		cfg.Heartbeat.RetryBackoffMax = 600
-	}
 	if cfg.Cache.SQLiteDB == "" {
 		cfg.Cache.SQLiteDB = "/var/lib/lokilinux/agent.db"
-	}
-	if cfg.Cache.RetentionDays == 0 {
-		cfg.Cache.RetentionDays = 30
-	}
-	if cfg.JobExecution.MaxParallelJobs == 0 {
-		cfg.JobExecution.MaxParallelJobs = 2
 	}
 	if cfg.JobExecution.TimeoutSeconds == 0 {
 		cfg.JobExecution.TimeoutSeconds = 3600
