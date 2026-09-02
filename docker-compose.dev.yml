@@ -29,8 +29,6 @@ services:
       dockerfile: Dockerfile.dev
     environment:
       ENVIRONMENT: development
-      DEBUG: "true"
-      RELOAD_ON_CHANGE: "true"
     command: ["uvicorn", "lokilinux.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"]
     volumes:
       - ./backend:/app
@@ -50,7 +48,6 @@ services:
       dockerfile: Dockerfile.dev
     environment:
       ENVIRONMENT: development
-      DEBUG: "true"
     volumes:
       - ./backend:/app
       - /app/.venv

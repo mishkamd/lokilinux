@@ -231,7 +231,6 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pgbouncer:5432/${POSTGRES_DB}
       BETTER_AUTH_URL: ${BETTER_AUTH_INTERNAL_URL:-http://lokilinux-frontend:3000}
-      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
     command: ["alembic", "upgrade", "head"]
     networks:
       - app-net
@@ -331,14 +330,12 @@ services:
       EVENT_RETENTION_DAYS: ${EVENT_RETENTION_DAYS:-30}
       SIGNAL_OCCURRENCE_RETENTION_DAYS: ${SIGNAL_OCCURRENCE_RETENTION_DAYS:-90}
       INCIDENT_EVIDENCE_RETENTION_DAYS: ${INCIDENT_EVIDENCE_RETENTION_DAYS:-180}
-      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
-      # Internal fallback: FastAPI fetches JWKS at {BETTER_AUTH_URL}/api/auth/jwks
-      # from inside this container, where "localhost" would point at itself,
-      # not the frontend. BETTER_AUTH_URL (public) stays localhost:3000 for
-      # the frontend service below, which legitimately is that origin.
+      # Internal fallback: FastAPI validates sessions via GET {BETTER_AUTH_URL}/
+      # api/auth/get-session from inside this container, where "localhost" would
+      # point at itself, not the frontend. BETTER_AUTH_URL (public) stays
+      # localhost:3000 for the frontend service below, which legitimately is
+      # that origin.
       BETTER_AUTH_URL: ${BETTER_AUTH_INTERNAL_URL:-http://lokilinux-frontend:3000}
-      API_HOST: 0.0.0.0
-      API_PORT: 8000
       # Dual-trust during CA rotation (docs/security/CERTIFICATE_ROTATION.md):
       # bundle = CA_old + CA_new so agents on either cert generation verify.
       CA_CERT_PATH: /etc/lokilinux/certs/ca-bundle.crt
@@ -421,10 +418,7 @@ services:
       CA_SIGNER_SOCKET_PATH: /run/lokilinux/ca-signer/sign.sock
       SERVER_CERT_PATH: /etc/lokilinux/certs/server.crt
       SERVER_KEY_PATH: /etc/lokilinux/certs/server.key
-      # Required by Settings (Better Auth hardening) — without these the gRPC
-      # servicer 500s every heartbeat with a Settings ValidationError.
       BETTER_AUTH_URL: ${BETTER_AUTH_INTERNAL_URL:-http://lokilinux-frontend:3000}
-      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       METRICS_ENABLED: "true"
       METRICS_PORT: "9091"
