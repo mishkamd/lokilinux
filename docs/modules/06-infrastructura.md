@@ -115,7 +115,7 @@ make sbom IMAGE=...         # SBOM CycloneDX
 
 ## Scripturi utile (`scripts/`)
 
-`docker-init.sh`, `init-certificates.sh`, `install-agent.sh` (curl-bash pe hosturi gestionate), `loki-cli.sh`, `rebuild.sh`.
+`docker-init.sh`, `init-certificates.sh`, `install-agent.sh` (curl-bash pe hosturi gestionate), `loki-cli.sh`.
 
 ## Variabile de mediu esențiale (`.env`)
 
