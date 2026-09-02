@@ -605,7 +605,14 @@ async def advance_run(db: AsyncSession, cache: RedisCache, run: WorkflowRun, nat
 
     graph = CompiledGraph.model_validate(version.graph)
     steps_by_id = {s.id: s for s in graph.steps}
-    step_runs = await _load_step_runs(db, run.id)
+    # Captured once: JobService.create_job's duplicate-active-job guard
+    # rolls back on an IntegrityError race (job_service.py), and a
+    # rollback unconditionally expires every object in this session — run
+    # included, regardless of this session's expire_on_commit=False (that
+    # setting only governs commit). run.id is a plain UUID, safe to reuse
+    # after that without re-touching the (possibly expired) ORM instance.
+    run_id = run.id
+    step_runs = await _load_step_runs(db, run_id)
     target_agent_ids = [UUID(a) for a in run.targets.get("agent_ids", [])]
 
     # 1) Sync any RUNNING step that's reached a terminal state — either a
@@ -746,6 +753,15 @@ async def advance_run(db: AsyncSession, cache: RedisCache, run: WorkflowRun, nat
         try:
             job = await _dispatch_step(db, cache, step, target_agent_ids, run.id)
         except (WorkflowRunError, ValueError) as exc:
+            # A ValueError here can only be JobService.create_job's
+            # duplicate-active-job guard, which rolls back on the
+            # IntegrityError race — see run_id's comment above. Reload
+            # before touching `sr` (and before any later step this tick,
+            # e.g. a CONDITION step reading sibling statuses, or the
+            # terminal check below) trips the same expired-attribute
+            # MissingGreenlet on one of this run's other step_runs.
+            step_runs = await _load_step_runs(db, run_id)
+            sr = step_runs[step.id]
             sr.status = "FAILED"
             sr.error = str(exc)
             sr.completed_at = datetime.now(timezone.utc)

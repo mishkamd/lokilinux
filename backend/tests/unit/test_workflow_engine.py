@@ -196,6 +196,45 @@ async def test_approval_blocks_then_unblocks_the_run(db_session, fake_cache):
 
 
 @pytest.mark.asyncio
+async def test_dispatch_failure_does_not_crash_on_sibling_step_runs(db_session, fake_cache, monkeypatch):
+    """JobService.create_job rolls back the session on its duplicate-
+    active-job race (job_service.py's IntegrityError handler) — a
+    rollback unconditionally expires every object in the session
+    regardless of this session's expire_on_commit=False (that setting
+    only governs commit). Before this was fixed, advance_run's next
+    synchronous read of a sibling step_run loaded earlier in the same
+    tick (here: "precheck", untouched since section 1) raised
+    sqlalchemy.exc.MissingGreenlet instead of just failing the step."""
+    await _make_agent(db_session)
+    workflow, _version = await _publish(db_session, WITH_APPROVAL.replace("engine-with-approval", "dispatch-failure-wf"))
+
+    run = await start_run(db_session, fake_cache, workflow.id, trigger_type="MANUAL", triggered_by=None)
+    await _complete_running_step_jobs(db_session, run.id, succeed=True)
+    await advance_run(db_session, fake_cache, run)  # precheck -> SUCCEEDED, gate -> WAITING_APPROVAL
+
+    from lokilinux.services import job_service as job_service_module
+
+    async def _raise_after_rollback(self, *args, **kwargs):
+        await self.db.rollback()
+        raise ValueError("Duplicate job already active")
+
+    monkeypatch.setattr(job_service_module.JobService, "create_job", _raise_after_rollback)
+
+    # approve_step's own advance_run call dispatches "apply" next, which
+    # hits the patched create_job above — must not crash reading
+    # "precheck" (this run's untouched-this-tick sibling) afterward.
+    await approve_step(db_session, fake_cache, run.id, "gate", actor=None)
+
+    step_runs = {sr.step_id: sr for sr in (await db_session.execute(
+        select(WorkflowStepRun).where(WorkflowStepRun.run_id == run.id)
+    )).scalars().all()}
+    assert step_runs["precheck"].status == "SUCCEEDED"
+    assert step_runs["apply"].status == "FAILED"
+    assert step_runs["apply"].error == "Duplicate job already active"
+    assert run.status == "FAILED"
+
+
+@pytest.mark.asyncio
 async def test_approver_cannot_be_the_run_trigger(db_session, fake_cache):
     """Faza 11 — no-self-approval, the pattern already established for
     baseline DRAFT submissions (docs/compliance/06-BASELINE.md): whoever
