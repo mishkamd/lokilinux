@@ -1,8 +1,8 @@
 """
 LokiLinux — Application Settings
 
-Auth is delegated to Better Auth (Nuxt 4 server).
-FastAPI validates Bearer JWTs via JWKS at {BETTER_AUTH_URL}/api/auth/jwks.
+Auth is delegated to Better Auth (Nuxt 4 server): Bearer tokens are opaque
+session tokens validated via GET {better_auth_url}/api/auth/get-session.
 No JWT_SECRET_KEY / JWT_ALGORITHM / bcrypt here.
 """
 
@@ -45,13 +45,12 @@ class Settings(BaseSettings):
     event_max_clock_skew_sec: int = 300
     correlation_state_backend: str = "redis"
 
-    # ── gRPC (agent communication) ────────────────────────────
-    grpc_port: int = 50051
-
     # ── Better Auth (Nuxt 4 instance) ─────────────────────────
-    # FastAPI fetches JWKS from {better_auth_url}/api/auth/jwks
+    # FastAPI validates opaque session tokens via
+    # GET {better_auth_url}/api/auth/get-session — the Better Auth SECRET
+    # lives only on the Nuxt side; the API never needed it (the required
+    # field that used to sit here broke boot on any env without it).
     better_auth_url: str  # e.g. http://localhost:3000
-    better_auth_secret: str  # shared secret for JWKS validation
 
     # ── Agent certificates ────────────────────────────────────
     agent_cert_dir: str = "/etc/lokilinux/certs"
@@ -59,7 +58,9 @@ class Settings(BaseSettings):
     ca_signer_socket_path: str = "/run/lokilinux/ca-signer/sign.sock"
 
     # ── Observability ─────────────────────────────────────────
-    log_level: str = "INFO"
+    # (grpc port comes from the GRPC_PORT env read in grpc_server.py;
+    # backend log level from LOG_LEVEL env / structlog config — neither
+    # belongs in Settings until something actually reads them.)
     environment: str = "development"
 
     # ── Frontend (CORS origin) ────────────────────────────────

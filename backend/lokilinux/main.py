@@ -2,7 +2,8 @@
 LokiLinux FastAPI Application
 
 Auth: delegated to Better Auth (Nuxt 4).
-      FastAPI validates Bearer JWTs via JWKS at {BETTER_AUTH_URL}/api/auth/jwks.
+      Bearer tokens are opaque session tokens validated via
+      GET {better_auth_url}/api/auth/get-session.
       No JWT generation, no bcrypt, no passlib here.
 
 NATS topics use prefix  lokilinux.  (O1).
