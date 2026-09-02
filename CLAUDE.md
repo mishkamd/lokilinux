@@ -58,6 +58,15 @@ fails collection, not an individual test. Each test gets a SAVEPOINT-wrapped ses
 `black` and `ruff` at line-length 100, `ruff` selects `E,F,I,N,W`, `mypy` in `strict` mode (config in
 `backend/pyproject.toml`). Frontend type check: `npx vue-tsc --noEmit`.
 
+### LSP sidecars (agent tooling, not part of the app stack)
+
+`docker-compose.lsp.yml` runs idle `lokilinux-lsp-ts` (typescript-language-server + vue-language-server)
+and `lokilinux-lsp-go` (gopls) containers. The repo is bind-mounted at the same absolute path, so
+language servers launched via `docker exec -i` (configured in `~/.config/opencode/opencode.jsonc` `lsp`)
+resolve paths without mapping. Start with
+`docker compose -f docker-compose.lsp.yml up -d --build`; warm the Go module cache once with
+`go mod download` inside `lokilinux-lsp-go`.
+
 ### Build / release
 
 ```bash
