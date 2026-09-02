@@ -2,7 +2,6 @@
 LokiLinux — Plugin service.
 """
 
-import hashlib
 import json
 from datetime import datetime, timezone
 from uuid import UUID
@@ -12,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.models.agent import Agent, AgentStatus
 from lokilinux.models.plugin import Plugin, PluginInstallation, PluginStatus
-from lokilinux.nats_topics import PLUGIN_INSTALL, PLUGIN_UNINSTALL
+from lokilinux.nats_topics import PLUGIN_INSTALL
 from lokilinux.schemas.common import CursorPage
 from lokilinux.schemas.plugin import PluginInstallationResponse, PluginResponse
 from lokilinux.services.job_service import JobService
@@ -129,8 +128,9 @@ class PluginService:
         plugin = await self._get_or_404(plugin_id)
         allowed = {PluginStatus.INSTALLED, PluginStatus.DISABLED}
         if plugin.installation_status not in allowed:
+            allowed_str = " or ".join(s.value for s in allowed)
             raise ValueError(
-                f"Plugin must be INSTALLED or DISABLED to enable, got {plugin.installation_status.value}"
+                f"Plugin must be {allowed_str} to enable, got {plugin.installation_status.value}"
             )
         plugin.is_enabled = True
         plugin.installation_status = PluginStatus.ENABLED
@@ -146,22 +146,3 @@ class PluginService:
         await self.db.commit()
         return PluginResponse.model_validate(plugin)
 
-    async def uninstall_plugin(self, plugin_id: UUID) -> PluginResponse:
-        plugin = await self._get_or_404(plugin_id)
-        await self.db.execute(
-            delete(PluginInstallation).where(PluginInstallation.plugin_id == plugin_id)
-        )
-        plugin.is_installed = False
-        plugin.is_enabled = False
-        plugin.installation_status = PluginStatus.PENDING_INSTALL
-        plugin.installed_at = None
-        await self.db.commit()
-        # ponytail: agent-side binary removal isn't implemented (plugin_installer.go
-        # only handles install) — this clears platform state only. Add a
-        # PLUGIN_UNINSTALL job type + agent handler when agent-side cleanup matters.
-        if self.nats:
-            await self.nats.publish(
-                PLUGIN_UNINSTALL,
-                json.dumps({"plugin_id": str(plugin_id)}).encode(),
-            )
-        return PluginResponse.model_validate(plugin)

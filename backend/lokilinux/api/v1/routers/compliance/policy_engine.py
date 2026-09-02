@@ -19,6 +19,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, R
 from sqlalchemy import String, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lokilinux.api.v1.routers.compliance._pagination import paginate_keyset
 from lokilinux.auth.dependencies import get_current_user, require_permission, safe_user_uuid
 from lokilinux.dependencies import get_db
 from lokilinux.models.compliance_rule import (
@@ -26,11 +27,8 @@ from lokilinux.models.compliance_rule import (
     PolicyAssignment,
     PolicySet,
     PolicySetRule,
-    RemediationTemplate,
 )
 from lokilinux.models.job import Job, JobStatus
-from lokilinux.models.rule_evaluation import RuleEvaluation
-from lokilinux.api.v1.routers.compliance._pagination import paginate_keyset
 from lokilinux.schemas.common import CursorPage
 from lokilinux.schemas.compliance_rule import (
     ComplianceRuleResponse,
@@ -45,8 +43,6 @@ from lokilinux.schemas.compliance_rule import (
     PolicySetRemediationUpdate,
     PolicySetResponse,
     PolicySetRuleAdd,
-    RemediationTemplateResponse,
-    RuleCoverageResponse,
     RuleDetailResponse,
 )
 from lokilinux.services.audit_service import AuditService
@@ -222,62 +218,9 @@ async def get_rule_detail(
     return RuleDetailResponse(
         **ComplianceRuleResponse.model_validate(rule).model_dump(),
         framework_mappings=framework_mappings,
-        coverage=coverage,
-        failing_agents=failing_agents,
-    )
-
-
-@router.get("/rules/{rule_id}/coverage", response_model=RuleCoverageResponse)
-async def get_rule_coverage(
-    rule_id: UUID,
-    db: AsyncSession = Depends(get_db),
-    _: dict = Depends(get_current_user),
-) -> RuleCoverageResponse:
-    rule = (
-        await db.execute(select(ComplianceRule).where(ComplianceRule.id == rule_id))
-    ).scalar_one_or_none()
-    if rule is None:
-        raise HTTPException(status_code=404, detail="Rule not found")
-
-    evaluated_count = (
-        await db.execute(
-            select(func.count(func.distinct(RuleEvaluation.agent_id))).where(
-                RuleEvaluation.rule_id == rule_id
-            )
-        )
-    ).scalar_one()
-
-    return RuleCoverageResponse(
-        rule_id=rule.id,
-        rule_key=rule.rule_key,
-        check_source=rule.check_source,
-        evaluated_agent_count=evaluated_count,
-    )
-
-
-@router.get(
-    "/rules/{rule_id}/remediation-templates", response_model=list[RemediationTemplateResponse]
-)
-async def list_remediation_templates(
-    rule_id: UUID,
-    db: AsyncSession = Depends(get_db),
-    _: dict = Depends(get_current_user),
-) -> list[RemediationTemplateResponse]:
-    rule = (
-        await db.execute(select(ComplianceRule).where(ComplianceRule.id == rule_id))
-    ).scalar_one_or_none()
-    if rule is None:
-        raise HTTPException(status_code=404, detail="Rule not found")
-    rows = (
-        (
-            await db.execute(
-                select(RemediationTemplate).where(RemediationTemplate.rule_key == rule.rule_key)
-            )
-        )
-        .scalars()
-        .all()
-    )
-    return [RemediationTemplateResponse.model_validate(t) for t in rows]
+         coverage=coverage,
+         failing_agents=failing_agents,
+     )
 
 
 # ── Policy sets ────────────────────────────────────────────────────────────────

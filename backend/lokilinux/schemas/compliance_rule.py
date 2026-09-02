@@ -68,30 +68,6 @@ class RuleDetailResponse(ComplianceRuleResponse):
     failing_agents: list[FailingAgent] = []
 
 
-class RuleCoverageResponse(BaseModel):
-    rule_id: UUID
-    rule_key: str
-    check_source: CheckSource
-    # fleet-wide breakdown of how this rule has actually been evaluated so far,
-    # not just its static check_source — a CEL rule can still show 0 evaluations
-    # if no agent has reported the relevant domain yet.
-    evaluated_agent_count: int
-
-
-class RemediationTemplateResponse(BaseModel):
-    id: UUID
-    rule_key: str
-    provider: str
-    body: str
-    rollback_body: str | None = None
-    source: str
-    git_path: str | None = None
-    version: int
-    created_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
 class PolicySetCreate(BaseModel):
     name: str
     slug: str
