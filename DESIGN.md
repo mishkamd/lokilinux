@@ -19,66 +19,66 @@ colors:
   signal-orange: "#f97316"
 typography:
   display:
-    fontFamily: "Iceberg, Inter, ui-sans-serif, sans-serif"
+    fontFamily: "Iceberg, SN Pro, ui-sans-serif, sans-serif"
     fontSize: "1.25rem"
     fontWeight: 300
     lineHeight: 1.2
     letterSpacing: "-0.02em"
   display-wordmark:
-    fontFamily: "Iceberg, Inter, ui-sans-serif, sans-serif"
+    fontFamily: "Iceberg, SN Pro, ui-sans-serif, sans-serif"
     fontSize: "1.5rem"
     fontWeight: 300
     lineHeight: 1.2
     letterSpacing: "-0.025em"
   title:
-    fontFamily: "Iceberg, Inter, ui-sans-serif, sans-serif"
+    fontFamily: "Iceberg, SN Pro, ui-sans-serif, sans-serif"
     fontSize: "0.9375rem"
     fontWeight: 300
     lineHeight: 1.2
     letterSpacing: "-0.01em"
   body:
-    fontFamily: "Inter, ui-sans-serif, system-ui, -apple-system, sans-serif"
+    fontFamily: "SN Pro, ui-sans-serif, system-ui, -apple-system, sans-serif"
     fontSize: "14px"
     fontWeight: 400
     lineHeight: 1.5
   label:
-    fontFamily: "Inter, ui-sans-serif, system-ui, -apple-system, sans-serif"
+    fontFamily: "SN Pro, ui-sans-serif, system-ui, -apple-system, sans-serif"
     fontSize: "0.6875rem"
     fontWeight: 600
     lineHeight: 1.4
     letterSpacing: "0.08em"
   field-value:
-    fontFamily: "Inter, ui-sans-serif, system-ui, -apple-system, sans-serif"
+    fontFamily: "SN Pro, ui-sans-serif, system-ui, -apple-system, sans-serif"
     fontSize: "13px"
     fontWeight: 500
     lineHeight: 1.4
   tooltip:
-    fontFamily: "Inter, ui-sans-serif, system-ui, -apple-system, sans-serif"
+    fontFamily: "SN Pro, ui-sans-serif, system-ui, -apple-system, sans-serif"
     fontSize: "12px"
     fontWeight: 400
     lineHeight: 1.4
   badge-micro:
-    fontFamily: "Inter, ui-sans-serif, system-ui, -apple-system, sans-serif"
+    fontFamily: "SN Pro, ui-sans-serif, system-ui, -apple-system, sans-serif"
     fontSize: "10px"
     fontWeight: 500
     lineHeight: 1.4
   widget-body:
-    fontFamily: "Inter, ui-sans-serif, system-ui, -apple-system, sans-serif"
+    fontFamily: "SN Pro, ui-sans-serif, system-ui, -apple-system, sans-serif"
     fontSize: "12px"
     fontWeight: 400
     lineHeight: 1.4
   metadata:
-    fontFamily: "Inter, ui-sans-serif, system-ui, -apple-system, sans-serif"
+    fontFamily: "SN Pro, ui-sans-serif, system-ui, -apple-system, sans-serif"
     fontSize: "11px"
     fontWeight: 400
     lineHeight: 1.4
   widget-link:
-    fontFamily: "Inter, ui-sans-serif, system-ui, -apple-system, sans-serif"
+    fontFamily: "SN Pro, ui-sans-serif, system-ui, -apple-system, sans-serif"
     fontSize: "12px"
     fontWeight: 500
     lineHeight: 1.4
   widget-stat:
-    fontFamily: "Inter, ui-sans-serif, system-ui, -apple-system, sans-serif"
+    fontFamily: "SN Pro, ui-sans-serif, system-ui, -apple-system, sans-serif"
     fontSize: "1.125rem"
     fontWeight: 700
     lineHeight: 1.2
@@ -146,14 +146,14 @@ components:
 
 **Creative North Star: "Precision Terminal"**
 
-LokiLinux is a command-center dashboard, not a marketing surface — its users are IT/DevOps admins scanning a Linux fleet daily for problems: unpatched CVEs, drifted compliance, failed jobs. Every design decision defers to that job. The system runs dark-by-default (near-black canvas, `initialValue: 'dark'` in the color-mode config) with a single, disciplined forest-green accent that appears only where something needs a decision or a status. Typography carries the operational weight: a distinctive light-weight display face (Iceberg) marks page identity and section titles, everything else is set in Inter, and numeric data uses tabular figures so columns of packages, CVEs, and metrics line up like a real instrument panel.
+LokiLinux is a command-center dashboard, not a marketing surface — its users are IT/DevOps admins scanning a Linux fleet daily for problems: unpatched CVEs, drifted compliance, failed jobs. Every design decision defers to that job. The system runs dark-by-default (near-black canvas, `initialValue: 'dark'` in the color-mode config) with a single, disciplined forest-green accent that appears only where something needs a decision or a status. Typography carries the operational weight: a distinctive light-weight display face (Iceberg) marks page identity and section titles, everything else is set in SN Pro, and numeric data uses tabular figures so columns of packages, CVEs, and metrics line up like a real instrument panel.
 
 Nothing here reaches for glassmorphism, gradients, skeuomorphism, or playful SaaS ornamentation — the codebase's own comment on its card surface states the intent directly: **"Terminal-precision surface: no glass/blur, just crisp borders + subtle shadow."** Depth is structural, not decorative — a component sits flush at rest and lifts 1px only as feedback (hover, elevation, an open overlay), never as passive polish.
 
 **Key Characteristics:**
 - Dark-by-default, near-black canvas with a single disciplined green accent
 - Crisp hairline borders and 1px-lift feedback — no blur, no glass, no gradients
-- A light-weight display face (Iceberg) marks identity and structure; Inter carries every working word
+- A light-weight display face (Iceberg) marks identity and structure; SN Pro carries every working word
 - Tabular numerals everywhere data is compared — packages, CVEs, metrics, timestamps
 - Density over whitespace: this is a daily instrument, not an onboarding surface
 
@@ -193,11 +193,11 @@ A parallel light-mode palette exists (`:root`, unprefixed) built from Tailwind's
 
 ## Typography
 
-**Display Font:** Iceberg (with Inter, ui-sans-serif fallback)
-**Body Font:** Inter (with ui-sans-serif, system-ui fallback)
-**Label/Data Font:** Inter, set with `font-variant-numeric: tabular-nums` wherever numbers are compared
+**Display Font:** Iceberg (with SN Pro, ui-sans-serif fallback)
+**Body Font:** SN Pro (with ui-sans-serif, system-ui fallback)
+**Label/Data Font:** SN Pro, set with `font-variant-numeric: tabular-nums` wherever numbers are compared
 
-**Character:** Iceberg is a narrow, geometric, faintly technical display face used exclusively at light weight (300) — it reads as an identity mark, not a headline font, and is confined to the app's own name/page-titles/section-titles. Inter carries every sentence of working UI text at a normal, unforced weight; the pairing is one quiet workhorse face plus one distinctive light accent face, never two competing voices.
+**Character:** Iceberg is a narrow, geometric, faintly technical display face used exclusively at light weight (300) — it reads as an identity mark, not a headline font, and is confined to the app's own name/page-titles/section-titles. SN Pro carries every sentence of working UI text at a normal, unforced weight; the pairing is one quiet workhorse face plus one distinctive light accent face, never two competing voices.
 
 ### Hierarchy
 - **Display** (300, 1.25rem/20px, line-height 1.2, `-0.02em` tracking): page titles in the app header (`.page-title`). Nudged 3px down from its natural baseline — Iceberg sits visually high in its line box and needed manual optical centering in the 64px header.
@@ -216,7 +216,7 @@ A parallel light-mode palette exists (`:root`, unprefixed) built from Tailwind's
 ### Named Rules
 **The Tabular Numerals Rule.** Anywhere a number can be compared to another number in the same view — metric cards, table columns, CVE counts — `font-variant-numeric: tabular-nums` is set (globally on `body`, reinforced on `.data-value`). Digits must line up; this is an ops tool, not prose.
 
-**The One Display Face Rule.** Iceberg never appears below `.section-title` size and never at a weight heavier than 300. If something needs emphasis at body scale, that's Inter at a heavier weight — not a bigger or bolder display face.
+**The One Display Face Rule.** Iceberg never appears below `.section-title` size and never at a weight heavier than 300. If something needs emphasis at body scale, that's SN Pro at a heavier weight — not a bigger or bolder display face.
 
 ## Layout
 

@@ -46,7 +46,7 @@ export default defineNuxtConfig({
 
   fonts: {
     families: [
-      { name: 'Inter', provider: 'google' },
+      { name: 'SN Pro', provider: 'google' },
       { name: 'Iceberg', provider: 'google' },
     ],
   },
