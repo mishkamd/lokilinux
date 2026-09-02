@@ -10,8 +10,6 @@ dependencies = [
     "uvicorn[standard]==0.49.0",
     "pydantic==2.13.4",
     "pydantic-settings==2.14.2",
-    "orjson==3.11.9",
-    "python-multipart==0.0.32",
 
     # Database (psycopg3 async)
     "sqlalchemy[asyncio]==2.0.51",
@@ -34,9 +32,8 @@ dependencies = [
     "grpcio==1.81.1",
     "protobuf==6.33.5",
 
-    # Auth (JWKS validation against Better Auth)
+    # Auth (JWKS validation against Better Auth — opaque session tokens, no JWT)
     "httpx==0.28.1",
-    "PyJWT==2.13.0",
     "cryptography==46.0.3",  # direct dependency — api/v1/routers/agent_install.py imports cryptography.x509 itself
 
     # Observability
@@ -56,7 +53,6 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "grpcio-tools==1.81.1",  # proto codegen only — never imported at runtime
     "pytest==9.1.1",
     "pytest-asyncio==1.3.0",
     "pytest-cov==7.0.0",
