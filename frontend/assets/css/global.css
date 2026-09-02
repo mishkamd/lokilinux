@@ -69,9 +69,9 @@
   --color-sidebar-ring: var(--sidebar-ring);
 
   /* Typography — three-face system */
-  --font-sans: "SN Pro", ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --font-mono: "SN Pro", ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --font-display: "Iceberg", "SN Pro", ui-sans-serif, sans-serif;
+  --font-sans: "Rubik", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "Rubik", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-display: "Iceberg", "Rubik", ui-sans-serif, sans-serif;
 }
 
 /* ─── Color Schemes ──────────────────────────────────────────── */
