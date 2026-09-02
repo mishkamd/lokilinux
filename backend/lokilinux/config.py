@@ -71,7 +71,6 @@ class Settings(BaseSettings):
     agent_download_base: str = ""
     agent_version: str = "0.1.0"
     agent_package_dir: str = "/opt/lokilinux/packages"
-    better_auth_admin_token: str = ""
 
     # ── Certificate revocation (P11) ──────────────────────────
     # enabled=False = compatibility mode (no lookups, no Redis dependency).
