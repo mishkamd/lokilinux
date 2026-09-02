@@ -146,38 +146,42 @@ ${SIGNING_PUB_KEYS_YAML}"
 fi
 
 # ── Write agent configuration ─────────────────────────────────────────────────
+# Schema MUST match agent/internal/config/config.go (kept in lockstep with
+# backend/lokilinux/install_agent.sh.tmpl — this script used to write an
+# older, unrelated shape that yaml.Unmarshal silently accepted and zero-valued,
+# so the agent booted with an empty agent_id/grpc_endpoint and only failed
+# later, confusingly, at the gRPC TLS dial).
 echo "[*] Writing /etc/lokilinux/agent.yaml..."
-GRPC_HOST="$(echo "$PLATFORM_URL" | sed 's|https://||; s|http://||')"
+GRPC_HOST="$(echo "$PLATFORM_URL" | sed -E 's#^https?://##; s#[:/].*$##')"
+POLICY_DIR="/var/lib/lokilinux/policy"
+install -d -m 700 "$POLICY_DIR"
 
 cat > /etc/lokilinux/agent.yaml <<EOF
-platform_url: $PLATFORM_URL
-grpc:
-  host: $GRPC_HOST
-  port: 50051
+platform:
+  url: $PLATFORM_URL
+  grpc_endpoint: $GRPC_HOST:50051
+identity:
+  agent_id: $AGENT_ID
   cert_path: /etc/lokilinux/certs/agent.crt
   key_path: /etc/lokilinux/certs/agent.key
   ca_path: /etc/lokilinux/certs/ca.crt
-
-agent:
-  id: $AGENT_ID
-  hostname: $(hostname -f)
-
 heartbeat:
-  interval_seconds: 60
-  timeout_seconds: 30
-
+  interval_sec: 60
 cache:
-  path: /var/lib/lokilinux
-
-plugins:
-  enabled: true
-  dir: /opt/lokilinux/plugins
-
+  sqlite_db: /var/lib/lokilinux/agent.db
+job_execution:
+  timeout_seconds: 3600
 $SECURITY_YAML
-
 logging:
   level: info
-  path: /var/log/lokilinux/agent.log
+file_integrity:
+  watch_paths: []
+  ignore_paths: []
+policy:
+  enabled: true
+  state_dir: $POLICY_DIR
+  trusted_keys:
+    policy-signing-v1: "$(curl -fsSL "$PLATFORM_URL/api/v1/agent/policy-signing-key" 2>/dev/null || echo '')"
 EOF
 chmod 640 /etc/lokilinux/agent.yaml
 
