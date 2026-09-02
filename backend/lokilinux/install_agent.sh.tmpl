@@ -229,6 +229,7 @@ chown -R loki-agent:loki-agent /var/lib/lokilinux /var/log/lokilinux 2>/dev/null
 cat > /etc/systemd/system/lokilinux-agent.service <<'EOF'
 [Unit]
 Description=LokiLinux Agent
+Documentation=https://docs.lokilinux.io/agent
 After=network-online.target
 Wants=network-online.target
 
