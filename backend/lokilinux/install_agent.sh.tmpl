@@ -166,21 +166,13 @@ identity:
   ca_path: /etc/lokilinux/certs/ca.crt
 heartbeat:
   interval_sec: 60
-  timeout_sec: 30
-  retry_backoff_max: 300
 cache:
-  enabled: true
-  path: /var/lib/lokilinux
   sqlite_db: /var/lib/lokilinux/agent.db
-  retention_days: 30
 job_execution:
-  max_parallel_jobs: 4
   timeout_seconds: 3600
-  sandbox_enabled: false
 $SECURITY_YAML
 logging:
   level: info
-  output: /var/log/lokilinux/agent.log
 file_integrity:
   watch_paths: []
   ignore_paths: []
