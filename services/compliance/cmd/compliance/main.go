@@ -59,7 +59,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	log := newLogger(cfg.Logging.Level)
+	// LOG_LEVEL env beats the yaml file — compose sets it for every service,
+	// but until this override existed the binary silently ignored it and ran
+	// on cfg.Logging.Level ("info") no matter what the operator set.
+	log := newLogger(envOr("LOG_LEVEL", cfg.Logging.Level))
 	log.Info("lokilinux-compliance starting", "version", Version)
 
 	// NATS connection — required for ingest (consumer) and scheduler (KV
