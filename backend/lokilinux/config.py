@@ -70,7 +70,6 @@ class Settings(BaseSettings):
     platform_url: str = "http://localhost:8000"
     agent_download_base: str = ""
     agent_version: str = "0.1.0"
-    agent_package_dir: str = "/opt/lokilinux/packages"
 
     # ── Certificate revocation (P11) ──────────────────────────
     # enabled=False = compatibility mode (no lookups, no Redis dependency).

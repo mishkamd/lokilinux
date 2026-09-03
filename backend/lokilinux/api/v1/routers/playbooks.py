@@ -14,12 +14,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.auth.dependencies import get_current_user, require_role, safe_user_uuid
 from lokilinux.cache import RedisCache
-from lokilinux.dependencies import get_cache, get_db, get_nats
+from lokilinux.dependencies import get_cache, get_db, get_nats, get_storage
 from lokilinux.models.plugin import Plugin
+from lokilinux.object_storage import ObjectStorage
 from lokilinux.schemas.job import JobResponse
 from lokilinux.schemas.playbook import (
     PlaybookCreate,
     PlaybookExecuteRequest,
+    PlaybookListItem,
     PlaybookResponse,
     PlaybookUpdate,
 )
@@ -50,18 +52,38 @@ def require_plugin_enabled(name: str):
 def _svc(
     db: AsyncSession = Depends(get_db),
     cache: RedisCache = Depends(get_cache),
+    storage: ObjectStorage = Depends(get_storage),
     nats=Depends(get_nats),
 ) -> PlaybookService:
-    return PlaybookService(db, cache, nats)
+    return PlaybookService(db, cache, storage, nats)
 
 
-@router.get("", response_model=list[PlaybookResponse], dependencies=[Depends(require_plugin_enabled(ANSIBLE_PLUGIN_NAME))])
+async def _to_response(svc: PlaybookService, playbook) -> PlaybookResponse:
+    content = await svc.resolve_content(playbook)
+    return PlaybookResponse(
+        id=playbook.id,
+        name=playbook.name,
+        description=playbook.description,
+        content=content,
+        default_extra_vars=playbook.default_extra_vars,
+        role_ids=playbook.role_ids or [],
+        project_id=playbook.project_id,
+        version=playbook.version,
+        is_enabled=playbook.is_enabled,
+        generated_by=playbook.generated_by,
+        created_by=playbook.created_by,
+        created_at=playbook.created_at,
+        updated_at=playbook.updated_at,
+    )
+
+
+@router.get("", response_model=list[PlaybookListItem], dependencies=[Depends(require_plugin_enabled(ANSIBLE_PLUGIN_NAME))])
 async def list_playbooks(
     svc: PlaybookService = Depends(_svc),
     _: dict = Depends(get_current_user),
-) -> list[PlaybookResponse]:
+) -> list[PlaybookListItem]:
     rows = await svc.list_playbooks()
-    return [PlaybookResponse.model_validate(p) for p in rows]
+    return [PlaybookListItem.model_validate(p) for p in rows]
 
 
 @router.post("", response_model=PlaybookResponse, status_code=201, dependencies=[Depends(require_plugin_enabled(ANSIBLE_PLUGIN_NAME))])
@@ -79,7 +101,7 @@ async def create_playbook(
         role_ids=body.role_ids,
         project_id=body.project_id,
     )
-    return PlaybookResponse.model_validate(playbook)
+    return await _to_response(svc, playbook)
 
 
 @router.get("/{playbook_id}", response_model=PlaybookResponse, dependencies=[Depends(require_plugin_enabled(ANSIBLE_PLUGIN_NAME))])
@@ -92,7 +114,7 @@ async def get_playbook(
         playbook = await svc.get_playbook(playbook_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return PlaybookResponse.model_validate(playbook)
+    return await _to_response(svc, playbook)
 
 
 @router.patch("/{playbook_id}", response_model=PlaybookResponse, dependencies=[Depends(require_plugin_enabled(ANSIBLE_PLUGIN_NAME))])
@@ -117,7 +139,7 @@ async def update_playbook(
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return PlaybookResponse.model_validate(playbook)
+    return await _to_response(svc, playbook)
 
 
 @router.delete("/{playbook_id}", status_code=204, dependencies=[Depends(require_plugin_enabled(ANSIBLE_PLUGIN_NAME))])

@@ -31,6 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.models.policy import Policy
 from lokilinux.models.workflow import Workflow, WorkflowVersion
+from lokilinux.object_storage import ObjectStorage
 from lokilinux.schemas.workflow import (
     WorkflowDocument,
     WorkflowEdge,
@@ -119,7 +120,9 @@ def _build_document(policy: Policy) -> WorkflowDocument:
     )
 
 
-async def import_policy_as_workflow(db: AsyncSession, policy: Policy, *, created_by: UUID | None) -> Workflow:
+async def import_policy_as_workflow(
+    db: AsyncSession, storage: ObjectStorage, policy: Policy, *, created_by: UUID | None
+) -> Workflow:
     """Idempotent: a policy already imported (migrated_from_policy_id set on
     some workflow) returns that workflow unchanged rather than creating a
     second one. The created workflow is published immediately — an
@@ -134,7 +137,7 @@ async def import_policy_as_workflow(db: AsyncSession, policy: Policy, *, created
     doc = _build_document(policy)
     yaml_source = serialize_document(doc)
 
-    svc = WorkflowService(db)
+    svc = WorkflowService(db, storage)
     workflow = await svc.create_workflow(name=policy.name, yaml_source=yaml_source, created_by=created_by)
 
     workflow.migrated_from_policy_id = policy.id

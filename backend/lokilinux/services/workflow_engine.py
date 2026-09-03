@@ -53,13 +53,20 @@ from lokilinux.cache import RedisCache
 from lokilinux.models.agent import Agent
 from lokilinux.models.job import Job, JobStatus
 from lokilinux.models.workflow import Workflow, WorkflowRun, WorkflowStepRun, WorkflowVersion
-from lokilinux.schemas.workflow import CompiledGraph, DryRunResponse, DryRunStepResult, WorkflowNodeType, WorkflowStep
+from lokilinux.object_storage import ObjectStorage
+from lokilinux.schemas.workflow import (
+    CompiledGraph,
+    DryRunResponse,
+    DryRunStepResult,
+    WorkflowNodeType,
+    WorkflowStep,
+)
 from lokilinux.services.alert_service import AlertService
 from lokilinux.services.audit_service import AuditService
 from lokilinux.services.job_service import JobService
 from lokilinux.services.playbook_service import PlaybookService
-from lokilinux.utils.agent_capability import agent_meets_minimum
 from lokilinux.services.policy_service import resolve_targets
+from lokilinux.utils.agent_capability import agent_meets_minimum
 from lokilinux.utils.expr import ExpressionError, evaluate_condition
 from lokilinux.utils.shell import q
 
@@ -132,7 +139,7 @@ async def _load_step_runs(db: AsyncSession, run_id: UUID) -> dict[str, WorkflowS
 
 
 async def start_run(
-    db: AsyncSession, cache: RedisCache, workflow_id: UUID, *,
+    db: AsyncSession, cache: RedisCache, storage: ObjectStorage, workflow_id: UUID, *,
     trigger_type: str, triggered_by: UUID | None, is_dry_run: bool = False, nats=None,
 ) -> WorkflowRun:
     workflow = await _get_workflow(db, workflow_id)
@@ -173,7 +180,7 @@ async def start_run(
     )
 
     if not is_dry_run:
-        await advance_run(db, cache, run, nats)
+        await advance_run(db, cache, storage, run, nats)
     return run
 
 
@@ -376,7 +383,8 @@ def _compile_package_remove(step: WorkflowStep) -> str:
 
 
 async def _dispatch_step(
-    db: AsyncSession, cache: RedisCache, step: WorkflowStep, target_agent_ids: list[UUID], run_id: UUID,
+    db: AsyncSession, cache: RedisCache, storage: ObjectStorage, step: WorkflowStep,
+    target_agent_ids: list[UUID], run_id: UUID,
 ) -> Job:
     """Translate one workflow step into a Job. requires_approval is always
     False here — the workflow's own `approval` node type is the human gate;
@@ -393,7 +401,7 @@ async def _dispatch_step(
         playbook_id = config.get("playbook_id")
         if not playbook_id:
             raise WorkflowRunError(f"step '{step.id}' (type ansible) has no config.playbook_id")
-        return await PlaybookService(db, cache).execute_playbook(
+        return await PlaybookService(db, cache, storage).execute_playbook(
             playbook_id=UUID(str(playbook_id)),
             agent_ids=target_agent_ids,
             extra_vars=config.get("extra_vars") or {},
@@ -584,7 +592,9 @@ async def _wait_for_agent_satisfied(db: AsyncSession, sr: WorkflowStepRun, step:
     return True, False
 
 
-async def advance_run(db: AsyncSession, cache: RedisCache, run: WorkflowRun, nats=None) -> None:
+async def advance_run(
+    db: AsyncSession, cache: RedisCache, storage: ObjectStorage, run: WorkflowRun, nats=None
+) -> None:
     """One tick of the state machine — see module docstring for when this
     is called. No-op for a run that isn't actively RUNNING (WAITING_APPROVAL
     needs a human, terminal states need nothing). `nats` is optional and
@@ -751,7 +761,7 @@ async def advance_run(db: AsyncSession, cache: RedisCache, run: WorkflowRun, nat
             continue
 
         try:
-            job = await _dispatch_step(db, cache, step, target_agent_ids, run.id)
+            job = await _dispatch_step(db, cache, storage, step, target_agent_ids, run.id)
         except (WorkflowRunError, ValueError) as exc:
             # A ValueError here can only be JobService.create_job's
             # duplicate-active-job guard, which rolls back on the
@@ -788,7 +798,10 @@ async def advance_run(db: AsyncSession, cache: RedisCache, run: WorkflowRun, nat
     await db.commit()
 
 
-async def approve_step(db: AsyncSession, cache: RedisCache, run_id: UUID, step_id: str, *, actor: UUID | None, nats=None) -> WorkflowRun:
+async def approve_step(
+    db: AsyncSession, cache: RedisCache, storage: ObjectStorage, run_id: UUID, step_id: str, *,
+    actor: UUID | None, nats=None,
+) -> WorkflowRun:
     run = await _get_run(db, run_id)
     step_runs = await _load_step_runs(db, run.id)
     sr = step_runs.get(step_id)
@@ -808,7 +821,7 @@ async def approve_step(db: AsyncSession, cache: RedisCache, run_id: UUID, step_i
         action="workflow.step_approved", user_id=str(actor) if actor else None,
         resource_type="workflow_run", resource_id=str(run.id), changes={"step_id": step_id},
     )
-    await advance_run(db, cache, run, nats)
+    await advance_run(db, cache, storage, run, nats)
     return run
 
 

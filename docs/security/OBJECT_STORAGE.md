@@ -72,7 +72,12 @@ individual (ar fi zgomotos pentru path-ul de citire); upload și delete da.
 |---|---|
 | Chei de semnare (job signing, policy signing), CA/certificate | Secret material cu propriul model de rotație/acces ([KMS.md](KMS.md)) — nu e un artifact. |
 | `inventory_blobs` | Content-addressable, deduplicat fleet-wide, în calea directă de citire a snapshot-urilor — un round-trip S3 acolo ar fi o regresie de performanță. |
-| Playbook Ansible / rol / workflow YAML | Documente-sursă mici (KB), versionate, interogabile — plus, migrarea lor ar introduce o dependență S3 în calea de dispatch a job-urilor din `WorkflowRunnerWorker` (background, fără request HTTP). Exclus deliberat după audit. |
+
+Playbook Ansible, rol și workflow YAML **au fost migrate** în S3 (vezi mai jos) — inclusiv calea de
+dispatch a job-urilor din `WorkflowRunnerWorker`/`WorkflowSchedulerWorker`/`IncidentWorker`, care acum
+depind de `storage` la fel ca orice alt worker. Aceasta a fost o decizie explicită, luată după ce
+riscul (o dependență S3 nouă în calea de execuție, pentru documente-sursă mici) a fost semnalat și
+acceptat — vezi secțiunea următoare pentru ce s-a schimbat concret.
 
 ## Dual-read (migrare fără backfill)
 
@@ -82,9 +87,37 @@ e nullable, nu s-a rulat niciun backfill. `storage_object_id` e `NULL` pe rându
 migrare viitoare de tip file-shaped urmează același tipar: coloană FK nulabilă + citire duală, nu un
 job de backfill.
 
+## Playbook Ansible / rol / workflow YAML — conținut executabil în S3
+
+Spre deosebire de rapoarte/datastream-uri (fișiere generate/importate, fără rol în dispatch), acest
+conținut alimentează direct execuția: `PlaybookService.execute_playbook` citește conținutul (din S3
+sau, pentru rânduri vechi, din coloana legacy) și îl inserează în `Job.parameters` înainte de semnarea
+Ed25519 a envelope-ului — semnătura acoperă tot ce ajunge la agent, exact ca înainte. Snapshot-ul rămâne
+în Postgres (JSONB pe `jobs`), nu în S3 — doar sursa DE UNDE se citește conținutul la momentul creării
+job-ului s-a mutat.
+
+Asta a introdus o dependență nouă pe `storage` în trei worker-e de fundal (`WorkflowRunnerWorker`,
+`WorkflowSchedulerWorker`, `IncidentWorker` — pentru runbook-uri AUTO), plus în routerele
+`playbooks.py`/`ansible_roles.py`/`workflows.py`/`policies.py` (migrarea unei Policy la Workflow).
+Fiecare a primit `storage: ObjectStorage` prin `Depends(get_storage)` (routere) sau prin constructor
+(worker-e, cablate în `main.py`'s lifespan) — același tipar deja folosit pentru `nats`.
+
+Listele (`GET /playbooks`, `GET /ansible-roles`) omit deliberat conținutul complet — un `PlaybookListItem`/
+`AnsibleRoleListItem` separat de modelul de detaliu, ca să nu declanșeze un read S3 per rând la fiecare
+încărcare de pagină. `GET /workflows/{id}/versions` rămâne cu YAML complet per item (domeniul e mărginit
+la versiunile UNUI workflow, nu tot fleet-ul), la fel ca înainte.
+
+## Pachete agent
+
+Binarele agent (`.tar.gz`/`.deb`/`.rpm`, ~51MB per release) sunt în S3 sub chei deterministe
+(`system/agent-packages/<versiune>/<filename>`) — NU prin tabela `storage_objects` (nimic de urmărit
+per-upload, o versiune suprascrie mereu aceeași cheie). `agent_install.py` verifică existența cu
+`storage.exists()` și descarcă prin `StreamingResponse`; scriptul de release
+(`.claude/skills/ship-changes/scripts/release.sh`) le urcă după `make agent-package`, direct din
+containerul `lokilinux-api` (singurul cu credentials S3), nu de pe host — RustFS e internal-only.
+Bind mount-ul `./agent/bin:/opt/lokilinux/packages:ro` și mount-ul `/downloads` au fost eliminate.
+
 ## Ce rămâne de implementat
 
-Vezi [ARCHITECTURE.md §2.6](../ARCHITECTURE.md) pentru ce s-a migrat deja (rapoarte compliance, import
-XCCDF/OVAL/SCAP). Pachetele agent (`agent/bin`, ~51MB, servite azi prin bind mount) și attachments
-pentru incidente/diagnostic bundles rămân follow-up neînceput — layerul central le poate primi oricând,
-fără nicio schimbare de arhitectură.
+Attachments pentru incidente/diagnostic bundles rămân follow-up neînceput — layerul central le poate
+primi oricând, fără nicio schimbare de arhitectură.

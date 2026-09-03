@@ -21,7 +21,7 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import NameOID
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -29,10 +29,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from lokilinux.auth.dependencies import get_current_user, require_role
 from lokilinux.cache import RedisCache
 from lokilinux.config import get_settings
-from lokilinux.dependencies import get_cache, get_db
+from lokilinux.dependencies import get_cache, get_db, get_storage
 from lokilinux.models.agent import Agent, AgentStatus
 from lokilinux.models.agent_policy import EnrollmentToken
 from lokilinux.models.audit import Setting
+from lokilinux.object_storage import ObjectStorage
 from lokilinux.services import ca_signer_client
 from lokilinux.services.agent_policies import AgentPolicyService, EnrollmentTokenCreate
 
@@ -91,6 +92,7 @@ async def _platform_url(db: AsyncSession) -> tuple[str, str]:
 @router.get("/packages")
 async def get_packages(
     db: AsyncSession = Depends(get_db),
+    storage: ObjectStorage = Depends(get_storage),
     _: dict = Depends(get_current_user),
 ) -> dict:
     base, v, plat = await _get_agent_cfg(db)
@@ -99,8 +101,8 @@ async def get_packages(
     def pkg_url(filename: str) -> str:
         return f"{base}/{filename}" if base else ""
 
-    def avail(pkg_os: str) -> dict:
-        return {a: _package_available(pkg_os, a, v) for a in ("amd64", "arm64")}
+    async def avail(pkg_os: str) -> dict:
+        return {a: await _package_available(storage, pkg_os, a, v) for a in ("amd64", "arm64")}
 
     return {
         "version": v,
@@ -120,9 +122,9 @@ async def get_packages(
         # Which packages the platform can serve directly (locally built), so the
         # dashboard can offer one-click download without an external download_base.
         "available": {
-            "rpm": avail("rpm"),
-            "deb": avail("deb"),
-            "tar.gz": avail("tar.gz"),
+            "rpm": await avail("rpm"),
+            "deb": await avail("deb"),
+            "tar.gz": await avail("tar.gz"),
         },
         "install_script": f"{plat}/api/v1/agent/install.sh",
     }
@@ -272,28 +274,53 @@ _OS_ARCH_MAP: dict[str, dict[str, str]] = {
 }
 
 
-def _resolve_package(pkg_os: str, arch: str, ver: str) -> tuple[str, str]:
-    """Map (os, arch, version) to (filepath, filename) or raise. Shared by the
-    enrollment-token and dashboard (JWT) download paths."""
+# ponytail: agent packages use deterministic S3 keys (version+os+arch fully
+# determine the key), not the storage_objects metadata table the rest of
+# the Object Storage plan uses — there's nothing per-upload to track (no
+# user, no SHA-256 audit trail needed) and a release always overwrites the
+# same key for its version, so a DB row per file would add bookkeeping with
+# no reader. release.sh uploads directly via ObjectStorage.put_stream.
+_AGENT_PACKAGES_PREFIX = "system/agent-packages"
+
+
+def _package_key(pkg_os: str, arch: str, ver: str) -> tuple[str, str]:
+    """Map (os, arch, version) to (object_key, filename) or raise 400."""
     fmt = _OS_ARCH_MAP.get(pkg_os, {}).get(arch)
     if not fmt:
         raise HTTPException(status_code=400, detail=f"Unsupported os={pkg_os} arch={arch}")
-
     filename = fmt.format(v=ver)
-    filepath = os.path.join(get_settings().agent_package_dir, filename)
-    if not os.path.exists(filepath):
+    return f"{_AGENT_PACKAGES_PREFIX}/{ver}/{filename}", filename
+
+
+async def _resolve_package(
+    storage: ObjectStorage, pkg_os: str, arch: str, ver: str
+) -> tuple[str, str]:
+    """Like _package_key, but also verifies the object exists in storage —
+    shared by the enrollment-token and dashboard (JWT) download paths."""
+    key, filename = _package_key(pkg_os, arch, ver)
+    if not await storage.exists(key):
         raise HTTPException(
             status_code=503,
-            detail="Agent binary not yet built. Run `make agent-package` on the control plane.",
+            detail="Agent binary not yet built. Run the agent release script and try again.",
         )
-    return filepath, filename
+    return key, filename
 
 
-def _package_available(pkg_os: str, arch: str, ver: str) -> bool:
+async def _package_available(storage: ObjectStorage, pkg_os: str, arch: str, ver: str) -> bool:
     fmt = _OS_ARCH_MAP.get(pkg_os, {}).get(arch)
     if not fmt:
         return False
-    return os.path.exists(os.path.join(get_settings().agent_package_dir, fmt.format(v=ver)))
+    key, _ = _package_key(pkg_os, arch, ver)
+    return await storage.exists(key)
+
+
+async def _stream_package(storage: ObjectStorage, key: str, filename: str) -> StreamingResponse:
+    stream = await storage.get_stream(key)
+    return StreamingResponse(
+        stream,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/download-sig")
@@ -301,31 +328,28 @@ async def download_agent_sig(
     pkg_os: str = Query(...),
     arch: str = Query(...),
     db: AsyncSession = Depends(get_db),
+    storage: ObjectStorage = Depends(get_storage),
     _: dict = Depends(get_current_user),
-) -> FileResponse:
+) -> StreamingResponse:
     """Ed25519 signature over "sha256:<hex digest>" of the agent artifact —
     consumed by install.sh / loki update for supply-chain verification."""
     _, ver, _ = await _get_agent_cfg(db)
-    filepath, filename = _sig_path(pkg_os, arch, ver)
-    return FileResponse(filepath, filename=filename, media_type="application/octet-stream")
+    key, filename = await _sig_key(storage, pkg_os, arch, ver)
+    return await _stream_package(storage, key, filename)
 
 
-def _sig_path(pkg_os: str, arch: str, ver: str) -> tuple[str, str]:
-    """Map (os, arch, version) to the sibling .sig of the tar.gz artifact.
-    Mirrors _resolve_package's filename table for the tar.gz row."""
-    fmt_map = {
-        "tar.gz": "lokilinux-agent_{v}_linux_amd64.tar.gz",
-    }
+async def _sig_key(storage: ObjectStorage, pkg_os: str, arch: str, ver: str) -> tuple[str, str]:
+    """Map (os, arch, version) to the sibling .sig key of the tar.gz
+    artifact. Mirrors _package_key's filename table for the tar.gz row."""
     if pkg_os != "tar.gz" or arch not in ("amd64", "arm64"):
         raise HTTPException(status_code=404, detail="signature not available for this format/arch")
-    fname = fmt_map["tar.gz"].format(v=ver)
-    if arch == "arm64":
-        fname = fname.replace("_linux_amd64", "_linux_arm64")
-    path = os.path.join(get_settings().agent_package_dir, fname)
-    sig = path + ".sig"
-    if not os.path.isfile(sig):
-        raise HTTPException(status_code=404, detail="signature file not provisioned for this version")
-    return sig, fname + ".sig"
+    _base_key, filename = _package_key("tar.gz", arch, ver)
+    sig_key = f"{_AGENT_PACKAGES_PREFIX}/{ver}/{filename}.sig"
+    if not await storage.exists(sig_key):
+        raise HTTPException(
+            status_code=404, detail="signature file not provisioned for this version"
+        )
+    return sig_key, filename + ".sig"
 
 
 @router.get("/download")
@@ -333,11 +357,12 @@ async def download_agent(
     pkg_os: str = Query(..., alias="os"),
     arch: str = Query(...),
     db: AsyncSession = Depends(get_db),
+    storage: ObjectStorage = Depends(get_storage),
     _token: EnrollmentToken = Depends(_verify_enrollment_token()),
-) -> FileResponse:
+) -> StreamingResponse:
     _, ver, _ = await _get_agent_cfg(db)
-    filepath, filename = _resolve_package(pkg_os, arch, ver)
-    return FileResponse(filepath, filename=filename, media_type="application/octet-stream")
+    key, filename = await _resolve_package(storage, pkg_os, arch, ver)
+    return await _stream_package(storage, key, filename)
 
 
 @router.get("/download-latest")
@@ -345,7 +370,8 @@ async def download_agent_latest(
     pkg_os: str = Query(..., alias="os"),
     arch: str = Query(...),
     db: AsyncSession = Depends(get_db),
-) -> FileResponse:
+    storage: ObjectStorage = Depends(get_storage),
+) -> StreamingResponse:
     """Public, unauthenticated — same exposure as /install.sh (also public).
 
     Used by `loki update` on already-enrolled hosts, which have no fresh
@@ -354,8 +380,8 @@ async def download_agent_latest(
     to enumerate/pull historical builds.
     """
     _, ver, _ = await _get_agent_cfg(db)
-    filepath, filename = _resolve_package(pkg_os, arch, ver)
-    return FileResponse(filepath, filename=filename, media_type="application/octet-stream")
+    key, filename = await _resolve_package(storage, pkg_os, arch, ver)
+    return await _stream_package(storage, key, filename)
 
 
 @router.get("/download-direct")
@@ -363,14 +389,15 @@ async def download_agent_direct(
     pkg_os: str = Query(..., alias="os"),
     arch: str = Query(...),
     db: AsyncSession = Depends(get_db),
+    storage: ObjectStorage = Depends(get_storage),
     _: dict = Depends(require_role("ADMIN", "OPERATOR")),
-) -> FileResponse:
+) -> StreamingResponse:
     """Serve the locally-built agent package straight to an authenticated
     dashboard user — no enrollment token needed. Powers one-click generation
     from the /agents page."""
     _, ver, _ = await _get_agent_cfg(db)
-    filepath, filename = _resolve_package(pkg_os, arch, ver)
-    return FileResponse(filepath, filename=filename, media_type="application/octet-stream")
+    key, filename = await _resolve_package(storage, pkg_os, arch, ver)
+    return await _stream_package(storage, key, filename)
 
 
 # ── POST /agents/register ─────────────────────────────────────────────────────

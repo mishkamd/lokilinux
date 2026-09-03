@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.auth.dependencies import get_current_user, require_role, safe_user_uuid
-from lokilinux.dependencies import get_cache, get_db, get_nats
+from lokilinux.dependencies import get_cache, get_db, get_nats, get_storage
 from lokilinux.incidents.timeline import add_entry
 from lokilinux.runbooks.models import Runbook
 from lokilinux.runbooks.schemas import RunbookCreate, RunbookExecuteRequest, RunbookResponse
@@ -87,6 +87,7 @@ async def execute(
     payload: RunbookExecuteRequest,
     db: AsyncSession = Depends(get_db),
     cache: Any = Depends(get_cache),
+    storage: Any = Depends(get_storage),
     nats: Any = Depends(get_nats),
     _: dict[str, Any] = Depends(require_role("ADMIN", "OPERATOR")),
 ) -> dict[str, str]:
@@ -94,7 +95,7 @@ async def execute(
     if runbook is None:
         raise HTTPException(status_code=404, detail="Runbook not found")
     try:
-        run = await execute_runbook(db, cache, runbook, nats=nats)
+        run = await execute_runbook(db, cache, storage, runbook, nats=nats)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 

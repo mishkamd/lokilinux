@@ -409,7 +409,6 @@ services:
       - certs_dir:/etc/lokilinux/certs:ro
       - ca_signer_sock:/run/lokilinux/ca-signer
       - ./logs/api:/var/log/lokilinux
-      - ./agent/bin:/opt/lokilinux/packages:ro
       # Desired-state policy signing key (agent-policy-modernization plan):
       # ed25519 private half lives in its own named volume; generated on
       # first start, public half served at /agent/policy-signing-key.

@@ -12,9 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.api.v1.routers.playbooks import ANSIBLE_PLUGIN_NAME, require_plugin_enabled
 from lokilinux.auth.dependencies import get_current_user, require_role, safe_user_uuid
-from lokilinux.dependencies import get_db
+from lokilinux.dependencies import get_db, get_storage
+from lokilinux.object_storage import ObjectStorage
 from lokilinux.schemas.ansible_role import (
     AnsibleRoleCreate,
+    AnsibleRoleListItem,
     AnsibleRoleResponse,
     AnsibleRoleUpdate,
 )
@@ -23,17 +25,34 @@ from lokilinux.services.ansible_role_service import AnsibleRoleService
 router = APIRouter()
 
 
-def _svc(db: AsyncSession = Depends(get_db)) -> AnsibleRoleService:
-    return AnsibleRoleService(db)
+def _svc(
+    db: AsyncSession = Depends(get_db), storage: ObjectStorage = Depends(get_storage)
+) -> AnsibleRoleService:
+    return AnsibleRoleService(db, storage)
 
 
-@router.get("", response_model=list[AnsibleRoleResponse], dependencies=[Depends(require_plugin_enabled(ANSIBLE_PLUGIN_NAME))])
+async def _to_response(svc: AnsibleRoleService, role) -> AnsibleRoleResponse:
+    files = await svc.resolve_files(role)
+    return AnsibleRoleResponse(
+        id=role.id,
+        name=role.name,
+        description=role.description,
+        files=files,
+        version=role.version,
+        is_enabled=role.is_enabled,
+        created_by=role.created_by,
+        created_at=role.created_at,
+        updated_at=role.updated_at,
+    )
+
+
+@router.get("", response_model=list[AnsibleRoleListItem], dependencies=[Depends(require_plugin_enabled(ANSIBLE_PLUGIN_NAME))])
 async def list_roles(
     svc: AnsibleRoleService = Depends(_svc),
     _: dict = Depends(get_current_user),
-) -> list[AnsibleRoleResponse]:
+) -> list[AnsibleRoleListItem]:
     rows = await svc.list_roles()
-    return [AnsibleRoleResponse.model_validate(r) for r in rows]
+    return [AnsibleRoleListItem.model_validate(r) for r in rows]
 
 
 @router.post("", response_model=AnsibleRoleResponse, status_code=201, dependencies=[Depends(require_plugin_enabled(ANSIBLE_PLUGIN_NAME))])
@@ -48,7 +67,7 @@ async def create_role(
         description=body.description,
         created_by=safe_user_uuid(current_user),
     )
-    return AnsibleRoleResponse.model_validate(role)
+    return await _to_response(svc, role)
 
 
 @router.get("/{role_id}", response_model=AnsibleRoleResponse, dependencies=[Depends(require_plugin_enabled(ANSIBLE_PLUGIN_NAME))])
@@ -61,7 +80,7 @@ async def get_role(
         role = await svc.get_role(role_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return AnsibleRoleResponse.model_validate(role)
+    return await _to_response(svc, role)
 
 
 @router.patch("/{role_id}", response_model=AnsibleRoleResponse, dependencies=[Depends(require_plugin_enabled(ANSIBLE_PLUGIN_NAME))])
@@ -81,7 +100,7 @@ async def update_role(
         )
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return AnsibleRoleResponse.model_validate(role)
+    return await _to_response(svc, role)
 
 
 @router.delete("/{role_id}", status_code=204, dependencies=[Depends(require_plugin_enabled(ANSIBLE_PLUGIN_NAME))])

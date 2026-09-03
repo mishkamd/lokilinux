@@ -1,7 +1,13 @@
 """
 LokiLinux — AnsibleRoleService: CRUD for reusable Ansible roles.
+
+Files live in object storage (Object Storage plan) as a single JSON object
+per role version — new roles write through StorageService and carry
+content_object_id; legacy rows keep reading straight from the `files`
+JSONB column (dual-read, no backfill).
 """
 
+import json
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -9,11 +15,16 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.models.ansible_role import AnsibleRole
+from lokilinux.object_storage import ObjectStorage
+from lokilinux.services.storage_service import StorageService
+
+_MAX_ROLE_BYTES = 8 * 1024 * 1024  # 8MiB — a role is many small text files, generous ceiling
 
 
 class AnsibleRoleService:
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(self, db: AsyncSession, storage: ObjectStorage) -> None:
         self.db = db
+        self.storage = storage
 
     async def list_roles(self, limit: int = 100) -> list[AnsibleRole]:
         rows = (await self.db.execute(
@@ -30,6 +41,28 @@ class AnsibleRoleService:
     async def get_role(self, role_id: UUID) -> AnsibleRole:
         return await self._get_or_404(role_id)
 
+    async def resolve_files(self, role: AnsibleRole) -> dict:
+        """The role's {path: content} map, regardless of whether it lives in
+        the legacy `files` column or object storage."""
+        if role.content_object_id is not None:
+            _, stream = await StorageService(self.storage, self.db).open_stream(
+                role.content_object_id
+            )
+            body = b"".join([chunk async for chunk in stream])
+            return json.loads(body.decode("utf-8"))
+        return role.files or {}
+
+    async def _store_files(self, name: str, files: dict, created_by: UUID | None) -> UUID:
+        obj = await StorageService(self.storage, self.db).store_bytes(
+            json.dumps(files).encode("utf-8"),
+            category="automation.role",
+            original_filename=f"{name}.json",
+            content_type="application/json",
+            max_bytes=_MAX_ROLE_BYTES,
+            created_by=created_by,
+        )
+        return obj.id
+
     async def create_role(
         self,
         name: str,
@@ -37,7 +70,14 @@ class AnsibleRoleService:
         description: str | None = None,
         created_by: UUID | None = None,
     ) -> AnsibleRole:
-        role = AnsibleRole(name=name, files=files, description=description, created_by=created_by)
+        content_object_id = await self._store_files(name, files, created_by)
+        role = AnsibleRole(
+            name=name,
+            content_object_id=content_object_id,
+            file_count=len(files),
+            description=description,
+            created_by=created_by,
+        )
         self.db.add(role)
         await self.db.commit()
         return role
@@ -55,8 +95,12 @@ class AnsibleRoleService:
             role.name = name
         if description is not None:
             role.description = description
-        if files is not None and files != role.files:
-            role.files = files
+        if files is not None and files != await self.resolve_files(role):
+            role.content_object_id = await self._store_files(
+                name or role.name, files, role.created_by
+            )
+            role.files = None  # new edits always move fully onto object storage
+            role.file_count = len(files)
             role.version += 1  # same pattern as Playbook.version
         if is_enabled is not None:
             role.is_enabled = is_enabled
@@ -86,4 +130,4 @@ class AnsibleRoleService:
                 AnsibleRole.is_enabled.is_(True),
             )
         )).scalars().all()
-        return {role.name: role.files for role in rows}
+        return {role.name: await self.resolve_files(role) for role in rows}

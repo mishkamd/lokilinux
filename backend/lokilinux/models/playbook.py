@@ -1,10 +1,13 @@
 """
 LokiLinux — Ansible Playbook ORM model.
 
-content stores raw YAML text; version increments on every edit (same pattern
-as Policy.version). created_by is a UUID without FK because users are
-managed by Better Auth. generated_by is a seam for a future AI-assist
-feature ("user" today, "ai" later) — no AI code exists yet.
+content stores raw YAML text (legacy, dual-read) — new playbooks write to
+object storage instead (Object Storage plan, migration 047) and carry
+content_object_id; content stays nullable so old rows keep reading straight
+from this column. version increments on every edit (same pattern as
+Policy.version). created_by is a UUID without FK because users are managed
+by Better Auth. generated_by is a seam for a future AI-assist feature
+("user" today, "ai" later) — no AI code exists yet.
 """
 
 import uuid
@@ -23,7 +26,10 @@ class Playbook(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str | None] = mapped_column(String)
-    content: Mapped[str] = mapped_column(Text, nullable=False)
+    content: Mapped[str | None] = mapped_column(Text)
+    content_object_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("storage_objects.id")
+    )
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     generated_by: Mapped[str | None] = mapped_column(String(20))  # "user" | "ai" (future)

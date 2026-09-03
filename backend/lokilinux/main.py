@@ -17,7 +17,6 @@ import nats
 import structlog
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.responses import JSONResponse
 
@@ -185,10 +184,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     cve_enrichment_worker = CVEEnrichmentWorker(session_factory, cache)
     await cve_enrichment_worker.start()
     from lokilinux.workers.workflow_runner import WorkflowRunnerWorker
-    workflow_runner_worker = WorkflowRunnerWorker(session_factory, cache, nc)
+    workflow_runner_worker = WorkflowRunnerWorker(session_factory, cache, storage, nc)
     await workflow_runner_worker.start()
     from lokilinux.workers.workflow_scheduler import WorkflowSchedulerWorker
-    workflow_scheduler_worker = WorkflowSchedulerWorker(session_factory, cache)
+    workflow_scheduler_worker = WorkflowSchedulerWorker(session_factory, cache, storage)
     await workflow_scheduler_worker.start()
     from lokilinux.workers.event_processor import EventProcessorWorker
     event_processor_worker = EventProcessorWorker(nc, cache, ch)
@@ -209,7 +208,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     correlation_worker = CorrelationWorker(nc, session_factory, cache, ch)
     await correlation_worker.start()
     from lokilinux.workers.incident_worker import IncidentWorker
-    incident_worker = IncidentWorker(nc, session_factory, cache, ch)
+    incident_worker = IncidentWorker(nc, session_factory, cache, ch, storage)
     await incident_worker.start()
 
     app.state.workers = [
@@ -322,12 +321,6 @@ async def readiness(request: Request) -> JSONResponse:
         return JSONResponse(status_code=503, content={"status": "not_ready", "errors": errors})
     return JSONResponse({"status": "ready"})
 
-
-# ── Static files (agent packages) ────────────────────────────────────────────
-
-_pkg_dir = settings.agent_package_dir
-if os.path.isdir(_pkg_dir):
-    app.mount("/downloads", StaticFiles(directory=_pkg_dir), name="downloads")
 
 # ── Routers ───────────────────────────────────────────────────────────────────
 

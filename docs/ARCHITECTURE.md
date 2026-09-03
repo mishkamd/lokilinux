@@ -157,7 +157,8 @@ RustFS is the default S3-compatible object storage backend, self-hosted and inte
 - **Generic API**: `POST/GET/DELETE /api/v1/storage/objects` (upload, import-from-URL, list, download, verify, presign) — see `docs/security/OBJECT_STORAGE.md` for the credential and presigned-URL model.
 - **Multipart**: automatic above 8MB via boto3's `TransferConfig`, not hand-rolled.
 - **Download path**: defaults to a `StreamingResponse` proxy through the API, since RustFS sits on an internal network no browser can reach. Presigned URLs are opt-in, returned only when `S3_PUBLIC_ENDPOINT_URL` is configured (a browser-reachable endpoint — AWS S3, R2, Wasabi, or RustFS behind a reverse proxy).
-- **What actually moved to S3**: compliance report artifacts (PDF/XLSX/CSV/JSON, previously inline `BYTEA`) and imported XCCDF/OVAL/SCAP datastreams (previously fetched and discarded, never persisted) — both dual-read, so rows written before this layer existed keep working unchanged. Signing keys, PKI material, and `inventory_blobs` (content-addressable, deduplicated fleet-wide) deliberately stay out of S3 — see the plan's exclusions.
+- **What actually moved to S3**: compliance report artifacts (PDF/XLSX/CSV/JSON, previously inline `BYTEA`), imported XCCDF/OVAL/SCAP datastreams (previously fetched and discarded, never persisted), Ansible playbook/role content, workflow YAML, and agent install packages (`.tar.gz`/`.deb`/`.rpm`, previously a bind-mounted `agent/bin` directory — now deterministic keys under `system/agent-packages/<version>/`, no `storage_objects` row per file). All the CRUD-style migrations are dual-read, so rows written before this layer existed keep working unchanged. Signing keys, PKI material, and `inventory_blobs` (content-addressable, deduplicated fleet-wide) deliberately stay out of S3 — see `docs/security/OBJECT_STORAGE.md`.
+- **Execution-path dependency**: moving playbook/role/workflow content means `WorkflowRunnerWorker`, `WorkflowSchedulerWorker`, and `IncidentWorker` (runbook auto-run) now hold a `storage` handle too — a deliberate call after the alternative (S3 dependency in the background job-dispatch path) was flagged and accepted. The signed-envelope security model is unchanged: content is still resolved and inlined into `Job.parameters` before Ed25519 signing, exactly as before.
 
 ---
 
@@ -415,7 +416,7 @@ Compiled-in collectors, not dynamically loaded plugins. Each implements `Collect
 | CertificatesCollector | certificates | — | Certificate file scan |
 | RepositoriesCollector | repositories | — | Repo configs |
 | ContainerRuntimeCollector | container_runtime | — | docker/podman socket |
-| FileIntegrityCollector | file_integrity | 15 min | BLAKE3 walk of /etc, /boot, /usr/lib/systemd |
+| FileIntegrityCollector | file_integrity | 15 min | BLAKE3 walk of /etc (default; configurable globally/per-agent) |
 
 ### 4.5 Sandbox Architecture
 
