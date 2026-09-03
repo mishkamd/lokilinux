@@ -4,7 +4,7 @@
 
 ## Rol
 
-Tot ce rulează platforma stă în **9 servicii Docker** pe **cinci rețele segmentate** (`data-net`, `app-net`, `web-net` — interne; `gateway-net` pentru publicarea porturilor pe host; `egress-net` — doar api, pentru acces outbound), cu 5 volume named pentru persistență. Un singur `make init` duce de la zero la stack funcțional.
+Tot ce rulează platforma stă în **12 servicii Docker** pe **cinci rețele segmentate** (`data-net`, `app-net`, `web-net` — interne; `gateway-net` pentru publicarea porturilor pe host; `egress-net` — doar api, pentru acces outbound), cu volume named pentru persistență. Un singur `make init` duce de la zero la stack funcțional.
 
 Doar frontend-ul (3000), api-ul (8000 REST + 9090 metrics) și grpc (50051) au porturi publicate pe host; postgres, pgBouncer (6432), redis (6379) și nats (4222/8222) sunt **internal-only**. Imaginile sunt tag-uite `${LOKILINUX_VERSION}` (0.3.0) — niciodată `latest`.
 
@@ -42,13 +42,24 @@ Doar frontend-ul (3000), api-ul (8000 REST + 9090 metrics) și grpc (50051) au p
 | `pgbouncer` | edoburu/pgbouncer:v1.25.2-p0 | 6432→5432 | pg_isready | 0.5 CPU / 256M |
 | `nats` | nats:2.10.29-alpine (--js) | 4222, 8222 monitor | wget healthz | 1 CPU / 1G |
 | `redis` | redis:7.4.9-alpine | 6379 | redis-cli ping | 1 CPU / 2G |
+| `rustfs` | rustfs/rustfs:1.0.0-rc.5 | 9000 S3 API, 9001 consolă (internal-only; expuse doar în `docker-compose.dev.yml`) | curl `/health` | 1 CPU / 2G |
+| `clickhouse` | clickhouse/clickhouse-server:24.8 | 8123 intern | wget `/ping` | vezi compose (ulimits nofile) |
 | `lokilinux-migrate` | build backend | — | rulează și iese (restart: no) | — |
+| `lokilinux-ca-signer` | build backend (alt command) | — (UDS `/run/lokilinux/ca-signer`) | self-probe socket connect | — |
 | `lokilinux-api` | lokilinux/api | 8000 REST, 9090 metrics | probe python stdlib `/health` | 2 CPU / 2G |
 | `lokilinux-grpc` | lokilinux/api (alt command) | 50051 mTLS | socket probe python | 2 CPU / 2G |
 | `lokilinux-compliance` | lokilinux/compliance | 8080 healthz, 9091 metrics | self-probe `-healthcheck` | 2 CPU / 2G |
 | `lokilinux-frontend` | lokilinux/frontend | 3000 | wget /health | 0.5 CPU / 512M |
 
-Lanț de dependențe: `postgres` → healthy → `pgbouncer` → healthy → `lokilinux-migrate` completed → {`api`, `grpc`, `compliance`} → `frontend`. `nats` și `redis` sunt independente de DB.
+Lanț de dependențe: `postgres` → healthy → `pgbouncer` → healthy → `lokilinux-migrate` completed → {`api`, `grpc`, `compliance`} → `frontend`. `nats`, `redis`, `rustfs` și `clickhouse` sunt independente de DB.
+
+## Object storage — RustFS (S3-compatible)
+
+`rustfs` e backend-ul implicit de object storage, S3-compatible, pe `app-net` (internal-only — niciun port publicat în producție). `lokilinux-api` construiește un client S3 în lifespan (`backend/lokilinux/object_storage.py`), verifică/creează bucket-ul `lokilinux` la pornire, și expune un API generic upload/download/list/delete/presign la `/api/v1/storage/objects` (`backend/lokilinux/api/v1/routers/storage.py`). Fișierele mari (>8MB) folosesc multipart upload automat (boto3 `TransferConfig`), nu cod scris manual.
+
+Presigned URL-urile sunt dezactivate implicit — `rustfs` nu e accesibil dintr-un browser fiind pe o rețea internă, deci download-ul default trece prin API (`StreamingResponse`, proxy). Presign se activează doar setând `S3_PUBLIC_ENDPOINT_URL` (AWS S3, R2, Wasabi sau RustFS în spatele unui reverse proxy public).
+
+PostgreSQL păstrează doar metadata în tabela `storage_objects` (hash SHA-256, bucket, object_key, categorie, versiune) — niciodată conținutul fișierului. Rapoartele de compliance și XML-urile de import (XCCDF/OVAL/SCAP datastreams) merg prin acest layer în loc de coloane BYTEA în Postgres; migrarea e dual-read (rândurile vechi cu `body` direct în DB continuă să funcționeze).
 
 ## Volum persistente
 
@@ -57,6 +68,8 @@ Lanț de dependențe: `postgres` → healthy → `pgbouncer` → healthy → `lo
 | `lokilinux-postgres-data` | `/var/lib/postgresql/data/pgdata` | postgres |
 | `lokilinux-nats-data` | `/data/jetstream` | nats (JetStream) |
 | `lokilinux-redis-data` | `/data` | redis (AOF) |
+| `lokilinux-clickhouse-data` | `/var/lib/clickhouse` | clickhouse |
+| `lokilinux-rustfs-data` | `/data` | rustfs (object storage) |
 | `lokilinux-plugins` | `/opt/lokilinux/plugins` | api + grpc (plugin-uri agent-side) |
 | `lokilinux-certs` | `/etc/lokilinux/certs` (ro) | api, grpc, compliance |
 

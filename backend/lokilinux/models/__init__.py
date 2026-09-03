@@ -43,6 +43,7 @@ from .agent_policy import (
 )
 from .remediation import MaintenanceWindow, RemediationAction, RemediationJob, RemediationPlan
 from .rule_evaluation import ComplianceScore, RuleEvaluation
+from .storage_object import StorageObject
 from .workflow import Workflow, WorkflowAudit, WorkflowRun, WorkflowStepRun, WorkflowVersion
 
 # Observability pipeline (Phases B/D) — these live in their own bounded-context
@@ -131,6 +132,8 @@ __all__ = [
     # rule_evaluation (compliance module)
     "ComplianceScore",
     "RuleEvaluation",
+    # storage_object (Centralized S3 Object Storage plan)
+    "StorageObject",
     # workflow
     "Workflow",
     "WorkflowAudit",

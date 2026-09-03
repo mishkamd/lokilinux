@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.cache import RedisCache
 from lokilinux.ch import ClickHouseStore
+from lokilinux.object_storage import ObjectStorage
 
 
 async def get_db(request: Request) -> AsyncGenerator[AsyncSession, None]:
@@ -34,3 +35,7 @@ async def get_nats(request: Request):  # type: ignore[return]
 
 async def get_ch(request: Request) -> ClickHouseStore:
     return request.app.state.ch
+
+
+async def get_storage(request: Request) -> ObjectStorage:
+    return request.app.state.storage

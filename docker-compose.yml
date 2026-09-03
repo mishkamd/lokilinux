@@ -174,6 +174,41 @@ services:
           memory: 2G
 
   # ============================================================================
+  # OBJECT STORAGE — RustFS (S3-compatible, internal-only)
+  # ============================================================================
+
+  rustfs:
+    image: rustfs/rustfs:1.0.0-rc.5
+    container_name: lokilinux-rustfs
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: ":9000"
+      RUSTFS_CONSOLE_ADDRESS: ":9001"
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_ACCESS_KEY: ${S3_ACCESS_KEY:?S3_ACCESS_KEY must be set (never rustfsadmin)}
+      RUSTFS_SECRET_KEY: ${S3_SECRET_KEY:?S3_SECRET_KEY must be set (never rustfsadmin)}
+      RUSTFS_REGION: ${S3_REGION:-us-east-1}
+    volumes:
+      - rustfs_data:/data
+    networks:
+      - app-net
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:9000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          pids: 100
+          cpus: "1"
+          memory: 2G
+
+  # ============================================================================
   # EVENT STORE — ClickHouse (raw events, signal occurrences, incident evidence)
   # ============================================================================
 
@@ -314,6 +349,8 @@ services:
         condition: service_healthy
       clickhouse:
         condition: service_healthy
+      rustfs:
+        condition: service_healthy
       lokilinux-migrate:
         condition: service_completed_successfully
       lokilinux-ca-signer:
@@ -327,6 +364,15 @@ services:
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
       CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-lokilinux}
+      S3_ENABLED: ${S3_ENABLED:-true}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-http://rustfs:9000}
+      S3_PUBLIC_ENDPOINT_URL: ${S3_PUBLIC_ENDPOINT_URL:-}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:-lokilinux}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      S3_ADDRESSING_STYLE: ${S3_ADDRESSING_STYLE:-path}
+      S3_PRESIGNED_URL_EXPIRATION: ${S3_PRESIGNED_URL_EXPIRATION:-3600}
       EVENT_RETENTION_DAYS: ${EVENT_RETENTION_DAYS:-30}
       SIGNAL_OCCURRENCE_RETENTION_DAYS: ${SIGNAL_OCCURRENCE_RETENTION_DAYS:-90}
       INCIDENT_EVIDENCE_RETENTION_DAYS: ${INCIDENT_EVIDENCE_RETENTION_DAYS:-180}
@@ -596,6 +642,8 @@ volumes:
     name: lokilinux-redis-data
   clickhouse_data:
     name: lokilinux-clickhouse-data
+  rustfs_data:
+    name: lokilinux-rustfs-data
   plugins_dir:
     name: lokilinux-plugins
   certs_dir:

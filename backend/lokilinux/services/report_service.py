@@ -31,11 +31,14 @@ from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer, Table, Tabl
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lokilinux.config import get_settings
 from lokilinux.models.agent import Agent
 from lokilinux.models.compliance_exception import ComplianceException
 from lokilinux.models.compliance_report import ComplianceReport
 from lokilinux.models.compliance_rule import ComplianceRule, PolicySetRule
 from lokilinux.models.rule_evaluation import RuleEvaluation
+from lokilinux.object_storage import ObjectStorage
+from lokilinux.services.storage_service import StorageService
 from lokilinux.settings_schema import get_setting_value
 
 CATEGORY_BY_DOMAIN = {
@@ -437,10 +440,16 @@ _SERIALIZERS = {"JSON": to_json, "CSV": to_csv, "XLSX": to_xlsx, "PDF": to_pdf}
 _GENERIC_REPORT_TYPES = {"FRAMEWORK", "EXCEPTION", "EXECUTIVE_SUMMARY"}
 
 
-async def generate_report(db: AsyncSession, report: ComplianceReport) -> None:
+async def generate_report(
+    db: AsyncSession, storage: ObjectStorage, report: ComplianceReport
+) -> None:
     """Runs as a FastAPI BackgroundTask (see routers/compliance/reports.py)
     — mutates and commits `report` in place, matching the same
     Job-row-as-progress-tracker pattern the ComplianceAsCode importer uses.
+
+    Writes the generated artifact to object storage (Object Storage plan)
+    instead of the legacy `body` BYTEA column — see
+    models/compliance_report.py's dual-read docstring.
     """
     report.status = "GENERATING"
     await db.commit()
@@ -484,7 +493,18 @@ async def generate_report(db: AsyncSession, report: ComplianceReport) -> None:
             serialize = generic_serializers[report.format]
         else:
             serialize = _SERIALIZERS[report.format]
-        report.body = serialize(data)
+        body = serialize(data)
+
+        ext = report.format.lower()
+        obj = await StorageService(storage, db).store_bytes(
+            body,
+            category="compliance.report",
+            original_filename=f"compliance-report-{report.id}.{ext}",
+            content_type=FORMAT_CONTENT_TYPES[report.format],
+            max_bytes=get_settings().s3_max_upload_bytes,
+            created_by=report.generated_by,
+        )
+        report.storage_object_id = obj.id
         report.status = "COMPLETED"
         report.completed_at = datetime.now(timezone.utc)
         report.artifact_uri = f"/api/v1/compliance/reports/{report.id}/download"

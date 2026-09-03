@@ -36,6 +36,7 @@ echo "[*] Creating named volumes..."
 docker volume create lokilinux-postgres-data     2>/dev/null || true
 docker volume create lokilinux-nats-data         2>/dev/null || true
 docker volume create lokilinux-redis-data        2>/dev/null || true
+docker volume create lokilinux-rustfs-data       2>/dev/null || true
 docker volume create lokilinux-plugins           2>/dev/null || true
 docker volume create lokilinux-certs             2>/dev/null || true
 docker volume create lokilinux-ca-key            2>/dev/null || true

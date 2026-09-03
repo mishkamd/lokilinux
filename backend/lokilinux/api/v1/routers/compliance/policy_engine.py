@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.api.v1.routers.compliance._pagination import paginate_keyset
 from lokilinux.auth.dependencies import get_current_user, require_permission, safe_user_uuid
+from lokilinux.config import get_settings
 from lokilinux.dependencies import get_db
 from lokilinux.models.compliance_rule import (
     ComplianceRule,
@@ -29,6 +30,7 @@ from lokilinux.models.compliance_rule import (
     PolicySetRule,
 )
 from lokilinux.models.job import Job, JobStatus
+from lokilinux.object_storage import ObjectStorage
 from lokilinux.schemas.common import CursorPage
 from lokilinux.schemas.compliance_rule import (
     ComplianceRuleResponse,
@@ -48,6 +50,7 @@ from lokilinux.schemas.compliance_rule import (
 from lokilinux.services.audit_service import AuditService
 from lokilinux.services.complianceascode_importer import ComplianceAsCodeImporter
 from lokilinux.services.policy_set_service import PolicySetService
+from lokilinux.services.storage_service import StorageService
 
 logger = logging.getLogger(__name__)
 
@@ -382,10 +385,12 @@ async def import_policy_set(
     await db.refresh(job)
 
     session_factory = request.app.state.session_factory
+    storage = request.app.state.storage
     selected_profile_ids = [body.profile_id] if body.profile_id else None
     background_tasks.add_task(
         _run_compliance_import,
         session_factory,
+        storage,
         job.id,
         body.datastream_url,
         body.content_version,
@@ -397,6 +402,7 @@ async def import_policy_set(
 
 async def _run_compliance_import(
     session_factory,
+    storage: ObjectStorage,
     job_id: UUID,
     datastream_url: str,
     content_version: str,
@@ -413,10 +419,29 @@ async def _run_compliance_import(
         await db.commit()
 
         try:
+            settings = get_settings()
+            filename = datastream_url.rsplit("/", 1)[-1] or "datastream.xml"
+
+            # Fetch once, persist to S3, then read the persisted bytes for
+            # parsing — after this, the object in S3 is the source of truth,
+            # not the external URL (Object Storage plan).
             async with httpx.AsyncClient(timeout=120.0) as client:
-                resp = await client.get(datastream_url)
-                resp.raise_for_status()
-                xml_bytes = resp.content
+                async with client.stream("GET", datastream_url) as resp:
+                    resp.raise_for_status()
+                    stored = await StorageService(storage, db).store_stream(
+                        resp.aiter_bytes(1024 * 1024),
+                        category="compliance.datastream",
+                        original_filename=filename,
+                        content_type="application/xml",
+                        max_bytes=settings.s3_max_upload_bytes,
+                        extra_metadata={
+                            "content_version": content_version,
+                            "source_url": datastream_url,
+                        },
+                    )
+
+            _, stream = await StorageService(storage, db).open_stream(stored.id)
+            xml_bytes = b"".join([chunk async for chunk in stream])
 
             result = await ComplianceAsCodeImporter(db).import_datastream(
                 xml_bytes, content_version, selected_profile_ids
@@ -435,6 +460,8 @@ async def _run_compliance_import(
                     "rules_unchanged": result.rules_unchanged,
                     "rules_removed": result.rules_removed,
                 },
+                "storage_object_id": str(stored.id),
+                "sha256": stored.sha256,
             }
             await db.commit()
         except Exception as exc:

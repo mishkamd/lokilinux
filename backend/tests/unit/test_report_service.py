@@ -160,13 +160,13 @@ def test_to_pdf_handles_no_violations():
 
 
 @pytest.mark.asyncio
-async def test_generate_report_xlsx_fails_when_disabled(db_session):
+async def test_generate_report_xlsx_fails_when_disabled(db_session, fake_storage):
     await _set_xlsx_pdf_enabled(db_session, False)
     report = ComplianceReport(report_type="FLEET_SUMMARY", format="XLSX", params={})
     db_session.add(report)
     await db_session.flush()
 
-    await generate_report(db_session, report)
+    await generate_report(db_session, fake_storage, report)
 
     assert report.status == "FAILED"
     assert "disabled" in report.error_message
@@ -174,40 +174,40 @@ async def test_generate_report_xlsx_fails_when_disabled(db_session):
 
 
 @pytest.mark.asyncio
-async def test_generate_report_pdf_fails_when_disabled(db_session):
+async def test_generate_report_pdf_fails_when_disabled(db_session, fake_storage):
     await _set_xlsx_pdf_enabled(db_session, False)
     report = ComplianceReport(report_type="FLEET_SUMMARY", format="PDF", params={})
     db_session.add(report)
     await db_session.flush()
 
-    await generate_report(db_session, report)
+    await generate_report(db_session, fake_storage, report)
 
     assert report.status == "FAILED"
     assert "disabled" in report.error_message
 
 
 @pytest.mark.asyncio
-async def test_generate_report_json_unaffected_when_xlsx_pdf_disabled(db_session):
+async def test_generate_report_json_unaffected_when_xlsx_pdf_disabled(db_session, fake_storage):
     await _set_xlsx_pdf_enabled(db_session, False)
     report = ComplianceReport(report_type="FLEET_SUMMARY", format="JSON", params={})
     db_session.add(report)
     await db_session.flush()
 
-    await generate_report(db_session, report)
+    await generate_report(db_session, fake_storage, report)
 
     assert report.status == "COMPLETED"
-    assert report.body is not None
+    assert report.storage_object_id is not None
 
 
 @pytest.mark.asyncio
-async def test_generate_report_xlsx_succeeds_by_default(db_session):
+async def test_generate_report_xlsx_succeeds_by_default(db_session, fake_storage):
     # No _set_xlsx_pdf_enabled call — proves the settings key's own default
     # (True) is what's in effect, not just a test fixture always enabling it.
     report = ComplianceReport(report_type="FLEET_SUMMARY", format="XLSX", params={})
     db_session.add(report)
     await db_session.flush()
 
-    await generate_report(db_session, report)
+    await generate_report(db_session, fake_storage, report)
 
     assert report.status == "COMPLETED"
-    assert report.body is not None
+    assert report.storage_object_id is not None

@@ -85,6 +85,25 @@ class Settings(BaseSettings):
     job_signing_required: bool = False   # fail-closed dispatch when True
     security_profile: str = "development"  # production adds startup validations
 
+    # ── Object storage (RustFS / S3-compatible) ───────────────
+    s3_enabled: bool = True
+    s3_endpoint_url: str = "http://rustfs:9000"
+    # Set only when the bucket is reachable from a browser (AWS S3, R2,
+    # Wasabi, or RustFS behind a reverse proxy) — presigned URLs are signed
+    # against this instead of s3_endpoint_url. Left empty, presign requests
+    # are refused (409) and downloads go through the API proxy instead,
+    # since s3_endpoint_url normally points at an app-net-internal hostname
+    # no browser can resolve.
+    s3_public_endpoint_url: str = ""
+    s3_region: str = "us-east-1"
+    s3_bucket: str = "lokilinux"
+    s3_access_key: str = ""
+    s3_secret_key: str = ""
+    s3_addressing_style: str = "path"
+    s3_presigned_url_expiration: int = 3600
+    s3_max_upload_bytes: int = 500 * 1024 * 1024
+    s3_multipart_threshold_bytes: int = 8 * 1024 * 1024
+
     @property
     def debug(self) -> bool:
         return self.environment == "development"

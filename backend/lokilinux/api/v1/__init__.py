@@ -16,8 +16,8 @@ from .routers.ansible_roles import router as ansible_roles_router
 from .routers.categories import router as categories_router
 from .routers.compliance import router as compliance_router
 from .routers.configuration import router as configuration_router
-from .routers.cves import router as cves_router
 from .routers.correlation import router as correlation_router
+from .routers.cves import router as cves_router
 from .routers.dashboard import router as dashboard_router
 from .routers.events import router as events_router
 from .routers.incidents import router as incidents_router
@@ -31,6 +31,7 @@ from .routers.policies import router as policies_router
 from .routers.runbooks import router as runbooks_router
 from .routers.servers import router as servers_router
 from .routers.signals import router as signals_router
+from .routers.storage import router as storage_router
 from .routers.topology import router as topology_router
 from .routers.workflows import router as workflows_router
 
@@ -63,3 +64,4 @@ router.include_router(correlation_router, prefix="/correlation", tags=["correlat
 router.include_router(observability_router, prefix="/observability", tags=["observability"])
 router.include_router(otlp_router, prefix="/otlp/v1", tags=["otlp"])
 router.include_router(agent_policies_router, prefix="/agent-policies", tags=["agent-policies"])
+router.include_router(storage_router, prefix="/storage", tags=["storage"])

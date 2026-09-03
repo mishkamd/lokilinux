@@ -51,7 +51,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
 from lokilinux.api.v1 import router as api_v1_router
 from lokilinux.auth.dependencies import get_current_user
-from lokilinux.dependencies import get_cache, get_ch, get_db, get_nats
+from lokilinux.dependencies import get_cache, get_ch, get_db, get_nats, get_storage
 
 
 @pytest.fixture(scope="session", autouse=True)
@@ -139,6 +139,49 @@ class FakeCH:
         return True
 
 
+class FakeObjectStorage:
+    """In-memory stand-in for ObjectStorage — same method surface, no S3."""
+
+    def __init__(self) -> None:
+        self.bucket = "lokilinux-test"
+        self._objects: dict[str, bytes] = {}
+
+    async def ensure_bucket(self) -> None:
+        pass
+
+    async def put_stream(
+        self,
+        key: str,
+        fileobj: Any,
+        *,
+        content_type: str | None = None,
+        metadata: dict[str, str] | None = None,
+    ) -> None:
+        self._objects[key] = fileobj.read()
+
+    async def get_stream(self, key: str) -> AsyncIterator[bytes]:
+        data = self._objects[key]
+
+        async def _iter() -> AsyncIterator[bytes]:
+            yield data
+
+        return _iter()
+
+    async def delete(self, key: str) -> None:
+        self._objects.pop(key, None)
+
+    async def exists(self, key: str) -> bool:
+        return key in self._objects
+
+    async def presign_get(self, key: str, *, expires_in: int) -> str:
+        return f"https://fake-presigned.test/{key}?expires_in={expires_in}"
+
+    async def presign_put(
+        self, key: str, *, expires_in: int, content_type: str | None = None
+    ) -> str:
+        return f"https://fake-presigned.test/{key}?expires_in={expires_in}&put=1"
+
+
 @pytest_asyncio.fixture
 async def db_session(engine) -> AsyncIterator[AsyncSession]:
     """One SAVEPOINT per test — rolled back afterwards, DB stays clean."""
@@ -173,12 +216,19 @@ def fake_ch() -> FakeCH:
 
 
 @pytest.fixture
+def fake_storage() -> FakeObjectStorage:
+    return FakeObjectStorage()
+
+
+@pytest.fixture
 def current_user() -> dict[str, Any]:
     return {"id": str(uuid.uuid4()), "role": "ADMIN"}
 
 
 @pytest_asyncio.fixture
-async def client(db_session, fake_cache, fake_nats, fake_ch, current_user) -> AsyncIterator[AsyncClient]:
+async def client(
+    db_session, fake_cache, fake_nats, fake_ch, fake_storage, current_user
+) -> AsyncIterator[AsyncClient]:
     app = FastAPI()
     app.include_router(api_v1_router, prefix="/api/v1")
 
@@ -196,11 +246,15 @@ async def client(db_session, fake_cache, fake_nats, fake_ch, current_user) -> As
         yield db_session
 
     app.state.session_factory = _session_factory
+    # Background tasks read request.app.state.storage directly (same
+    # reasoning as session_factory above) — reports.py and policy_engine.py.
+    app.state.storage = fake_storage
 
     app.dependency_overrides[get_db] = _get_db
     app.dependency_overrides[get_cache] = lambda: fake_cache
     app.dependency_overrides[get_nats] = lambda: fake_nats
     app.dependency_overrides[get_ch] = lambda: fake_ch
+    app.dependency_overrides[get_storage] = lambda: fake_storage
     app.dependency_overrides[get_current_user] = lambda: current_user
 
     transport = ASGITransport(app=app)

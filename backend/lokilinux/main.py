@@ -28,6 +28,7 @@ from lokilinux.ch import ClickHouseStore
 from lokilinux.config import Settings
 from lokilinux.db import build_engine, build_session_factory
 from lokilinux.middleware.rate_limit import RateLimitMiddleware
+from lokilinux.object_storage import ObjectStorage
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 
@@ -60,7 +61,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # production demands the full trust model be ON before serving agents.
     if settings.security_profile == "production":
         problems = []
-        if not os.environ.get("JOB_SIGNING_REQUIRED", "").lower() in ("1", "true", "yes"):
+        if os.environ.get("JOB_SIGNING_REQUIRED", "").lower() not in ("1", "true", "yes"):
             problems.append("JOB_SIGNING_REQUIRED must be true in production")
         if not settings.certificate_revocation_enabled:
             problems.append("certificate_revocation_enabled must be true in production")
@@ -116,6 +117,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     app.state.ch = ch
     logger.info("clickhouse.ready")
+
+    # Object storage — RustFS/S3-compatible (Centralized S3 Object Storage plan)
+    storage = ObjectStorage(
+        endpoint_url=settings.s3_endpoint_url,
+        region=settings.s3_region,
+        access_key=settings.s3_access_key,
+        secret_key=settings.s3_secret_key,
+        bucket=settings.s3_bucket,
+        addressing_style=settings.s3_addressing_style,
+        public_endpoint_url=settings.s3_public_endpoint_url,
+    )
+    if settings.s3_enabled:
+        await storage.ensure_bucket()
+    app.state.storage = storage
+    logger.info("storage.ready", bucket=settings.s3_bucket)
 
     # NATS — all topics prefixed lokilinux. (O1)
     nc = await nats.connect(settings.nats_url)
@@ -295,6 +311,12 @@ async def readiness(request: Request) -> JSONResponse:
 
     if not await request.app.state.ch.ping():
         errors.append("clickhouse: unreachable")
+
+    if settings.s3_enabled:
+        try:
+            await request.app.state.storage.exists("__readiness_probe__")
+        except Exception as exc:
+            errors.append(f"storage: {exc}")
 
     if errors:
         return JSONResponse(status_code=503, content={"status": "not_ready", "errors": errors})

@@ -41,4 +41,7 @@ PERMISSIONS: dict[str, frozenset[str]] = {
     "compliance.policies.manage": frozenset({"OPERATOR"}),
     "compliance.policies.archive": frozenset(),  # ADMIN-only today
     "compliance.policies.import": frozenset(),  # ADMIN-only today
+    # Object storage — routers/storage.py
+    "storage.upload": frozenset({"OPERATOR"}),
+    "storage.delete": frozenset({"OPERATOR"}),
 }

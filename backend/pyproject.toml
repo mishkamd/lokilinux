@@ -49,6 +49,10 @@ dependencies = [
 
     # Compliance — curated rule content loader (F10)
     "PyYAML==6.0.3",
+
+    # Object storage — RustFS/S3-compatible (Centralized S3 Object Storage plan)
+    "boto3==1.43.87",
+    "python-multipart==0.0.32",  # required by fastapi.UploadFile
 ]
 
 [project.optional-dependencies]
