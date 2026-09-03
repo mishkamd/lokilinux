@@ -78,7 +78,7 @@ LokiLinux is an Enterprise Linux Operations Platform — a unified control plane
 
 ### 2.1 Service Map
 
-Nine services across five segmented Docker networks (`data-net`, `app-net`, `web-net` internal; `gateway-net` for host port publishing; `egress-net` for API outbound access), five named volumes for persistent data. There is no flat shared network anymore.
+A dozen services across five segmented Docker networks (`data-net`, `app-net`, `web-net` internal; `gateway-net` for host port publishing; `egress-net` for API outbound access), named volumes for persistent data. There is no flat shared network anymore.
 
 ```
 Service Dependency Chain:
@@ -90,10 +90,13 @@ postgres (TimescaleDB PG17, port 5432)
        ├─ lokilinux-grpc (grpcio, port 50051 mTLS)
        └─ lokilinux-compliance (Go, port 8080 healthz + 9091 metrics)
             └─ lokilinux-frontend (Nuxt 4, port 3000 Web UI)
+lokilinux-ca-signer (isolated CA signing, network_mode: none, UDS only)
 
 Independent infrastructure (no DB dependency):
   nats (NATS 2.10.29, port 4222 client + 8222 monitor)
   redis (Redis 7.4.9, port 6379, AOF + allkeys-lru)
+  rustfs (S3-compatible object storage, port 9000 API + 9001 console, internal-only)
+  clickhouse (event store for the observability pipeline)
 ```
 
 ### 2.2 Port Map
@@ -119,6 +122,8 @@ Independent infrastructure (no DB dependency):
 | `postgres_data` | `/var/lib/postgresql/data` | postgres |
 | `nats_data` | `/data` | nats (JetStream) |
 | `redis_data` | `/data` | redis |
+| `clickhouse_data` | `/var/lib/clickhouse` | clickhouse |
+| `rustfs_data` | `/data` | rustfs (object storage — see §2.6) |
 | `plugins_dir` | `/opt/lokilinux/plugins` | lokilinux-grpc |
 | `certs_dir` | `/etc/lokilinux/certs` | lokilinux-grpc, lokilinux-api, lokilinux-compliance |
 
@@ -143,6 +148,16 @@ Independent infrastructure (no DB dependency):
 - Bind-mounted source volumes (excluding `.venv`, `node_modules`)
 - Relaxed resource limits (4G per service)
 - Verbose PostgreSQL query logging
+
+### 2.6 Object Storage
+
+RustFS is the default S3-compatible object storage backend, self-hosted and internal-only (`app-net`, no published port in production — `docker-compose.dev.yml` exposes 9000/9001 for local inspection only). PostgreSQL never stores file bytes; it holds only metadata in `storage_objects` (filename, content type, size, SHA-256, bucket, object key, category, version) and every persistent artifact type references a row there instead of a filesystem path or an inline BYTEA column.
+
+- **Abstraction**: `backend/lokilinux/object_storage.py` wraps boto3 behind a small interface (put/get/delete/exists/head/list/presign) — swapping RustFS for AWS S3, Cloudflare R2, or Wasabi is a config change (`S3_ENDPOINT_URL`), never a code change. `backend/lokilinux/services/storage_service.py` is the only caller: it owns hashing, size limits, category-prefixed key layout, and audit logging, so no other module talks to S3 directly.
+- **Generic API**: `POST/GET/DELETE /api/v1/storage/objects` (upload, import-from-URL, list, download, verify, presign) — see `docs/security/OBJECT_STORAGE.md` for the credential and presigned-URL model.
+- **Multipart**: automatic above 8MB via boto3's `TransferConfig`, not hand-rolled.
+- **Download path**: defaults to a `StreamingResponse` proxy through the API, since RustFS sits on an internal network no browser can reach. Presigned URLs are opt-in, returned only when `S3_PUBLIC_ENDPOINT_URL` is configured (a browser-reachable endpoint — AWS S3, R2, Wasabi, or RustFS behind a reverse proxy).
+- **What actually moved to S3**: compliance report artifacts (PDF/XLSX/CSV/JSON, previously inline `BYTEA`) and imported XCCDF/OVAL/SCAP datastreams (previously fetched and discarded, never persisted) — both dual-read, so rows written before this layer existed keep working unchanged. Signing keys, PKI material, and `inventory_blobs` (content-addressable, deduplicated fleet-wide) deliberately stay out of S3 — see the plan's exclusions.
 
 ---
 
@@ -267,7 +282,7 @@ All endpoints require JWT validation via `get_current_user` and optional role en
 **Policies:** Policy, PolicyAudit  
 **Compliance:** ComplianceRule, RemediationTemplate, PolicySet, PolicySetRule, PolicyAssignment, Baseline, BaselineVersion, BaselineApproval, BaselineEffective, DriftEvent (hypertable), DriftDetail (hypertable), FileHash, FileChange (hypertable), InventoryBlob, InventorySnapshot (hypertable), InventoryDelta (hypertable), RuleEvaluation (hypertable), ComplianceScore (hypertable), ComplianceReport  
 **Automation:** Playbook, AnsibleRole, AnsibleProject, PlaybookTemplate  
-**Platform:** Category, Project, Plugin, PluginInstallation  
+**Platform:** Category, Project, Plugin, PluginInstallation, StorageObject  
 **Auth/Audit:** AuditLog, UserProfile, Setting
 
 TimescaleDB hypertables used for: metrics, rule_evaluations, drift events, inventory snapshots/deltas, file changes, compliance scores.
@@ -281,6 +296,7 @@ Pydantic `Settings` model reads from environment variables. Key groups:
 | Database | `DATABASE_URL`, `POSTGRES_*`, `PGBOUNCER_*` |
 | Cache | `REDIS_URL`, `REDIS_PASSWORD` |
 | Message Bus | `NATS_URL` |
+| Object Storage | `S3_ENABLED`, `S3_ENDPOINT_URL`, `S3_PUBLIC_ENDPOINT_URL`, `S3_BUCKET`, `S3_ACCESS_KEY`, `S3_SECRET_KEY` |
 | Auth | `BETTER_AUTH_URL`, `BETTER_AUTH_SECRET` |
 | gRPC | `GRPC_PORT`, `AGENT_CERT_DIR`, `CA_*`, `SERVER_*` |
 | Agent | `AGENT_VERSION`, `AGENT_HEARTBEAT_INTERVAL`, `AGENT_MAX_OFFLINE_DAYS` |

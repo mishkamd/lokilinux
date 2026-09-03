@@ -139,6 +139,26 @@ Same rule generally: anything long-running is decoupled onto a NATS worker in `b
 so REST stays fast. Topic names are a single source of truth in `backend/lokilinux/nats_topics.py` —
 import the constants, never write raw subject strings.
 
+### Object storage
+
+Persistent files (generated reports, imported compliance datastreams, any future uploaded/exported
+artifact) go through `backend/lokilinux/services/storage_service.py` into RustFS/S3 — never onto the
+container filesystem and never as a new inline `BYTEA` column. `object_storage.py` is a thin boto3
+wrapper business logic never imports directly; `storage_service.py` owns hashing, size limits, and the
+category-prefix key layout (`CATEGORIES` dict — add a category there, never write a raw prefix string
+at a call site). PostgreSQL's `storage_objects` table holds only metadata (SHA-256, size, bucket,
+object key) — the row, not the bytes, is the source of truth for "does this exist".
+
+**The deliberate exception**: signing/PKI keys (`backend/lokilinux/kms/`, policy-signing key,
+CA key/cert) stay on local volumes — they're secret material with their own rotation/access model, not
+artifacts. `inventory_blobs` also stays in Postgres — it's content-addressable and deduplicated
+fleet-wide, sitting directly in the snapshot read path, where an S3 round-trip would be a regression.
+
+New file-shaped data follows the dual-read pattern already used for `compliance_reports.body` →
+`storage_object_id` (migration 046): add a nullable FK to `storage_objects`, write new rows through
+`storage_service`, and keep reading the legacy column when the new one is `NULL` — no backfill
+migration. Don't design a new sync/backfill migration; write dual-read and let old rows age out.
+
 ### Observability pipeline
 
 Four chained workers, each a separate NATS consumer:
@@ -173,9 +193,15 @@ is disabled in `/plugins`) — the whole Ansible layer works this way.
 
 Five segmented networks, no flat network. `data-net`/`app-net`/`web-net` are `internal: true`; only
 members of `gateway-net` can publish host ports (frontend 3000, api 8000/9090, grpc 50051). Redis, NATS,
-ClickHouse and pgBouncer are unreachable from the host — inspect them via `docker compose exec`. Only
-the api has `egress-net` (NVD/CISA feeds, webhooks). Images are pinned to `${LOKILINUX_VERSION}`, never
-`latest`. Adding a service means picking its networks explicitly.
+ClickHouse, RustFS and pgBouncer are unreachable from the host — inspect them via `docker compose exec`.
+Only the api has `egress-net` (NVD/CISA feeds, webhooks). Images are pinned to `${LOKILINUX_VERSION}`,
+never `latest`. Adding a service means picking its networks explicitly.
+
+**Gotcha confirmed live**: `lokilinux-migrate` must carry the same `image: lokilinux/api:${LOKILINUX_VERSION}`
+tag as `lokilinux-api`/`lokilinux-grpc`/`lokilinux-ca-signer` — without it, Compose builds it under its
+own implicit name and `docker compose build lokilinux-api` silently leaves migrate on a stale image, so
+new migrations never apply. If a migration you just added doesn't seem to run, rebuild `lokilinux-migrate`
+by name, don't assume rebuilding `lokilinux-api` covers it.
 
 ### Migrations
 

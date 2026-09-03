@@ -81,6 +81,7 @@ Operate Linux infrastructure at scale through a unified control plane for fleet 
 2. *Compliance pipeline* — the gRPC servicer publishes snapshots to NATS JetStream (`lokilinux.compliance.snapshot.*`) → the Go service ingests, diffs against baselines, evaluates CEL rules, computes scores → results are persisted to PostgreSQL (`compliance_scores`, drift tables) and read by the REST API.
 3. *Observability pipeline* — events arrive via `POST /api/v1/otlp` (OTLP/HTTP, protobuf) and internal producers → published raw on `lokilinux.events.raw` → `EventProcessorWorker` validates/dedups/fingerprints and batches them into ClickHouse → `SignalProcessorWorker` runs detectors on normalized events (`lokilinux.signals.detected`) → `CorrelationWorker` evaluates weighted-window correlation rules with Redis state and suppression → matching signals escalate into **incidents** (timeline, root cause, ClickHouse evidence rows) → linked **runbooks** can auto-trigger workflows.
 4. *User traffic* — the frontend calls `/api/v1` through a same-origin proxy; long-running work is decoupled onto NATS workers so REST stays fast.
+5. *Object storage* — generated reports and imported compliance content are streamed to RustFS (S3-compatible, internal-only) via `/api/v1/storage/objects`; PostgreSQL keeps only the SHA-256/size/key metadata in `storage_objects`, never the file bytes.
 
 ## Screenshots
 
@@ -105,9 +106,18 @@ Operate Linux infrastructure at scale through a unified control plane for fleet 
 | `redis` | Redis 7.4.9 | 6379 | Cache (AOF, allkeys-lru) |
 | `nats` | NATS 2.10.29 + JetStream | 4222, 8222 | Event bus |
 | `clickhouse` | ClickHouse 24.8 | 8123 | Event store: raw events, signal occurrences, incident evidence |
+| `rustfs` | RustFS 1.0.0-rc.5 (S3-compatible) | 9000, 9001 | Object storage: compliance reports, imported datastreams |
 | `lokilinux-migrate` | Alembic | — | One-shot DB migrations |
 
 \* pgBouncer listens internally on 5432; the historical "6432" host mapping is gone — no infrastructure port is published to the host.
+
+**Object storage layout** (bucket `lokilinux`, prefix per category — see `backend/lokilinux/services/storage_service.py`):
+
+```
+compliance/{datastreams,benchmarks,reports,evidence}/<object-id>/v<n>/<filename>
+security/{vulnerabilities,artifacts}/...
+incidents/  automation/  workflows/  uploads/  exports/  reports/  system/
+```
 
 ## Module Documentation
 
@@ -320,22 +330,22 @@ make sbom IMAGE=lokilinux/api:0.3.0   # CycloneDX SBOM for one image, written to
 
 ## Docker Compose Structure
 
-`docker-compose.yml` defines 10 services across **five segmented networks** (no flat shared network). All long-running services have health checks. `lokilinux-migrate` runs `alembic upgrade head` once and exits.
+`docker-compose.yml` defines a dozen services across **five segmented networks** (no flat shared network). All long-running services have health checks. `lokilinux-migrate` runs `alembic upgrade head` once and exits.
 
 ```
 data-net  (internal) : postgres <-> pgbouncer (+ frontend direct DB access)
-app-net   (internal) : pgbouncer / nats / redis / clickhouse <-> api / grpc / compliance / migrate
+app-net   (internal) : pgbouncer / nats / redis / clickhouse / rustfs <-> api / grpc / compliance / migrate
 web-net   (internal) : api <-> frontend
 gateway-net          : api / grpc / frontend — required for host port publishing
                        (internal networks cannot publish ports)
 egress-net           : api only — outbound internet for NVD/CISA feeds and webhooks
 ```
 
-Only `gateway-net` members can publish host ports: frontend `3000`, api `8000`/`9090`, grpc `50051`. Redis (`6379`), NATS (`4222`/`8222`), ClickHouse (`8123`) and pgBouncer are internal-only.
+Only `gateway-net` members can publish host ports: frontend `3000`, api `8000`/`9090`, grpc `50051`. Redis (`6379`), NATS (`4222`/`8222`), ClickHouse (`8123`), RustFS (`9000`/`9001`) and pgBouncer are internal-only.
 
 Images are tagged `${LOKILINUX_VERSION}` (pinned to `0.4.0` in `.env`) — never `latest`.
 
-Service dependencies: `postgres` → `pgbouncer` → `lokilinux-migrate` → `lokilinux-api` / `lokilinux-grpc` / `lokilinux-compliance` → `lokilinux-frontend`; api additionally waits on `redis`, `nats` and `clickhouse` health.
+Service dependencies: `postgres` → `pgbouncer` → `lokilinux-migrate` → `lokilinux-api` / `lokilinux-grpc` / `lokilinux-compliance` → `lokilinux-frontend`; api additionally waits on `redis`, `nats`, `clickhouse` and `rustfs` health.
 
 `docker-compose.dev.yml` is a dev override (used by `make dev`) that exposes the infrastructure ports locally (5432, 6432, 4222, 8222, 6379) and enables verbose Postgres query logging.
 
@@ -432,6 +442,8 @@ lokilinux/
 | `REDIS_PASSWORD` | Redis password |
 | `NATS_USER` / `NATS_PASSWORD` | NATS credentials (**required** — broker rejects unauthenticated clients) |
 | `CLICKHOUSE_USER` / `CLICKHOUSE_PASSWORD` / `CLICKHOUSE_DATABASE` | ClickHouse event store credentials (defaults: `default` / required password / `lokilinux`) — **note:** present in `.env` but not yet in `.env.example`; copy from `.env.example` and add if missing |
+| `S3_ACCESS_KEY` / `S3_SECRET_KEY` | RustFS credentials — generate your own, never the `rustfsadmin` default |
+| `S3_PUBLIC_ENDPOINT_URL` | Set only if RustFS (or another S3 endpoint) is reachable from a browser — enables presigned upload/download URLs, otherwise downloads proxy through the API |
 | `EVENT_RETENTION_DAYS` | ClickHouse raw-event retention (default 30) |
 | `SIGNAL_OCCURRENCE_RETENTION_DAYS` | Signal occurrence retention (default 90) |
 | `INCIDENT_EVIDENCE_RETENTION_DAYS` | Incident evidence retention (default 180) |
