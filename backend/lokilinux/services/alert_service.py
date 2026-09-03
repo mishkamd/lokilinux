@@ -16,6 +16,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lokilinux.models.agent import Agent
 from lokilinux.models.alert import Alert, AlertRule
 from lokilinux.nats_topics import ALERT_CREATED
 
@@ -144,10 +145,20 @@ class AlertService:
         count_query = select(func.count()).select_from(Alert).where(*filters)
         total = (await self.db.execute(count_query)).scalar_one()
 
-        query = select(Alert).where(*filters).order_by(Alert.created_at.desc()).limit(limit)
+        query = (
+            select(Alert, Agent.hostname)
+            .outerjoin(Agent, Agent.id == Alert.agent_id)
+            .where(*filters)
+            .order_by(Alert.created_at.desc())
+            .limit(limit)
+        )
         result = await self.db.execute(query)
-        alerts = result.scalars().all()
-        return {"items": alerts, "next_cursor": None, "total": total}
+        rows = result.all()
+        items = []
+        for alert, hostname in rows:
+            alert.hostname = hostname  # transient — not a DB column
+            items.append(alert)
+        return {"items": items, "next_cursor": None, "total": total}
 
     async def create_rule(
         self,
@@ -175,7 +186,9 @@ class AlertService:
 
     async def list_rules(self) -> dict:
         result = await self.db.execute(
-            select(AlertRule).where(AlertRule.is_enabled.is_(True)).order_by(AlertRule.created_at.desc())
+            select(AlertRule)
+            .where(AlertRule.is_enabled.is_(True))
+            .order_by(AlertRule.created_at.desc())
         )
         rules = result.scalars().all()
         return {"items": rules, "total": len(rules)}
