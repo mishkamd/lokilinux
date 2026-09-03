@@ -124,7 +124,6 @@ Independent infrastructure (no DB dependency):
 | `redis_data` | `/data` | redis |
 | `clickhouse_data` | `/var/lib/clickhouse` | clickhouse |
 | `rustfs_data` | `/data` | rustfs (object storage — see §2.6) |
-| `plugins_dir` | `/opt/lokilinux/plugins` | lokilinux-grpc |
 | `certs_dir` | `/etc/lokilinux/certs` | lokilinux-grpc, lokilinux-api, lokilinux-compliance |
 
 ### 2.4 Resource Limits (Production)

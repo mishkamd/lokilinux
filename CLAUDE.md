@@ -216,9 +216,12 @@ Applied by the one-shot `lokilinux-migrate` container, and again by `conftest.py
   path — respect those; they are decisions, not omissions.
 - CVE/Finding/Open Exposure have precise, non-interchangeable meanings — read `CONCEPTS.md` before
   touching vulnerability code. Severity is owned by the CVE, never by the Finding.
-- `ENVIRONMENT=production` makes startup fail closed (`main.py` lifespan) if job signing, certificate
-  revocation or non-file KMS keys aren't configured. Don't relax those checks to make a dev box boot —
-  set `ENVIRONMENT=development`.
+- `SECURITY_PROFILE=production` (independent from `ENVIRONMENT`, unset by default everywhere —
+  neither `docker-compose.yml` nor `.env.example` sets it) makes startup fail closed (`main.py`
+  lifespan) if job signing, certificate revocation or non-file KMS keys aren't configured. It's a
+  deliberate, manual opt-in flag for the final step of the signed-jobs rollout
+  ([EXECUTION_MODEL.md](docs/security/EXECUTION_MODEL.md)) — don't set it until the whole fleet is
+  ready, and don't relax the checks themselves to make it boot.
 
 ## CodeGraph
 

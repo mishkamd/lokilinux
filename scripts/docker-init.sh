@@ -29,7 +29,7 @@ fi
 
 # 3. Required directories -------------------------------------------------
 echo "[*] Creating runtime directories..."
-mkdir -p logs/{api,frontend} backups
+mkdir -p logs/frontend backups
 
 # 4. Docker volumes -------------------------------------------------------
 echo "[*] Creating named volumes..."
@@ -37,7 +37,6 @@ docker volume create lokilinux-postgres-data     2>/dev/null || true
 docker volume create lokilinux-nats-data         2>/dev/null || true
 docker volume create lokilinux-redis-data        2>/dev/null || true
 docker volume create lokilinux-rustfs-data       2>/dev/null || true
-docker volume create lokilinux-plugins           2>/dev/null || true
 docker volume create lokilinux-certs             2>/dev/null || true
 docker volume create lokilinux-ca-key            2>/dev/null || true
 docker volume create lokilinux-ca-signer-sock    2>/dev/null || true

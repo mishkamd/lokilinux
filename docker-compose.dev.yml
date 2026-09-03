@@ -39,7 +39,6 @@ services:
       - ./backend:/app
       - /app/.venv          # exclude venv from bind mount
       - certs_dir:/etc/lokilinux/certs:ro
-      - plugins_dir:/opt/lokilinux/plugins
     # prod caps this tighter (512M-2G); dev tooling (Vite/uvicorn --reload) needs headroom
     deploy:
       resources:

@@ -70,7 +70,6 @@ PostgreSQL păstrează doar metadata în tabela `storage_objects` (hash SHA-256,
 | `lokilinux-redis-data` | `/data` | redis (AOF) |
 | `lokilinux-clickhouse-data` | `/var/lib/clickhouse` | clickhouse |
 | `lokilinux-rustfs-data` | `/data` | rustfs (object storage) |
-| `lokilinux-plugins` | `/opt/lokilinux/plugins` | api + grpc (plugin-uri agent-side) |
 | `lokilinux-certs` | `/etc/lokilinux/certs` (ro) | api, grpc, compliance |
 
 ## Certificate mTLS
