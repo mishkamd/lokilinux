@@ -159,13 +159,13 @@ Oracle Linux, Rocky, and Alma need no special-casing beyond `ID_LIKE` containing
 ## 5. File Integrity as its own collector, its own cadence
 
 `FileIntegrityCollector` is deliberately not in the main per-heartbeat rotation — it walks
-`/etc`, `/usr/lib/systemd`, `/boot`, `/etc/ssh`, `/etc/pam.d`, `/etc/security`, `/etc/audit`,
-`/etc/sysctl*` (the brief's watch list) and hashes every file (SHA256 default, SHA512/BLAKE3
-selectable per `compliance.fim_algo` setting). Its `Interval()` defaults to 15 minutes, not
-every 60s beat, and it consults `file_integrity_ignores` (pulled down as part of the effective
-baseline, [01-DATA-MODEL.md](01-DATA-MODEL.md) §5) before hashing so a known-noisy path never
-generates spurious drift. Only *changed* hashes are sent (compare against the agent's local
-SQLite cache, §6) — never the full tree every run.
+`/etc` by default and hashes every file with BLAKE3 (fixed algorithm, no per-org selectable).
+Its `Interval()` defaults to 15 minutes, not every 60s beat. Watch/ignore paths come from the
+operator-configured `fim_scopes` scope (global default or per-agent override,
+[08-DRIFT-FIM.md](08-DRIFT-FIM.md) §6), delivered as a signed `fim_config` heartbeat field and
+applied before hashing so a known-noisy path never generates spurious drift — not from
+`file_integrity_ignores`/`baseline_effective` as earlier drafted, which was never built. A
+file over 10MB is skipped rather than hashed (no streaming hash path).
 
 ## 6. Local state — activating the unused SQLite store
 

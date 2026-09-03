@@ -72,10 +72,23 @@ var Registry = []Collector{
 // default — the only collector with per-deployment-configurable behavior
 // today. Everything else stays identical to Registry.
 func BuildRegistry(fileIntegrityWatchPaths, fileIntegrityIgnores []string) []Collector {
+	return BuildRegistryWithFIM(NewFileIntegrityCollectorWithConfig(fileIntegrityWatchPaths, fileIntegrityIgnores))
+}
+
+// BuildRegistryWithFIM is like BuildRegistry but takes an already-built
+// FileIntegrityCollector instance. Callers that need to update FIM's watch
+// list later at runtime (a signed fim_config document arriving over the
+// heartbeat — see agent/internal/agent/manager.go handleResponse) must build
+// the registry with this function and keep the *FileIntegrityCollector
+// around to call SetPaths on: BuildRegistry constructs a fresh instance each
+// call, so a policy-driven SetRegistry(filterRegistry(baseRegistry, ...))
+// would otherwise silently revert to whatever watch paths were compiled in
+// at boot.
+func BuildRegistryWithFIM(fim *FileIntegrityCollector) []Collector {
 	out := make([]Collector, 0, len(Registry))
 	for _, c := range Registry {
 		if _, ok := c.(*FileIntegrityCollector); ok {
-			out = append(out, NewFileIntegrityCollectorWithConfig(fileIntegrityWatchPaths, fileIntegrityIgnores))
+			out = append(out, fim)
 			continue
 		}
 		out = append(out, c)

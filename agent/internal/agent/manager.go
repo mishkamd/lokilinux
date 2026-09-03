@@ -4,6 +4,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -43,6 +44,7 @@ type Manager struct {
 	remediationExec   *modules.RemediationExecutor
 	workflowStepsExec *modules.WorkflowStepsExecutor
 	complianceRunner  *compliance.Runner
+	fimCollector      *compliance.FileIntegrityCollector
 	stop              chan struct{}
 
 	// signed-job trust model (docs/security/AGENT_SECURITY.md): verifier
@@ -108,6 +110,12 @@ type Manager struct {
 	collectorPolicyMu      sync.RWMutex
 	collectorPolicyVersion string
 	collectorPolicies      map[string]gen.CollectorPolicy
+
+	// fimScopeVersion is the last-applied fim_config document version —
+	// touched only from handleResponse, which always runs on the heartbeat
+	// goroutine, so it needs no lock (same reasoning as pendingResults'
+	// comment above, just without the job-goroutine producer side).
+	fimScopeVersion int64
 }
 
 const (
@@ -149,6 +157,24 @@ func NewManager(cfg *config.Config, log *slog.Logger, version string, logBuf *Lo
 			"path", cfg.Security.SigningPubKeyPath)
 	}
 
+	// fimCollector is constructed once and shared between the runner's live
+	// registry and the policy manager's baseRegistry — a signed fim_config
+	// document (handleResponse below) calls SetPaths on this single
+	// instance, so the watch list stays in sync everywhere it's referenced
+	// instead of being frozen at whichever BuildRegistry call happened to
+	// run first (compliance.BuildRegistryWithFIM's own comment).
+	fimCollector := compliance.NewFileIntegrityCollectorWithConfig(cfg.FileIntegrity.WatchPaths, cfg.FileIntegrity.Ignores)
+	var fimScopeVersion int64
+	if blob, err := store.GetConfig(context.Background(), "compliance.fim_scope"); err == nil && blob != "" {
+		var scope compliance.FIMScope
+		if err := json.Unmarshal([]byte(blob), &scope); err == nil {
+			fimCollector.SetPaths(scope.WatchPaths, scope.IgnorePaths)
+			fimScopeVersion = scope.Version
+		} else {
+			log.Warn("discarding malformed persisted fim_scope", "error", err)
+		}
+	}
+
 	// Restore last-good local policy across restarts (freshness is judged
 	// against ReceivedAt, so a stale one still fails HIGH+ jobs fail-closed).
 	mgr := &Manager{
@@ -172,11 +198,13 @@ func NewManager(cfg *config.Config, log *slog.Logger, version string, logBuf *Lo
 			modules.NewJobExecutor(),
 		),
 		complianceRunner: compliance.NewRunner(
-			compliance.BuildRegistry(cfg.FileIntegrity.WatchPaths, cfg.FileIntegrity.Ignores), store, log,
+			compliance.BuildRegistryWithFIM(fimCollector), store, log,
 		),
-		verifier: verifier,
-		replay:   security.NewReplayStore(store),
-		secCfg:   secCfg,
+		fimCollector:    fimCollector,
+		fimScopeVersion: fimScopeVersion,
+		verifier:        verifier,
+		replay:          security.NewReplayStore(store),
+		secCfg:          secCfg,
 		brokerClient: newBrokerClientIfConfigured(cfg.Security.ExecBrokerSocket),
 		stop:         make(chan struct{}),
 		nudge:        make(chan struct{}, 1),
@@ -189,7 +217,7 @@ func NewManager(cfg *config.Config, log *slog.Logger, version string, logBuf *Lo
 	}
 
 	if cfg.Policy.Enabled {
-		baseRegistry := compliance.BuildRegistry(cfg.FileIntegrity.WatchPaths, cfg.FileIntegrity.Ignores)
+		baseRegistry := compliance.BuildRegistryWithFIM(fimCollector)
 		dpm, derr := newDesiredPolicyManager(cfg, mgr.complianceRunner, baseRegistry)
 		if derr != nil {
 			return nil, fmt.Errorf("desired policy manager: %w", derr)
@@ -495,6 +523,32 @@ func (m *Manager) handleResponse(ctx context.Context, resp map[string]interface{
 		m.resyncMu.Lock()
 		m.resyncDomains = domains
 		m.resyncMu.Unlock()
+	}
+
+	// Signed file-integrity watch/ignore scope (docs/compliance/11a-FRONTEND-
+	// PAGES.md §3.4) — independent of desired-state policy so it reaches
+	// every agent, not just ones with a policy deployment.
+	if envRaw, ok := resp["fim_config"].(map[string]interface{}); ok && m.fimCollector != nil {
+		raw, err := json.Marshal(envRaw)
+		if err != nil {
+			m.log.Warn("fim_config: re-marshal failed", "error", err)
+		} else {
+			scope, err := compliance.VerifyFIMConfig(raw, m.cfg.Identity.AgentID, m.cfg.Policy.TrustedKeys, m.fimScopeVersion)
+			switch {
+			case errors.Is(err, compliance.ErrFIMConfigDuplicate):
+				// expected on most heartbeats — the control plane re-attaches
+				// the current scope every time, not just on change.
+			case err != nil:
+				m.log.Warn("fim_config: rejected", "error", err)
+			default:
+				m.fimCollector.SetPaths(scope.WatchPaths, scope.IgnorePaths)
+				m.fimScopeVersion = scope.Version
+				if persisted, err := json.Marshal(scope); err == nil {
+					_ = m.store.SetConfig(ctx, "compliance.fim_scope", string(persisted))
+				}
+				m.log.Info("fim_config applied", "version", scope.Version, "watch_paths", len(scope.WatchPaths))
+			}
+		}
 	}
 
 	jobs, ok := resp["pending_jobs"]

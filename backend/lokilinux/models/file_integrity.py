@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime
 
 from sqlalchemy import BigInteger, DateTime, ForeignKey, Integer, String
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from lokilinux.db import Base
@@ -55,3 +55,26 @@ class FileChange(Base):
     new_uid: Mapped[int | None] = mapped_column(Integer)
     old_gid: Mapped[int | None] = mapped_column(Integer)
     new_gid: Mapped[int | None] = mapped_column(Integer)
+
+
+class FIMScope(Base):
+    """Operator-configured file-integrity watch/ignore scope — GLOBAL (fleet
+    default) or AGENT (per-server override). Delivered to the agent as a
+    signed document over the heartbeat (fim_scope_service.signed_envelope,
+    agent/internal/compliance/fimconfig.go). Not the same table as
+    file_integrity_ignores (migration 017): that one is a GLOBAL-only,
+    post-ingest filter applied server-side after the agent already scanned;
+    this one controls what the agent scans in the first place, everywhere.
+    """
+
+    __tablename__ = "fim_scopes"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    scope_type: Mapped[str] = mapped_column(String(16), nullable=False)  # GLOBAL | AGENT
+    agent_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agents.id", ondelete="CASCADE"), nullable=True
+    )
+    watch_paths: Mapped[list] = mapped_column(JSONB, nullable=False)
+    ignore_paths: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))

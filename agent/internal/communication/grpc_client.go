@@ -440,6 +440,13 @@ func responseToMap(resp *gen.AgentHeartbeatResponse) map[string]interface{} {
 			"payload":       resp.DesiredPolicy.Payload,
 		}
 	}
+	if resp.FimConfig != nil {
+		result["fim_config"] = map[string]interface{}{
+			"signature":      resp.FimConfig.SignatureB64,
+			"signing_key_id": resp.FimConfig.SigningKeyID,
+			"payload":        resp.FimConfig.Payload,
+		}
+	}
 	if len(result) == 0 {
 		return nil
 	}

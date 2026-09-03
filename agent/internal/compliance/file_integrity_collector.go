@@ -6,39 +6,53 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
 	"lukechampine.com/blake3"
 )
 
-// fileIntegrityWatchPaths is the default file-integrity watch list per
-// docs/compliance/03-AGENT-PLUGIN-SDK.md §5.
-var fileIntegrityWatchPaths = []string{
-	"/etc", "/usr/lib/systemd", "/boot", "/etc/ssh", "/etc/pam.d",
-	"/etc/security", "/etc/audit", "/etc/sysctl.d",
-}
+// fileIntegrityWatchPaths is the default file-integrity watch list — just
+// /etc, since it's the directory that actually matters for security-relevant
+// config drift on most fleets and won't surprise anyone with a 15-minute
+// full-filesystem walk. Operators add /boot, /usr/lib/systemd, or anything
+// else via the global/per-server scope UI (docs/compliance/11a-FRONTEND-PAGES.md
+// §3.4) — the signed fim_config channel (fimconfig.go) — or, for a single
+// host without control-plane access, the local agent.yaml override.
+var fileIntegrityWatchPaths = []string{"/etc"}
+
+// maxHashableFileBytes caps how large a single file can be before the
+// collector skips hashing it entirely.
+//
+// ponytail: 10MB flat ceiling, no streaming hash — hashFile still loads the
+// whole file into RAM (see its own comment). Fine while watch lists are
+// /etc-shaped; once an operator points this at something that legitimately
+// holds large files (e.g. /var/lib/some-app), swap hashFile for a streaming
+// blake3.Hasher over an *os.File instead of raising this constant.
+const maxHashableFileBytes = 10 * 1024 * 1024
 
 // FileIntegrityCollector hashes (BLAKE3) every file under the watch list.
 // It runs on its own 15-minute cadence, not every heartbeat — a full
 // filesystem walk over /etc is comparatively expensive at 100k-agent
 // scale, and file contents don't change on a 60s timescale.
 //
-// WatchPaths and Ignores are set at construction from the agent's own YAML
-// config (agent/internal/config — FileIntegrityConfig), falling back to
-// fileIntegrityWatchPaths/no ignores when unset (see BuildRegistry). Still
-// not pulled from the effective baseline's file_integrity_ignores
-// (docs/compliance/01-DATA-MODEL.md §5) — the agent has no baseline-
-// delivery channel yet (that rides the same domain_full/policy wire this
-// module is still building); local config is the honest v1 for "operator
-// can configure this without a rebuild."
+// watchPaths/ignores start from the agent's own YAML config (agent/internal/
+// config — FileIntegrityConfig), falling back to fileIntegrityWatchPaths/no
+// ignores when unset (see BuildRegistry). A signed fim_config document
+// delivered over the heartbeat (fimconfig.go, manager.go handleResponse)
+// overrides both via SetPaths — that's the control-plane channel described
+// in docs/compliance/11a-FRONTEND-PAGES.md §3.4. Server-side
+// file_integrity_ignores (docs/compliance/01-DATA-MODEL.md §5) is a
+// separate, GLOBAL-only, post-ingest filter and is not consulted here.
 type FileIntegrityCollector struct {
-	WatchPaths []string
-	Ignores    []string
+	mu         sync.RWMutex
+	watchPaths []string
+	ignores    []string
 }
 
 func NewFileIntegrityCollector() *FileIntegrityCollector {
-	return &FileIntegrityCollector{WatchPaths: fileIntegrityWatchPaths}
+	return &FileIntegrityCollector{watchPaths: fileIntegrityWatchPaths}
 }
 
 // NewFileIntegrityCollectorWithConfig builds a collector using operator-
@@ -49,7 +63,29 @@ func NewFileIntegrityCollectorWithConfig(watchPaths, ignores []string) *FileInte
 	if len(watchPaths) == 0 {
 		watchPaths = fileIntegrityWatchPaths
 	}
-	return &FileIntegrityCollector{WatchPaths: watchPaths, Ignores: ignores}
+	return &FileIntegrityCollector{watchPaths: watchPaths, ignores: ignores}
+}
+
+// Paths returns the collector's current watch/ignore lists — used by tests
+// and status/debug surfaces. Callers must not mutate the returned slices.
+func (c *FileIntegrityCollector) Paths() (watchPaths, ignores []string) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.watchPaths, c.ignores
+}
+
+// SetPaths replaces the watch/ignore lists in place — used when a signed
+// fim_config document arrives over the heartbeat (see fimconfig.go) so the
+// next Collect() picks up the new scope without rebuilding the collector or
+// the registry it lives in.
+func (c *FileIntegrityCollector) SetPaths(watchPaths, ignores []string) {
+	if len(watchPaths) == 0 {
+		watchPaths = fileIntegrityWatchPaths
+	}
+	c.mu.Lock()
+	c.watchPaths = watchPaths
+	c.ignores = ignores
+	c.mu.Unlock()
 }
 
 func (c *FileIntegrityCollector) Domain() string { return "file_integrity" }
@@ -72,8 +108,14 @@ type FileHash struct {
 }
 
 func (c *FileIntegrityCollector) Collect(ctx context.Context) (Facts, error) {
+	c.mu.RLock()
+	watchPaths := c.watchPaths
+	ignores := c.ignores
+	c.mu.RUnlock()
+
 	var files []FileHash
-	for _, root := range c.WatchPaths {
+	seen := make(map[string]struct{})
+	for _, root := range watchPaths {
 		_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 			if err != nil {
 				return nil // unreadable subtree — skip, don't abort the whole walk
@@ -81,17 +123,24 @@ func (c *FileIntegrityCollector) Collect(ctx context.Context) (Facts, error) {
 			if d.IsDir() {
 				return nil
 			}
-			if isIgnoredPath(path, c.Ignores) {
+			if _, dup := seen[path]; dup {
+				return nil // already hashed via an overlapping watch root
+			}
+			if isIgnoredPath(path, ignores) {
 				return nil
 			}
 			info, err := d.Info()
 			if err != nil {
 				return nil // gone since readdir, or permission error — skip
 			}
+			if info.Size() > maxHashableFileBytes {
+				return nil
+			}
 			hash, size, err := hashFile(path)
 			if err != nil {
 				return nil // unreadable file (permissions, gone since readdir) — skip
 			}
+			seen[path] = struct{}{}
 			uid, gid := statOwnership(info)
 			files = append(files, FileHash{
 				Path: path, Hash: hash, Size: size,

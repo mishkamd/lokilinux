@@ -16,6 +16,7 @@ from .dashboard import router as dashboard_router
 from .drift import router as drift_router
 from .exceptions import router as exceptions_router
 from .file_integrity import router as file_integrity_router
+from .fim_scopes import router as fim_scopes_router
 from .findings import router as findings_router
 from .overview import router as overview_router
 from .policy_engine import router as policy_engine_router
@@ -30,6 +31,7 @@ router.include_router(dashboard_router)
 router.include_router(drift_router)
 router.include_router(exceptions_router)
 router.include_router(file_integrity_router)
+router.include_router(fim_scopes_router)
 router.include_router(findings_router)
 router.include_router(overview_router)
 router.include_router(policy_engine_router)

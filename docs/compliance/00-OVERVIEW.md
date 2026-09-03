@@ -214,5 +214,6 @@ features" — they're existing-platform bugs/gaps that block this module's remed
 | [09-REMEDIATION.md](09-REMEDIATION.md) | 10, 21 | Remediation Engine, Ansible integration |
 | [10-AI.md](10-AI.md) | 11, 12 | AI Compliance Assistant, RAG |
 | [11-FRONTEND.md](11-FRONTEND.md) | 7, 20 | Frontend page structure |
+| [11a-FRONTEND-PAGES.md](11a-FRONTEND-PAGES.md) | 7 | Frontend per-page reference (UI, API, actions, flows) |
 | [12-DIAGRAMS.md](12-DIAGRAMS.md) | 8, 9, 22 | Workflow/sequence diagrams, historical audit |
 | [13-OPS.md](13-OPS.md) | 23, 24, 25, 26 | Scaling, security, deployment, roadmap, coverage table |

@@ -113,12 +113,14 @@ guessed."
 
 ## 5. File Integrity Monitoring — hash engine
 
-Algorithms: SHA256 (default, matches the existing package-checksum convention already used
-fleet-wide), SHA512 and BLAKE3 selectable per `compliance.fim_algo` setting for orgs with a
-specific compliance-framework hashing requirement (some STIG profiles mandate SHA512 for FIM).
-Watched paths, exactly per the brief: `/etc`, `/usr/lib/systemd`, `/boot`, `/etc/ssh`,
-`/etc/pam.d`, `/etc/security`, `/etc/audit`, `/etc/sysctl*` — configurable additions per scope
-via `baseline_effective` (an APPLICATION-scope baseline can watch an app-specific config dir).
+Algorithm: BLAKE3, fixed — the `compliance.fim_algo`-selectable SHA256/SHA512/BLAKE3 design
+below was never built; `FileIntegrityCollector` (`agent/internal/compliance/
+file_integrity_collector.go`) hashes with BLAKE3 only, no per-org override.
+
+Watched paths default to `/etc` only (compiled-in `fileIntegrityWatchPaths`) — configurable
+globally and per agent via the `fim_scopes` table / `/compliance/fim-scopes` API (see §6), not
+via `baseline_effective` as originally specced. A file over 10MB (`maxHashableFileBytes`) is
+skipped entirely rather than hashed — there's no streaming hash path yet.
 
 ```mermaid
 sequenceDiagram
@@ -140,10 +142,28 @@ text) the UI fetches both hash-addressed blob contents (small — config files, 
 binaries) via `inventory_blobs`-style content-addressable storage and renders a text diff
 client-side; binary files show hash/metadata-only.
 
-## 6. Ignore rules
+## 6. Watch/ignore scope — the real delivery channel
 
-`file_integrity_ignores` (per-scope glob patterns) are pulled down as part of the effective
-baseline and applied **agent-side, before hashing** — not filtered out server-side after the
-fact — so a noisy path never even generates network traffic, let alone a stored row. Matches
-the brief's "ignore configurable files" requirement precisely: configurable per scope, not a
-single global ignore list.
+The design below (`file_integrity_ignores` pulled from `baseline_effective`, applied
+agent-side before hashing) was never built — `file_integrity_ignores` exists as a table
+(migration 017) but has no ORM model, no API, and nothing ever writes to it; it is dead
+weight left over from an earlier design pass.
+
+What actually ships (docs/compliance/11a-FRONTEND-PAGES.md §3.4): a separate `fim_scopes`
+table with a `GLOBAL` default row and optional per-`AGENT` overrides, edited from
+`/compliance/file-integrity`'s "Watched paths" tab via `/compliance/fim-scopes`
+(`fim_scope_service.py`). The resolved scope for each agent is signed with the platform's
+existing policy-signing Ed25519 key (`agent_policy_compiler.sign_payload`, key id
+`policy-signing-v1` — the same one every agent already pins at enrollment) and attached to
+the heartbeat response as `fim_config` — a document independent of `policy_envelope`, so it
+reaches every agent regardless of whether that agent has any desired-state policy deployed.
+The agent verifies the signature and version monotonicity
+(`agent/internal/compliance/fimconfig.go` `VerifyFIMConfig`) before calling
+`FileIntegrityCollector.SetPaths`, applied **agent-side, before hashing** — a noisy or
+irrelevant path never generates network traffic, matching the original intent even though
+the transport differs. Gated on `MIN_AGENT_VERSION_FIM_SCOPES` (0.41.0); older agents never
+see the field and keep scanning the compiled-in `/etc` default.
+
+Still missing versus the original design: scoping is GLOBAL/AGENT only, not the full
+baseline scope-selector tree (ROLE/ENVIRONMENT/DATACENTER/...) — see 11a-FRONTEND-PAGES.md
+§6 for the upgrade path.

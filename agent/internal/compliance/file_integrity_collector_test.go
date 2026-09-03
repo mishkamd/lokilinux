@@ -50,7 +50,7 @@ func TestFileIntegrityCollector_Collect_FindsWrittenFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	c := &FileIntegrityCollector{WatchPaths: []string{dir}}
+	c := NewFileIntegrityCollectorWithConfig([]string{dir}, nil)
 	facts, err := c.Collect(nil)
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
@@ -83,7 +83,7 @@ func TestFileIntegrityCollector_Collect_ReportsModeUIDGIDMTime(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	c := &FileIntegrityCollector{WatchPaths: []string{dir}}
+	c := NewFileIntegrityCollectorWithConfig([]string{dir}, nil)
 	facts, err := c.Collect(nil)
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
@@ -109,18 +109,20 @@ func TestFileIntegrityCollector_Collect_ReportsModeUIDGIDMTime(t *testing.T) {
 
 func TestNewFileIntegrityCollectorWithConfig_EmptyWatchPathsFallsBackToDefault(t *testing.T) {
 	c := NewFileIntegrityCollectorWithConfig(nil, []string{"/some/ignore"})
-	if len(c.WatchPaths) != len(fileIntegrityWatchPaths) {
-		t.Errorf("WatchPaths = %v, want the built-in default when config passes none", c.WatchPaths)
+	watch, ignores := c.Paths()
+	if len(watch) != len(fileIntegrityWatchPaths) {
+		t.Errorf("WatchPaths = %v, want the built-in default when config passes none", watch)
 	}
-	if len(c.Ignores) != 1 || c.Ignores[0] != "/some/ignore" {
-		t.Errorf("Ignores = %v, want [/some/ignore]", c.Ignores)
+	if len(ignores) != 1 || ignores[0] != "/some/ignore" {
+		t.Errorf("Ignores = %v, want [/some/ignore]", ignores)
 	}
 }
 
 func TestNewFileIntegrityCollectorWithConfig_CustomWatchPathsOverrideDefault(t *testing.T) {
 	c := NewFileIntegrityCollectorWithConfig([]string{"/custom/path"}, nil)
-	if len(c.WatchPaths) != 1 || c.WatchPaths[0] != "/custom/path" {
-		t.Errorf("WatchPaths = %v, want [/custom/path]", c.WatchPaths)
+	watch, _ := c.Paths()
+	if len(watch) != 1 || watch[0] != "/custom/path" {
+		t.Errorf("WatchPaths = %v, want [/custom/path]", watch)
 	}
 }
 
@@ -137,11 +139,76 @@ func TestBuildRegistry_ReplacesOnlyFileIntegrityCollector(t *testing.T) {
 			continue
 		}
 		found = true
-		if len(fic.WatchPaths) != 1 || fic.WatchPaths[0] != "/custom/path" {
-			t.Errorf("configured FileIntegrityCollector.WatchPaths = %v, want [/custom/path]", fic.WatchPaths)
+		watch, _ := fic.Paths()
+		if len(watch) != 1 || watch[0] != "/custom/path" {
+			t.Errorf("configured FileIntegrityCollector.WatchPaths = %v, want [/custom/path]", watch)
 		}
 	}
 	if !found {
 		t.Fatal("BuildRegistry dropped the FileIntegrityCollector entirely")
 	}
+}
+
+func TestFileIntegrityCollector_Collect_DedupesOverlappingRoots(t *testing.T) {
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "sub")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "watched.conf"), []byte("setting=1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	c := NewFileIntegrityCollectorWithConfig([]string{dir, sub}, nil)
+	facts, err := c.Collect(nil)
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	files := facts["files"].([]FileHash)
+	if len(files) != 1 {
+		t.Fatalf("got %d files from overlapping roots, want 1 (deduped)", len(files))
+	}
+}
+
+func TestFileIntegrityCollector_Collect_SkipsOversizedFiles(t *testing.T) {
+	dir := t.TempDir()
+	big := make([]byte, maxHashableFileBytes+1)
+	if err := os.WriteFile(filepath.Join(dir, "huge.bin"), big, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "small.conf"), []byte("ok"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	c := NewFileIntegrityCollectorWithConfig([]string{dir}, nil)
+	facts, err := c.Collect(nil)
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	files := facts["files"].([]FileHash)
+	if len(files) != 1 || files[0].Path != filepath.Join(dir, "small.conf") {
+		t.Fatalf("files = %v, want only small.conf (huge.bin over the size cap)", files)
+	}
+}
+
+func TestFileIntegrityCollector_SetPaths_ConcurrentWithCollect(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "watched.conf"), []byte("setting=1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	c := NewFileIntegrityCollector()
+	done := make(chan struct{})
+	go func() {
+		for i := 0; i < 50; i++ {
+			c.SetPaths([]string{dir}, nil)
+		}
+		close(done)
+	}()
+	for i := 0; i < 50; i++ {
+		if _, err := c.Collect(nil); err != nil {
+			t.Fatalf("Collect: %v", err)
+		}
+	}
+	<-done
 }

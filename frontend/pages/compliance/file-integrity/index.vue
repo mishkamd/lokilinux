@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import { SEVERITY_COLORS } from '~/utils/complianceColors'
-import { RefreshCw } from 'lucide-vue-next'
-import type { FileChangeKind } from '~/stores/compliance'
+import { RefreshCw, Plus } from 'lucide-vue-next'
+import type { FileChangeKind, FIMScope } from '~/stores/compliance'
 
 const store = useComplianceStore()
 const serversStore = useServersStore()
 const { format: fmtDateTime } = useDateTime()
+const { canEdit } = useCurrentUser()
+const toast = useToast()
 const {
   fileHashes, fileHashesLoading, fileHashPathPrefix,
   fileChanges, fileChangesTotal, fileChangesLoading, fileChangesNextCursor, fileChangeFilters,
   fileChangePathDetail, fileChangePathDetailLoading,
+  fimScopes, fimScopesLoading,
 } = storeToRefs(store)
 
 const showPathDetail = ref(false)
@@ -30,6 +33,7 @@ onMounted(async () => {
     await store.fetchFileHashes(selectedAgentId.value)
   }
   await store.fetchFileChanges()
+  await store.fetchFIMScopes()
 
   const pathParam = route.query.path
   if (typeof pathParam === 'string' && pathParam) {
@@ -62,7 +66,98 @@ function formatOwnerChange(row: { old_uid: number | null; new_uid: number | null
 const tabs = [
   { label: 'Current State', slot: 'current' },
   { label: 'Change History', slot: 'history' },
+  { label: 'Watched paths', slot: 'scope' },
 ]
+
+// ── Watched paths tab: global default + per-server overrides ──────────────
+
+function linesToArray(text: string): string[] {
+  return text.split('\n').map((s) => s.trim()).filter(Boolean)
+}
+function arrayToLines(arr: string[]): string {
+  return arr.join('\n')
+}
+
+const globalWatchText = ref('')
+const globalIgnoreText = ref('')
+const savingGlobal = ref(false)
+
+watch(() => fimScopes.value?.global_scope, (scope) => {
+  if (!scope) return
+  globalWatchText.value = arrayToLines(scope.watch_paths)
+  globalIgnoreText.value = arrayToLines(scope.ignore_paths)
+}, { immediate: true })
+
+function errorDetail(err: unknown, fallback: string): string {
+  return (err as { data?: { detail?: string } })?.data?.detail ?? fallback
+}
+
+async function onSaveGlobal() {
+  savingGlobal.value = true
+  try {
+    await store.updateGlobalFIMScope(linesToArray(globalWatchText.value), linesToArray(globalIgnoreText.value))
+    toast.add({ title: 'Global watch scope saved' })
+  } catch (err) {
+    toast.add({ title: errorDetail(err, 'Save failed') })
+  } finally {
+    savingGlobal.value = false
+  }
+}
+
+const overriddenAgentIds = computed(() => new Set((fimScopes.value?.agents ?? []).map((a) => a.agent_id)))
+const availableAgentOptions = computed(() => agentOptions.value.filter((o) => !overriddenAgentIds.value.has(o.value)))
+
+const showAgentEdit = ref(false)
+const agentEditTarget = ref('')
+const agentEditIsNew = ref(false)
+const agentEditWatchText = ref('')
+const agentEditIgnoreText = ref('')
+const savingAgentScope = ref(false)
+
+function openAgentCreate() {
+  agentEditTarget.value = ''
+  agentEditIsNew.value = true
+  agentEditWatchText.value = ''
+  agentEditIgnoreText.value = ''
+  showAgentEdit.value = true
+}
+function openAgentEditRow(scope: FIMScope) {
+  agentEditTarget.value = scope.agent_id ?? ''
+  agentEditIsNew.value = false
+  agentEditWatchText.value = arrayToLines(scope.watch_paths)
+  agentEditIgnoreText.value = arrayToLines(scope.ignore_paths)
+  showAgentEdit.value = true
+}
+
+async function onSaveAgentScope() {
+  if (!agentEditTarget.value) return
+  savingAgentScope.value = true
+  try {
+    await store.updateAgentFIMScope(
+      agentEditTarget.value, linesToArray(agentEditWatchText.value), linesToArray(agentEditIgnoreText.value),
+    )
+    showAgentEdit.value = false
+    toast.add({ title: 'Per-server override saved' })
+  } catch (err) {
+    toast.add({ title: errorDetail(err, 'Save failed') })
+  } finally {
+    savingAgentScope.value = false
+  }
+}
+
+async function onResetAgentScope(agentId: string) {
+  if (!confirm('Reset this server to the global default?')) return
+  try {
+    await store.deleteAgentFIMScope(agentId)
+    toast.add({ title: 'Reverted to global default' })
+  } catch (err) {
+    toast.add({ title: errorDetail(err, 'Reset failed') })
+  }
+}
+
+function agentLabel(scope: FIMScope): string {
+  return scope.hostname || scope.agent_id || '—'
+}
 
 const hashColumns = [
   { key: 'path', label: 'Path' },
@@ -174,7 +269,90 @@ const changeColumns = [
           </Button>
         </div>
       </template>
+
+      <template #scope>
+        <PageHeader>
+          <p class="text-sm text-muted-foreground">
+            What the agent scans, fleet-wide by default and per server when overridden.
+            Applies to agents ≥ 0.41.0 — older agents keep scanning <code>/etc</code>.
+          </p>
+          <Button variant="outline" @click="store.fetchFIMScopes()">
+            <RefreshCw class="size-4" /> Refresh
+          </Button>
+        </PageHeader>
+
+        <Skeleton v-if="fimScopesLoading && !fimScopes" class="h-40 w-full" />
+        <template v-else-if="fimScopes">
+          <Card class="mb-4">
+            <template #header>
+              <p class="label-caps">Global default</p>
+            </template>
+            <div class="grid gap-4 sm:grid-cols-2">
+              <div>
+                <p class="text-xs text-muted-foreground mb-1">Watched paths (one per line)</p>
+                <Textarea v-model="globalWatchText" :disabled="!canEdit" :rows="5" placeholder="/etc" />
+              </div>
+              <div>
+                <p class="text-xs text-muted-foreground mb-1">Ignore patterns (one per line)</p>
+                <Textarea v-model="globalIgnoreText" :disabled="!canEdit" :rows="5" placeholder="/etc/mtab" />
+              </div>
+            </div>
+            <div v-if="canEdit" class="mt-3 flex justify-end">
+              <Button :disabled="!globalWatchText.trim()" :loading="savingGlobal" @click="onSaveGlobal">Save global default</Button>
+            </div>
+          </Card>
+
+          <Card>
+            <template #header>
+              <div class="flex items-center justify-between">
+                <p class="label-caps">Per-server overrides</p>
+                <Button v-if="canEdit" size="sm" variant="outline" @click="openAgentCreate">
+                  <Plus class="size-4" /> Add override
+                </Button>
+              </div>
+            </template>
+            <p v-if="fimScopes.agents.length === 0" class="text-sm text-muted-foreground">
+              Every server uses the global default.
+            </p>
+            <ul v-else class="divide-y divide-border">
+              <li v-for="s in fimScopes.agents" :key="s.agent_id ?? ''" class="py-2.5 flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <p class="text-sm font-medium truncate">{{ agentLabel(s) }}</p>
+                  <p class="text-xs text-muted-foreground font-mono truncate">{{ s.watch_paths.join(', ') }}</p>
+                  <p v-if="s.ignore_paths.length" class="text-xs text-muted-foreground font-mono truncate">
+                    ignore: {{ s.ignore_paths.join(', ') }}
+                  </p>
+                </div>
+                <div v-if="canEdit" class="flex shrink-0 gap-2">
+                  <Button size="sm" variant="outline" @click="openAgentEditRow(s)">Edit</Button>
+                  <Button size="sm" variant="ghost" @click="onResetAgentScope(s.agent_id!)">Reset</Button>
+                </div>
+              </li>
+            </ul>
+          </Card>
+        </template>
+      </template>
     </AppTabs>
+
+    <Dialog v-model="showAgentEdit" :title="agentEditIsNew ? 'Add per-server override' : 'Edit per-server override'">
+      <template #body>
+        <div class="space-y-4">
+          <FormField v-if="agentEditIsNew" label="Server">
+            <Select v-model="agentEditTarget" :options="availableAgentOptions" placeholder="Select a server" />
+          </FormField>
+          <FormField label="Watched paths (one per line)">
+            <Textarea v-model="agentEditWatchText" :rows="5" placeholder="/etc" />
+          </FormField>
+          <FormField label="Ignore patterns (one per line)">
+            <Textarea v-model="agentEditIgnoreText" :rows="4" placeholder="/etc/mtab" />
+          </FormField>
+        </div>
+      </template>
+      <template #footer>
+        <Button variant="ghost" @click="showAgentEdit = false">Cancel</Button>
+        <Button :disabled="!agentEditTarget || !agentEditWatchText.trim()" :loading="savingAgentScope" @click="onSaveAgentScope">Save</Button>
+      </template>
+    </Dialog>
 
     <Dialog v-model="showPathDetail" :title="fileChangePathDetail?.path ?? 'File detail'">
       <template #body>

@@ -37,6 +37,8 @@ from lokilinux.services.compliance_ingest_service import (
 from lokilinux import metrics
 from lokilinux.services.job_envelope import maybe_attach_envelope
 from lokilinux.services.policy_service import get_job_timeout_seconds
+from lokilinux.services import fim_scope_service
+from lokilinux.utils.agent_capability import MIN_AGENT_VERSION_FIM_SCOPES, agent_meets_minimum
 
 logger = logging.getLogger(__name__)
 
@@ -429,6 +431,19 @@ class AgentServicer:
                     policy_envelope = await _pending_policy_envelope(
                         db, agent
                     )
+
+                    # File-integrity watch/ignore scope (docs/compliance/
+                    # 11a-FRONTEND-PAGES.md §3.4) — attached on every
+                    # heartbeat, unlike policy_envelope: it must reach every
+                    # agent, not just ones with a policy deployment. Gated
+                    # on agent_version since older binaries' wire struct
+                    # simply has no field for it (compile-down is automatic,
+                    # this just skips a wasted sign_payload() call).
+                    fim_config = None
+                    if agent_meets_minimum(agent_version, MIN_AGENT_VERSION_FIM_SCOPES):
+                        fim_scope = await fim_scope_service.resolve_for_agent(db, agent.id)
+                        fim_config = fim_scope_service.signed_envelope(agent.id, fim_scope)
+
                     yield {
                         "pending_jobs": [
                             {
@@ -441,6 +456,7 @@ class AgentServicer:
                         ],
                         "resync_domains": resync_domains,
                         **({"policy_envelope": policy_envelope} if policy_envelope else {}),
+                        **({"fim_config": fim_config} if fim_config else {}),
                     }
             except Exception:
                 logger.error("HeartbeatStream error", exc_info=True)

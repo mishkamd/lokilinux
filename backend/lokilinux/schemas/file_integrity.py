@@ -5,7 +5,7 @@ LokiLinux — File Integrity Monitoring Pydantic schemas.
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from lokilinux.schemas.common import CursorPage
 
@@ -44,3 +44,28 @@ class FileChangeResponse(BaseModel):
 
 
 FileChangeListResponse = CursorPage[FileChangeResponse]
+
+
+class FIMScopeResponse(BaseModel):
+    scope_type: str
+    agent_id: UUID | None = None
+    watch_paths: list[str]
+    ignore_paths: list[str]
+    updated_at: datetime
+    updated_by: UUID | None = None
+
+    model_config = {"from_attributes": True}
+
+
+class FIMAgentScopeResponse(FIMScopeResponse):
+    hostname: str | None = None
+
+
+class FIMScopesOverview(BaseModel):
+    global_scope: FIMScopeResponse
+    agents: list[FIMAgentScopeResponse]
+
+
+class FIMScopeUpdate(BaseModel):
+    watch_paths: list[str] = Field(..., max_length=64)
+    ignore_paths: list[str] = Field(default_factory=list, max_length=64)

@@ -60,6 +60,25 @@ type AgentHeartbeatResponse struct {
 	// Faza 2). Present only when a deployment is pending; the agent verifies,
 	// applies, and reports back via PolicyReport on the next heartbeat.
 	DesiredPolicy *PolicyEnvelope `json:"policy_envelope,omitempty"`
+
+	// FimConfig carries a signed file-integrity watch/ignore scope override
+	// (docs/compliance/11a-FRONTEND-PAGES.md §3.4). Present only for agents
+	// meeting MIN_AGENT_VERSION_FIM_SCOPES; older agents never see this
+	// field and keep scanning the compiled-in default (/etc).
+	FimConfig *FIMConfigEnvelope `json:"fim_config,omitempty"`
+}
+
+// FIMConfigEnvelope is signed the same way as PolicyEnvelope (Ed25519 over
+// Payload's exact bytes, pinned via the agent's existing
+// policy.trusted_keys) but is a separate, smaller document: FIM scope must
+// reach every agent regardless of whether it has any desired-state policy
+// deployed, whereas PolicyEnvelope only reaches agents with an explicit
+// policy deployment.
+type FIMConfigEnvelope struct {
+	SignatureB64 string `json:"signature"`
+	SigningKeyID string `json:"signing_key_id"`
+	// Payload is canonical JSON as a STRING — see PolicyEnvelope.Payload.
+	Payload string `json:"payload"`
 }
 
 // ─── Desired-state policy (agent-policy-modernization plan) ──────────────────

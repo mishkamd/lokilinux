@@ -303,6 +303,21 @@ export interface FileChangePathDetail {
   related_drift: DriftEvent[]
 }
 
+export interface FIMScope {
+  scope_type: 'GLOBAL' | 'AGENT'
+  agent_id: string | null
+  hostname?: string | null
+  watch_paths: string[]
+  ignore_paths: string[]
+  updated_at: string
+  updated_by: string | null
+}
+
+export interface FIMScopesOverview {
+  global_scope: FIMScope
+  agents: FIMScope[]
+}
+
 export type ReportType = 'FLEET_SUMMARY' | 'POLICY_SET' | 'DATACENTER' | 'CUSTOM' | 'FRAMEWORK' | 'EXCEPTION' | 'EXECUTIVE_SUMMARY'
 export type ReportFormat = 'JSON' | 'CSV' | 'XLSX' | 'PDF'
 export type ReportStatus = 'PENDING' | 'GENERATING' | 'COMPLETED' | 'FAILED'
@@ -961,6 +976,41 @@ export const useComplianceStore = defineStore('compliance', () => {
     }
   }
 
+  // ── File Integrity: watch/ignore scope (global default + per-agent) ─────
+
+  const fimScopes = ref<FIMScopesOverview | null>(null)
+  const fimScopesLoading = ref(false)
+
+  async function fetchFIMScopes() {
+    fimScopesLoading.value = true
+    try {
+      fimScopes.value = await api.get<FIMScopesOverview>('/compliance/fim-scopes')
+    } finally {
+      fimScopesLoading.value = false
+    }
+  }
+
+  async function updateGlobalFIMScope(watchPaths: string[], ignorePaths: string[]) {
+    const scope = await api.put<FIMScope>('/compliance/fim-scopes', {
+      watch_paths: watchPaths, ignore_paths: ignorePaths,
+    })
+    await fetchFIMScopes() // re-fetch rather than patch in place — the PUT response has no hostname join
+    return scope
+  }
+
+  async function updateAgentFIMScope(agentId: string, watchPaths: string[], ignorePaths: string[]) {
+    const scope = await api.put<FIMScope>(`/compliance/fim-scopes/${agentId}`, {
+      watch_paths: watchPaths, ignore_paths: ignorePaths,
+    })
+    await fetchFIMScopes()
+    return scope
+  }
+
+  async function deleteAgentFIMScope(agentId: string) {
+    await api.del(`/compliance/fim-scopes/${agentId}`)
+    await fetchFIMScopes()
+  }
+
   // ── Reporting Engine ─────────────────────────────────────────────────────
 
   const reports = ref<ComplianceReport[]>([])
@@ -1079,6 +1129,8 @@ export const useComplianceStore = defineStore('compliance', () => {
     fileHashes, fileHashesLoading, fileHashPathPrefix, fetchFileHashes,
     fileChanges, fileChangesTotal, fileChangesLoading, fileChangesNextCursor, fileChangeFilters, fetchFileChanges,
     fileChangePathDetail, fileChangePathDetailLoading, fetchFileChangesByPath,
+    fimScopes, fimScopesLoading, fetchFIMScopes,
+    updateGlobalFIMScope, updateAgentFIMScope, deleteAgentFIMScope,
     reports, reportsTotal, reportsLoading, reportsNextCursor, fetchReports, createReport,
     topViolations, topViolationsLoading, topChangedFiles, topChangedFilesLoading,
     fetchTopViolations, fetchTopChangedFiles,
