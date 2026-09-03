@@ -49,12 +49,9 @@ function openEdit(playbook: Playbook) {
 }
 
 // ── Upload .yml files as playbooks ────────────────────────────────────────
-const fileInput = ref<HTMLInputElement | null>(null)
 const uploading = ref(false)
 
-async function onFilesSelected(e: Event) {
-  const files = (e.target as HTMLInputElement).files
-  if (!files?.length) return
+async function onFilesSelected(files: FileList) {
   uploading.value = true
   let created = 0
   try {
@@ -70,7 +67,6 @@ async function onFilesSelected(e: Event) {
     toast.add({ title: created ? `Uploaded ${created}, then failed` : 'Upload failed', color: 'red' })
   } finally {
     uploading.value = false
-    if (fileInput.value) fileInput.value.value = ''
   }
 }
 
@@ -146,18 +142,10 @@ async function confirmExecute() {
         <Badge color="gray">{{ filteredPlaybooks.length }} playbooks</Badge>
       </div>
       <div v-if="canEdit" class="flex items-center gap-2">
-        <input
-          ref="fileInput"
-          type="file"
-          accept=".yml,.yaml"
-          multiple
-          class="hidden"
-          @change="onFilesSelected"
-        />
-        <Button variant="outline" :loading="uploading" @click="fileInput?.click()">
+        <FileInput accept=".yml,.yaml" multiple :loading="uploading" @change="onFilesSelected">
           <Upload class="size-4" />
           Upload
-        </Button>
+        </FileInput>
         <Button @click="openCreate()">
           <Plus class="size-4" />
           New Playbook

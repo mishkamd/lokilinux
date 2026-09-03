@@ -11,16 +11,13 @@ const toast = useToast()
 // becomes the role name and every file under it becomes files[<relpath>].
 // Zero deps: browser File API only. Skips VCS/CI cruft and files too large
 // to be a sane role source.
-const dirInput = ref<HTMLInputElement | null>(null)
 const uploading = ref(false)
 
 const SKIP_SEGMENTS = new Set(['.git', '.github', '.svn', '__pycache__', 'node_modules'])
 const SKIP_NAMES = new Set(['.gitignore', '.travis.yml', '.DS_Store'])
 const MAX_FILE_BYTES = 512 * 1024
 
-async function onDirSelected(e: Event) {
-  const fileList = (e.target as HTMLInputElement).files
-  if (!fileList?.length) return
+async function onDirSelected(fileList: FileList) {
   uploading.value = true
   try {
     const files: Record<string, string> = {}
@@ -61,7 +58,6 @@ async function onDirSelected(e: Event) {
     toast.add({ title: 'Upload failed', description: err instanceof Error ? err.message : undefined, color: 'red' })
   } finally {
     uploading.value = false
-    if (dirInput.value) dirInput.value.value = ''
   }
 }
 
@@ -113,19 +109,10 @@ async function confirmDelete() {
         <Badge color="gray">{{ store.roles.length }} roles</Badge>
       </div>
       <div v-if="canEdit" class="flex items-center gap-2">
-        <input
-          ref="dirInput"
-          type="file"
-          webkitdirectory
-          directory
-          multiple
-          class="hidden"
-          @change="onDirSelected"
-        />
-        <Button variant="outline" :loading="uploading" @click="dirInput?.click()">
+        <FileInput directory multiple :loading="uploading" @change="onDirSelected">
           <Upload class="size-4" />
           Upload Role
-        </Button>
+        </FileInput>
         <Button @click="openCreate()">
           <Plus class="size-4" />
           New Role

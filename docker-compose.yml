@@ -250,6 +250,13 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    # Without this tag, Compose builds/caches this service under its own
+    # implicit image name instead of sharing lokilinux/api's tag (unlike
+    # ca-signer/api/grpc below, which all set it explicitly) — `docker
+    # compose build lokilinux-api` then silently leaves migrate on a stale
+    # image, so newly added migrations never run. Confirmed live: 045/046
+    # didn't apply until this service was rebuilt by name too.
+    image: lokilinux/api:${LOKILINUX_VERSION:-0.3.0}
     container_name: lokilinux-migrate
     restart: "no"
     read_only: true

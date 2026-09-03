@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Download, Plus, RefreshCw } from 'lucide-vue-next'
+import { Database, Download, Plus, RefreshCw } from 'lucide-vue-next'
 import type { ReportFormat, ReportStatus, ReportType } from '~/stores/compliance'
 
 const store = useComplianceStore()
@@ -84,19 +84,13 @@ async function submitCreate() {
 const availableReportFormats = computed(() => ALL_REPORT_FORMATS.filter((f) => formatAvailability.value[f]))
 
 const downloading = ref<string | null>(null)
+const storageMetaObjectId = ref<string | null>(null)
 
 async function downloadReport(id: string, format: ReportFormat) {
   downloading.value = id
   try {
     const blob = await api.get<Blob>(`/compliance/reports/${id}/download`, { responseType: 'blob' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `compliance-report-${id}.${format.toLowerCase()}`
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
+    downloadBlob(blob, `compliance-report-${id}.${format.toLowerCase()}`)
   } catch (err) {
     toast.add({ title: (err as { data?: { detail?: string } })?.data?.detail ?? 'Download failed', color: 'red' })
   } finally {
@@ -140,13 +134,26 @@ async function downloadReport(id: string, format: ReportFormat) {
         <span class="font-mono text-xs">{{ fmtDateTime(String(row.created_at)) }}</span>
       </template>
       <template #download-data="{ row }">
-        <Button v-if="row.status === 'COMPLETED'" size="xs" variant="outline"
-                :loading="downloading === row.id" @click="downloadReport(String(row.id), row.format)">
-          <Download class="size-3.5" /> Download
-        </Button>
+        <div v-if="row.status === 'COMPLETED'" class="flex items-center gap-1">
+          <Button size="xs" variant="outline"
+                  :loading="downloading === row.id" @click="downloadReport(String(row.id), row.format)">
+            <Download class="size-3.5" /> Download
+          </Button>
+          <Tooltip v-if="row.storage_object_id" text="Storage info">
+            <Button size="xs" variant="ghost" aria-label="Storage info" @click="storageMetaObjectId = String(row.storage_object_id)">
+              <Database class="size-3.5" />
+            </Button>
+          </Tooltip>
+        </div>
         <span v-else-if="row.status === 'FAILED'" class="text-xs text-destructive">{{ row.error_message || 'Failed' }}</span>
       </template>
     </DataTable>
+
+    <Dialog :model-value="!!storageMetaObjectId" title="Storage info" size="sm" @update:model-value="storageMetaObjectId = null">
+      <template #body>
+        <StorageObjectMeta v-if="storageMetaObjectId" :object-id="storageMetaObjectId" />
+      </template>
+    </Dialog>
 
     <div v-if="reportsNextCursor" class="mt-4 flex justify-center">
       <Button variant="outline" @click="store.fetchReports(reportsNextCursor!)">

@@ -29,14 +29,7 @@ async function downloadDirect(link: PkgLink) {
       `/agent/download-direct?os=${encodeURIComponent(link.os)}&arch=${link.arch}`,
       { responseType: 'blob' },
     )
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = link.filename
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
+    downloadBlob(blob, link.filename)
     toast.add({ title: 'Download started', description: link.filename, color: 'green' })
   } catch {
     toast.add({ title: 'Download error', color: 'red' })

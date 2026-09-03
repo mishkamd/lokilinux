@@ -314,6 +314,7 @@ export interface ComplianceReport {
   params: Record<string, unknown>
   status: ReportStatus
   artifact_uri: string | null
+  storage_object_id: string | null
   error_message: string | null
   generated_by: string | null
   created_at: string
