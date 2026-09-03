@@ -72,6 +72,7 @@ async function resolve(id: string) {
       </template>
       <template #title-data="{ row }">
         <p class="font-medium leading-tight">{{ row.title }}</p>
+        <p v-if="row.hostname" class="text-xs text-muted-foreground font-mono">{{ row.hostname }}</p>
         <p v-if="row.description" class="text-xs text-muted-foreground truncate max-w-md">{{ row.description }}</p>
       </template>
       <template #status-data="{ row }">
