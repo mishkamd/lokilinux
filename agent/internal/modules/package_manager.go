@@ -25,6 +25,9 @@ type Package struct {
 	Name         string
 	Version      string
 	Architecture string
+	// Source is the source package the binary comes from (libssl3 -> openssl).
+	// Debian/Ubuntu advisories are indexed by source name; empty means unknown.
+	Source string
 
 	// Populated from the package manager's own "check for updates" command
 	// (refreshed at most once per updateCheckInterval, not every heartbeat —
@@ -330,7 +333,38 @@ func listDpkg() ([]Package, error) {
 			Architecture: fields[3],
 		})
 	}
+	// Source names are advisory: if the lookup fails, matching falls back to the
+	// binary name instead of dropping the whole inventory.
+	if sources, err := dpkgSources(); err == nil {
+		for i := range pkgs {
+			if src, ok := sources[pkgs[i].Name]; ok {
+				pkgs[i].Source = src
+			}
+		}
+	}
 	return pkgs, nil
+}
+
+// dpkgSources maps each installed binary package to its source package.
+func dpkgSources() (map[string]string, error) {
+	out, err := exec.Command("dpkg-query", "-W", "-f=${Package} ${source:Package}\\n").Output()
+	if err != nil {
+		return nil, fmt.Errorf("dpkg-query: %w", err)
+	}
+	return parseDpkgSources(string(out)), nil
+}
+
+// parseDpkgSources reads "binary source" lines. A line with one field has no
+// source info and is skipped.
+func parseDpkgSources(out string) map[string]string {
+	sources := make(map[string]string)
+	for _, line := range strings.Split(out, "\n") {
+		fields := strings.Fields(line)
+		if len(fields) == 2 {
+			sources[fields[0]] = fields[1]
+		}
+	}
+	return sources
 }
 
 // listRPM parses `rpm -qa` output for RHEL/Rocky/AlmaLinux/SUSE systems.

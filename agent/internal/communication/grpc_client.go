@@ -361,6 +361,7 @@ func payloadToRequest(m map[string]interface{}) *gen.AgentHeartbeatRequest {
 				Name:             p.Name,
 				Version:          p.Version,
 				Architecture:     p.Architecture,
+				Source:           p.Source,
 				LatestVersion:    p.LatestVersion,
 				UpdateAvailable:  p.UpdateAvailable,
 				IsSecurityUpdate: p.IsSecurityUpdate,
