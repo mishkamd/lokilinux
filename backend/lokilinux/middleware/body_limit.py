@@ -26,7 +26,7 @@ def body_limit_rules(settings) -> tuple[tuple[str, int], ...]:  # type: ignore[n
     )
 
 
-class _BodyTooLarge(Exception):
+class _BodyTooLargeError(Exception):
     pass
 
 
@@ -61,7 +61,7 @@ class BodyLimitMiddleware:
             if message["type"] == "http.request":
                 received += len(message.get("body", b""))
                 if received > limit:
-                    raise _BodyTooLarge()
+                    raise _BodyTooLargeError()
             return message
 
         async def tracked_send(message):  # type: ignore[no-untyped-def]
@@ -72,11 +72,12 @@ class BodyLimitMiddleware:
 
         try:
             await self.app(scope, limited_receive, tracked_send)
-        except _BodyTooLarge:
+        except _BodyTooLargeError:
             if started:
                 raise
             await self._reject(scope, receive, send)
 
     @staticmethod
     async def _reject(scope, receive, send):  # type: ignore[no-untyped-def]
-        await JSONResponse({"detail": "Request body too large"}, status_code=413)(scope, receive, send)
+        response = JSONResponse({"detail": "Request body too large"}, status_code=413)
+        await response(scope, receive, send)

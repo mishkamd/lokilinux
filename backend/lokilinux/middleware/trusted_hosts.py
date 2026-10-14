@@ -59,6 +59,7 @@ class TrustedHostsMiddleware:
 
         logger.warning("trusted_hosts.unknown_host", host=host, enforce=self.enforce)
         if self.enforce:
-            await JSONResponse({"detail": "Invalid host header"}, status_code=400)(scope, receive, send)
+            response = JSONResponse({"detail": "Invalid host header"}, status_code=400)
+            await response(scope, receive, send)
             return
         await self.app(scope, receive, send)

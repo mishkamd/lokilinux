@@ -22,7 +22,8 @@ def _status(host: str, *, enforce: bool) -> int:
         sent.append(message)
 
     scope = {"type": "http", "path": "/x", "headers": [(b"host", host.encode())]}
-    mw = TrustedHostsMiddleware(_app, allowed=frozenset({"lokilinux-api", "example.com"}), enforce=enforce)
+    allowed = frozenset({"lokilinux-api", "example.com"})
+    mw = TrustedHostsMiddleware(_app, allowed=allowed, enforce=enforce)
     asyncio.run(mw(scope, receive, send))
     return sent[0]["status"]
 

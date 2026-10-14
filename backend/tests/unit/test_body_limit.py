@@ -31,7 +31,9 @@ def _status(path: str, chunks: list[bytes], *, content_length: int | None = None
     async def send(message):
         sent.append(message)
 
-    headers = [(b"content-length", str(content_length).encode())] if content_length is not None else []
+    headers = []
+    if content_length is not None:
+        headers.append((b"content-length", str(content_length).encode()))
     scope = {"type": "http", "path": path, "headers": headers}
     asyncio.run(BodyLimitMiddleware(_app, rules=RULES)(scope, receive, send))
     return sent[0]["status"]
