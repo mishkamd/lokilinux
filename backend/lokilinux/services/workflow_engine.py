@@ -820,6 +820,12 @@ async def approve_step(
         raise HTTPException(status_code=409, detail=f"Step '{step_id}' is not waiting for approval (status: {sr.status})")
     if actor is not None and run.triggered_by is not None and actor == run.triggered_by:
         raise HTTPException(status_code=403, detail="You cannot approve a run you triggered yourself")
+    # Phase 11, no-self-approval on publish: the publisher of the version this run
+    # executes cannot clear its gate either (ROADMAP / workflow plan §14).
+    if actor is not None:
+        version = await db.get(WorkflowVersion, run.workflow_version_id)
+        if version is not None and version.published_by is not None and actor == version.published_by:
+            raise HTTPException(status_code=403, detail="You cannot approve a run of a version you published")
 
     sr.status = "SUCCEEDED"
     sr.completed_at = datetime.now(timezone.utc)

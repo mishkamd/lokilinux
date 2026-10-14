@@ -260,6 +260,33 @@ async def test_approver_cannot_be_the_run_trigger(db_session, fake_cache, fake_s
 
 
 @pytest.mark.asyncio
+async def test_approver_cannot_be_the_version_publisher(db_session, fake_cache, fake_storage):
+    """Phase 11 — no-self-approval on publish: whoever published the version a
+    run executes cannot clear that run's approval gate."""
+    await _make_agent(db_session)
+    publisher, starter = uuid.uuid4(), uuid.uuid4()
+    svc = WorkflowService(db_session, fake_storage)
+    workflow = await svc.create_workflow(
+        name="Publisher WF",
+        yaml_source=WITH_APPROVAL.replace("engine-with-approval", "publisher-approve-wf"),
+        created_by=None,
+    )
+    version_row = (await db_session.execute(
+        select(WorkflowVersion).where(WorkflowVersion.workflow_id == workflow.id)
+    )).scalar_one()
+    await svc.publish_version(workflow.id, version_row.id, actor=publisher)
+
+    run = await start_run(db_session, fake_cache, fake_storage, workflow.id, trigger_type="MANUAL", triggered_by=starter)
+    await _complete_running_step_jobs(db_session, run.id, succeed=True)
+    await advance_run(db_session, fake_cache, fake_storage, run)
+
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException) as exc_info:
+        await approve_step(db_session, fake_cache, fake_storage, run.id, "gate", actor=publisher)
+    assert exc_info.value.status_code == 403
+
+
+@pytest.mark.asyncio
 async def test_a_different_actor_can_approve(db_session, fake_cache, fake_storage):
     await _make_agent(db_session)
     workflow, _version = await _publish(db_session, fake_storage, WITH_APPROVAL.replace("engine-with-approval", "other-approve-wf"))

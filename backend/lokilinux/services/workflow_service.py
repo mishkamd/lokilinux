@@ -195,6 +195,7 @@ class WorkflowService:
 
         version.status = "PUBLISHED"
         version.published_at = datetime.now(timezone.utc)
+        version.published_by = actor
         workflow.current_version_id = version.id
 
         self.db.add(WorkflowAudit(

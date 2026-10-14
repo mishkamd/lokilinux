@@ -79,6 +79,9 @@ class WorkflowVersion(Base):
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Who published this version. Phase 11 no-self-approval: this user cannot
+    # clear an approval gate in a run of the version they published.
+    published_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
 
 
 class WorkflowRun(Base):
