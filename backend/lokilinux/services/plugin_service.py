@@ -4,17 +4,24 @@ LokiLinux — Plugin service.
 
 import json
 from datetime import datetime, timezone
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lokilinux.config import get_settings
 from lokilinux.models.agent import Agent, AgentStatus
 from lokilinux.models.plugin import Plugin, PluginInstallation, PluginStatus
 from lokilinux.nats_topics import PLUGIN_INSTALL
 from lokilinux.schemas.common import CursorPage
 from lokilinux.schemas.plugin import PluginInstallationResponse, PluginResponse
 from lokilinux.services.job_service import JobService
+
+
+def _same_origin(url: str, origin: str) -> bool:
+    a, b = urlsplit(url), urlsplit(origin)
+    return a.scheme == b.scheme and a.netloc.lower() == b.netloc.lower()
 
 
 class PluginService:
@@ -66,6 +73,13 @@ class PluginService:
         if not plugin.source_url:
             raise ValueError(
                 f"Plugin {plugin.name} has no source_url — nothing for agents to download"
+            )
+        # ponytail: origin allowlist = the platform's own origin only. Agents fetch this
+        # URL themselves and the platform often sits on a private LAN, so the IP-based
+        # url_guard is deliberately not applied here. Extend the allowlist when needed.
+        if not _same_origin(plugin.source_url, get_settings().platform_url):
+            raise ValueError(
+                f"Plugin {plugin.name} source_url is outside the platform origin — refused"
             )
 
         # Retry path: drop stale installation rows for these agents so a

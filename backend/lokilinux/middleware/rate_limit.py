@@ -18,12 +18,26 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
+from lokilinux.config import get_settings
 from lokilinux.settings_schema import get_setting_value
 
 logger = structlog.get_logger()
 
 _CONFIG_CACHE_KEY = "settings:security:rate_limit"
 _EXEMPT_PATHS = {"/health", "/ready"}
+
+
+def _client_ip(request: Request) -> str:
+    # ponytail: with N trusted proxies, the client is the N-th entry from the
+    # right of X-Forwarded-For. Only honoured when TRUST_PROXY_COUNT > 0, so a
+    # direct client can't pick its own bucket.
+    hops = get_settings().trust_proxy_count
+    if hops > 0:
+        forwarded = request.headers.get("x-forwarded-for", "")
+        chain = [h.strip() for h in forwarded.split(",") if h.strip()]
+        if len(chain) >= hops:
+            return chain[-hops]
+    return request.client.host if request.client else "unknown"
 
 
 async def _rate_limit_config(cache, session_factory) -> tuple[bool, int]:
@@ -56,7 +70,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if not enabled:
             return await call_next(request)
 
-        client_ip = request.client.host if request.client else "unknown"
+        client_ip = _client_ip(request)
         window = int(time.time() // 60)
         count = await cache.incr(f"ratelimit:{client_ip}:{window}", ttl=90)
 

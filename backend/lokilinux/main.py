@@ -27,6 +27,7 @@ from lokilinux.ch import ClickHouseStore
 from lokilinux.config import Settings
 from lokilinux.db import build_engine, build_session_factory
 from lokilinux.middleware.rate_limit import RateLimitMiddleware
+from lokilinux.middleware.security_headers import SecurityHeadersMiddleware
 from lokilinux.object_storage import ObjectStorage
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -265,6 +266,8 @@ app.add_middleware(
 
 app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
 app.add_middleware(RateLimitMiddleware)
+# Added last = outermost, so headers also land on 429s and CORS preflights.
+app.add_middleware(SecurityHeadersMiddleware)
 
 # ── Request tracing middleware ────────────────────────────────────────────────
 
@@ -298,12 +301,14 @@ async def readiness(request: Request) -> JSONResponse:
     """Kubernetes readiness probe — checks DB and cache."""
     errors: list[str] = []
 
+    # Driver messages stay in the log; the response only names the component (ROADMAP P1r-1.5).
     try:
         async with request.app.state.session_factory() as session:
             from sqlalchemy import text
             await session.execute(text("SELECT 1"))
-    except Exception as exc:
-        errors.append(f"db: {exc}")
+    except Exception:
+        logger.error("ready.db_unreachable", exc_info=True)
+        errors.append("db: unreachable")
 
     if not await request.app.state.cache.ping():
         errors.append("cache: unreachable")
@@ -314,8 +319,9 @@ async def readiness(request: Request) -> JSONResponse:
     if settings.s3_enabled:
         try:
             await request.app.state.storage.exists("__readiness_probe__")
-        except Exception as exc:
-            errors.append(f"storage: {exc}")
+        except Exception:
+            logger.error("ready.storage_unreachable", exc_info=True)
+            errors.append("storage: unreachable")
 
     if errors:
         return JSONResponse(status_code=503, content={"status": "not_ready", "errors": errors})

@@ -40,6 +40,7 @@ next tick"), and by WorkflowRunnerWorker's tick (workers/workflow_runner.py)
 for everything after that.
 """
 
+import asyncio
 import hashlib
 from datetime import datetime, timezone
 from uuid import UUID
@@ -68,6 +69,7 @@ from lokilinux.services.playbook_service import PlaybookService
 from lokilinux.services.policy_service import resolve_targets
 from lokilinux.utils.agent_capability import agent_meets_minimum
 from lokilinux.utils.expr import ExpressionError, evaluate_condition
+from lokilinux.utils.url_guard import UnsafeURLError, assert_safe_url
 from lokilinux.utils.shell import q
 
 _TERMINAL_JOB_SUCCESS = JobStatus.COMPLETED
@@ -496,16 +498,23 @@ async def _dispatch_notification(db: AsyncSession, nats, step: WorkflowStep, run
         raise WorkflowRunError(f"step '{step.id}': an ACTIVE alert with type '{alert_type}' already exists")
 
 
+# ponytail: fixed, not user-set — a long user timeout let one step hold a run open indefinitely.
+_WEBHOOK_TIMEOUT_SECONDS = 10.0
+
+
 async def _dispatch_webhook(step: WorkflowStep) -> None:
     """No Job — POSTs synchronously and raises on a non-2xx/network error so
     the step run fails cleanly instead of reporting success for a request
-    nobody received."""
+    nobody received. The URL must resolve only to public addresses (SSRF guard)."""
     config = step.config or {}
     url = _require(config, "url", step.id)
     method = str(config.get("method") or "POST").upper()
-    timeout = float(config.get("timeout") or 10)
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        await asyncio.to_thread(assert_safe_url, url)
+    except UnsafeURLError as exc:
+        raise WorkflowRunError(f"step '{step.id}' (type webhook): url refused: {exc}") from exc
+    try:
+        async with httpx.AsyncClient(timeout=_WEBHOOK_TIMEOUT_SECONDS) as client:
             response = await client.request(method, url, headers=config.get("headers") or None, json=config.get("body") or None)
             response.raise_for_status()
     except httpx.HTTPError as exc:

@@ -10,6 +10,7 @@ than the multi-stage approval workflow baselines use — a policy set is a
 lower-stakes, easily-reversible grouping, not a signed, fleet-wide contract.
 """
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 from uuid import UUID
@@ -51,6 +52,7 @@ from lokilinux.services.audit_service import AuditService
 from lokilinux.services.complianceascode_importer import ComplianceAsCodeImporter
 from lokilinux.services.policy_set_service import PolicySetService
 from lokilinux.services.storage_service import StorageService
+from lokilinux.utils.url_guard import UnsafeURLError, assert_safe_url
 
 logger = logging.getLogger(__name__)
 
@@ -368,6 +370,13 @@ async def import_policy_set(
     other long-running operation; it never dispatches to an agent
     (target_servers stays empty) since this work runs on the control plane.
     """
+    # Refuse before a Job row exists: the fetch below runs in the background,
+    # where a 422 can no longer reach the caller (ROADMAP P1r-2, datastream).
+    try:
+        await asyncio.to_thread(assert_safe_url, body.datastream_url)
+    except UnsafeURLError as exc:
+        raise HTTPException(status_code=422, detail=f"datastream_url refused: {exc}") from exc
+
     job = Job(
         name=f"Import {body.source} content {body.content_version}",
         job_type="COMPLIANCE_IMPORT_CONTENT",

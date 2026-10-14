@@ -65,6 +65,9 @@ class Settings(BaseSettings):
 
     # ── Frontend (CORS origin) ────────────────────────────────
     frontend_url: str = "http://localhost:3000"
+    # Trusted reverse-proxy hops appending X-Forwarded-For (ROADMAP P1r-1.4).
+    # 0 = header ignored, rate limiting keys on the socket peer.
+    trust_proxy_count: int = 0
 
     # ── Agent distribution ────────────────────────────────────
     platform_url: str = "http://localhost:8000"
