@@ -7,6 +7,7 @@ Cache per-token în Redis (TTL 60s) pentru a evita overhead per-request.
 """
 
 import asyncio
+import hashlib
 from typing import Any, Optional
 
 import httpx
@@ -25,8 +26,11 @@ async def get_current_user(
         raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
 
     token = authorization[7:]
-    cache_key = f"ba:session:{token}"
-    down_key = f"ba:down:{token}"
+    # Keys hold a digest, never the bearer token: anyone who can read Redis would
+    # otherwise hold live session tokens (ROADMAP P2, session hash key).
+    digest = hashlib.sha256(token.encode()).hexdigest()
+    cache_key = f"ba:session:{digest}"
+    down_key = f"ba:down:{digest}"
 
     # Redis cache 60s — evită request la Better Auth per fiecare endpoint
     cached = await cache.get_cached(cache_key)
