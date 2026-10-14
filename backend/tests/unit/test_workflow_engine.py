@@ -825,11 +825,15 @@ spec:
 
 
 @pytest.mark.asyncio
-async def test_webhook_step_fails_cleanly_on_unreachable_url(db_session, fake_cache, fake_storage):
+async def test_webhook_step_fails_cleanly_on_unreachable_url(db_session, fake_cache, fake_storage, monkeypatch):
     """No mock HTTP server in this test environment — asserting against a
     connection failure is still a real, meaningful check: the step must
     fail the run rather than silently reporting success for a request that
     was never delivered."""
+    # The SSRF guard refuses loopback before any connection is attempted (see
+    # test_webhook_step_refuses_loopback_url). Lift it so this test exercises the
+    # connection-failure path it was written for.
+    monkeypatch.setattr("lokilinux.services.workflow_engine.assert_safe_url", lambda *a, **k: None)
     await _make_agent(db_session)
     workflow, _version = await _publish(db_session, fake_storage, WITH_WEBHOOK_STEP.replace("engine-webhook-compile-down", "webhook-wf"))
 
@@ -841,4 +845,20 @@ async def test_webhook_step_fails_cleanly_on_unreachable_url(db_session, fake_ca
     assert step_runs["hook"].status == "FAILED"
     assert step_runs["hook"].job_id is None
     assert "request failed" in step_runs["hook"].error
+    assert run.status == "FAILED"
+
+
+@pytest.mark.asyncio
+async def test_webhook_step_refuses_loopback_url(db_session, fake_cache, fake_storage):
+    """SSRF guard: a loopback target fails the step with 'url refused' before any request."""
+    await _make_agent(db_session)
+    workflow, _version = await _publish(db_session, fake_storage, WITH_WEBHOOK_STEP.replace("engine-webhook-compile-down", "webhook-wf"))
+
+    run = await start_run(db_session, fake_cache, fake_storage, workflow.id, trigger_type="MANUAL", triggered_by=None)
+
+    step_runs = {sr.step_id: sr for sr in (await db_session.execute(
+        select(WorkflowStepRun).where(WorkflowStepRun.run_id == run.id)
+    )).scalars().all()}
+    assert step_runs["hook"].status == "FAILED"
+    assert "url refused" in step_runs["hook"].error
     assert run.status == "FAILED"

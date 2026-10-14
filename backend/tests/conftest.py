@@ -101,6 +101,25 @@ class FakeCache:
         await self.invalidate_pattern("cve:*")
         await self.invalidate_pattern("vulnerability:*")
 
+    # Redis sets, as used by the certificate revocation list (services/cert_revocation.py).
+    async def sadd(self, key: str, member: str) -> int:
+        members = self._store.setdefault(key, set())
+        added = member not in members
+        members.add(member)
+        return int(added)
+
+    async def srem(self, key: str, member: str) -> int:
+        members = self._store.get(key, set())
+        removed = member in members
+        members.discard(member)
+        return int(removed)
+
+    async def smembers(self, key: str) -> set[str]:
+        return set(self._store.get(key, set()))
+
+    async def sismember(self, key: str, member: str) -> bool:
+        return member in self._store.get(key, set())
+
 
 class FakeNats:
     """Records published messages instead of hitting a broker."""

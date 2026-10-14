@@ -184,11 +184,40 @@ async def test_service_forces_approval_regardless_of_caller(
 @pytest.fixture
 def patched_cert_dir(monkeypatch, tmp_path):
     cert_dir, ca_key, ca_cert = _make_ca(tmp_path)
-    cfg = SimpleNamespace(agent_cert_dir=str(cert_dir))
+    cfg = SimpleNamespace(
+        agent_cert_dir=str(cert_dir),
+        certificate_revocation_enabled=True,
+        certificate_revocation_fail_closed=True,
+        agent_cert_ttl_days=30,
+    )
     monkeypatch.setattr(
         "lokilinux.api.v1.routers.agent_install.get_settings", lambda: cfg
     )
     return cert_dir, ca_key, ca_cert
+
+
+@pytest.fixture
+def ca_signing_stub(monkeypatch, patched_cert_dir):
+    """Production signs through the isolated ca-signer over a Unix socket
+    (services/ca_signer_client.py). Tests have no socket, so they sign with the test CA."""
+    _, ca_key, ca_cert = patched_cert_dir
+
+    async def sign_agent_cert(agent_id, public_key_pem, validity_days):
+        public_key = serialization.load_pem_public_key(public_key_pem.encode())
+        now = datetime.now(timezone.utc)
+        cert = (
+            x509.CertificateBuilder()
+            .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, agent_id)]))
+            .issuer_name(ca_cert.subject)
+            .public_key(public_key)
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now)
+            .not_valid_after(now + timedelta(days=validity_days))
+            .sign(ca_key, hashes.SHA256())
+        )
+        return cert.public_bytes(serialization.Encoding.PEM).decode()
+
+    monkeypatch.setattr("lokilinux.services.ca_signer_client.sign_agent_cert", sign_agent_cert)
 
 
 async def _seed_enrollment_token(db_session, plaintext: str = "test-enrollment-token") -> None:
@@ -225,7 +254,7 @@ async def _enroll(client, hostname, *, extra=None):
 
 
 @pytest.mark.asyncio
-async def test_register_new_hostname_succeeds(client, db_session, fake_cache, patched_cert_dir):
+async def test_register_new_hostname_succeeds(client, db_session, fake_cache, patched_cert_dir, ca_signing_stub):
     await db_session.commit()
     await _seed_enrollment_token(db_session)
     resp = await _enroll(client, f"fresh-{uuid.uuid4().hex[:6]}")
