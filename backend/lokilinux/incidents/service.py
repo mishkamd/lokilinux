@@ -17,6 +17,7 @@ import json
 
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
@@ -74,6 +75,22 @@ class IncidentService:
         ).scalars().all()
         return list(rows)
 
+    async def _attach_to_existing(
+        self, existing: Incident, candidate: IncidentCandidate, signal_rows: list[Signal]
+    ) -> Incident:
+        for sig in signal_rows:
+            await self.db.execute(
+                pg_insert(IncidentSignal)
+                .values(incident_id=existing.id, signal_id=sig.id)
+                .on_conflict_do_nothing(index_elements=["incident_id", "signal_id"])
+            )
+        await add_entry(
+            self.db, existing.id, "signal",
+            f"additional signal: {candidate.root_signal_type} (score {candidate.score})",
+        )
+        await self.db.commit()
+        return existing
+
     async def open_from_candidate(self, candidate: IncidentCandidate, *, tenant_id: str = "default") -> Incident:
         # Best-effort race guard around the check-then-insert below — two
         # near-simultaneous candidates for the same group_key (redelivery,
@@ -97,18 +114,7 @@ class IncidentService:
         ).scalar_one_or_none()
 
         if existing is not None:
-            for sig in signal_rows:
-                await self.db.execute(
-                    pg_insert(IncidentSignal)
-                    .values(incident_id=existing.id, signal_id=sig.id)
-                    .on_conflict_do_nothing(index_elements=["incident_id", "signal_id"])
-                )
-            await add_entry(
-                self.db, existing.id, "signal",
-                f"additional signal: {candidate.root_signal_type} (score {candidate.score})",
-            )
-            await self.db.commit()
-            return existing
+            return await self._attach_to_existing(existing, candidate, signal_rows)
 
         host_id = candidate.group_values.get("host_id") or "fleet"
         title = f"{candidate.rule.incident_type.replace('_', ' ').title()}: {host_id}"
@@ -132,8 +138,23 @@ class IncidentService:
             group_key=candidate.group_key,
             correlation_rule_id=candidate.rule.id,
         )
-        self.db.add(incident)
-        await self.db.flush()
+        try:
+            # Savepoint: a lost race rolls back only this insert, not the caller's transaction.
+            async with self.db.begin_nested():
+                self.db.add(incident)
+                await self.db.flush()
+        except IntegrityError:
+            # Another worker opened this group between our SELECT and INSERT. The
+            # partial unique index (migration 049, ROADMAP M5) refused ours, so
+            # attach to the incident that won.
+            winner = (await self.db.execute(
+                select(Incident).where(
+                    Incident.tenant_id == tenant_id,
+                    Incident.group_key == candidate.group_key,
+                    Incident.status.in_(_OPEN_STATUSES),
+                )
+            )).scalar_one()
+            return await self._attach_to_existing(winner, candidate, signal_rows)
         incidents_created_total.labels(incident_type=candidate.rule.incident_type).inc()
 
         for sig in signal_rows:
