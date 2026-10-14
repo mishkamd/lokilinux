@@ -221,6 +221,12 @@ func payloadToRequest(m map[string]interface{}) *gen.AgentHeartbeatRequest {
 	if caps, ok := m["capabilities"].([]string); ok {
 		req.Capabilities = caps
 	}
+	if v, ok := m["snapshot_hmac_key_id"].(int32); ok {
+		req.SnapshotKeyID = v
+	}
+	if macs, ok := m["domain_macs"].(map[string]*gen.SnapshotMAC); ok {
+		req.DomainMACs = macs
+	}
 	if v, ok := m["agent_version"].(string); ok {
 		req.AgentVersion = v
 	}
@@ -427,6 +433,9 @@ func responseToMap(resp *gen.AgentHeartbeatResponse) map[string]interface{} {
 	}
 	if resp.PluginAction != "" {
 		result["plugin_action"] = resp.PluginAction
+	}
+	if resp.SnapshotHmac != nil {
+		result["snapshot_hmac"] = resp.SnapshotHmac
 	}
 	if len(resp.ResyncDomains) > 0 {
 		result["resync_domains"] = resp.ResyncDomains

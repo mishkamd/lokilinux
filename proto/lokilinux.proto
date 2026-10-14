@@ -35,7 +35,12 @@ message AgentHeartbeatRequest {
   // (ROADMAP R5). The server dispatches natively only to agents that list them.
   repeated string capabilities = 12;
 
-  // fields 13-19 reserved for future use
+  // Snapshot signing key id the agent currently holds, and one MAC per domain
+  // carried in full on this heartbeat.
+  int32 snapshot_hmac_key_id = 13;
+  map<string, SnapshotMAC> domain_macs = 14;
+
+  // fields 15-19 reserved for future use
 
   // SHA-256 of the serialised packages list — used for delta-sync optimisation
   string packages_checksum = 20;
@@ -56,6 +61,18 @@ message AgentHeartbeatRequest {
   map<string, google.protobuf.Struct> domain_full = 28; // full canonical fact bodies, resync only
 }
 
+// HMAC over "v1|agent_id|domain|content_hash" with the agent's snapshot key
+// (docs/security/SNAPSHOT_HMAC.md).
+message SnapshotMAC {
+  int32  key_id = 1;
+  string mac    = 2;
+}
+
+message SnapshotHMACKey {
+  int32  key_id = 1;
+  string key    = 2; // base64 of the raw key
+}
+
 message AgentHeartbeatResponse {
   oneof command {
     JobRequest    execute_job    = 1;
@@ -68,6 +85,8 @@ message AgentHeartbeatResponse {
   // latest snapshot — the agent sends a full body for each in domain_full
   // on its next heartbeat (docs/compliance/04-PROTOCOL.md §3).
   repeated string resync_domains = 5;
+  // Snapshot signing key, sent only when the agent's key_id is stale (SNAPSHOT_HMAC.md).
+  SnapshotHMACKey snapshot_hmac = 6;
 }
 
 // ============================================================================

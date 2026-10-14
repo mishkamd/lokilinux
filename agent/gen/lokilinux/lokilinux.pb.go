@@ -10,24 +10,26 @@ import "time"
 // ─── Heartbeat ───────────────────────────────────────────────────────────────
 
 type AgentHeartbeatRequest struct {
-	AgentId          string           `json:"agent_id"`
-	Timestamp        time.Time        `json:"timestamp"`
-	SystemStatus     *SystemStatus    `json:"system_status,omitempty"`
-	Packages         []*Package       `json:"packages,omitempty"`
-	Capabilities     []string         `json:"capabilities,omitempty"`
-	Services         []*Service       `json:"services,omitempty"`
-	Repositories     []*Repository    `json:"repositories,omitempty"`
-	Vulnerabilities  []*Vulnerability `json:"vulnerabilities,omitempty"`
-	Health           *AgentHealth     `json:"health,omitempty"`
-	PendingJobs      int32            `json:"pending_jobs,omitempty"`
-	ConfigVersion    string           `json:"config_version,omitempty"`
-	PackagesChecksum string           `json:"packages_checksum,omitempty"`
-	AgentVersion     string           `json:"agent_version,omitempty"`
-	RecentLogs       []string         `json:"recent_logs,omitempty"`
-	LogConnections   int32            `json:"log_connections,omitempty"`
-	LogInformative   int32            `json:"log_informative,omitempty"`
-	LogCritical      int32            `json:"log_critical,omitempty"`
-	JobResults       []*JobResult     `json:"job_results,omitempty"`
+	AgentId          string                  `json:"agent_id"`
+	Timestamp        time.Time               `json:"timestamp"`
+	SystemStatus     *SystemStatus           `json:"system_status,omitempty"`
+	Packages         []*Package              `json:"packages,omitempty"`
+	Capabilities     []string                `json:"capabilities,omitempty"`
+	SnapshotKeyID    int32                   `json:"snapshot_hmac_key_id,omitempty"`
+	DomainMACs       map[string]*SnapshotMAC `json:"domain_macs,omitempty"`
+	Services         []*Service              `json:"services,omitempty"`
+	Repositories     []*Repository           `json:"repositories,omitempty"`
+	Vulnerabilities  []*Vulnerability        `json:"vulnerabilities,omitempty"`
+	Health           *AgentHealth            `json:"health,omitempty"`
+	PendingJobs      int32                   `json:"pending_jobs,omitempty"`
+	ConfigVersion    string                  `json:"config_version,omitempty"`
+	PackagesChecksum string                  `json:"packages_checksum,omitempty"`
+	AgentVersion     string                  `json:"agent_version,omitempty"`
+	RecentLogs       []string                `json:"recent_logs,omitempty"`
+	LogConnections   int32                   `json:"log_connections,omitempty"`
+	LogInformative   int32                   `json:"log_informative,omitempty"`
+	LogCritical      int32                   `json:"log_critical,omitempty"`
+	JobResults       []*JobResult            `json:"job_results,omitempty"`
 
 	// PolicyReport reports the outcome of the previous cycle's desired-state
 	// policy apply (agent-policy-modernization plan Faza 2). Present only in
@@ -46,11 +48,25 @@ type AgentHeartbeatRequest struct {
 // PendingJobs replaces the proto's single-job oneof (ExecuteJob) — the
 // server can return up to 10 pending jobs per heartbeat (see
 // AgentService.get_pending_jobs), which a oneof cannot represent.
+// SnapshotMAC is one domain snapshot's MAC and the key_id it was made with
+// (docs/security/SNAPSHOT_HMAC.md).
+type SnapshotMAC struct {
+	KeyID int32  `json:"key_id"`
+	MAC   string `json:"mac"`
+}
+
+// SnapshotHMACKey is a snapshot signing key the server issues on heartbeat.
+type SnapshotHMACKey struct {
+	KeyID int32  `json:"key_id"`
+	Key   string `json:"key"`
+}
+
 type AgentHeartbeatResponse struct {
-	PendingJobs   []*JobRequest `json:"pending_jobs,omitempty"`
-	UpdatePolicy  *PolicyConfig `json:"update_policy,omitempty"`
-	RebootRequest string        `json:"reboot_request,omitempty"`
-	PluginAction  string        `json:"plugin_action,omitempty"`
+	PendingJobs   []*JobRequest    `json:"pending_jobs,omitempty"`
+	SnapshotHmac  *SnapshotHMACKey `json:"snapshot_hmac,omitempty"`
+	UpdatePolicy  *PolicyConfig    `json:"update_policy,omitempty"`
+	RebootRequest string           `json:"reboot_request,omitempty"`
+	PluginAction  string           `json:"plugin_action,omitempty"`
 
 	// ResyncDomains lists compliance domains whose last-reported hash didn't
 	// match the server's latest snapshot — the agent sends a full body for

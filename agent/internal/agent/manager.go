@@ -121,6 +121,10 @@ type Manager struct {
 	// goroutine, so it needs no lock (same reasoning as pendingResults'
 	// comment above, just without the job-goroutine producer side).
 	fimScopeVersion int64
+
+	// snapshotKeys signs domain snapshots (docs/security/SNAPSHOT_HMAC.md). Touched
+	// only from the heartbeat goroutine, like fimScopeVersion.
+	snapshotKeys compliance.SnapshotKeys
 }
 
 const (
@@ -201,6 +205,14 @@ func NewManager(cfg *config.Config, log *slog.Logger, version string, logBuf *Lo
 		}
 	}
 
+	var snapshotKeys compliance.SnapshotKeys
+	if blob, err := store.GetConfig(context.Background(), "compliance.snapshot_hmac"); err == nil && blob != "" {
+		if err := json.Unmarshal([]byte(blob), &snapshotKeys); err != nil {
+			log.Warn("discarding malformed persisted snapshot HMAC keys", "error", err)
+			snapshotKeys = compliance.SnapshotKeys{}
+		}
+	}
+
 	// Restore last-good local policy across restarts (freshness is judged
 	// against ReceivedAt, so a stale one still fails HIGH+ jobs fail-closed).
 	mgr := &Manager{
@@ -228,6 +240,7 @@ func NewManager(cfg *config.Config, log *slog.Logger, version string, logBuf *Lo
 		),
 		fimCollector:    fimCollector,
 		fimScopeVersion: fimScopeVersion,
+		snapshotKeys:    snapshotKeys,
 		verifier:        verifier,
 		replay:          security.NewReplayStore(store),
 		secCfg:          secCfg,
@@ -419,6 +432,20 @@ func (m *Manager) sendHeartbeat(ctx context.Context) {
 
 	payload := buildPayload(m.cfg.Identity.AgentID, sysInfo, pkgs, checksum, m.version, recentLogs, connCount, infoCount, critCount, health, results, domainHashes, domainFull, vulns)
 	payload["capabilities"] = nativeCapabilities()
+	// Sign each domain this heartbeat carries in full, binding its hash to our key.
+	payload["snapshot_hmac_key_id"] = m.snapshotKeys.CurrentKeyID()
+	if len(domainFull) > 0 && m.snapshotKeys.CurrentKeyID() > 0 {
+		macs := make(map[string]*gen.SnapshotMAC, len(domainFull))
+		for domain := range domainFull {
+			keyID, mac, err := m.snapshotKeys.MACFor(m.cfg.Identity.AgentID, domain, domainHashes[domain])
+			if err != nil {
+				m.log.Warn("snapshot MAC skipped", "domain", domain, "error", err)
+				continue
+			}
+			macs[domain] = &gen.SnapshotMAC{KeyID: keyID, MAC: mac}
+		}
+		payload["domain_macs"] = macs
+	}
 
 	// Phase G2: report the collector policy version we're currently
 	// running, repurposing the previously-dormant config_version field
@@ -576,6 +603,16 @@ func (m *Manager) handleResponse(ctx context.Context, resp map[string]interface{
 				}
 				m.log.Info("fim_config applied", "version", scope.Version, "watch_paths", len(scope.WatchPaths))
 			}
+		}
+	}
+
+	// Server-issued snapshot signing key (sent only when our key_id is stale).
+	if key, ok := resp["snapshot_hmac"].(*gen.SnapshotHMACKey); ok && key != nil {
+		if m.snapshotKeys.Install(compliance.SnapshotKey{KeyID: key.KeyID, Key: key.Key}) {
+			if blob, err := json.Marshal(m.snapshotKeys); err == nil {
+				_ = m.store.SetConfig(ctx, "compliance.snapshot_hmac", string(blob))
+			}
+			m.log.Info("snapshot HMAC key installed", "key_id", key.KeyID)
 		}
 	}
 
