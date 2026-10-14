@@ -8,6 +8,7 @@
 - fix(security): session cache keyed by token digest; CSV exports neutralise spreadsheet formulas; admin password written to a 0600 file, not printed
 - feat(security): Host header allowlist (`TRUSTED_HOSTS_MODE`: log by default, enforce after a live check); request body cap per path (10 MB default, 64 KB auth, storage limit for uploads)
 - feat(streams): JetStream streams capped at 10 GB each; compliance ingest drops duplicate snapshots within 5 min
+- feat(security): domain snapshots carry a per-agent HMAC, verified by the compliance service; `ENFORCE_SNAPSHOT_HMAC` (off) rejects unsigned ones (migration 053)
 - feat(workflow): no-self-approval on publish; the publisher of a version cannot approve its runs (migration 049 index, 050 published_by)
 - fix(incidents): at most one open incident per group, enforced by a partial unique index (migration 049); a lost race attaches to the winner
 - feat(vulns): Debian and Ubuntu packages matched against OSV every 30 min (migration 051, `source_package`; agents report source names)

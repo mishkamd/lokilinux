@@ -1,7 +1,8 @@
 # HMAC pe snapshot-uri de compliance (ROADMAP P1r-3.1, 3.3)
 
-> Status: DESIGN, neimplementat. Cere aprobare înainte de cod: schimbă protocolul agent ↔ server ↔ serviciu compliance, pe o flotă live.
-> Decizie deja luată: cheia per agent se stochează în DB, cu rotație.
+> Status: IMPLEMENTAT, cu enforcement OFF (2026-10-14). Agentul semnează, serverul emite și stochează cheile, serviciul compliance verifică. `ENFORCE_SNAPSHOT_HMAC=true` activează respingerea snapshot-urilor nesemnate, după 7 zile cu MAC pe toată flota.
+> Decizii luate: cheia per agent în DB, cu rotație; livrare în răspunsul de heartbeat; enforcement după 7 zile.
+> Lipsesc: endpoint de rotație (există doar funcția de serviciu); criptarea cheii cu KMS (decizia a fost DB).
 
 ## Problema
 
