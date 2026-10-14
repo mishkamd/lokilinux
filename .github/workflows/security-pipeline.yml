@@ -47,6 +47,45 @@ jobs:
           .venv/bin/pip install -e ".[dev]"
           .venv/bin/pytest tests/
 
+  # Secret, SAST and dependency scans (ROADMAP P2, CI security scanning).
+  # Fails on findings: triage the current advisories before merging to main.
+  secrets-and-deps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # gitleaks scans history, not just the tree
+
+      - name: gitleaks (secrets)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: semgrep (SAST)
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src semgrep/semgrep \
+            semgrep scan --config p/default --error --severity ERROR
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: pip-audit (backend dependencies)
+        working-directory: backend
+        run: |
+          python -m venv .venv
+          .venv/bin/pip install -e ".[dev]"
+          .venv/bin/pip install pip-audit
+          .venv/bin/pip-audit
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: npm audit (frontend production dependencies)
+        working-directory: frontend
+        run: |
+          npm ci --legacy-peer-deps
+          npm audit --audit-level=high --omit=dev
+
   build:
     needs: test
     runs-on: ubuntu-latest
