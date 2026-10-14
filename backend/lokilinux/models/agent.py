@@ -44,6 +44,8 @@ class Agent(Base):
 
     # Versions
     agent_version: Mapped[str | None] = mapped_column(String(50))
+    # Native job types the agent reported on its last heartbeat (ROADMAP R5). NULL = never reported.
+    capabilities: Mapped[list | None] = mapped_column(JSONB)
     platform_version: Mapped[str | None] = mapped_column(String(50))
 
     # Desired-state policy (migration 038, agent-policy-modernization plan)

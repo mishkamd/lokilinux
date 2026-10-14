@@ -313,6 +313,7 @@ class AgentServicer:
                                 "job_results": [_as_dict(r) for r in (job_results or [])],
                                 "vulnerabilities": [_as_dict(v) for v in (vulnerabilities or [])],
                                 "agent_version": agent_version,
+                                "capabilities": list(getattr(request, "capabilities", None) or []),
                                 "recent_logs": getattr(request, "recent_logs", None),
                                 "log_connections": getattr(request, "log_connections", None),
                                 "log_informative": getattr(request, "log_informative", None),

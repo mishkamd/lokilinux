@@ -86,6 +86,9 @@ class AgentService:
 
         if data.get("agent_version"):
             agent.agent_version = data["agent_version"]
+        if isinstance(data.get("capabilities"), list):
+            # Bounded: the agent sends a short fixed list; anything longer is malformed.
+            agent.capabilities = [str(c)[:64] for c in data["capabilities"][:32]]
         recent_logs = data.get("recent_logs")
         if recent_logs is not None:
             agent.recent_logs = {
