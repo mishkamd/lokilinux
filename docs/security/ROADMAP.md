@@ -1,6 +1,6 @@
 # LokiLinux — Security Hardening Roadmap
 
-> Creat: 2026-08-24 · Status: PLAN APROBAT (neexecutat)
+> Creat: 2026-08-24 · Status: PARȚIAL (2026-10-14) — executate: P1r-1 1.1/1.4/1.5, P1r-2 (webhook, datastream, plugin origin), P1r-4 (PR #18). Deschise: P1r-1 1.2/1.3, P1r-3, P2, P3. Vezi SECURITY_MATRIX.md
 > Origine: security audit 2026-08-24 (`SECURITY_AUDIT.md`) — fazele P1r→P3 acoperă restanțele
 > după fix-urile P0 și după hardening-ul de container/semnare deja livrat.
 

@@ -1,3 +1,11 @@
+## [Unreleased]
+
+- feat(security): security response headers (nosniff, X-Frame-Options DENY, Referrer-Policy, HSTS; CSP on API responses, not on /docs)
+- feat(security): SSRF guard `utils/url_guard.py` on webhook workflow steps and compliance datastream import; plugin installs limited to the platform origin
+- fix(security): `/ready` no longer returns driver error text in the response body
+- feat(security): `TRUST_PROXY_COUNT` — X-Forwarded-For is honoured for rate limiting only when set (default 0)
+- feat(agent): `max_parallel_jobs` (default 2) bounds concurrently executing jobs; excess jobs wait for a slot instead of running unbounded
+
 ## [0.5.0] - 2026-08-26
 
 - feat(observability): harden event/signal/correlation pipeline and compliance ingest (ab8394b)

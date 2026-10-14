@@ -205,7 +205,7 @@ by name, don't assume rebuilding `lokilinux-api` covers it.
 
 ### Migrations
 
-Alembic, sequentially numbered `NNN_name.py` under `backend/alembic/versions/` (currently through 037).
+Alembic, sequentially numbered `NNN_name.py` under `backend/alembic/versions/` (currently through 048).
 Applied by the one-shot `lokilinux-migrate` container, and again by `conftest.py` for tests.
 
 ## Conventions
