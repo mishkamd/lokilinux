@@ -14,6 +14,7 @@ type AgentHeartbeatRequest struct {
 	Timestamp        time.Time        `json:"timestamp"`
 	SystemStatus     *SystemStatus    `json:"system_status,omitempty"`
 	Packages         []*Package       `json:"packages,omitempty"`
+	Capabilities     []string         `json:"capabilities,omitempty"`
 	Services         []*Service       `json:"services,omitempty"`
 	Repositories     []*Repository    `json:"repositories,omitempty"`
 	Vulnerabilities  []*Vulnerability `json:"vulnerabilities,omitempty"`

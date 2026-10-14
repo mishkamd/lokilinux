@@ -31,7 +31,11 @@ message AgentHeartbeatRequest {
   // "config version" again, give it its own field instead.
   string config_version        = 11;
 
-  // fields 12-19 reserved for future use
+  // Native job types this agent executes without the CUSTOM_COMMAND shell fallback
+  // (ROADMAP R5). The server dispatches natively only to agents that list them.
+  repeated string capabilities = 12;
+
+  // fields 13-19 reserved for future use
 
   // SHA-256 of the serialised packages list — used for delta-sync optimisation
   string packages_checksum = 20;

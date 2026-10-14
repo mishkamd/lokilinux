@@ -418,6 +418,7 @@ func (m *Manager) sendHeartbeat(ctx context.Context) {
 	}
 
 	payload := buildPayload(m.cfg.Identity.AgentID, sysInfo, pkgs, checksum, m.version, recentLogs, connCount, infoCount, critCount, health, results, domainHashes, domainFull, vulns)
+	payload["capabilities"] = nativeCapabilities()
 
 	// Phase G2: report the collector policy version we're currently
 	// running, repurposing the previously-dormant config_version field

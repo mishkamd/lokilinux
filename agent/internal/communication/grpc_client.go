@@ -218,6 +218,9 @@ func payloadToRequest(m map[string]interface{}) *gen.AgentHeartbeatRequest {
 	if v, ok := m["packages_checksum"].(string); ok {
 		req.PackagesChecksum = v
 	}
+	if caps, ok := m["capabilities"].([]string); ok {
+		req.Capabilities = caps
+	}
 	if v, ok := m["agent_version"].(string); ok {
 		req.AgentVersion = v
 	}
