@@ -10,6 +10,8 @@ NATS topics use prefix  lokilinux.  (O1).
 """
 
 import os
+import re
+import uuid
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
@@ -46,6 +48,7 @@ structlog.configure(
 
 logger = structlog.get_logger()
 settings = Settings()
+_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 
 # ── Lifespan ──────────────────────────────────────────────────────────────────
 
@@ -291,7 +294,11 @@ app.add_middleware(SecurityHeadersMiddleware)
 
 @app.middleware("http")
 async def trace_requests(request: Request, call_next):  # type: ignore[no-untyped-def]
+    # Keep a client's id only if it is a short, plain token: it lands in logs and in the
+    # response header, so anything else (spaces, control characters) is replaced.
     request_id = request.headers.get("X-Request-ID", "")
+    if not _REQUEST_ID_RE.match(request_id):
+        request_id = uuid.uuid4().hex
     response = await call_next(request)
     response.headers["X-Request-ID"] = request_id
     logger.info(
