@@ -28,6 +28,7 @@ from lokilinux.config import Settings
 from lokilinux.db import build_engine, build_session_factory
 from lokilinux.middleware.rate_limit import RateLimitMiddleware
 from lokilinux.middleware.security_headers import SecurityHeadersMiddleware
+from lokilinux.middleware.trusted_hosts import TrustedHostsMiddleware, allowed_hosts
 from lokilinux.object_storage import ObjectStorage
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -266,7 +267,13 @@ app.add_middleware(
 
 app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
 app.add_middleware(RateLimitMiddleware)
-# Added last = outermost, so headers also land on 429s and CORS preflights.
+if settings.trusted_hosts_mode != "off":
+    app.add_middleware(
+        TrustedHostsMiddleware,
+        allowed=allowed_hosts(settings),
+        enforce=settings.trusted_hosts_mode == "enforce",
+    )
+# Added last = outermost, so headers also land on 400s, 429s and CORS preflights.
 app.add_middleware(SecurityHeadersMiddleware)
 
 # ── Request tracing middleware ────────────────────────────────────────────────

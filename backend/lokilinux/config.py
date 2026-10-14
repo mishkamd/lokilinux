@@ -68,6 +68,10 @@ class Settings(BaseSettings):
     # Trusted reverse-proxy hops appending X-Forwarded-For (ROADMAP P1r-1.4).
     # 0 = header ignored, rate limiting keys on the socket peer.
     trust_proxy_count: int = 0
+    # Host header allowlist (ROADMAP P1r-1.2). Extra names, comma-separated, on top of
+    # the platform/frontend hostnames and the internal names. Mode: off | log | enforce.
+    trusted_hosts: str = ""
+    trusted_hosts_mode: str = "log"
 
     # ── Agent distribution ────────────────────────────────────
     platform_url: str = "http://localhost:8000"
