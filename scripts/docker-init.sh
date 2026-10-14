@@ -149,8 +149,12 @@ echo "  Web UI : https://${PLATFORM_HOSTNAME:-localhost}"
 echo "  API    : http://localhost:8000/docs"
 echo "  gRPC   : localhost:50051 (mTLS)"
 echo ""
+# The password goes to a 0600 file, not the terminal: terminal scrollback and
+# CI logs keep plaintext otherwise (ROADMAP P2, password echo).
+CREDS_FILE="${ADMIN_CREDENTIALS_FILE:-.admin-credentials}"
+(umask 077 && printf 'email=%s\npassword=%s\n' "$ADMIN_EMAIL" "$ADMIN_PASSWORD" > "$CREDS_FILE")
 echo "Admin credentials:"
 echo "  Email   : $ADMIN_EMAIL"
-echo "  Password: $ADMIN_PASSWORD"
+echo "  Password: written to $CREDS_FILE (mode 0600). Read it, then delete the file."
 echo ""
 echo "Next: change the admin password, generate an agent enrollment token, install agents."
