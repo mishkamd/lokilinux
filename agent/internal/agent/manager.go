@@ -99,6 +99,11 @@ type Manager struct {
 	inFlightMu sync.Mutex
 	inFlight   map[string]struct{}
 
+	// jobSlots caps jobs executing at once (JobExecution.MaxParallelJobs). A
+	// job over the limit keeps its goroutine and waits for a slot — it is
+	// never dropped, so the server never sees it vanish.
+	jobSlots chan struct{}
+
 	// eventQueue/eventFlusher: Phase G2 observability event pipeline. nil
 	// when cfg.EventQueue.Enabled is false — every call site guards on
 	// this, so the feature is fully off by default with zero overhead.
@@ -127,6 +132,27 @@ const (
 	// wedges the agent. Threshold matches nextDelay's backoff-start point.
 	reconnectAfterFailures = 3
 )
+
+// defaultMaxParallelJobs keeps a 2-vCPU host from being saturated by a burst of
+// package or playbook jobs (they also contend on package-manager locks).
+const defaultMaxParallelJobs = 2
+
+func maxParallelJobs(configured int) int {
+	if configured <= 0 {
+		return defaultMaxParallelJobs
+	}
+	return configured
+}
+
+// acquireJobSlot blocks until a job may run, or returns false if ctx ends first.
+func acquireJobSlot(ctx context.Context, slots chan struct{}) bool {
+	select {
+	case slots <- struct{}{}:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
 
 // NewManager wires up all subsystems. Returns an error if storage is unavailable.
 func NewManager(cfg *config.Config, log *slog.Logger, version string, logBuf *LogRingBuffer) (*Manager, error) {
@@ -209,6 +235,7 @@ func NewManager(cfg *config.Config, log *slog.Logger, version string, logBuf *Lo
 		stop:         make(chan struct{}),
 		nudge:        make(chan struct{}, 1),
 		inFlight:     make(map[string]struct{}),
+		jobSlots:     make(chan struct{}, maxParallelJobs(cfg.JobExecution.MaxParallelJobs)),
 	}
 	if cfg.Security.ExecBrokerSocket != "" {
 		wireBrokerUpdateChecker(mgr, broker.NewClient(cfg.Security.ExecBrokerSocket))
@@ -623,6 +650,11 @@ func (m *Manager) handleResponse(ctx context.Context, resp map[string]interface{
 				delete(m.inFlight, jobID)
 				m.inFlightMu.Unlock()
 			}()
+
+			if !acquireJobSlot(ctx, m.jobSlots) {
+				return
+			}
+			defer func() { <-m.jobSlots }()
 
 			result, ok := m.runJob(ctx, jobID, jobType, params, timeoutSec)
 			if !ok {

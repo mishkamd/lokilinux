@@ -60,10 +60,11 @@ type CacheConfig struct {
 }
 
 type JobExecConfig struct {
-	// MaxParallelJobs/SandboxEnabled removed (Faza 3.2): jobs run unbounded
-	// goroutines on the in-process systemd-run path — both fields were
-	// decorative. TimeoutSeconds is the one wired knob.
-	TimeoutSeconds int `yaml:"timeout_seconds"`
+	// MaxParallelJobs caps jobs executing at once (enforced by jobSlots in
+	// manager.go). Jobs over the limit wait for a slot, they are not dropped.
+	// 0 = default (2). SandboxEnabled stays removed: nothing ever read it.
+	MaxParallelJobs int `yaml:"max_parallel_jobs"`
+	TimeoutSeconds  int `yaml:"timeout_seconds"`
 }
 
 // SecurityConfig gates the signed-job trust model. EnforceSignedJobs starts
