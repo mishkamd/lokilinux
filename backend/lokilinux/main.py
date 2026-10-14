@@ -26,6 +26,7 @@ from lokilinux.cache import RedisCache
 from lokilinux.ch import ClickHouseStore
 from lokilinux.config import Settings
 from lokilinux.db import build_engine, build_session_factory
+from lokilinux.middleware.body_limit import BodyLimitMiddleware, body_limit_rules
 from lokilinux.middleware.rate_limit import RateLimitMiddleware
 from lokilinux.middleware.security_headers import SecurityHeadersMiddleware
 from lokilinux.middleware.trusted_hosts import TrustedHostsMiddleware, allowed_hosts
@@ -267,6 +268,7 @@ app.add_middleware(
 
 app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
 app.add_middleware(RateLimitMiddleware)
+app.add_middleware(BodyLimitMiddleware, rules=body_limit_rules(settings))
 if settings.trusted_hosts_mode != "off":
     app.add_middleware(
         TrustedHostsMiddleware,
