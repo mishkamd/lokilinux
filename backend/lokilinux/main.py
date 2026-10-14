@@ -221,12 +221,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         workflow_scheduler_worker, event_processor_worker, signal_processor_worker, correlation_worker,
         incident_worker,
     ]
+    osv_worker = None
+    if settings.osv_enabled:
+        from lokilinux.workers.osv_matcher import OsvMatcherWorker
+        osv_worker = OsvMatcherWorker(session_factory, settings.osv_base_url, settings.osv_match_interval_sec)
+        await osv_worker.start()
+        app.state.workers.append(osv_worker)
     logger.info("workers.ready")
 
     yield
 
     # Shutdown — reverse order
     logger.info("lokilinux.shutdown")
+    if osv_worker is not None:
+        await osv_worker.stop()
     await incident_worker.stop()
     await heartbeat_worker.stop()
     await remediation_verification_worker.stop()

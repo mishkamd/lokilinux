@@ -76,6 +76,8 @@ class Package(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     version: Mapped[str] = mapped_column(String(100), nullable=False)
     architecture: Mapped[str | None] = mapped_column(String(50))
+    # Source package name (libssl3 -> openssl). Debian/Ubuntu CVE data is keyed by it.
+    source_package: Mapped[str | None] = mapped_column(String(255))
     repository: Mapped[str | None] = mapped_column(String(255))
     source_type: Mapped[str | None] = mapped_column(String(50))  # manual / distro / ppa
 

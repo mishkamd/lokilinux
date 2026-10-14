@@ -153,6 +153,7 @@ class AgentService:
                 "name": p["name"],
                 "version": p["version"],
                 "architecture": p.get("architecture") or None,
+                "source_package": p.get("source") or None,
                 "latest_version": p.get("latest_version") or None,
                 "is_update_available": bool(p.get("update_available", False)),
                 "is_security_update_available": bool(p.get("is_security_update", False)),
@@ -168,6 +169,7 @@ class AgentService:
             constraint="uq_packages_agent_name_version",
             set_={
                 "architecture": stmt.excluded.architecture,
+                "source_package": stmt.excluded.source_package,
                 "latest_version": stmt.excluded.latest_version,
                 "is_update_available": stmt.excluded.is_update_available,
                 "is_security_update_available": stmt.excluded.is_security_update_available,

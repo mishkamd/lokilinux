@@ -73,6 +73,11 @@ class Settings(BaseSettings):
     trusted_hosts: str = ""
     trusted_hosts_mode: str = "log"
 
+    # Debian/Ubuntu CVE matching against OSV (ROADMAP R4). Off = no worker, no egress.
+    osv_enabled: bool = True
+    osv_base_url: str = "https://api.osv.dev"
+    osv_match_interval_sec: int = 1800
+
     # ── Agent distribution ────────────────────────────────────
     platform_url: str = "http://localhost:8000"
     agent_download_base: str = ""
