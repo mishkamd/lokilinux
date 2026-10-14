@@ -28,8 +28,9 @@ const route = useRoute()
 
 onMounted(async () => {
   agentOptions.value = await serversStore.fetchAgentsForSelect()
-  if (agentOptions.value.length > 0) {
-    selectedAgentId.value = agentOptions.value[0].value
+  const first = agentOptions.value[0]
+  if (first) {
+    selectedAgentId.value = first.value
     await store.fetchFileHashes(selectedAgentId.value)
   }
   await store.fetchFileChanges()

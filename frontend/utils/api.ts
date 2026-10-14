@@ -1,18 +1,18 @@
-import type { FetchOptions } from 'ofetch'
+import type { FetchOptions, ResponseType } from 'ofetch'
 
 export interface ApiInstance {
-  get<T>(path: string, opts?: FetchOptions<'json'>): Promise<T>
-  post<T>(path: string, body?: unknown, opts?: FetchOptions<'json'>): Promise<T>
-  put<T>(path: string, body?: unknown, opts?: FetchOptions<'json'>): Promise<T>
-  patch<T>(path: string, body?: unknown, opts?: FetchOptions<'json'>): Promise<T>
-  del<T>(path: string, opts?: FetchOptions<'json'>): Promise<T>
+  get<T>(path: string, opts?: FetchOptions<ResponseType>): Promise<T>
+  post<T>(path: string, body?: unknown, opts?: FetchOptions<ResponseType>): Promise<T>
+  put<T>(path: string, body?: unknown, opts?: FetchOptions<ResponseType>): Promise<T>
+  patch<T>(path: string, body?: unknown, opts?: FetchOptions<ResponseType>): Promise<T>
+  del<T>(path: string, opts?: FetchOptions<ResponseType>): Promise<T>
 }
 
 /** Simplified fetch signature — strips Nuxt's route-typed overloads that
  *  cause excessive-complexity errors with TS 6. The typed route info is
  *  only useful inside auto-generated server code; callers go through
  *  ApiInstance which already erases it. */
-type SimpleFetch = <T>(path: string, opts?: FetchOptions<'json'>) => Promise<T>
+type SimpleFetch = <T>(path: string, opts?: FetchOptions<ResponseType>) => Promise<T>
 
 export function useApi(): ApiInstance {
   const config = useRuntimeConfig()
@@ -58,31 +58,31 @@ export function useApi(): ApiInstance {
   }) as unknown as SimpleFetch
 
   return {
-    get: <T>(path: string, opts?: FetchOptions<'json'>) =>
+    get: <T>(path: string, opts?: FetchOptions<ResponseType>) =>
       apiFetch<T>(path, { method: 'GET', ...opts }) as unknown as Promise<T>,
 
-    post: <T>(path: string, body?: unknown, opts?: FetchOptions<'json'>) =>
+    post: <T>(path: string, body?: unknown, opts?: FetchOptions<ResponseType>) =>
       apiFetch<T>(path, {
         method: 'POST',
         body: body as BodyInit | Record<string, unknown> | null,
         ...opts,
       }) as unknown as Promise<T>,
 
-    put: <T>(path: string, body?: unknown, opts?: FetchOptions<'json'>) =>
+    put: <T>(path: string, body?: unknown, opts?: FetchOptions<ResponseType>) =>
       apiFetch<T>(path, {
         method: 'PUT',
         body: body as BodyInit | Record<string, unknown> | null,
         ...opts,
       }) as unknown as Promise<T>,
 
-    patch: <T>(path: string, body?: unknown, opts?: FetchOptions<'json'>) =>
+    patch: <T>(path: string, body?: unknown, opts?: FetchOptions<ResponseType>) =>
       apiFetch<T>(path, {
         method: 'PATCH',
         body: body as BodyInit | Record<string, unknown> | null,
         ...opts,
       }) as unknown as Promise<T>,
 
-    del: <T>(path: string, opts?: FetchOptions<'json'>) =>
+    del: <T>(path: string, opts?: FetchOptions<ResponseType>) =>
       apiFetch<T>(path, { method: 'DELETE', ...opts }) as unknown as Promise<T>,
   }
 }

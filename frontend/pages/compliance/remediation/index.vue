@@ -17,7 +17,7 @@ onMounted(() => {
 
 const STATUS_COLORS: Record<RemediationPlanStatus, string> = {
   DRAFT: 'gray', PENDING_APPROVAL: 'amber', APPROVED: 'amber',
-  EXECUTING: 'amber', COMPLETED: 'green', FAILED: 'red', ROLLED_BACK: 'gray',
+  EXECUTING: 'amber', VERIFYING: 'amber', COMPLETED: 'green', FAILED: 'red', ROLLED_BACK: 'gray',
 }
 const STATUSES: RemediationPlanStatus[] = ['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'EXECUTING', 'COMPLETED', 'FAILED', 'ROLLED_BACK']
 

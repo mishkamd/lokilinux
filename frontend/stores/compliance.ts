@@ -67,6 +67,8 @@ export interface RuleDetail extends ComplianceRule {
   framework_mappings: FrameworkMapping[]
   coverage: Record<string, number>
   failing_agents: FailingAgent[]
+  platform_filter: string[]
+  expected_value: unknown
 }
 
 export interface PolicySet {

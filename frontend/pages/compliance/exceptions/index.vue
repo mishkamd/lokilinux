@@ -128,7 +128,7 @@ async function revoke(id: string) {
       empty-title="No exceptions"
     >
       <template #rule_id-data="{ row }">
-        <span class="font-mono text-xs" :title="row.rule_title">{{ row.rule_key || row.rule_id }}</span>
+        <span class="font-mono text-xs" :title="row.rule_title ?? undefined">{{ row.rule_key || row.rule_id }}</span>
       </template>
       <template #agent_id-data="{ row }">
         <span class="font-mono text-xs">{{ row.hostname || 'All servers' }}</span>
