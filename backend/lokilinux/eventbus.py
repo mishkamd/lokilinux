@@ -16,11 +16,13 @@ import structlog
 logger = structlog.get_logger()
 
 _REPLAY_WINDOW_SEC = 24 * 3600
+# Storage ceiling per stream (ROADMAP P1r-3.4). Age alone let a burst fill the disk.
+_STREAM_MAX_BYTES = 10 * 1024 * 1024 * 1024
 
 _STREAM_CONFIGS = [
-    StreamConfig(name="EVENTS", subjects=["lokilinux.events.>"], retention=RetentionPolicy.LIMITS, max_age=_REPLAY_WINDOW_SEC),
-    StreamConfig(name="SIGNALS", subjects=["lokilinux.signals.>"], retention=RetentionPolicy.LIMITS, max_age=_REPLAY_WINDOW_SEC),
-    StreamConfig(name="INCIDENTS", subjects=["lokilinux.incidents.>"], retention=RetentionPolicy.LIMITS, max_age=_REPLAY_WINDOW_SEC),
+    StreamConfig(name="EVENTS", subjects=["lokilinux.events.>"], retention=RetentionPolicy.LIMITS, max_age=_REPLAY_WINDOW_SEC, max_bytes=_STREAM_MAX_BYTES),
+    StreamConfig(name="SIGNALS", subjects=["lokilinux.signals.>"], retention=RetentionPolicy.LIMITS, max_age=_REPLAY_WINDOW_SEC, max_bytes=_STREAM_MAX_BYTES),
+    StreamConfig(name="INCIDENTS", subjects=["lokilinux.incidents.>"], retention=RetentionPolicy.LIMITS, max_age=_REPLAY_WINDOW_SEC, max_bytes=_STREAM_MAX_BYTES),
 ]
 
 

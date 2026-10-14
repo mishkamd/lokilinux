@@ -45,6 +45,10 @@ func EnsureStream(ctx context.Context, js jetstream.JetStream, streamName string
 		Subjects:  []string{"lokilinux.compliance.>"},
 		Retention: jetstream.WorkQueuePolicy, // each message consumed exactly once by the ingest pool
 		MaxAge:    24 * time.Hour,
+		// Storage ceiling (ROADMAP P1r-3.4): age alone let a burst fill the disk.
+		MaxBytes: 10 << 30,
+		// Republished snapshots inside this window are dropped by the server.
+		Duplicates: 5 * time.Minute,
 	})
 }
 
