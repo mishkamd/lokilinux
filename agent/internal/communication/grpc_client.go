@@ -142,7 +142,7 @@ func (c *GRPCClient) Reconnect() error {
 }
 
 // HeartbeatStream opens a bidirectional stream for heartbeat exchange.
-// Used by HeartbeatManager for typed access; see also SendHeartbeat.
+// Typed access; SendHeartbeat is the map-based path the agent actually uses.
 func (c *GRPCClient) HeartbeatStream(ctx context.Context) (gen.AgentService_HeartbeatStreamClient, error) {
 	if err := c.dial(); err != nil {
 		return nil, err
@@ -184,8 +184,8 @@ func (c *GRPCClient) SyncPolicy(ctx context.Context, agentID, currentVersion str
 
 // SendHeartbeat sends one heartbeat over a short-lived stream and returns the response.
 // Payload keys consumed: "agent_id" (string), "packages_checksum" (string).
-// ponytail: map interface preserved for AgentManager compat; HeartbeatManager uses
-// HeartbeatStream directly with fully-typed requests (Val 3 wires it in).
+// ponytail: map interface is what AgentManager uses. The typed heartbeat loop that
+// once sat beside it (heartbeat_manager.go) was never wired and has been removed.
 func (c *GRPCClient) SendHeartbeat(
 	ctx context.Context,
 	payload map[string]interface{},
