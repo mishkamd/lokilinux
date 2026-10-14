@@ -34,6 +34,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from lokilinux.config import get_settings
 from lokilinux.models.agent import Agent
 from lokilinux.models.compliance_exception import ComplianceException
+from lokilinux.utils.csv_safe import csv_cell
 from lokilinux.models.compliance_report import ComplianceReport
 from lokilinux.models.compliance_rule import ComplianceRule, PolicySetRule
 from lokilinux.models.rule_evaluation import RuleEvaluation
@@ -288,7 +289,7 @@ def to_csv(data: dict) -> bytes:
     rows = _flatten_for_csv(data)
     writer = csv.DictWriter(buf, fieldnames=["row_type", "name", "score", "passed", "failed"])
     writer.writeheader()
-    writer.writerows(rows)
+    writer.writerows([{k: csv_cell(v) for k, v in r.items()} for r in rows])
     return buf.getvalue().encode("utf-8")
 
 
@@ -386,7 +387,7 @@ def to_csv_generic(data: dict) -> bytes:
     buf = io.StringIO()
     writer = csv.DictWriter(buf, fieldnames=fieldnames)
     writer.writeheader()
-    writer.writerows(rows)
+    writer.writerows([{k: csv_cell(v) for k, v in r.items()} for r in rows])
     return buf.getvalue().encode("utf-8")
 
 

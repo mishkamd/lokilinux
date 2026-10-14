@@ -25,6 +25,7 @@ from lokilinux.models.agent import Agent
 from lokilinux.models.category import Category, Project
 from lokilinux.models.cve import CVE, AgentVulnerability
 from lokilinux.schemas.common import CursorPage, decode_cursor, encode_cursor
+from lokilinux.utils.csv_safe import csv_cell
 from lokilinux.schemas.cve import (
     AcceptRiskRequest,
     CVEListResponse,
@@ -393,7 +394,7 @@ async def export_vulnerabilities(
     writer = csv.DictWriter(buf, fieldnames=fields)
     writer.writeheader()
     for r in rows:
-        writer.writerow({f: getattr(r, f) for f in fields})
+        writer.writerow({f: csv_cell(getattr(r, f)) for f in fields})
     return Response(
         content=buf.getvalue(),
         media_type="text/csv",
