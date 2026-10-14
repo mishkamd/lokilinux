@@ -4,13 +4,17 @@
 set -euo pipefail
 
 PLATFORM_URL="__PLATFORM_URL__"
-ENROLLMENT_TOKEN=""
+ENROLLMENT_TOKEN="${LOKILINUX_ENROLLMENT_TOKEN:-}"
 AGENT_NAME=""
 
+# Prefer LOKILINUX_ENROLLMENT_TOKEN or --token-file: argv is world-readable in
+# `ps` output and shell history, the env var and a 0600 file are not.
 while [[ $# -gt 0 ]]; do
   case $1 in
-    --token=*) ENROLLMENT_TOKEN="${1#*=}"; shift ;;
-    --token)   ENROLLMENT_TOKEN="$2";      shift 2 ;;
+    --token=*)      ENROLLMENT_TOKEN="${1#*=}"; echo "warning: --token exposes the token in process listings; prefer LOKILINUX_ENROLLMENT_TOKEN or --token-file" >&2; shift ;;
+    --token)        ENROLLMENT_TOKEN="$2";      echo "warning: --token exposes the token in process listings; prefer LOKILINUX_ENROLLMENT_TOKEN or --token-file" >&2; shift 2 ;;
+    --token-file=*) ENROLLMENT_TOKEN="$(head -n1 "${1#*=}")"; shift ;;
+    --token-file)   ENROLLMENT_TOKEN="$(head -n1 "$2")";      shift 2 ;;
     --name=*)  AGENT_NAME="${1#*=}";       shift ;;
     --name)    AGENT_NAME="$2";            shift 2 ;;
     --url=*)   PLATFORM_URL="${1#*=}";     shift ;;
@@ -20,7 +24,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [ -z "$ENROLLMENT_TOKEN" ]; then
-  echo "Error: --token=ENROLLMENT_TOKEN required"; exit 1
+  echo "Error: set LOKILINUX_ENROLLMENT_TOKEN, or pass --token-file=PATH (--token=TOKEN also works)"; exit 1
 fi
 if [ "$(id -u)" -ne 0 ]; then
   echo "Error: run as root (sudo)"; exit 1
