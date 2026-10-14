@@ -19,6 +19,8 @@ type snapshotMessage struct {
 	Domain      string         `json:"domain"`
 	ContentHash string         `json:"content_hash"`
 	Facts       map[string]any `json:"facts"`
+	MAC         string         `json:"mac,omitempty"`
+	KeyID       int32          `json:"key_id,omitempty"`
 }
 
 // Consumer subscribes to the compliance snapshot subject and feeds each
@@ -147,5 +149,7 @@ func parseSnapshotMessage(data []byte) (Snapshot, error) {
 		Domain:      payload.Domain,
 		ContentHash: payload.ContentHash,
 		Facts:       payload.Facts,
+		MAC:         payload.MAC,
+		KeyID:       payload.KeyID,
 	}, nil
 }

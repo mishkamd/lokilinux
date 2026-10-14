@@ -96,6 +96,10 @@ func main() {
 		os.Exit(1)
 	}
 	ingester := ingest.NewIngester(store, evaluator)
+	ingester.EnforceSnapshotHMAC = os.Getenv("ENFORCE_SNAPSHOT_HMAC") == "true"
+	if ingester.EnforceSnapshotHMAC {
+		log.Info("snapshot HMAC enforcement on: unsigned snapshots are rejected")
+	}
 
 	// Lifetime context for the consume loop — cancelled on shutdown signal,
 	// separate from the per-request contexts pgx/CEL use internally.

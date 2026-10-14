@@ -57,6 +57,8 @@ type Snapshot struct {
 	Domain      string
 	ContentHash string         // claimed by the agent
 	Facts       map[string]any // canonical fact document
+	MAC         string         // agent's HMAC over the claimed hash; empty = unsigned
+	KeyID       int32          // which agent key signed MAC
 }
 
 // Result summarizes what Ingest did, for logging/metrics — never used for
@@ -77,6 +79,10 @@ func canonicalHash(facts map[string]any) (string, error) {
 type Ingester struct {
 	store     *storage.Store
 	evaluator rules.Evaluator
+
+	// EnforceSnapshotHMAC rejects unsigned snapshots (ENFORCE_SNAPSHOT_HMAC).
+	// Off until the fleet reports MACs for a while: unsigned is accepted so old agents keep working.
+	EnforceSnapshotHMAC bool
 }
 
 func NewIngester(store *storage.Store, evaluator rules.Evaluator) *Ingester {
@@ -116,6 +122,19 @@ func (in *Ingester) Ingest(ctx context.Context, snap Snapshot) (Result, error) {
 			"content_hash mismatch for agent=%s domain=%s: agent claimed %s, computed %s — rejecting",
 			snap.AgentID, snap.Domain, snap.ContentHash, computedHash,
 		)
+	}
+
+	// Signature check: binds the claimed hash to this agent's key. The key record is
+	// loaded only when there is a signature to check.
+	var keys storage.SnapshotKeyRecord
+	if snap.MAC != "" {
+		keys, err = in.store.SnapshotHMACKeys(ctx, snap.AgentID)
+		if err != nil {
+			return Result{}, err
+		}
+	}
+	if err := verifySnapshotMAC(keys, snap, in.EnforceSnapshotHMAC); err != nil {
+		return Result{}, err
 	}
 
 	previousHash, hadPrevious, err := in.store.LatestSnapshotHash(ctx, snap.AgentID, snap.Domain)
