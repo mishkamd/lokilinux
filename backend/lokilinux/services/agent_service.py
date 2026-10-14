@@ -16,6 +16,7 @@ from lokilinux.models.cve import CVE, AgentVulnerability, Package
 from lokilinux.models.job import JobResult
 from lokilinux.services.alert_service import AlertService
 from lokilinux.services.job_service import recompute_job_status
+from lokilinux.services.snapshot_hmac import ensure_key as ensure_snapshot_key
 
 # health % thresholds above which the dashboard should flag the resource as critical
 _DISK_FULL_THRESHOLD = 90.0
@@ -61,6 +62,7 @@ class AgentService:
         was_active = agent.status == AgentStatus.ACTIVE
         agent.last_heartbeat = datetime.now(timezone.utc)
         agent.status = AgentStatus.ACTIVE
+        ensure_snapshot_key(agent)
         if not was_active:
             # Recovery transition only — checking this on every heartbeat
             # would mean a query per agent per 60s in steady state for

@@ -46,6 +46,11 @@ class Agent(Base):
     agent_version: Mapped[str | None] = mapped_column(String(50))
     # Native job types the agent reported on its last heartbeat (ROADMAP R5). NULL = never reported.
     capabilities: Mapped[list | None] = mapped_column(JSONB)
+    # Snapshot signing keys (docs/security/SNAPSHOT_HMAC.md): current, and the one before it.
+    snapshot_hmac_key: Mapped[str | None] = mapped_column(Text)
+    snapshot_hmac_key_id: Mapped[int | None] = mapped_column(Integer)
+    snapshot_hmac_prev_key: Mapped[str | None] = mapped_column(Text)
+    snapshot_hmac_prev_key_id: Mapped[int | None] = mapped_column(Integer)
     platform_version: Mapped[str | None] = mapped_column(String(50))
 
     # Desired-state policy (migration 038, agent-policy-modernization plan)

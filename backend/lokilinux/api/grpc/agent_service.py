@@ -38,6 +38,7 @@ from lokilinux import metrics
 from lokilinux.services.job_envelope import maybe_attach_envelope
 from lokilinux.services.policy_service import get_job_timeout_seconds
 from lokilinux.services import fim_scope_service
+from lokilinux.services.snapshot_hmac import key_for_agent as snapshot_key_for_agent
 from lokilinux.utils.agent_capability import MIN_AGENT_VERSION_FIM_SCOPES, agent_meets_minimum
 
 logger = logging.getLogger(__name__)
@@ -411,13 +412,16 @@ class AgentServicer:
                     )
                     domain_full_raw = _as_dict(getattr(request, "domain_full", None))
                     domain_full: dict = domain_full_raw if isinstance(domain_full_raw, dict) else {}
+                    domain_macs = _as_dict(getattr(request, "domain_macs", None))
+                    reported_key_id = getattr(request, "snapshot_hmac_key_id", 0) or 0
 
                     resync_domains: list[str] = []
                     if domain_hashes:
                         resync_domains = await diff_domain_hashes(db, agent.id, domain_hashes)
                     if domain_full:
                         await publish_domain_snapshots(
-                            self.nats, agent.id, domain_full, domain_hashes
+                            self.nats, agent.id, domain_full, domain_hashes,
+                            domain_macs if isinstance(domain_macs, dict) else None,
                         )
 
                     # Agent policy reconciliation (plan Faza 2): process the
@@ -445,6 +449,7 @@ class AgentServicer:
                         fim_scope = await fim_scope_service.resolve_for_agent(db, agent.id)
                         fim_config = fim_scope_service.signed_envelope(agent.id, fim_scope)
 
+                    hmac_key = snapshot_key_for_agent(agent, reported_key_id)
                     yield {
                         "pending_jobs": [
                             {
@@ -458,6 +463,7 @@ class AgentServicer:
                         "resync_domains": resync_domains,
                         **({"policy_envelope": policy_envelope} if policy_envelope else {}),
                         **({"fim_config": fim_config} if fim_config else {}),
+                        **({"snapshot_hmac": hmac_key} if hmac_key else {}),
                     }
             except Exception:
                 logger.error("HeartbeatStream error", exc_info=True)
