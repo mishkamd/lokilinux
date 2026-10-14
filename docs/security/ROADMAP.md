@@ -79,7 +79,7 @@ SSRF guards · headers HTTP/body cap/XFF rate-limit · JetStream MaxBytes · HMA
 | 4.1 | TTL 30 zile | `agent_install.py:387`; NOII agenți primesc certs scurte; cei existenți rămân pe cele vechi până la re-enroll/upgrade (zero downtime) |
 | 4.2 | Renewal endpoint | Autentificat cu CERT-UL curent (nu enrollment token): validează chain+CN→agent_id, emite pereche nouă; rate-limit stricte |
 | 4.3 | CA key izolare | Scoasă din `certs_dir` partajat → serviciu signing dedicat (container separat, network intern); api/grpc nu văd niciodată cheia |
-| 4.4 | Endpoint revocare | ADMIN-only `POST /api/v1/agents/{id}/revoke` → wire `revoke_agent_identity()` (există deja în servicer) + `unrevoke` |
+| 4.4 | Endpoint revocare | ADMIN-only `POST /api/v1/certificates/{serial}/revoke` (implementat, `admin.py:269`; `unrevoke` la `:293`) → wire `revoke_agent_identity()` (există deja în servicer) + `unrevoke` |
 | 4.5 | Renew transparent agent | Agent cere renew când expiry < 7z înainte de conectare (Go, build local) |
 
 **⚠️ Dependențe**: fereastră mentenanță pentru mutarea CA key; rollout agent pentru renew automat.
