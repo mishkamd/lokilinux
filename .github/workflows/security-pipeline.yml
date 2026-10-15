@@ -29,12 +29,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Go unit tests (agent + compliance)
+      # Go unit tests. The agent stays on its declared 1.24 toolchain: the
+      # TestBudgetGates RSS baseline was recorded on 1.24 and fails on 1.25.
+      # Compliance needs 1.25 (services/compliance/go.mod), so it gets its own step.
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: agent/go.mod
+      - run: make agent-test agent-bench
       - uses: actions/setup-go@v5
         with:
           go-version-file: services/compliance/go.mod
-      - run: make agent-test compliance-test
-      - run: make agent-bench
+      - run: make compliance-test
 
       # Python backend tests
       - uses: actions/setup-python@v5
