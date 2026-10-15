@@ -112,7 +112,11 @@ ADMIN_PASSWORD="${ADMIN_PASSWORD:-$(openssl rand -base64 16)}"
 # Bootstrap: admin plugin's /admin/create-user needs an existing admin session,
 # so the first admin is created via the public sign-up endpoint, then promoted
 # to role=admin directly in the DB (chicken-and-egg bootstrap).
-docker compose exec -T lokilinux-frontend node - <<NODEEOF
+# The values reach the snippet through its environment (-e NAME), not by being
+# spliced into the JS source: a quote or backslash in either would break the
+# snippet or inject code. Quoted heredoc, so the shell never expands the JS.
+export ADMIN_EMAIL ADMIN_PASSWORD
+docker compose exec -T -e ADMIN_EMAIL -e ADMIN_PASSWORD lokilinux-frontend node - <<'NODEEOF'
 // Post to localhost inside the container; set Origin to the trusted baseURL
 // so Better Auth's origin check passes.
 const origin = process.env.BETTER_AUTH_URL || "http://localhost:3000";
@@ -120,8 +124,8 @@ const res = await fetch("http://localhost:3000/api/auth/sign-up/email", {
   method: "POST",
   headers: { "Content-Type": "application/json", "Origin": origin },
   body: JSON.stringify({
-    email: "$ADMIN_EMAIL",
-    password: "$ADMIN_PASSWORD",
+    email: process.env.ADMIN_EMAIL,
+    password: process.env.ADMIN_PASSWORD,
     name: "Admin",
     username: "admin",
   }),
@@ -134,9 +138,13 @@ else {
 }
 NODEEOF
 
-# Promote to admin role
-docker compose exec -T postgres psql -U "\${POSTGRES_USER:-lokilinux}" -d "\${POSTGRES_DB:-lokilinux}" \
-  -c "UPDATE \"user\" SET role='admin' WHERE email='$ADMIN_EMAIL';"
+# Promote to admin role. The email goes to psql as a variable (-v) and the SQL
+# refers to it as :'email', which psql quotes safely. It never enters the SQL
+# text through shell expansion. Quoted heredoc: the shell does not expand the SQL.
+docker compose exec -T postgres psql -U "${POSTGRES_USER:-lokilinux}" -d "${POSTGRES_DB:-lokilinux}" \
+  -v ON_ERROR_STOP=1 -v "email=$ADMIN_EMAIL" <<'SQLEOF'
+UPDATE "user" SET role='admin' WHERE email=:'email';
+SQLEOF
 
 # 13. Status --------------------------------------------------------------
 echo ""
