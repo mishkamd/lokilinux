@@ -17,9 +17,9 @@ intended role model — KTD5: "MANAGER approvals+manage") is a deliberate
 follow-up, not bundled here, since it would be a real behavior change
 requiring its own sign-off.
 
-Read routes (GET) are deliberately not in this registry yet — plan U9 Task 3
-stages adoption write-routes-first, reads later ("findings.view etc.
-defaulting any-authenticated until roles tightened").
+Read routes (GET) stay any-authenticated unless listed here (plan U9 Task 3
+staged write-routes first). storage.read is the first read permission: object
+bytes (reports, workflow/playbook/role content) are sensitive enough to gate.
 """
 
 PERMISSIONS: dict[str, frozenset[str]] = {
@@ -44,4 +44,14 @@ PERMISSIONS: dict[str, frozenset[str]] = {
     # Object storage — routers/storage.py
     "storage.upload": frozenset({"OPERATOR"}),
     "storage.delete": frozenset({"OPERATOR"}),
+    # Reads of stored bytes — storage GETs/verify, compliance report download,
+    # workflow versions, playbook and ansible role content. ADMIN passes implicitly.
+    "storage.read": frozenset({"OPERATOR", "AUDITOR"}),
 }
+
+
+def has_permission(user: dict, permission: str) -> bool:
+    """Non-raising check for routes that filter content instead of refusing.
+    Same contract as require_permission(): ADMIN always passes."""
+    role = user.get("role", "VIEWER")
+    return role == "ADMIN" or role in PERMISSIONS.get(permission, frozenset())

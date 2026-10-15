@@ -10,7 +10,12 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.api.v1.routers.compliance._pagination import paginate_keyset
-from lokilinux.auth.dependencies import get_current_user, require_role, safe_user_uuid
+from lokilinux.auth.dependencies import (
+    get_current_user,
+    require_permission,
+    require_role,
+    safe_user_uuid,
+)
 from lokilinux.dependencies import get_db
 from lokilinux.models.compliance_report import ComplianceReport
 from lokilinux.schemas.common import CursorPage
@@ -110,7 +115,7 @@ async def download_report(
     report_id: UUID,
     request: Request,
     db: AsyncSession = Depends(get_db),
-    _: dict = Depends(get_current_user),
+    _: dict = Depends(require_permission("storage.read")),
 ) -> Response:
     report = (
         await db.execute(select(ComplianceReport).where(ComplianceReport.id == report_id))

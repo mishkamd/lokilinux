@@ -8,6 +8,7 @@ presigned URLs are opt-in and only returned when S3_PUBLIC_ENDPOINT_URL is
 configured (AWS S3 / R2 / Wasabi, or RustFS behind a reverse proxy).
 """
 
+import asyncio
 from typing import AsyncIterator
 from uuid import UUID
 
@@ -16,7 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lokilinux.auth.dependencies import get_current_user, require_permission, safe_user_uuid
+from lokilinux.auth.dependencies import require_permission, safe_user_uuid
 from lokilinux.config import get_settings
 from lokilinux.dependencies import get_db, get_storage
 from lokilinux.object_storage import ObjectStorage
@@ -28,6 +29,7 @@ from lokilinux.schemas.storage import (
     VerifyResponse,
 )
 from lokilinux.services.storage_service import CATEGORIES, StorageService
+from lokilinux.utils.url_guard import UnsafeURLError, assert_safe_url
 
 router = APIRouter()
 
@@ -73,6 +75,10 @@ async def import_object_from_url(
 ) -> StorageObjectResponse:
     if body.category not in CATEGORIES:
         raise HTTPException(422, f"unknown storage category: {body.category!r}")
+    try:
+        await asyncio.to_thread(assert_safe_url, body.url)
+    except UnsafeURLError as exc:
+        raise HTTPException(status_code=422, detail=f"url refused: {exc}") from exc
     settings = get_settings()
     filename = body.original_filename or body.url.rsplit("/", 1)[-1] or "import"
 
@@ -101,7 +107,7 @@ async def list_objects(
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
     storage: ObjectStorage = Depends(get_storage),
-    _: dict = Depends(get_current_user),
+    _: dict = Depends(require_permission("storage.read")),
 ) -> StorageObjectListResponse:
     objects = await StorageService(storage, db).list(category=category, limit=limit, offset=offset)
     return StorageObjectListResponse(
@@ -116,7 +122,7 @@ async def get_object_metadata(
     object_id: UUID,
     db: AsyncSession = Depends(get_db),
     storage: ObjectStorage = Depends(get_storage),
-    _: dict = Depends(get_current_user),
+    _: dict = Depends(require_permission("storage.read")),
 ) -> StorageObjectResponse:
     obj = await StorageService(storage, db).get(object_id)
     return StorageObjectResponse.model_validate(obj)
@@ -128,7 +134,7 @@ async def download_object(
     presign: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     storage: ObjectStorage = Depends(get_storage),
-    _: dict = Depends(get_current_user),
+    _: dict = Depends(require_permission("storage.read")),
 ) -> PresignResponse | StreamingResponse:
     settings = get_settings()
     service = StorageService(storage, db)
@@ -156,7 +162,7 @@ async def verify_object(
     object_id: UUID,
     db: AsyncSession = Depends(get_db),
     storage: ObjectStorage = Depends(get_storage),
-    _: dict = Depends(get_current_user),
+    _: dict = Depends(require_permission("storage.read")),
 ) -> VerifyResponse:
     service = StorageService(storage, db)
     obj = await service.get(object_id)

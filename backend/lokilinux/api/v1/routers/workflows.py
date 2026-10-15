@@ -12,7 +12,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lokilinux.auth.dependencies import get_current_user, require_role, safe_user_uuid
+from lokilinux.auth.dependencies import (
+    get_current_user,
+    require_permission,
+    require_role,
+    safe_user_uuid,
+)
+from lokilinux.auth.permissions import has_permission
 from lokilinux.dependencies import get_cache, get_db, get_nats, get_storage
 from lokilinux.models.workflow import Workflow, WorkflowRun, WorkflowStepRun, WorkflowVersion
 from lokilinux.object_storage import ObjectStorage
@@ -120,14 +126,17 @@ async def create_workflow(
 
 # ── Detail ────────────────────────────────────────────────────────────────────
 
-async def _version_response(svc: WorkflowService, version: WorkflowVersion) -> WorkflowVersionResponse:
-    yaml_source = await svc.resolve_yaml_source(version)
+async def _version_response(
+    svc: WorkflowService, version: WorkflowVersion, *, include_content: bool = True
+) -> WorkflowVersionResponse:
+    # include_content=False skips the storage read and blanks the YAML and graph.
+    yaml_source = await svc.resolve_yaml_source(version) if include_content else ""
     return WorkflowVersionResponse(
         id=version.id,
         workflow_id=version.workflow_id,
         version=version.version,
         yaml_source=yaml_source,
-        graph=version.graph,
+        graph=version.graph if include_content else {},
         content_hash=version.content_hash,
         status=version.status,
         change_summary=version.change_summary,
@@ -142,19 +151,24 @@ async def get_workflow(
     workflow_id: UUID,
     db: AsyncSession = Depends(get_db),
     storage: ObjectStorage = Depends(get_storage),
-    _: dict = Depends(get_current_user),
+    user: dict = Depends(get_current_user),
 ) -> WorkflowDetailResponse:
     row = (await db.execute(select(Workflow).where(Workflow.id == workflow_id))).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Workflow not found")
 
+    # Open to any authenticated user (the frontend store relies on it), but the
+    # YAML and graph are stored content: blanked unless the caller has storage.read.
+    include_content = has_permission(user, "storage.read")
     current_version = None
     if row.current_version_id is not None:
         version_row = (await db.execute(
             select(WorkflowVersion).where(WorkflowVersion.id == row.current_version_id)
         )).scalar_one_or_none()
         if version_row is not None:
-            current_version = await _version_response(WorkflowService(db, storage), version_row)
+            current_version = await _version_response(
+                WorkflowService(db, storage), version_row, include_content=include_content
+            )
 
     return WorkflowDetailResponse(**WorkflowResponse.model_validate(row).model_dump(), current_version=current_version)
 
@@ -197,7 +211,7 @@ async def list_workflow_versions(
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
     storage: ObjectStorage = Depends(get_storage),
-    _: dict = Depends(get_current_user),
+    _: dict = Depends(require_permission("storage.read")),
 ) -> CursorPage[WorkflowVersionResponse]:
     q = select(WorkflowVersion).where(WorkflowVersion.workflow_id == workflow_id).order_by(WorkflowVersion.version.desc())
 

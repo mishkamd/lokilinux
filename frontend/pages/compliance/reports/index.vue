@@ -6,7 +6,9 @@ const store = useComplianceStore()
 const { format: fmtDateTime } = useDateTime()
 const api = useApi()
 const toast = useToast()
-const { canEdit } = useCurrentUser()
+const { canEdit, hasRole } = useCurrentUser()
+// Download + storage metadata need storage.read on the backend (ADMIN always passes via hasRole).
+const canReadStorage = computed(() => hasRole('OPERATOR') || hasRole('AUDITOR'))
 const { reports, reportsTotal, reportsLoading, reportsNextCursor } = storeToRefs(store)
 
 onMounted(() => {
@@ -134,7 +136,7 @@ async function downloadReport(id: string, format: ReportFormat) {
         <span class="font-mono text-xs">{{ fmtDateTime(String(row.created_at)) }}</span>
       </template>
       <template #download-data="{ row }">
-        <div v-if="row.status === 'COMPLETED'" class="flex items-center gap-1">
+        <div v-if="row.status === 'COMPLETED' && canReadStorage" class="flex items-center gap-1">
           <Button size="xs" variant="outline"
                   :loading="downloading === row.id" @click="downloadReport(String(row.id), row.format)">
             <Download class="size-3.5" /> Download

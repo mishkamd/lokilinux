@@ -11,7 +11,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.api.v1.routers.playbooks import ANSIBLE_PLUGIN_NAME, require_plugin_enabled
-from lokilinux.auth.dependencies import get_current_user, require_role, safe_user_uuid
+from lokilinux.auth.dependencies import (
+    get_current_user,
+    require_role,
+    safe_user_uuid,
+)
+from lokilinux.auth.permissions import has_permission
 from lokilinux.dependencies import get_db, get_storage
 from lokilinux.object_storage import ObjectStorage
 from lokilinux.schemas.ansible_role import (
@@ -74,13 +79,17 @@ async def create_role(
 async def get_role(
     role_id: UUID,
     svc: AnsibleRoleService = Depends(_svc),
-    _: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user),
 ) -> AnsibleRoleResponse:
     try:
         role = await svc.get_role(role_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return await _to_response(svc, role)
+    response = await _to_response(svc, role)
+    if not has_permission(current_user, "storage.read"):
+        # Metadata stays visible to every role; the role's files need storage.read.
+        response.files = {}
+    return response
 
 
 @router.patch("/{role_id}", response_model=AnsibleRoleResponse, dependencies=[Depends(require_plugin_enabled(ANSIBLE_PLUGIN_NAME))])

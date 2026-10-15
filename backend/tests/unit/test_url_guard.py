@@ -63,3 +63,32 @@ def test_unresolvable_host_refused(monkeypatch):
     monkeypatch.setattr(url_guard.socket, "getaddrinfo", nxdomain)
     with pytest.raises(UnsafeURLError, match="does not resolve"):
         assert_safe_url("https://nonexistent.invalid/")
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://[::1/x",  # unbalanced IPv6 bracket
+        "http://127.0.0.1:99999/",  # port out of range
+        "http://127.0.0.1:abc/",  # non-numeric port
+        "http://[::1]:99999/",
+        "http://" + "a" * 70 + ".example/",  # DNS label over 63 chars, fails IDNA encoding
+    ],
+)
+def test_malformed_url_refused_as_unsafe(url):
+    with pytest.raises(UnsafeURLError) as info:
+        assert_safe_url(url)
+    assert type(info.value) is UnsafeURLError
+
+
+def test_blocked_message_omits_resolved_ip(monkeypatch):
+    def fake(host, port, proto=0):
+        return [(socket.AF_INET, socket.SOCK_STREAM, 6, "", ("127.0.0.1", 0))]
+
+    monkeypatch.setattr(url_guard.socket, "getaddrinfo", fake)
+    with pytest.raises(UnsafeURLError) as info:
+        assert_safe_url("https://metadata.example.test/")
+    message = str(info.value)
+    assert "resolves to a blocked address" in message
+    assert "metadata.example.test" in message
+    assert "127.0.0.1" not in message

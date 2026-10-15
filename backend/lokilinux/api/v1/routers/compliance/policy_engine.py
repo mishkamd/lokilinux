@@ -431,6 +431,11 @@ async def _run_compliance_import(
             settings = get_settings()
             filename = datastream_url.rsplit("/", 1)[-1] or "datastream.xml"
 
+            # Re-check: the endpoint checked when the job was queued, and DNS can
+            # change before this background task runs (ROADMAP P1r-2). Raises into
+            # the except below, so the job is marked FAILED like any fetch error.
+            await asyncio.to_thread(assert_safe_url, datastream_url)
+
             # Fetch once, persist to S3, then read the persisted bytes for
             # parsing — after this, the object in S3 is the source of truth,
             # not the external URL (Object Storage plan).

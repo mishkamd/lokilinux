@@ -12,7 +12,12 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lokilinux.auth.dependencies import get_current_user, require_role, safe_user_uuid
+from lokilinux.auth.dependencies import (
+    get_current_user,
+    require_role,
+    safe_user_uuid,
+)
+from lokilinux.auth.permissions import has_permission
 from lokilinux.cache import RedisCache
 from lokilinux.dependencies import get_cache, get_db, get_nats, get_storage
 from lokilinux.models.plugin import Plugin
@@ -108,13 +113,17 @@ async def create_playbook(
 async def get_playbook(
     playbook_id: UUID,
     svc: PlaybookService = Depends(_svc),
-    _: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user),
 ) -> PlaybookResponse:
     try:
         playbook = await svc.get_playbook(playbook_id)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
-    return await _to_response(svc, playbook)
+    response = await _to_response(svc, playbook)
+    if not has_permission(current_user, "storage.read"):
+        # Metadata stays visible to every role; the stored YAML needs storage.read.
+        response.content = ""
+    return response
 
 
 @router.patch("/{playbook_id}", response_model=PlaybookResponse, dependencies=[Depends(require_plugin_enabled(ANSIBLE_PLUGIN_NAME))])

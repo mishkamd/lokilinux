@@ -44,7 +44,11 @@ def assert_safe_url(url: str, allowed_hosts: frozenset[str] = frozenset()) -> No
     allowed_hosts: hostnames exempt from the address check (e.g. the platform's
     own origin). The scheme is still enforced for them.
     """
-    parts = urlsplit(url)
+    try:
+        parts = urlsplit(url)
+        port = parts.port  # ValueError on bad port or unbalanced IPv6 brackets
+    except ValueError as exc:
+        raise UnsafeURLError("malformed URL") from exc
     if parts.scheme not in _ALLOWED_SCHEMES:
         raise UnsafeURLError(f"scheme not allowed: {parts.scheme!r}")
     host = (parts.hostname or "").lower()
@@ -53,10 +57,13 @@ def assert_safe_url(url: str, allowed_hosts: frozenset[str] = frozenset()) -> No
     if host in {h.lower() for h in allowed_hosts}:
         return
     try:
-        infos = socket.getaddrinfo(host, parts.port, proto=socket.IPPROTO_TCP)
+        infos = socket.getaddrinfo(host, port, proto=socket.IPPROTO_TCP)
     except socket.gaierror as exc:
         raise UnsafeURLError(f"host does not resolve: {host}") from exc
+    except UnicodeError as exc:  # IDNA encoding fails, e.g. a DNS label over 63 chars
+        raise UnsafeURLError(f"malformed host: {host}") from exc
     for info in infos:
         ip = ipaddress.ip_address(info[4][0])
+        # ponytail: no resolved IP in the message. It reaches API callers and is persisted.
         if _is_blocked(ip):
-            raise UnsafeURLError(f"host resolves to a blocked address: {host} -> {ip}")
+            raise UnsafeURLError(f"host resolves to a blocked address: {host}")
