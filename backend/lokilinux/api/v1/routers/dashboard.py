@@ -205,7 +205,8 @@ async def get_dashboard_trends(
 
     server_rows = (
         await db.execute(
-            text(
+            # series is a function-local literal; user values are bound params
+            text(  # nosemgrep: avoid-sqlalchemy-text
                 f"""
                 SELECT d::date AS day,
                        (SELECT count(*) FROM agents a WHERE a.registered_at <= d) AS total
@@ -219,7 +220,8 @@ async def get_dashboard_trends(
 
     job_rows = (
         await db.execute(
-            text(
+            # series is a function-local literal; user values are bound params
+            text(  # nosemgrep: avoid-sqlalchemy-text
                 f"""
                 SELECT d::date AS day,
                        (SELECT count(*) FROM jobs j WHERE j.status = 'COMPLETED'
@@ -238,7 +240,8 @@ async def get_dashboard_trends(
 
     alert_rows = (
         await db.execute(
-            text(
+            # series is a function-local literal; user values are bound params
+            text(  # nosemgrep: avoid-sqlalchemy-text
                 f"""
                 SELECT d::date AS day,
                        (SELECT count(*) FROM alerts al WHERE

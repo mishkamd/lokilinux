@@ -32,7 +32,7 @@ jobs:
       # Go unit tests (agent + compliance)
       - uses: actions/setup-go@v5
         with:
-          go-version-file: agent/go.mod
+          go-version-file: services/compliance/go.mod
       - run: make agent-test compliance-test
       - run: make agent-bench
 
@@ -67,9 +67,11 @@ jobs:
             semgrep scan --config p/default --error --severity ERROR
 
       - uses: actions/setup-python@v5
+        if: always()
         with:
           python-version: "3.11"
       - name: pip-audit (backend dependencies)
+        if: always()
         working-directory: backend
         run: |
           python -m venv .venv
@@ -78,9 +80,11 @@ jobs:
           .venv/bin/pip-audit
 
       - uses: actions/setup-node@v4
+        if: always()
         with:
           node-version: "22"
       - name: npm audit (frontend production dependencies)
+        if: always()
         working-directory: frontend
         run: |
           npm ci --legacy-peer-deps

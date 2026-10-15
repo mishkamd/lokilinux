@@ -25,7 +25,8 @@ _OPEN = "('OPEN', 'ACKNOWLEDGED', 'IN_PROGRESS')"
 
 
 def upgrade() -> None:
-    dupes = op.get_bind().execute(sa.text(
+    # _OPEN is a module constant
+    dupes = op.get_bind().execute(sa.text(  # nosemgrep: avoid-sqlalchemy-text
         "SELECT tenant_id, group_key, count(*) FROM incidents "
         f"WHERE status IN {_OPEN} AND group_key IS NOT NULL "
         "GROUP BY tenant_id, group_key HAVING count(*) > 1"
