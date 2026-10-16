@@ -1,11 +1,16 @@
 <!-- generated-by: gsd-doc-writer -->
 # LokiLinux
 
+[![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](LICENSE)
+[![CI](https://github.com/mishkamd/lokilinux/actions/workflows/security-pipeline.yml/badge.svg)](https://github.com/mishkamd/lokilinux/actions/workflows/security-pipeline.yml)
+[![Go 1.24](https://img.shields.io/badge/Go-1.24-00ADD8?logo=go&logoColor=white)](agent/go.mod)
+[![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)](backend/pyproject.toml)
+
 **Enterprise Linux Operations Platform**
 
 > Secure. Automate. Operate.
 
-Operate Linux infrastructure at scale through a unified control plane for fleet management, automation, security, PKI/KMS, observability, and AI-assisted operations — centralized patch management, vulnerability scanning, compliance automation, and remediation for 10K–100K+ Linux servers.
+LokiLinux is an open-source Linux fleet management platform for patch management, CVE vulnerability tracking, compliance and configuration drift detection, automated remediation, and remote execution across 10K–100K+ Linux servers. It also brings automation (workflows and Ansible), PKI/KMS and observability into one control plane.
 
 ## Product Pillars
 
@@ -87,11 +92,11 @@ Operate Linux infrastructure at scale through a unified control plane for fleet 
 
 | Dashboard | Servers |
 |-----------|---------|
-| ![Dashboard](img/dashbord.png) | ![Servers](img/server.png) |
+| ![LokiLinux dashboard with server, vulnerability, job and alert summaries](img/dashbord.png) | ![Server detail showing installed packages and available updates](img/server.png) |
 
 | Jobs | Policies | Audit |
 |------|----------|-------|
-| ![Jobs](img/job.png) | ![Policies](img/politic.png) | ![Audit](img/audit.png) |
+| ![Jobs list with patch, command and Ansible job status](img/job.png) | ![Policy editor for scheduled automation with category, severity and priority](img/politic.png) | ![Audit log of user and agent actions with timestamps and status](img/audit.png) |
 
 ## Infrastructure Components
 
@@ -457,3 +462,7 @@ lokilinux/
 | `NATS_URL` | NATS event bus connection string |
 | `REDIS_URL` | Redis connection string |
 | `ENVIRONMENT` | `development` \| `production` (production = fail-closed startup validation) |
+
+## License
+
+LokiLinux is open-source software licensed under the [GNU Affero General Public License v3.0](LICENSE).

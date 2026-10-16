@@ -19,12 +19,19 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 
 from lokilinux.config import get_settings
-from lokilinux.settings_schema import get_setting_value
+from lokilinux.settings_schema import SETTINGS_SCHEMA, get_setting_value
 
 logger = structlog.get_logger()
 
 _CONFIG_CACHE_KEY = "settings:security:rate_limit"
 _EXEMPT_PATHS = {"/health", "/ready"}
+# ponytail: process-local last good (enabled, limit). Each worker keeps its own copy,
+# and a process that never read the DB runs on schema defaults. Upgrade to a shared
+# last-good key if workers must agree during an outage.
+_last_good: tuple[bool, int] = (
+    SETTINGS_SCHEMA["security"]["rate_limit_enabled"][1],
+    SETTINGS_SCHEMA["security"]["rate_limit_per_minute"][1],
+)
 
 
 def _client_ip(request: Request) -> str:
@@ -41,6 +48,7 @@ def _client_ip(request: Request) -> str:
 
 
 async def _rate_limit_config(cache, session_factory) -> tuple[bool, int]:
+    global _last_good
     cached = await cache.get_cached(_CONFIG_CACHE_KEY)
     if cached is not None:
         return bool(cached["enabled"]), int(cached["limit"])
@@ -50,13 +58,14 @@ async def _rate_limit_config(cache, session_factory) -> tuple[bool, int]:
             enabled = await get_setting_value(db, "security.rate_limit_enabled")
             limit = await get_setting_value(db, "security.rate_limit_per_minute")
     except Exception:
-        # ponytail: fail-open — if the settings DB is unreachable, don't block all
-        # traffic. Log loudly so the disabled-limiter state is visible, not silent.
-        logger.warning("rate_limit.config_unavailable_fail_open", exc_info=True)
-        return False, 0
+        # Settings DB unreachable: keep enforcing the last good config rather than
+        # switching the limiter off. Log loudly so the degraded state is visible.
+        logger.warning("rate_limit.config_unavailable_using_last_good", exc_info=True)
+        return _last_good
 
+    _last_good = (bool(enabled), int(limit))
     await cache.set_cached(_CONFIG_CACHE_KEY, {"enabled": enabled, "limit": limit}, ttl=30)
-    return bool(enabled), int(limit)
+    return _last_good
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):

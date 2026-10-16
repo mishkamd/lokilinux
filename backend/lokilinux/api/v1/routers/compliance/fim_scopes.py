@@ -24,6 +24,7 @@ from lokilinux.schemas.file_integrity import (
     FIMScopesOverview,
 )
 from lokilinux.services import fim_scope_service
+from lokilinux.services.audit_service import AuditService
 
 router = APIRouter()
 
@@ -68,6 +69,14 @@ async def update_global_fim_scope(
     except fim_scope_service.FIMScopeValidationError as exc:
         raise HTTPException(422, str(exc)) from exc
     await db.commit()
+    await AuditService(db).log(
+        action="compliance.fim_scope_updated",
+        user_id=user.get("id"),
+        actor_name=user.get("username") or user.get("email"),
+        resource_type="fim_scope",
+        resource_id="GLOBAL",
+        changes={"watch_paths": row.watch_paths, "ignore_paths": row.ignore_paths},
+    )
     return FIMScopeResponse.model_validate(row)
 
 
@@ -85,6 +94,14 @@ async def update_agent_fim_scope(
     except fim_scope_service.FIMScopeValidationError as exc:
         raise HTTPException(422, str(exc)) from exc
     await db.commit()
+    await AuditService(db).log(
+        action="compliance.fim_scope_updated",
+        user_id=user.get("id"),
+        actor_name=user.get("username") or user.get("email"),
+        resource_type="fim_scope",
+        resource_id=str(agent_id),
+        changes={"watch_paths": row.watch_paths, "ignore_paths": row.ignore_paths},
+    )
     return FIMScopeResponse.model_validate(row)
 
 
@@ -92,9 +109,16 @@ async def update_agent_fim_scope(
 async def delete_agent_fim_scope(
     agent_id: UUID,
     db: AsyncSession = Depends(get_db),
-    _: dict = Depends(require_role("ADMIN", "OPERATOR")),
+    user: dict = Depends(require_role("ADMIN", "OPERATOR")),
 ) -> None:
     deleted = await fim_scope_service.delete_agent_scope(db, agent_id)
     await db.commit()
     if not deleted:
         raise HTTPException(404, "no per-agent override for this agent")
+    await AuditService(db).log(
+        action="compliance.fim_scope_deleted",
+        user_id=user.get("id"),
+        actor_name=user.get("username") or user.get("email"),
+        resource_type="fim_scope",
+        resource_id=str(agent_id),
+    )

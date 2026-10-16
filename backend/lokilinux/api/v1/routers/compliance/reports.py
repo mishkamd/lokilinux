@@ -22,6 +22,7 @@ from lokilinux.schemas.common import CursorPage
 from lokilinux.schemas.compliance_report import ComplianceReportCreate, ComplianceReportResponse
 from lokilinux.services.report_service import FORMAT_CONTENT_TYPES, generate_report
 from lokilinux.services.storage_service import StorageService
+from lokilinux.services.audit_service import AuditService
 from lokilinux.settings_schema import get_setting_value
 
 router = APIRouter()
@@ -58,6 +59,15 @@ async def create_report(
     db.add(report)
     await db.commit()
     await db.refresh(report)
+
+    await AuditService(db).log(
+        action="compliance.report_created",
+        user_id=current_user.get("id"),
+        actor_name=current_user.get("username") or current_user.get("email"),
+        resource_type="compliance_report",
+        resource_id=str(report.id),
+        changes={"report_type": body.report_type.value, "format": body.format.value},
+    )
 
     session_factory = request.app.state.session_factory
     storage = request.app.state.storage

@@ -26,6 +26,8 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lokilinux.api.grpc.agent_service import revoke_agent_identity
+from lokilinux.api.v1.routers._common import parse_agent_pk
 from lokilinux.auth.dependencies import get_current_user, require_role
 from lokilinux.cache import RedisCache
 from lokilinux.config import get_settings
@@ -36,6 +38,7 @@ from lokilinux.models.audit import Setting
 from lokilinux.object_storage import ObjectStorage
 from lokilinux.services import ca_signer_client
 from lokilinux.services.agent_policies import AgentPolicyService, EnrollmentTokenCreate
+from lokilinux.services.audit_service import AuditService
 
 router = APIRouter()
 register_router = APIRouter()
@@ -561,3 +564,29 @@ async def register_agent(
         "agent_key": agent_key,
         "ca_cert": ca_cert,
     }
+
+
+@register_router.post("/{agent_id}/revoke")
+async def revoke_agent(
+    agent_id: str,
+    db: AsyncSession = Depends(get_db),
+    cache: RedisCache = Depends(get_cache),
+    current_user: dict = Depends(require_role("ADMIN")),
+) -> dict:
+    """Deny-lists the agent identity. The gRPC auth gate refuses its heartbeats,
+    and jobs only reach an agent through that heartbeat. The path id is the
+    agents.id PK; the gate keys on the wire agent_id (the cert CN), so that is
+    what gets revoked."""
+    row = (
+        await db.execute(select(Agent).where(Agent.id == parse_agent_pk(agent_id)))
+    ).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Server not found")
+    await revoke_agent_identity(cache, row.agent_id)
+    await AuditService(db).log(
+        action="agent.revoked", user_id=current_user.get("id"),
+        actor_name=current_user.get("username") or current_user.get("email"),
+        resource_type="agent", resource_id=str(row.id),
+        changes={"agent_id": row.agent_id},
+    )
+    return {"agent_id": row.agent_id, "revoked": True}

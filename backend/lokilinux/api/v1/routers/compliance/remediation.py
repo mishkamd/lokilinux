@@ -32,6 +32,7 @@ from lokilinux.schemas.remediation import (
     RemediationPlanCreate,
     RemediationPlanResponse,
 )
+from lokilinux.services.audit_service import AuditService
 from lokilinux.services.job_service import JobService
 from lokilinux.services.remediation_service import RemediationService
 
@@ -90,6 +91,14 @@ async def create_maintenance_window(
     )
     db.add(window)
     await db.commit()
+    await AuditService(db).log(
+        action="compliance.maintenance_window_created",
+        user_id=current_user.get("id"),
+        actor_name=current_user.get("username") or current_user.get("email"),
+        resource_type="maintenance_window",
+        resource_id=str(window.id),
+        changes={"scope_type": body.scope_type, "cron_expr": body.cron_expr},
+    )
     return MaintenanceWindowResponse.model_validate(window)
 
 
@@ -143,6 +152,14 @@ async def create_remediation_plan(
         maintenance_window_id=body.maintenance_window_id,
         created_by=safe_user_uuid(current_user),
         created_by_actor=current_user.get("id"),
+    )
+    await AuditService(db).log(
+        action="compliance.remediation_plan_created",
+        user_id=current_user.get("id"),
+        actor_name=current_user.get("username") or current_user.get("email"),
+        resource_type="remediation_plan",
+        resource_id=str(plan.id),
+        changes={"trigger_type": body.trigger_type.value},
     )
     return RemediationPlanResponse.model_validate(plan)
 
