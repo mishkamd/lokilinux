@@ -102,6 +102,13 @@ docker compose exec -T lokilinux-api alembic upgrade head
 
 # 11b. Run Better Auth migrations (creates user/session/account/... tables) --
 echo "[*] Running Better Auth migrations..."
+# pgbouncer is not published to the host (docker-compose.yml, data-net), so the
+# host reaches it on its data-network address. The migration script reads the
+# target from MIGRATE_DB_HOST/PORT; its default (127.0.0.1:6432) assumes a
+# published port that this stack does not have.
+export POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB BETTER_AUTH_SECRET BETTER_AUTH_URL
+MIGRATE_DB_HOST="$(docker inspect -f '{{(index .NetworkSettings.Networks "lokilinux-data-net").IPAddress}}' lokilinux-pgbouncer)"
+export MIGRATE_DB_HOST MIGRATE_DB_PORT=5432
 ( cd frontend && npx --yes tsx scripts/migrate-db.ts )
 
 # 12. Create default admin via Better Auth admin API ----------------------

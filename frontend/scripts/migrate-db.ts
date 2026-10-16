@@ -22,12 +22,14 @@ const { Pool } = pg
 // (a Dialect passed directly), not the external @better-auth/kysely-adapter that
 // runtime auth.ts uses. Both target the same tables, so the generated schema is
 // identical — this instance exists purely to compute/run migrations.
-// Runs from the HOST → pgbouncer published on 127.0.0.1:6432. Do NOT use
-// POSTGRES_HOST from .env here (that's the in-container hostname).
+// Default target is the host-published pgbouncer (127.0.0.1:6432). docker-init.sh
+// runs this inside a container on the data network instead, where pgbouncer is
+// reachable as lokilinux-pgbouncer:5432, and passes MIGRATE_DB_HOST/PORT for that.
+// Do NOT read POSTGRES_HOST here: that's the in-container hostname from .env.
 const dialect = new PostgresDialect({
   pool: new Pool({
-    host: "127.0.0.1",
-    port: 6432,
+    host: process.env.MIGRATE_DB_HOST || "127.0.0.1",
+    port: Number(process.env.MIGRATE_DB_PORT || 6432),
     user: process.env.POSTGRES_USER || "lokilinux",
     password: process.env.POSTGRES_PASSWORD,
     database: process.env.POSTGRES_DB || "lokilinux",
