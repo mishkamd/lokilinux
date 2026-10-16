@@ -81,9 +81,9 @@ Notă de arhitectură: spec-ul inițial menționa ClickHouse și LangGraph — *
 | ID | Titlu | Locație | Stare |
 |---|---|---|---|
 | ME-01 | Containere app rulează root implicit; zero cap_drop/no-new-privileges/read_only; compliance distroless dar nu `:nonroot` | Dockerfiles + compose | **Fixed** — serviciile de aplicație rulează non-root (backend `appuser` uid 10001; distroless `USER nonroot:nonroot`), read_only + tmpfs /tmp, cap_drop ALL, no-new-privileges, limite pids/memory/cpu; infra hardenită cu no-new-privileges + limite |
-| ME-02 | Rate-limit pe client.host doar, fail-open; lipsă body-size cap REST | middleware/rate_limit.py | Open (P1) |
-| ME-03 | Zero security headers, zero TrustedHostMiddleware | main.py | Open (P1) |
-| ME-04 | JetStream fără MaxBytes; Facts `map[string]any` fără schema/size-cap | consumer.go:42-49, ingest.go | Open (P1) |
+| ME-02 | Rate-limit pe client.host doar, fail-open; lipsă body-size cap REST | middleware/rate_limit.py | Partial (P1): XFF ✓ prin `TRUST_PROXY_COUNT` (config.py; `_client_ip` în middleware/rate_limit.py, implicit 0 = header ignorat); body cap ✓ per prefix (middleware/body_limit.py, `DEFAULT_LIMIT` 10 MiB). Redis căzut → contor local pe proces (cache.py `incr_checked`); opțiunea fail-closed nu există încă |
+| ME-03 | Zero security headers, zero TrustedHostMiddleware | main.py | Partial (P1): `SecurityHeadersMiddleware` ✓ (middleware/security_headers.py, înregistrat în main.py); `TrustedHostsMiddleware` ✓ (middleware/trusted_hosts.py) în modul `log` implicit; `enforce` (TRUSTED_HOSTS_MODE) nu este activat încă |
+| ME-04 | JetStream fără MaxBytes; Facts `map[string]any` fără schema/size-cap | consumer.go:42-49, ingest.go | Partial (P1): MaxBytes 4 GiB pe stream-ul COMPLIANCE ✓ (services/compliance/internal/ingest/consumer.go:54); plafon pe Facts și schema strictă deschise (consumer.go:21 decodează în `map[string]any`, fără verificare de dimensiune) |
 | ME-05 | npm install ignoră lockfile în build; deps `^` floating frontend; cryptography drift 49.0.0(Dockerfile) vs 46.0.3(pyproject) | frontend/Dockerfile, pyproject.toml | Partial fixed (P2) — build-ul folosește `npm ci`; restanță: deps `^` floating + drift cryptography |
 | ME-06 | Enrollment token în command line shell (`--token={token}`) | install_agent.sh.tmpl | Open (P2) |
 | ME-07 | `ip_address` self-reported peste adresa peer reală | api/grpc/agent_service.py:77-82 | Open (P2) |

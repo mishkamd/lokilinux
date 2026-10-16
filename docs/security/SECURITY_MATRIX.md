@@ -14,11 +14,11 @@
 | Plugins | Checksum opțional → RCE root pe flota | HIGH | `checksum or ""` ambele părți | Checksum obligatoriu end-to-end + allowlist origin | Accepted Risk → Open(P1) |
 | Workflows/Policy/Plugins | SSRF (webhook step, datastream, source_url) | HIGH | URL arbitrar server-side | Allowlist scheme/host; blocare RFC1918/metadata | Fixed: webhook + datastream (IP guard), plugin (origin allowlist). DNS rebinding TOCTOU rămâne |
 | Secrets/.env | Parole slabe + porturi all-interfaces | HIGH | Pattern-guessable | Rotire parole puternice; bind 127.0.0.1 | **Fixed** |
-| Compliance ingest | Evenimente forjate → poisoning scoring/incidente | HIGH | BLAKE3 self-check inutil | P0: NATS auth elimină publisher extern. P1: HMAC per-agent ✓ (enforcement off until the fleet reports MACs), size caps ✓ | Partial (P1) |
+| Compliance ingest | Evenimente forjate → poisoning scoring/incidente | HIGH | BLAKE3 self-check inutil | P0: NATS auth elimină publisher extern. P1: HMAC per-agent ✓ (enforcement off until the fleet reports MACs), stream MaxBytes 4 GiB ✓ (consumer.go:54); Facts size cap and strict schema open | Partial (P1) |
 | Containers | Root implicit, fără cap_drop/nnp/read_only | MEDIUM | Toate app containers root | USER non-root; cap_drop ALL; no-new-privileges; distroless:nonroot | Open(P1) |
-| Rate limiting | Un bucket/proxy; fail-open; fără body cap | MEDIUM | client.host only | XFF support; fail-closed option; body size middleware | Partial: XFF ✓ (TRUST_PROXY_COUNT), body cap ✓ per path (1.3) |
-| HTTP headers | Fără CSP/HSTS/XFO/TrustedHost | MEDIUM | Absent complet | SecurityHeadersMiddleware + TrustedHostMiddleware | Partial: headers ✓, TrustedHost in log mode ✓; enforce after a live check (P1r-1.2) |
-| JetStream | Storage exhaustion (fără MaxBytes) | MEDIUM | Doar MaxAge 24h | MaxBytes 10 GB per stream ✓ | Fixed |
+| Rate limiting | Un bucket/proxy; fail-open; fără body cap | MEDIUM | client.host only | XFF support; fail-closed option; body size middleware | Partial: XFF ✓ (TRUST_PROXY_COUNT; config.py, middleware/rate_limit.py), body cap ✓ per path (middleware/body_limit.py); fail-closed option still absent |
+| HTTP headers | Fără CSP/HSTS/XFO/TrustedHost | MEDIUM | Absent complet | SecurityHeadersMiddleware + TrustedHostMiddleware | Partial: headers ✓ (middleware/security_headers.py, main.py); TrustedHosts in log mode by default ✓ (middleware/trusted_hosts.py); enforce after a live check (P1r-1.2) |
+| JetStream | Storage exhaustion (fără MaxBytes) | MEDIUM | Doar MaxAge 24h | MaxBytes 4 GiB on COMPLIANCE stream ✓ (consumer.go:54); 10 GiB on EVENTS/SIGNALS/INCIDENTS ✓ (eventbus.py:20-25) | Fixed |
 | Signed jobs | Infrastructură Ed25519 inactivă | MEDIUM | enforce_signed_jobs off | Activare + semnare la creare + verificare agent (rebuild flota) | Open(P1) |
 | Dependencies | npm fără lockfile în build; ^ floating; cryptography drift | MEDIUM | package-lock ignorat | npm ci + lockfile copiat; cryptography aligned; pip-audit and npm audit in CI | Fixed (P2) |
 | Agent config | Token în command line install | LOW | ps/history expunere | Env var or --token-file ✓; --token still works, with a warning | Fixed (P2) |
