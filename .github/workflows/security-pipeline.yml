@@ -52,6 +52,10 @@ jobs:
           python-version: "3.11"
       - name: Install backend dev deps and run tests
         working-directory: backend
+        # CI has no backend/.env, so Settings needs its required fields here.
+        # database_url is swapped for the test container by conftest.py.
+        env:
+          BETTER_AUTH_URL: http://localhost:3000
         run: |
           python -m venv .venv
           .venv/bin/pip install -e ".[dev]"
