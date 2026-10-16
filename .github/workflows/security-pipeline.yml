@@ -134,7 +134,7 @@ jobs:
           build-args: VERSION=${{ env.PLATFORM_VERSION }}
 
       - name: Vulnerability gate (fails on HIGH/CRITICAL)
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@v0.33.1
         with:
           image-ref: lokilinux/${{ matrix.image.name }}:${{ env.PLATFORM_VERSION }}
           severity: HIGH,CRITICAL
@@ -143,7 +143,7 @@ jobs:
           trivyignores: .trivyignore
 
       - name: Generate SBOM (CycloneDX)
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@v0.33.1
         with:
           image-ref: lokilinux/${{ matrix.image.name }}:${{ env.PLATFORM_VERSION }}
           format: cyclonedx
