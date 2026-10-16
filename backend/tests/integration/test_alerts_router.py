@@ -49,6 +49,26 @@ async def test_list_alert_rules_returns_200_with_data(client: AsyncClient, db_se
 
 
 @pytest.mark.asyncio
+async def test_nanoid_user_acknowledgement_keeps_the_raw_id(
+    client: AsyncClient, db_session, current_user
+):
+    """Better Auth ids are nanoids that never parse as UUID. The UUID column cannot
+    hold them, and the acknowledgement used to skip the actor entirely (MIS-8). The
+    raw id must be kept beside it."""
+    current_user["id"] = "k3Xq9wLbz0nanoidA"
+    alert = Alert(title="a1", severity="HIGH", alert_type="AGENT_OFFLINE", status="ACTIVE")
+    db_session.add(alert)
+    await db_session.commit()
+
+    resp = await client.post(f"/api/v1/alerts/{alert.id}/acknowledge")
+    assert resp.status_code == 200
+    assert resp.json()["status"] == "ACKNOWLEDGED"
+
+    await db_session.refresh(alert)
+    assert alert.acknowledged_by_actor == "k3Xq9wLbz0nanoidA"
+
+
+@pytest.mark.asyncio
 async def test_acknowledge_and_resolve_alert(client: AsyncClient, db_session):
     alert = Alert(title="a1", severity="HIGH", alert_type="AGENT_OFFLINE", status="ACTIVE")
     db_session.add(alert)

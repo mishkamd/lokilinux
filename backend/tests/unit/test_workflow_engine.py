@@ -596,7 +596,7 @@ def test_compile_check_service_type_quotes_service_name():
 
 def test_compile_check_port_type_generates_dev_tcp_probe():
     cmd = _compile_check(_step(WorkflowNodeType.CHECK, {"type": "port", "host": "localhost", "port": 443}))
-    assert cmd == "timeout 2 bash -c '</dev/tcp/localhost/443'"
+    assert cmd == "timeout 2 bash -c '</dev/tcp/\"$1\"/\"$2\"' bash localhost 443"
 
 
 def test_compile_check_disk_type_generates_df_comparison():

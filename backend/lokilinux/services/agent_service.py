@@ -2,6 +2,7 @@
 LokiLinux — AgentService: heartbeat updates, pending-job dispatch, inactivity marking.
 """
 
+import logging
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -17,6 +18,9 @@ from lokilinux.models.job import JobResult
 from lokilinux.services.alert_service import AlertService
 from lokilinux.services.job_service import recompute_job_status
 from lokilinux.services.snapshot_hmac import ensure_key as ensure_snapshot_key
+from lokilinux.utils.shell import valid_package_name
+
+logger = logging.getLogger(__name__)
 
 # health % thresholds above which the dashboard should flag the resource as critical
 _DISK_FULL_THRESHOLD = 90.0
@@ -152,6 +156,7 @@ class AgentService:
         — they're all in the current report, so none of their rows match the
         delete condition.
         """
+        candidates = [p for p in packages if p.get("name") and p.get("version")]
         rows = [
             {
                 "agent_id": agent_pk,
@@ -163,9 +168,15 @@ class AgentService:
                 "is_update_available": bool(p.get("update_available", False)),
                 "is_security_update_available": bool(p.get("is_security_update", False)),
             }
-            for p in packages
-            if p.get("name") and p.get("version")
+            for p in candidates
+            if valid_package_name(p["name"])
         ]
+        if len(rows) < len(candidates):
+            # osv_matcher reads these names back and builds CVE rows from them.
+            logger.warning(
+                "dropped %d package row(s) with an invalid name",
+                len(candidates) - len(rows),
+            )
         if not rows:
             return
 
@@ -222,6 +233,7 @@ class AgentService:
         never be misread as "everything got patched" and silently resolve a
         host's real, still-open vulnerabilities.
         """
+        candidates = [v for v in vulnerabilities if v.get("cve_id") and v.get("package_name")]
         rows = [
             {
                 "cve_id": v["cve_id"],
@@ -230,9 +242,14 @@ class AgentService:
                 "severity": v.get("severity") or None,
                 "fixed_version": v.get("fixed_version") or None,
             }
-            for v in vulnerabilities
-            if v.get("cve_id") and v.get("package_name")
+            for v in candidates
+            if valid_package_name(v["package_name"])
         ]
+        if len(rows) < len(candidates):
+            logger.warning(
+                "dropped %d vulnerability row(s) with an invalid package_name",
+                len(candidates) - len(rows),
+            )
 
         if rows:
             # One CVE routinely affects several packages in the same heartbeat

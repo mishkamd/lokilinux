@@ -155,6 +155,7 @@ async def acknowledge_drift_event(
         raise HTTPException(status_code=409, detail=f"Cannot acknowledge from status {row.status}")
 
     row.acknowledged_by = safe_user_uuid(current_user)
+    row.acknowledged_by_actor = current_user.get("id")
     row.acknowledged_at = datetime.now(timezone.utc)
     row.status = "ACKNOWLEDGED"
     await db.commit()

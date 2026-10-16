@@ -284,7 +284,10 @@ async def publish_workflow_version(
     current_user: dict = Depends(require_role("ADMIN", "OPERATOR")),
 ) -> WorkflowVersionResponse:
     svc = WorkflowService(db, storage)
-    version = await svc.publish_version(workflow_id, version_id, actor=safe_user_uuid(current_user))
+    version = await svc.publish_version(
+        workflow_id, version_id,
+        actor=safe_user_uuid(current_user), actor_id=current_user.get("id"),
+    )
     return await _version_response(svc, version)
 
 
@@ -311,7 +314,8 @@ async def run_workflow(
 ) -> WorkflowRunResponse:
     run = await start_run(
         db, cache, storage, workflow_id, trigger_type="MANUAL",
-        triggered_by=safe_user_uuid(current_user), is_dry_run=body.is_dry_run, nats=nats,
+        triggered_by=safe_user_uuid(current_user), triggered_by_actor=current_user.get("id"),
+        is_dry_run=body.is_dry_run, nats=nats,
     )
     return WorkflowRunResponse.model_validate(run)
 
@@ -395,7 +399,8 @@ async def approve_workflow_step(
     current_user: dict = Depends(require_role("ADMIN", "OPERATOR")),
 ) -> WorkflowRunResponse:
     run = await approve_step(
-        db, cache, storage, run_id, step_id, actor=safe_user_uuid(current_user), nats=nats
+        db, cache, storage, run_id, step_id,
+        actor=safe_user_uuid(current_user), actor_id=current_user.get("id"), nats=nats,
     )
     return WorkflowRunResponse.model_validate(run)
 

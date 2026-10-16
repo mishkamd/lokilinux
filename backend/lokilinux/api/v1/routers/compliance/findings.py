@@ -263,6 +263,7 @@ async def acknowledge_finding(
         raise HTTPException(status_code=404, detail="Finding not found")
 
     row.acknowledged_by = safe_user_uuid(current_user)
+    row.acknowledged_by_actor = current_user.get("id")
     row.acknowledged_at = datetime.now(row.time.tzinfo)
     await db.commit()
 

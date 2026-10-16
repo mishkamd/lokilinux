@@ -26,6 +26,7 @@ from lokilinux.models.category import Category, Project
 from lokilinux.models.cve import CVE, AgentVulnerability
 from lokilinux.schemas.common import CursorPage, decode_cursor, encode_cursor
 from lokilinux.utils.csv_safe import csv_cell
+from lokilinux.utils.shell import q
 from lokilinux.schemas.cve import (
     AcceptRiskRequest,
     CVEListResponse,
@@ -55,16 +56,17 @@ router = APIRouter()
 # this is a heuristic on distro family, not binary detection. Every agent in
 # this fleet today is rocky (dnf); ponytail: extend the map when a real
 # apt/zypper host shows up and this guess turns out wrong for it.
+# {pkg} is shell-quoted by the caller (q in remediate_cve) — no quotes here.
 _UPGRADE_CMD = {
-    "debian": 'apt-get update && apt-get install --only-upgrade -y "{pkg}"',
-    "ubuntu": 'apt-get update && apt-get install --only-upgrade -y "{pkg}"',
-    "rhel": 'dnf upgrade -y "{pkg}"',
-    "rocky": 'dnf upgrade -y "{pkg}"',
-    "centos": 'dnf upgrade -y "{pkg}"',
-    "almalinux": 'dnf upgrade -y "{pkg}"',
-    "fedora": 'dnf upgrade -y "{pkg}"',
-    "opensuse": 'zypper update -y "{pkg}"',
-    "sles": 'zypper update -y "{pkg}"',
+    "debian": "apt-get update && apt-get install --only-upgrade -y {pkg}",
+    "ubuntu": "apt-get update && apt-get install --only-upgrade -y {pkg}",
+    "rhel": "dnf upgrade -y {pkg}",
+    "rocky": "dnf upgrade -y {pkg}",
+    "centos": "dnf upgrade -y {pkg}",
+    "almalinux": "dnf upgrade -y {pkg}",
+    "fedora": "dnf upgrade -y {pkg}",
+    "opensuse": "zypper update -y {pkg}",
+    "sles": "zypper update -y {pkg}",
 }
 
 
@@ -580,7 +582,7 @@ async def remediate_cve(
         actions.append(RemediationActionCreate(
             agent_id=av.agent_id,
             provider="shell",
-            rendered_body=cmd_template.format(pkg=av.package_name),
+            rendered_body=cmd_template.format(pkg=q(av.package_name)),
         ))
 
     remediation_svc = RemediationService(db, JobService(db, cache, nats))
@@ -591,6 +593,7 @@ async def remediate_cve(
         is_emergency=is_emergency,
         maintenance_window_id=maintenance_window_id,
         created_by=safe_user_uuid(current_user),
+        created_by_actor=current_user.get("id"),
     )
 
     # Reflect "someone is actively working this" immediately — the plan

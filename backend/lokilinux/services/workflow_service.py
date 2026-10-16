@@ -6,7 +6,8 @@ Mirrors BaselineService's DRAFT -> PUBLISHED lifecycle (services/baseline_servic
 that changes which version is "current" for a workflow. Unlike Baseline there
 is no APPROVED intermediate state in Phase 1 (no-self-approval enforcement on
 publish lands in Phase 11, plan §14) — DRAFT publishes straight to PUBLISHED,
-gated only on the compiler reporting the YAML valid.
+gated on the compiler reporting the YAML valid and on validate_step_inputs
+(package names and probe hosts) passing.
 
 workflows.slug is exactly the YAML document's metadata.name (already
 constrained to the same ^[a-z0-9-]{3,64}$ shape) — one identifier, not two
@@ -27,6 +28,7 @@ from lokilinux.schemas.workflow import ValidationResult
 from lokilinux.services.policy_service import compute_next_run_at
 from lokilinux.services.storage_service import StorageService
 from lokilinux.services.workflow_compiler import compile_workflow, compute_content_hash
+from lokilinux.services.workflow_engine import validate_step_inputs
 
 _MAX_YAML_BYTES = 1024 * 1024  # 1MiB — matches PlaybookService's own text-size ceiling
 
@@ -168,7 +170,9 @@ class WorkflowService:
         await self.db.commit()
         return version
 
-    async def publish_version(self, workflow_id: UUID, version_id: UUID, actor: UUID | None) -> WorkflowVersion:
+    async def publish_version(
+        self, workflow_id: UUID, version_id: UUID, actor: UUID | None, actor_id: str | None = None,
+    ) -> WorkflowVersion:
         version = await self._get_version(workflow_id, version_id)
         if version.status != "DRAFT":
             raise HTTPException(status_code=409, detail=f"Cannot publish from status {version.status}")
@@ -177,9 +181,13 @@ class WorkflowService:
         # result — the two requests are never guaranteed adjacent in time,
         # and this is the last gate before a workflow can ever run (plan
         # §13 Level 3: "Un DRAFT invalid nu poate deveni PUBLISHED").
-        _doc, _graph, result = compile_workflow(await self.resolve_yaml_source(version))
+        _doc, graph, result = compile_workflow(await self.resolve_yaml_source(version))
         if not result.valid:
             raise _validation_error(result)
+        assert graph is not None  # result.valid guarantees it
+        # Same package-name and probe-host walk start_run runs: a version that
+        # could never run must not become the PUBLISHED one.
+        validate_step_inputs(graph)
 
         workflow = await self._get_workflow(workflow_id)
 
@@ -196,6 +204,7 @@ class WorkflowService:
         version.status = "PUBLISHED"
         version.published_at = datetime.now(timezone.utc)
         version.published_by = actor
+        version.published_by_actor = actor_id
         workflow.current_version_id = version.id
 
         self.db.add(WorkflowAudit(

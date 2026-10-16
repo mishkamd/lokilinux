@@ -2,9 +2,8 @@
 LokiLinux — AlertService: create, acknowledge, resolve, and list alerts.
 
 Alert.status uses plain strings: ACTIVE / ACKNOWLEDGED / RESOLVED / EXPIRED.
-Alert.acknowledged_by is UUID; Better Auth may use nanoid user IDs — conversion
-is attempted and silently skipped on failure (ponytail: model inconsistency from
-Val 2 design; unify to String(255) in Val 3 migration).
+Alert.acknowledged_by is UUID; Better Auth may use nanoid user IDs, which are
+kept in Alert.acknowledged_by_actor instead (MIS-8).
 """
 
 import json
@@ -108,7 +107,8 @@ class AlertService:
             raise ValueError(f"Alert {alert_id} not found")
         alert.status = "ACKNOWLEDGED"
         alert.acknowledged_at = datetime.now(timezone.utc)
-        # ponytail: acknowledged_by is UUID in model; skip if user_id is nanoid
+        # The raw id is always kept; acknowledged_by (UUID) only takes UUID-shaped ids.
+        alert.acknowledged_by_actor = user_id
         try:
             alert.acknowledged_by = UUID(user_id)
         except ValueError:
