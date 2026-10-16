@@ -80,8 +80,9 @@ jobs:
         working-directory: backend
         run: |
           python -m venv .venv
-          # The venv ships pip 24.0, which has known advisories; audit the upgraded tool.
-          .venv/bin/pip install --upgrade pip
+          # The venv ships pip 24.0 and setuptools 79.x, both with known advisories
+          # (setuptools is the build backend, pulled in by the editable install).
+          .venv/bin/pip install --upgrade pip setuptools
           .venv/bin/pip install -e ".[dev]"
           .venv/bin/pip install pip-audit
           .venv/bin/pip-audit
