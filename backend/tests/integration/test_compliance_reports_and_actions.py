@@ -47,7 +47,13 @@ async def test_acknowledge_drift_event_404(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_import_policy_set_creates_job_without_crashing(client: AsyncClient):
+async def test_import_policy_set_creates_job_without_crashing(client: AsyncClient, monkeypatch):
+    # *.invalid never resolves (RFC 2606), so the SSRF guard would refuse it with
+    # 422 on CI. This test covers the queueing path only; the guard has its own
+    # tests (test_url_guard.py, test_datastream_recheck.py).
+    import lokilinux.api.v1.routers.compliance.policy_engine as policy_engine
+
+    monkeypatch.setattr(policy_engine, "assert_safe_url", lambda *args, **kwargs: None)
     resp = await client.post(
         "/api/v1/compliance/policy-sets/import",
         json={

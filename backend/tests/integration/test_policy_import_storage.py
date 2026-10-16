@@ -59,6 +59,8 @@ async def test_import_persists_datastream_to_storage(
     import lokilinux.api.v1.routers.compliance.policy_engine as policy_engine
 
     monkeypatch.setattr(policy_engine.httpx, "AsyncClient", _FakeAsyncClient)
+    # mirror.invalid never resolves, so keep the SSRF guard out of this import-flow test.
+    monkeypatch.setattr(policy_engine, "assert_safe_url", lambda *args, **kwargs: None)
 
     resp = await client.post(
         "/api/v1/compliance/policy-sets/import",
