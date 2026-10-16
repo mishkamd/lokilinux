@@ -36,7 +36,7 @@ func (c *ContainerRuntimeCollector) Collect(ctx context.Context) (Facts, error) 
 		if _, err := exec.LookPath(check.bin); err != nil {
 			continue // not installed — not_applicable, never fabricated
 		}
-		out, err := exec.CommandContext(ctx, check.bin, check.args...).Output()
+		out, err := exec.CommandContext(ctx, check.bin, check.args...).Output() // nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command — fixed containerRuntimeChecks table, no request input
 		if err != nil {
 			facts[check.key] = "present_but_errored"
 			continue

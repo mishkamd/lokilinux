@@ -2,6 +2,7 @@
 LokiLinux — AgentService: heartbeat updates, pending-job dispatch, inactivity marking.
 """
 
+import logging
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -16,6 +17,10 @@ from lokilinux.models.cve import CVE, AgentVulnerability, Package
 from lokilinux.models.job import JobResult
 from lokilinux.services.alert_service import AlertService
 from lokilinux.services.job_service import recompute_job_status
+from lokilinux.services.snapshot_hmac import ensure_key as ensure_snapshot_key
+from lokilinux.utils.shell import valid_package_name
+
+logger = logging.getLogger(__name__)
 
 # health % thresholds above which the dashboard should flag the resource as critical
 _DISK_FULL_THRESHOLD = 90.0
@@ -61,6 +66,7 @@ class AgentService:
         was_active = agent.status == AgentStatus.ACTIVE
         agent.last_heartbeat = datetime.now(timezone.utc)
         agent.status = AgentStatus.ACTIVE
+        ensure_snapshot_key(agent)
         if not was_active:
             # Recovery transition only — checking this on every heartbeat
             # would mean a query per agent per 60s in steady state for
@@ -86,6 +92,9 @@ class AgentService:
 
         if data.get("agent_version"):
             agent.agent_version = data["agent_version"]
+        if isinstance(data.get("capabilities"), list):
+            # Bounded: the agent sends a short fixed list; anything longer is malformed.
+            agent.capabilities = [str(c)[:64] for c in data["capabilities"][:32]]
         recent_logs = data.get("recent_logs")
         if recent_logs is not None:
             agent.recent_logs = {
@@ -147,19 +156,27 @@ class AgentService:
         — they're all in the current report, so none of their rows match the
         delete condition.
         """
+        candidates = [p for p in packages if p.get("name") and p.get("version")]
         rows = [
             {
                 "agent_id": agent_pk,
                 "name": p["name"],
                 "version": p["version"],
                 "architecture": p.get("architecture") or None,
+                "source_package": p.get("source") or None,
                 "latest_version": p.get("latest_version") or None,
                 "is_update_available": bool(p.get("update_available", False)),
                 "is_security_update_available": bool(p.get("is_security_update", False)),
             }
-            for p in packages
-            if p.get("name") and p.get("version")
+            for p in candidates
+            if valid_package_name(p["name"])
         ]
+        if len(rows) < len(candidates):
+            # osv_matcher reads these names back and builds CVE rows from them.
+            logger.warning(
+                "dropped %d package row(s) with an invalid name",
+                len(candidates) - len(rows),
+            )
         if not rows:
             return
 
@@ -168,6 +185,7 @@ class AgentService:
             constraint="uq_packages_agent_name_version",
             set_={
                 "architecture": stmt.excluded.architecture,
+                "source_package": stmt.excluded.source_package,
                 "latest_version": stmt.excluded.latest_version,
                 "is_update_available": stmt.excluded.is_update_available,
                 "is_security_update_available": stmt.excluded.is_security_update_available,
@@ -215,6 +233,7 @@ class AgentService:
         never be misread as "everything got patched" and silently resolve a
         host's real, still-open vulnerabilities.
         """
+        candidates = [v for v in vulnerabilities if v.get("cve_id") and v.get("package_name")]
         rows = [
             {
                 "cve_id": v["cve_id"],
@@ -223,9 +242,14 @@ class AgentService:
                 "severity": v.get("severity") or None,
                 "fixed_version": v.get("fixed_version") or None,
             }
-            for v in vulnerabilities
-            if v.get("cve_id") and v.get("package_name")
+            for v in candidates
+            if valid_package_name(v["package_name"])
         ]
+        if len(rows) < len(candidates):
+            logger.warning(
+                "dropped %d vulnerability row(s) with an invalid package_name",
+                len(candidates) - len(rows),
+            )
 
         if rows:
             # One CVE routinely affects several packages in the same heartbeat
@@ -370,6 +394,20 @@ class AgentService:
             row.error_message = r.get("error_message") or None
             row.stdout = r.get("output") or None
             row.completed_at = datetime.now(timezone.utc)
+
+            # Audit fields (agent-security-hardening plan P10) — reuses the
+            # otherwise-unused resources_used JSONB column rather than a new
+            # migration; only present when the agent actually populated them
+            # (capability/risk from a known job_type, policy_id from a
+            # signed envelope — see manager.go's populateAuditFields).
+            audit_meta = {
+                k: r.get(k)
+                for k in ("capability", "risk_level", "policy_id", "duration_ms")
+                if r.get(k)
+            }
+            if audit_meta:
+                row.resources_used = audit_meta
+
             touched_job_ids.add(UUID(job_id))
 
         for jid in touched_job_ids:

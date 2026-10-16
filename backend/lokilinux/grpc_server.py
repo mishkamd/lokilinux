@@ -46,6 +46,18 @@ class _AgentServiceHandler(grpc.GenericRpcHandler):
                 request_deserializer=_from_json,
                 response_serializer=_to_json,
             )
+        if "ReportEvents" in handler_call_details.method:
+            return grpc.stream_unary_rpc_method_handler(
+                self._servicer.ReportEvents,
+                request_deserializer=_from_json,
+                response_serializer=_to_json,
+            )
+        if "SyncPolicy" in handler_call_details.method:
+            return grpc.unary_unary_rpc_method_handler(
+                self._servicer.SyncPolicy,
+                request_deserializer=_from_json,
+                response_serializer=_to_json,
+            )
         return None
 
 

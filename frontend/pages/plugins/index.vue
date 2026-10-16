@@ -20,9 +20,11 @@ onUnmounted(() => clearInterval(poll))
 
 <template>
   <div>
-    <div class="flex items-center justify-end mb-4">
-      <span class="text-sm text-muted-foreground">{{ store.total }} plugins</span>
-    </div>
+    <PageHeader title="Plugins" :description="'Agent-side plugins reported via heartbeat.'">
+      <template #actions>
+        <Badge color="gray">{{ store.total }} plugins</Badge>
+      </template>
+    </PageHeader>
 
     <div v-if="store.error" class="rounded-md border border-destructive p-4 text-sm text-destructive mb-4">
       Failed to load plugins: {{ store.error }}

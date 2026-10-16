@@ -19,6 +19,8 @@ type snapshotMessage struct {
 	Domain      string         `json:"domain"`
 	ContentHash string         `json:"content_hash"`
 	Facts       map[string]any `json:"facts"`
+	MAC         string         `json:"mac,omitempty"`
+	KeyID       int32          `json:"key_id,omitempty"`
 }
 
 // Consumer subscribes to the compliance snapshot subject and feeds each
@@ -45,6 +47,13 @@ func EnsureStream(ctx context.Context, js jetstream.JetStream, streamName string
 		Subjects:  []string{"lokilinux.compliance.>"},
 		Retention: jetstream.WorkQueuePolicy, // each message consumed exactly once by the ingest pool
 		MaxAge:    24 * time.Hour,
+		// Storage ceiling (ROADMAP P1r-3.4): age alone let a burst fill the disk.
+		// ponytail: 4 GiB, not 10 — NATS max_storage (~34.7 GiB) must cover the
+		// ceilings of EVENTS/INCIDENTS/SIGNALS (3 × 10 GiB) plus this one.
+		// Raise it together with the broker's max_storage.
+		MaxBytes: 4 << 30,
+		// Republished snapshots inside this window are dropped by the server.
+		Duplicates: 5 * time.Minute,
 	})
 }
 
@@ -143,5 +152,7 @@ func parseSnapshotMessage(data []byte) (Snapshot, error) {
 		Domain:      payload.Domain,
 		ContentHash: payload.ContentHash,
 		Facts:       payload.Facts,
+		MAC:         payload.MAC,
+		KeyID:       payload.KeyID,
 	}, nil
 }

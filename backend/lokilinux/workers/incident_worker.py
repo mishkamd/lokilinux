@@ -11,12 +11,12 @@ means resolution isn't purely on a 60s clock for the common case where a
 signal resolves well after its incident's other signals already went quiet.
 """
 
-from datetime import datetime, timezone
 import asyncio
 import json
+from datetime import datetime, timezone
 
-from sqlalchemy import select
 import structlog
+from sqlalchemy import select
 
 from lokilinux.incidents.models import Incident, IncidentSignal
 from lokilinux.incidents.service import IncidentService
@@ -32,11 +32,12 @@ _OPEN_STATUSES = ("OPEN", "ACKNOWLEDGED", "IN_PROGRESS")
 
 
 class IncidentWorker:
-    def __init__(self, nats_client, db_session_factory, cache, ch) -> None:
+    def __init__(self, nats_client, db_session_factory, cache, ch, storage) -> None:
         self.nats = nats_client
         self.db_factory = db_session_factory
         self.cache = cache
         self.ch = ch
+        self.storage = storage
         self._task: asyncio.Task | None = None
 
     async def start(self) -> None:
@@ -106,7 +107,7 @@ class IncidentWorker:
                 if not autorun_enabled:
                     return
                 await maybe_auto_run(
-                    db, self.cache, incident_type, incident_severity,
+                    db, self.cache, self.storage, incident_type, incident_severity,
                     autorun_enabled=autorun_enabled, nats=self.nats,
                 )
         except Exception:

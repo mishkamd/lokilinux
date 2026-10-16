@@ -12,9 +12,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lokilinux.auth.dependencies import get_current_user, require_role, safe_user_uuid
-from lokilinux.dependencies import get_cache, get_db, get_nats
+from lokilinux.auth.dependencies import (
+    get_current_user,
+    require_permission,
+    require_role,
+    safe_user_uuid,
+)
+from lokilinux.auth.permissions import has_permission
+from lokilinux.dependencies import get_cache, get_db, get_nats, get_storage
 from lokilinux.models.workflow import Workflow, WorkflowRun, WorkflowStepRun, WorkflowVersion
+from lokilinux.object_storage import ObjectStorage
 from lokilinux.schemas.common import CursorPage, decode_cursor, encode_cursor
 from lokilinux.schemas.workflow import (
     DryRunResponse,
@@ -31,7 +38,13 @@ from lokilinux.schemas.workflow import (
     WorkflowVersionCreate,
     WorkflowVersionResponse,
 )
-from lokilinux.services.workflow_engine import approve_step, cancel_run, dry_run, reject_step, start_run
+from lokilinux.services.workflow_engine import (
+    approve_step,
+    cancel_run,
+    dry_run,
+    reject_step,
+    start_run,
+)
 from lokilinux.services.workflow_service import WorkflowService
 
 router = APIRouter()
@@ -50,9 +63,10 @@ async def get_workflow_schema(_: dict = Depends(get_current_user)) -> dict:
 async def validate_workflow(
     body: WorkflowValidateRequest,
     db: AsyncSession = Depends(get_db),
+    storage: ObjectStorage = Depends(get_storage),
     _: dict = Depends(get_current_user),
 ) -> dict:
-    result = await WorkflowService(db).validate(body.yaml)
+    result = await WorkflowService(db, storage).validate(body.yaml)
     return result.model_dump()
 
 
@@ -101,9 +115,10 @@ async def list_workflows(
 async def create_workflow(
     body: WorkflowCreate,
     db: AsyncSession = Depends(get_db),
+    storage: ObjectStorage = Depends(get_storage),
     current_user: dict = Depends(require_role("ADMIN", "OPERATOR")),
 ) -> WorkflowResponse:
-    workflow = await WorkflowService(db).create_workflow(
+    workflow = await WorkflowService(db, storage).create_workflow(
         name=body.name, yaml_source=body.yaml, created_by=safe_user_uuid(current_user),
     )
     return WorkflowResponse.model_validate(workflow)
@@ -111,23 +126,49 @@ async def create_workflow(
 
 # ── Detail ────────────────────────────────────────────────────────────────────
 
+async def _version_response(
+    svc: WorkflowService, version: WorkflowVersion, *, include_content: bool = True
+) -> WorkflowVersionResponse:
+    # include_content=False skips the storage read and blanks the YAML and graph.
+    yaml_source = await svc.resolve_yaml_source(version) if include_content else ""
+    return WorkflowVersionResponse(
+        id=version.id,
+        workflow_id=version.workflow_id,
+        version=version.version,
+        yaml_source=yaml_source,
+        graph=version.graph if include_content else {},
+        content_hash=version.content_hash,
+        status=version.status,
+        change_summary=version.change_summary,
+        created_by=version.created_by,
+        created_at=version.created_at,
+        published_at=version.published_at,
+    )
+
+
 @router.get("/{workflow_id}", response_model=WorkflowDetailResponse)
 async def get_workflow(
     workflow_id: UUID,
     db: AsyncSession = Depends(get_db),
-    _: dict = Depends(get_current_user),
+    storage: ObjectStorage = Depends(get_storage),
+    user: dict = Depends(get_current_user),
 ) -> WorkflowDetailResponse:
     row = (await db.execute(select(Workflow).where(Workflow.id == workflow_id))).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Workflow not found")
 
+    # Open to any authenticated user (the frontend store relies on it), but the
+    # YAML and graph are stored content: blanked unless the caller has storage.read.
+    include_content = has_permission(user, "storage.read")
     current_version = None
     if row.current_version_id is not None:
         version_row = (await db.execute(
             select(WorkflowVersion).where(WorkflowVersion.id == row.current_version_id)
         )).scalar_one_or_none()
         if version_row is not None:
-            current_version = WorkflowVersionResponse.model_validate(version_row)
+            current_version = await _version_response(
+                WorkflowService(db, storage), version_row, include_content=include_content
+            )
 
     return WorkflowDetailResponse(**WorkflowResponse.model_validate(row).model_dump(), current_version=current_version)
 
@@ -139,12 +180,13 @@ async def update_workflow(
     workflow_id: UUID,
     body: WorkflowUpdate,
     db: AsyncSession = Depends(get_db),
+    storage: ObjectStorage = Depends(get_storage),
     _: dict = Depends(require_role("ADMIN", "OPERATOR")),
 ) -> WorkflowResponse:
     changes = body.model_dump(exclude_unset=True)
     if "trigger_type" in changes and changes["trigger_type"] is not None:
         changes["trigger_type"] = changes["trigger_type"].value if hasattr(changes["trigger_type"], "value") else changes["trigger_type"]
-    workflow = await WorkflowService(db).update_metadata(workflow_id, changes)
+    workflow = await WorkflowService(db, storage).update_metadata(workflow_id, changes)
     return WorkflowResponse.model_validate(workflow)
 
 
@@ -154,9 +196,10 @@ async def update_workflow(
 async def delete_workflow(
     workflow_id: UUID,
     db: AsyncSession = Depends(get_db),
+    storage: ObjectStorage = Depends(get_storage),
     _: dict = Depends(require_role("ADMIN", "OPERATOR")),
 ) -> None:
-    await WorkflowService(db).delete_workflow(workflow_id)
+    await WorkflowService(db, storage).delete_workflow(workflow_id)
 
 
 # ── Versions ──────────────────────────────────────────────────────────────────
@@ -167,7 +210,8 @@ async def list_workflow_versions(
     cursor: str | None = Query(None),
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
-    _: dict = Depends(get_current_user),
+    storage: ObjectStorage = Depends(get_storage),
+    _: dict = Depends(require_permission("storage.read")),
 ) -> CursorPage[WorkflowVersionResponse]:
     q = select(WorkflowVersion).where(WorkflowVersion.workflow_id == workflow_id).order_by(WorkflowVersion.version.desc())
 
@@ -193,8 +237,9 @@ async def list_workflow_versions(
         last = items[-1]
         next_cursor = encode_cursor(f"{last.created_at.isoformat()}:{last.id}")
 
+    svc = WorkflowService(db, storage)
     return CursorPage[WorkflowVersionResponse](
-        items=[WorkflowVersionResponse.model_validate(v) for v in items],
+        items=[await _version_response(svc, v) for v in items],
         next_cursor=next_cursor,
     )
 
@@ -204,12 +249,14 @@ async def create_workflow_version(
     workflow_id: UUID,
     body: WorkflowVersionCreate,
     db: AsyncSession = Depends(get_db),
+    storage: ObjectStorage = Depends(get_storage),
     current_user: dict = Depends(require_role("ADMIN", "OPERATOR")),
 ) -> WorkflowVersionResponse:
-    version = await WorkflowService(db).create_version(
+    svc = WorkflowService(db, storage)
+    version = await svc.create_version(
         workflow_id, yaml_source=body.yaml, created_by=safe_user_uuid(current_user),
     )
-    return WorkflowVersionResponse.model_validate(version)
+    return await _version_response(svc, version)
 
 
 @router.put("/{workflow_id}/versions/{version_id}", response_model=WorkflowVersionResponse)
@@ -218,12 +265,14 @@ async def update_workflow_version(
     version_id: UUID,
     body: WorkflowVersionCreate,
     db: AsyncSession = Depends(get_db),
+    storage: ObjectStorage = Depends(get_storage),
     _: dict = Depends(require_role("ADMIN", "OPERATOR")),
 ) -> WorkflowVersionResponse:
-    version = await WorkflowService(db).update_draft(
+    svc = WorkflowService(db, storage)
+    version = await svc.update_draft(
         workflow_id, version_id, yaml_source=body.yaml, base_content_hash=body.base_content_hash,
     )
-    return WorkflowVersionResponse.model_validate(version)
+    return await _version_response(svc, version)
 
 
 @router.post("/{workflow_id}/versions/{version_id}/publish", response_model=WorkflowVersionResponse)
@@ -231,10 +280,15 @@ async def publish_workflow_version(
     workflow_id: UUID,
     version_id: UUID,
     db: AsyncSession = Depends(get_db),
+    storage: ObjectStorage = Depends(get_storage),
     current_user: dict = Depends(require_role("ADMIN", "OPERATOR")),
 ) -> WorkflowVersionResponse:
-    version = await WorkflowService(db).publish_version(workflow_id, version_id, actor=safe_user_uuid(current_user))
-    return WorkflowVersionResponse.model_validate(version)
+    svc = WorkflowService(db, storage)
+    version = await svc.publish_version(
+        workflow_id, version_id,
+        actor=safe_user_uuid(current_user), actor_id=current_user.get("id"),
+    )
+    return await _version_response(svc, version)
 
 
 # ── Execution (Phase 6) ───────────────────────────────────────────────────────
@@ -254,12 +308,14 @@ async def run_workflow(
     body: WorkflowRunRequest = WorkflowRunRequest(),
     db: AsyncSession = Depends(get_db),
     cache=Depends(get_cache),
+    storage: ObjectStorage = Depends(get_storage),
     nats=Depends(get_nats),
     current_user: dict = Depends(require_role("ADMIN", "OPERATOR")),
 ) -> WorkflowRunResponse:
     run = await start_run(
-        db, cache, workflow_id, trigger_type="MANUAL",
-        triggered_by=safe_user_uuid(current_user), is_dry_run=body.is_dry_run, nats=nats,
+        db, cache, storage, workflow_id, trigger_type="MANUAL",
+        triggered_by=safe_user_uuid(current_user), triggered_by_actor=current_user.get("id"),
+        is_dry_run=body.is_dry_run, nats=nats,
     )
     return WorkflowRunResponse.model_validate(run)
 
@@ -338,10 +394,14 @@ async def approve_workflow_step(
     step_id: str,
     db: AsyncSession = Depends(get_db),
     cache=Depends(get_cache),
+    storage: ObjectStorage = Depends(get_storage),
     nats=Depends(get_nats),
     current_user: dict = Depends(require_role("ADMIN", "OPERATOR")),
 ) -> WorkflowRunResponse:
-    run = await approve_step(db, cache, run_id, step_id, actor=safe_user_uuid(current_user), nats=nats)
+    run = await approve_step(
+        db, cache, storage, run_id, step_id,
+        actor=safe_user_uuid(current_user), actor_id=current_user.get("id"), nats=nats,
+    )
     return WorkflowRunResponse.model_validate(run)
 
 

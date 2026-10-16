@@ -174,6 +174,41 @@ services:
           memory: 2G
 
   # ============================================================================
+  # OBJECT STORAGE — RustFS (S3-compatible, internal-only)
+  # ============================================================================
+
+  rustfs:
+    image: rustfs/rustfs:1.0.0-rc.5
+    container_name: lokilinux-rustfs
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: ":9000"
+      RUSTFS_CONSOLE_ADDRESS: ":9001"
+      RUSTFS_CONSOLE_ENABLE: "true"
+      RUSTFS_ACCESS_KEY: ${S3_ACCESS_KEY:?S3_ACCESS_KEY must be set (never rustfsadmin)}
+      RUSTFS_SECRET_KEY: ${S3_SECRET_KEY:?S3_SECRET_KEY must be set (never rustfsadmin)}
+      RUSTFS_REGION: ${S3_REGION:-us-east-1}
+    volumes:
+      - rustfs_data:/data
+    networks:
+      - app-net
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:9000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          pids: 100
+          cpus: "1"
+          memory: 2G
+
+  # ============================================================================
   # EVENT STORE — ClickHouse (raw events, signal occurrences, incident evidence)
   # ============================================================================
 
@@ -215,6 +250,13 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
+    # Without this tag, Compose builds/caches this service under its own
+    # implicit image name instead of sharing lokilinux/api's tag (unlike
+    # ca-signer/api/grpc below, which all set it explicitly) — `docker
+    # compose build lokilinux-api` then silently leaves migrate on a stale
+    # image, so newly added migrations never run. Confirmed live: 045/046
+    # didn't apply until this service was rebuilt by name too.
+    image: lokilinux/api:${LOKILINUX_VERSION:-0.3.0}
     container_name: lokilinux-migrate
     restart: "no"
     read_only: true
@@ -231,7 +273,6 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@pgbouncer:5432/${POSTGRES_DB}
       BETTER_AUTH_URL: ${BETTER_AUTH_INTERNAL_URL:-http://lokilinux-frontend:3000}
-      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
     command: ["alembic", "upgrade", "head"]
     networks:
       - app-net
@@ -315,6 +356,8 @@ services:
         condition: service_healthy
       clickhouse:
         condition: service_healthy
+      rustfs:
+        condition: service_healthy
       lokilinux-migrate:
         condition: service_completed_successfully
       lokilinux-ca-signer:
@@ -328,37 +371,47 @@ services:
       CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
       CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD}
       CLICKHOUSE_DATABASE: ${CLICKHOUSE_DATABASE:-lokilinux}
+      S3_ENABLED: ${S3_ENABLED:-true}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL:-http://rustfs:9000}
+      S3_PUBLIC_ENDPOINT_URL: ${S3_PUBLIC_ENDPOINT_URL:-}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_BUCKET: ${S3_BUCKET:-lokilinux}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY}
+      S3_ADDRESSING_STYLE: ${S3_ADDRESSING_STYLE:-path}
+      S3_PRESIGNED_URL_EXPIRATION: ${S3_PRESIGNED_URL_EXPIRATION:-3600}
       EVENT_RETENTION_DAYS: ${EVENT_RETENTION_DAYS:-30}
       SIGNAL_OCCURRENCE_RETENTION_DAYS: ${SIGNAL_OCCURRENCE_RETENTION_DAYS:-90}
       INCIDENT_EVIDENCE_RETENTION_DAYS: ${INCIDENT_EVIDENCE_RETENTION_DAYS:-180}
-      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
-      # Internal fallback: FastAPI fetches JWKS at {BETTER_AUTH_URL}/api/auth/jwks
-      # from inside this container, where "localhost" would point at itself,
-      # not the frontend. BETTER_AUTH_URL (public) stays localhost:3000 for
-      # the frontend service below, which legitimately is that origin.
+      # Internal fallback: FastAPI validates sessions via GET {BETTER_AUTH_URL}/
+      # api/auth/get-session from inside this container, where "localhost" would
+      # point at itself, not the frontend. BETTER_AUTH_URL (public) stays
+      # localhost:3000 for the frontend service below, which legitimately is
+      # that origin.
       BETTER_AUTH_URL: ${BETTER_AUTH_INTERNAL_URL:-http://lokilinux-frontend:3000}
-      API_HOST: 0.0.0.0
-      API_PORT: 8000
-      CA_CERT_PATH: /etc/lokilinux/certs/ca.crt
+      # Dual-trust during CA rotation (docs/security/CERTIFICATE_ROTATION.md):
+      # bundle = CA_old + CA_new so agents on either cert generation verify.
+      CA_CERT_PATH: /etc/lokilinux/certs/ca-bundle.crt
       # ca.key itself never mounts here — PKI Faza 4, signing goes through
       # lokilinux-ca-signer over this UDS (see services/ca_signer_client.py).
       CA_SIGNER_SOCKET_PATH: /run/lokilinux/ca-signer/sign.sock
-      PLUGIN_DIR: /opt/lokilinux/plugins
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      POLICY_SIGNING_KEY_PATH: /var/lib/lokilinux/policy-key/policy-signing.key
       # Single public entry point — agent install URLs + CORS origin both derive from it.
       PLATFORM_URL: ${PUBLIC_URL:-http://localhost:3000}
       FRONTEND_URL: ${PUBLIC_URL:-http://localhost:3000}
       AGENT_DOWNLOAD_BASE: ${AGENT_DOWNLOAD_BASE:-}
-      AGENT_VERSION: ${AGENT_VERSION:-0.37.0}
+      AGENT_VERSION: ${AGENT_VERSION:-0.41.0}
     ports:
       - "8000:8000"
       - "9090:9090"
     volumes:
       - certs_dir:/etc/lokilinux/certs:ro
       - ca_signer_sock:/run/lokilinux/ca-signer
-      - plugins_dir:/opt/lokilinux/plugins
-      - ./logs/api:/var/log/lokilinux
-      - ./agent/bin:/opt/lokilinux/packages:ro
+      # Desired-state policy signing key (agent-policy-modernization plan):
+      # ed25519 private half lives in its own named volume; generated on
+      # first start, public half served at /agent/policy-signing-key.
+      - policy_key:/var/lib/lokilinux/policy-key
     networks:
       - app-net
       - web-net
@@ -410,15 +463,13 @@ services:
       NATS_URL: nats://${NATS_USER}:${NATS_PASSWORD}@nats:4222
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379/0
       GRPC_PORT: ${GRPC_PORT:-50051}
-      CA_CERT_PATH: /etc/lokilinux/certs/ca.crt
+      # Dual-trust during CA rotation — same bundle as the api service.
+      CA_CERT_PATH: /etc/lokilinux/certs/ca-bundle.crt
       # ca.key never mounts here — see lokilinux-api's CA_SIGNER_SOCKET_PATH comment.
       CA_SIGNER_SOCKET_PATH: /run/lokilinux/ca-signer/sign.sock
       SERVER_CERT_PATH: /etc/lokilinux/certs/server.crt
       SERVER_KEY_PATH: /etc/lokilinux/certs/server.key
-      # Required by Settings (Better Auth hardening) — without these the gRPC
-      # servicer 500s every heartbeat with a Settings ValidationError.
       BETTER_AUTH_URL: ${BETTER_AUTH_INTERNAL_URL:-http://lokilinux-frontend:3000}
-      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       METRICS_ENABLED: "true"
       METRICS_PORT: "9091"
@@ -596,11 +647,13 @@ volumes:
     name: lokilinux-redis-data
   clickhouse_data:
     name: lokilinux-clickhouse-data
-  plugins_dir:
-    name: lokilinux-plugins
+  rustfs_data:
+    name: lokilinux-rustfs-data
   certs_dir:
     name: lokilinux-certs
   ca_key_dir:
     name: lokilinux-ca-key
   ca_signer_sock:
     name: lokilinux-ca-signer-sock
+  policy_key:
+    name: lokilinux-policy-key

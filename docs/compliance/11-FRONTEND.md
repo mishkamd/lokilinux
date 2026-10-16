@@ -1,6 +1,9 @@
 <!-- generated-by: claude -->
 # Frontend — Nuxt 4 / Vue 3 Page Structure
 
+> Per-page operator reference (what each page shows, its endpoints, actions and links):
+> [11a-FRONTEND-PAGES.md](11a-FRONTEND-PAGES.md). This document covers design rationale.
+
 Confirmed by exploration: this is **Nuxt 4 + Vue 3.5 + Pinia**, not React — the brief's
 "React + shadcn/ui + TanStack" describes a stack this repo doesn't have. UI primitives are a
 hand-rolled shadcn-*style* component set (`radix-vue` + `cva` + `clsx`/`tailwind-merge`), not

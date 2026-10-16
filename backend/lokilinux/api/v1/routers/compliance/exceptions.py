@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from lokilinux.auth.dependencies import get_current_user, require_role, safe_user_uuid
+from lokilinux.auth.dependencies import get_current_user, require_permission, safe_user_uuid
 from lokilinux.dependencies import get_db
 from lokilinux.models.agent import Agent
 from lokilinux.models.compliance_exception import ComplianceException
@@ -82,7 +82,7 @@ async def list_exceptions(
 async def create_exception(
     body: ExceptionCreate,
     db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(require_role("ADMIN", "OPERATOR")),
+    current_user: dict = Depends(require_permission("compliance.exceptions.create")),
 ) -> ExceptionResponse:
     exc = await ExceptionService(db).create(
         rule_id=body.rule_id,
@@ -123,7 +123,7 @@ async def get_exception(
 async def approve_exception(
     exception_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(require_role("ADMIN")),
+    current_user: dict = Depends(require_permission("compliance.exceptions.approve")),
 ) -> ExceptionResponse:
     row = (
         await db.execute(select(ComplianceException).where(ComplianceException.id == exception_id))
@@ -138,7 +138,7 @@ async def approve_exception(
 async def revoke_exception(
     exception_id: UUID,
     db: AsyncSession = Depends(get_db),
-    current_user: dict = Depends(require_role("ADMIN", "OPERATOR")),
+    current_user: dict = Depends(require_permission("compliance.exceptions.revoke")),
 ) -> ExceptionResponse:
     row = (
         await db.execute(select(ComplianceException).where(ComplianceException.id == exception_id))

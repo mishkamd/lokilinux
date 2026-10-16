@@ -7,31 +7,38 @@ GET  /agent/download           — servește binary local (enrollment token, fă
 GET  /agent/download-latest    — servește binary versiunea curentă, public (folosit de `loki update`)
 GET  /agent/download-direct    — servește binary local direct din dashboard (JWT ADMIN/OPERATOR)
 GET  /agent/signing-key        — public key Ed25519 pt signed jobs, base64 raw (public by design — nu e secret)
+GET  /agent/signing-keys       — hartă {"v":"b64"} ACTIVE+VERIFY_ONLY, pt installere/rotație
 POST /agents/register          — înregistrare agent cu enrollment token + generare cert mTLS
 """
 
 import datetime
 import os
-import secrets
 import uuid
 from typing import Annotated
 
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.x509.oid import NameOID
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
-from fastapi.responses import FileResponse, PlainTextResponse
+from fastapi.responses import PlainTextResponse, StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lokilinux.api.grpc.agent_service import revoke_agent_identity
+from lokilinux.api.v1.routers._common import parse_agent_pk
 from lokilinux.auth.dependencies import get_current_user, require_role
 from lokilinux.cache import RedisCache
 from lokilinux.config import get_settings
-from lokilinux.dependencies import get_cache, get_db
+from lokilinux.dependencies import get_cache, get_db, get_storage
 from lokilinux.models.agent import Agent, AgentStatus
+from lokilinux.models.agent_policy import EnrollmentToken
 from lokilinux.models.audit import Setting
+from lokilinux.object_storage import ObjectStorage
 from lokilinux.services import ca_signer_client
+from lokilinux.services.agent_policies import AgentPolicyService, EnrollmentTokenCreate
+from lokilinux.services.audit_service import AuditService
 
 router = APIRouter()
 register_router = APIRouter()
@@ -39,19 +46,26 @@ register_router = APIRouter()
 _ENROLLMENT_TTL = 86400  # 24h
 
 
-# ── Enrollment token dependency (Redis, nu JWKS) ──────────────────────────────
+# ── Enrollment token dependency (DB-backed — agent-policy-modernization P0) ──
+#
+# One store, one validator (AgentPolicyService.validate_enrollment_token) —
+# no more parallel Redis TTL-only tokens. The offline installer spends the
+# SAME token on two separate HTTP calls in sequence (download, then
+# register — see install_agent.sh.tmpl), so this is a dependency FACTORY:
+# /agent/download checks validity without spending a single-use token,
+# only /agents/register actually consumes it.
 
-async def _verify_enrollment_token(
-    authorization: Annotated[str | None, Header()] = None,
-    cache: RedisCache = Depends(get_cache),
-) -> str:
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Enrollment token required")
-    token = authorization.removeprefix("Bearer ").strip()
-    exists = await cache.exists(f"enrollment:{token}")
-    if not exists:
-        raise HTTPException(status_code=403, detail="Invalid or expired enrollment token")
-    return token
+def _verify_enrollment_token(*, consume: bool = False):
+    async def _dep(
+        authorization: Annotated[str | None, Header()] = None,
+        db: AsyncSession = Depends(get_db),
+    ) -> EnrollmentToken:
+        if not authorization or not authorization.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Enrollment token required")
+        token = authorization.removeprefix("Bearer ").strip()
+        return await AgentPolicyService(db).validate_enrollment_token(token, consume=consume)
+
+    return _dep
 
 
 # ── GET /agent/packages ───────────────────────────────────────────────────────
@@ -81,6 +95,7 @@ async def _platform_url(db: AsyncSession) -> tuple[str, str]:
 @router.get("/packages")
 async def get_packages(
     db: AsyncSession = Depends(get_db),
+    storage: ObjectStorage = Depends(get_storage),
     _: dict = Depends(get_current_user),
 ) -> dict:
     base, v, plat = await _get_agent_cfg(db)
@@ -89,8 +104,8 @@ async def get_packages(
     def pkg_url(filename: str) -> str:
         return f"{base}/{filename}" if base else ""
 
-    def avail(pkg_os: str) -> dict:
-        return {a: _package_available(pkg_os, a, v) for a in ("amd64", "arm64")}
+    async def avail(pkg_os: str) -> dict:
+        return {a: await _package_available(storage, pkg_os, a, v) for a in ("amd64", "arm64")}
 
     return {
         "version": v,
@@ -110,9 +125,9 @@ async def get_packages(
         # Which packages the platform can serve directly (locally built), so the
         # dashboard can offer one-click download without an external download_base.
         "available": {
-            "rpm": avail("rpm"),
-            "deb": avail("deb"),
-            "tar.gz": avail("tar.gz"),
+            "rpm": await avail("rpm"),
+            "deb": await avail("deb"),
+            "tar.gz": await avail("tar.gz"),
         },
         "install_script": f"{plat}/api/v1/agent/install.sh",
     }
@@ -155,6 +170,36 @@ async def get_signing_key() -> str:
     return _b64.b64encode(raw).decode()
 
 
+@router.get("/signing-keys")
+async def get_signing_keys() -> dict:
+    """Versioned job-signing public keys — {"1": "<b64>", "2": "<b64>", ...},
+    ACTIVE+VERIFY_ONLY only (RETIRED never served). Installers write this
+    into agent.yaml security.signing_pub_keys so a rotation via the admin
+    KMS endpoints reaches agents enrolling AFTER it — /signing-key above
+    only ever serves the single legacy key and is kept for old installers.
+    Falls back to that same legacy key (as version "1") when no versioned
+    signer is running on this platform."""
+    from lokilinux.services.job_envelope import _get_signer
+
+    signer = _get_signer()
+    if signer is not None:
+        keys = signer.public_keys()
+        if keys:
+            return keys
+    return {"1": await get_signing_key()}
+
+
+@router.get("/policy-signing-key")
+async def get_policy_signing_key() -> str:
+    """base64 raw ed25519 public key that signs desired-state AgentPolicy
+    envelopes. Public by design (only the control plane holds the private
+    half); installers pin it into agent.yaml policy.trusted_keys so the
+    agent rejects any policy document not signed by this key."""
+    from lokilinux.services.agent_policy_compiler import public_key_b64
+
+    return public_key_b64()
+
+
 @router.get("/signing-key.pem", response_class=PlainTextResponse)
 async def get_signing_key_pem() -> str:
     """PEM form of the job-signing public key — consumed by installers that
@@ -181,18 +226,26 @@ async def get_install_script(db: AsyncSession = Depends(get_db)) -> str:
 
 class EnrollmentTokenRequest(BaseModel):
     label: str = ""
+    agent_group: str | None = None
 
 
 @router.post("/enrollment-token")
 async def create_enrollment_token(
     body: EnrollmentTokenRequest = EnrollmentTokenRequest(),
-    cache: RedisCache = Depends(get_cache),
     db: AsyncSession = Depends(get_db),
     _: dict = Depends(require_role("ADMIN", "OPERATOR")),
 ) -> dict:
+    """"Quick" convenience path over the exact same DB-backed store as
+    POST /agent-policies/enrollment-tokens (plural) — kept as its own route
+    for the existing "Add Agent" dialog (zero frontend break), single-use,
+    24h TTL fixed."""
     plat, url_source = await _platform_url(db)
-    token = secrets.token_urlsafe(32)
-    await cache.set_cached(f"enrollment:{token}", body.label or "active", ttl=_ENROLLMENT_TTL)
+    result = await AgentPolicyService(db).issue_enrollment_token(
+        EnrollmentTokenCreate(
+            label=body.label, ttl_hours=24, single_use=True, agent_group=body.agent_group
+        )
+    )
+    token = result["token"]
     return {
         "token": token,
         "expires_in": _ENROLLMENT_TTL,
@@ -224,28 +277,53 @@ _OS_ARCH_MAP: dict[str, dict[str, str]] = {
 }
 
 
-def _resolve_package(pkg_os: str, arch: str, ver: str) -> tuple[str, str]:
-    """Map (os, arch, version) to (filepath, filename) or raise. Shared by the
-    enrollment-token and dashboard (JWT) download paths."""
+# ponytail: agent packages use deterministic S3 keys (version+os+arch fully
+# determine the key), not the storage_objects metadata table the rest of
+# the Object Storage plan uses — there's nothing per-upload to track (no
+# user, no SHA-256 audit trail needed) and a release always overwrites the
+# same key for its version, so a DB row per file would add bookkeeping with
+# no reader. release.sh uploads directly via ObjectStorage.put_stream.
+_AGENT_PACKAGES_PREFIX = "system/agent-packages"
+
+
+def _package_key(pkg_os: str, arch: str, ver: str) -> tuple[str, str]:
+    """Map (os, arch, version) to (object_key, filename) or raise 400."""
     fmt = _OS_ARCH_MAP.get(pkg_os, {}).get(arch)
     if not fmt:
         raise HTTPException(status_code=400, detail=f"Unsupported os={pkg_os} arch={arch}")
-
     filename = fmt.format(v=ver)
-    filepath = os.path.join(get_settings().agent_package_dir, filename)
-    if not os.path.exists(filepath):
+    return f"{_AGENT_PACKAGES_PREFIX}/{ver}/{filename}", filename
+
+
+async def _resolve_package(
+    storage: ObjectStorage, pkg_os: str, arch: str, ver: str
+) -> tuple[str, str]:
+    """Like _package_key, but also verifies the object exists in storage —
+    shared by the enrollment-token and dashboard (JWT) download paths."""
+    key, filename = _package_key(pkg_os, arch, ver)
+    if not await storage.exists(key):
         raise HTTPException(
             status_code=503,
-            detail="Agent binary not yet built. Run `make agent-package` on the control plane.",
+            detail="Agent binary not yet built. Run the agent release script and try again.",
         )
-    return filepath, filename
+    return key, filename
 
 
-def _package_available(pkg_os: str, arch: str, ver: str) -> bool:
+async def _package_available(storage: ObjectStorage, pkg_os: str, arch: str, ver: str) -> bool:
     fmt = _OS_ARCH_MAP.get(pkg_os, {}).get(arch)
     if not fmt:
         return False
-    return os.path.exists(os.path.join(get_settings().agent_package_dir, fmt.format(v=ver)))
+    key, _ = _package_key(pkg_os, arch, ver)
+    return await storage.exists(key)
+
+
+async def _stream_package(storage: ObjectStorage, key: str, filename: str) -> StreamingResponse:
+    stream = await storage.get_stream(key)
+    return StreamingResponse(
+        stream,
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/download-sig")
@@ -253,31 +331,28 @@ async def download_agent_sig(
     pkg_os: str = Query(...),
     arch: str = Query(...),
     db: AsyncSession = Depends(get_db),
+    storage: ObjectStorage = Depends(get_storage),
     _: dict = Depends(get_current_user),
-) -> FileResponse:
+) -> StreamingResponse:
     """Ed25519 signature over "sha256:<hex digest>" of the agent artifact —
     consumed by install.sh / loki update for supply-chain verification."""
     _, ver, _ = await _get_agent_cfg(db)
-    filepath, filename = _sig_path(pkg_os, arch, ver)
-    return FileResponse(filepath, filename=filename, media_type="application/octet-stream")
+    key, filename = await _sig_key(storage, pkg_os, arch, ver)
+    return await _stream_package(storage, key, filename)
 
 
-def _sig_path(pkg_os: str, arch: str, ver: str) -> tuple[str, str]:
-    """Map (os, arch, version) to the sibling .sig of the tar.gz artifact.
-    Mirrors _resolve_package's filename table for the tar.gz row."""
-    fmt_map = {
-        "tar.gz": "lokilinux-agent_{v}_linux_amd64.tar.gz",
-    }
+async def _sig_key(storage: ObjectStorage, pkg_os: str, arch: str, ver: str) -> tuple[str, str]:
+    """Map (os, arch, version) to the sibling .sig key of the tar.gz
+    artifact. Mirrors _package_key's filename table for the tar.gz row."""
     if pkg_os != "tar.gz" or arch not in ("amd64", "arm64"):
         raise HTTPException(status_code=404, detail="signature not available for this format/arch")
-    fname = fmt_map["tar.gz"].format(v=ver)
-    if arch == "arm64":
-        fname = fname.replace("_linux_amd64", "_linux_arm64")
-    path = os.path.join(get_settings().agent_package_dir, fname)
-    sig = path + ".sig"
-    if not os.path.isfile(sig):
-        raise HTTPException(status_code=404, detail="signature file not provisioned for this version")
-    return sig, fname + ".sig"
+    _base_key, filename = _package_key("tar.gz", arch, ver)
+    sig_key = f"{_AGENT_PACKAGES_PREFIX}/{ver}/{filename}.sig"
+    if not await storage.exists(sig_key):
+        raise HTTPException(
+            status_code=404, detail="signature file not provisioned for this version"
+        )
+    return sig_key, filename + ".sig"
 
 
 @router.get("/download")
@@ -285,11 +360,12 @@ async def download_agent(
     pkg_os: str = Query(..., alias="os"),
     arch: str = Query(...),
     db: AsyncSession = Depends(get_db),
-    token: str = Depends(_verify_enrollment_token),
-) -> FileResponse:
+    storage: ObjectStorage = Depends(get_storage),
+    _token: EnrollmentToken = Depends(_verify_enrollment_token()),
+) -> StreamingResponse:
     _, ver, _ = await _get_agent_cfg(db)
-    filepath, filename = _resolve_package(pkg_os, arch, ver)
-    return FileResponse(filepath, filename=filename, media_type="application/octet-stream")
+    key, filename = await _resolve_package(storage, pkg_os, arch, ver)
+    return await _stream_package(storage, key, filename)
 
 
 @router.get("/download-latest")
@@ -297,7 +373,8 @@ async def download_agent_latest(
     pkg_os: str = Query(..., alias="os"),
     arch: str = Query(...),
     db: AsyncSession = Depends(get_db),
-) -> FileResponse:
+    storage: ObjectStorage = Depends(get_storage),
+) -> StreamingResponse:
     """Public, unauthenticated — same exposure as /install.sh (also public).
 
     Used by `loki update` on already-enrolled hosts, which have no fresh
@@ -306,8 +383,8 @@ async def download_agent_latest(
     to enumerate/pull historical builds.
     """
     _, ver, _ = await _get_agent_cfg(db)
-    filepath, filename = _resolve_package(pkg_os, arch, ver)
-    return FileResponse(filepath, filename=filename, media_type="application/octet-stream")
+    key, filename = await _resolve_package(storage, pkg_os, arch, ver)
+    return await _stream_package(storage, key, filename)
 
 
 @router.get("/download-direct")
@@ -315,14 +392,15 @@ async def download_agent_direct(
     pkg_os: str = Query(..., alias="os"),
     arch: str = Query(...),
     db: AsyncSession = Depends(get_db),
+    storage: ObjectStorage = Depends(get_storage),
     _: dict = Depends(require_role("ADMIN", "OPERATOR")),
-) -> FileResponse:
+) -> StreamingResponse:
     """Serve the locally-built agent package straight to an authenticated
     dashboard user — no enrollment token needed. Powers one-click generation
     from the /agents page."""
     _, ver, _ = await _get_agent_cfg(db)
-    filepath, filename = _resolve_package(pkg_os, arch, ver)
-    return FileResponse(filepath, filename=filename, media_type="application/octet-stream")
+    key, filename = await _resolve_package(storage, pkg_os, arch, ver)
+    return await _stream_package(storage, key, filename)
 
 
 # ── POST /agents/register ─────────────────────────────────────────────────────
@@ -420,7 +498,7 @@ async def register_agent(
     body: RegisterRequest,
     db: AsyncSession = Depends(get_db),
     cache: RedisCache = Depends(get_cache),
-    token: str = Depends(_verify_enrollment_token),
+    token: EnrollmentToken = Depends(_verify_enrollment_token(consume=True)),
 ) -> dict:
     existing = (
         await db.execute(select(Agent).where(Agent.hostname == body.hostname))
@@ -461,6 +539,8 @@ async def register_agent(
         existing.os_version = body.os_version
         existing.arch = body.arch
         existing.kernel_version = body.kernel_version
+        if token.agent_group is not None:
+            existing.agent_group_id = token.agent_group
     else:
         agent_id = str(uuid.uuid4())
         db.add(Agent(
@@ -471,12 +551,10 @@ async def register_agent(
             os_version=body.os_version,
             arch=body.arch,
             kernel_version=body.kernel_version,
+            agent_group_id=token.agent_group,
         ))
     await db.flush()
     await db.commit()
-
-    # token single-use
-    await cache.invalidate(f"enrollment:{token}")
 
     agent_cert, agent_key, ca_cert = await _generate_agent_cert(agent_id)
 
@@ -486,3 +564,29 @@ async def register_agent(
         "agent_key": agent_key,
         "ca_cert": ca_cert,
     }
+
+
+@register_router.post("/{agent_id}/revoke")
+async def revoke_agent(
+    agent_id: str,
+    db: AsyncSession = Depends(get_db),
+    cache: RedisCache = Depends(get_cache),
+    current_user: dict = Depends(require_role("ADMIN")),
+) -> dict:
+    """Deny-lists the agent identity. The gRPC auth gate refuses its heartbeats,
+    and jobs only reach an agent through that heartbeat. The path id is the
+    agents.id PK; the gate keys on the wire agent_id (the cert CN), so that is
+    what gets revoked."""
+    row = (
+        await db.execute(select(Agent).where(Agent.id == parse_agent_pk(agent_id)))
+    ).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Server not found")
+    await revoke_agent_identity(cache, row.agent_id)
+    await AuditService(db).log(
+        action="agent.revoked", user_id=current_user.get("id"),
+        actor_name=current_user.get("username") or current_user.get("email"),
+        resource_type="agent", resource_id=str(row.id),
+        changes={"agent_id": row.agent_id},
+    )
+    return {"agent_id": row.agent_id, "revoked": True}

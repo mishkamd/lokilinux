@@ -20,8 +20,10 @@ one harmless quoted argument, never a second command).
 `command`/`ansible` create Jobs directly (no compilation — the user already
 wrote the shell/playbook). `package`'s install/update actions dispatch the
 NATIVE `PACKAGE_UPDATE` job type (agent/internal/modules/package_updater.go)
-rather than compiling to shell, since that module already exists and is
-version/manager-aware. `start`/`end`/`condition`/`approval`/`wait`/
+instead of compiling a shell line here. That agent module is version/manager-
+aware, and it still runs `/bin/sh -c` for apt, but with package names only as
+`"$@"` positional arguments, never spliced into the script; dnf/yum/zypper get
+an argv with no shell. `start`/`end`/`condition`/`approval`/`wait`/
 `notification`/`webhook` never create a Job at all — see advance_run's
 ready-loop. `notification` calls AlertService.create_alert directly (the
 `nats` client threaded through advance_run/start_run/approve_step from
@@ -40,6 +42,7 @@ next tick"), and by WorkflowRunnerWorker's tick (workers/workflow_runner.py)
 for everything after that.
 """
 
+import asyncio
 import hashlib
 from datetime import datetime, timezone
 from uuid import UUID
@@ -53,15 +56,23 @@ from lokilinux.cache import RedisCache
 from lokilinux.models.agent import Agent
 from lokilinux.models.job import Job, JobStatus
 from lokilinux.models.workflow import Workflow, WorkflowRun, WorkflowStepRun, WorkflowVersion
-from lokilinux.schemas.workflow import CompiledGraph, DryRunResponse, DryRunStepResult, WorkflowNodeType, WorkflowStep
+from lokilinux.object_storage import ObjectStorage
+from lokilinux.schemas.workflow import (
+    CompiledGraph,
+    DryRunResponse,
+    DryRunStepResult,
+    WorkflowNodeType,
+    WorkflowStep,
+)
 from lokilinux.services.alert_service import AlertService
 from lokilinux.services.audit_service import AuditService
 from lokilinux.services.job_service import JobService
 from lokilinux.services.playbook_service import PlaybookService
-from lokilinux.utils.agent_capability import agent_meets_minimum
 from lokilinux.services.policy_service import resolve_targets
+from lokilinux.utils.agent_capability import agent_meets_minimum
 from lokilinux.utils.expr import ExpressionError, evaluate_condition
-from lokilinux.utils.shell import q
+from lokilinux.utils.url_guard import UnsafeURLError, assert_safe_url
+from lokilinux.utils.shell import q, valid_host, valid_package_name
 
 _TERMINAL_JOB_SUCCESS = JobStatus.COMPLETED
 _TERMINAL_JOB_STATUSES = (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.TIMEOUT, JobStatus.CANCELLED)
@@ -131,9 +142,50 @@ async def _load_step_runs(db: AsyncSession, run_id: UUID) -> dict[str, WorkflowS
     return {sr.step_id: sr for sr in rows}
 
 
+def _package_names(step: WorkflowStep) -> list[str]:
+    """Package names a step hands to a package manager (native or compiled)."""
+    config = step.config or {}
+    normalized = _normalize_type(step.type)
+    if normalized == WorkflowNodeType.PACKAGE:
+        return [str(p) for p in config.get("packages") or []]
+    is_package_check = normalized == WorkflowNodeType.CHECK and config.get("type") == "package"
+    if is_package_check and config.get("name"):
+        return [str(config["name"])]
+    return []
+
+
+def _probe_host(step: WorkflowStep) -> str | None:
+    """The host a port or network check probes, when the step names one."""
+    config = step.config or {}
+    if _normalize_type(step.type) != WorkflowNodeType.CHECK:
+        return None
+    check_type = config.get("type") or "command"
+    if check_type == "port":
+        return str(config.get("host") or "localhost")  # same default as _compile_check
+    if check_type == "network" and config.get("host"):
+        return str(config["host"])
+    return None
+
+
+def validate_step_inputs(graph: CompiledGraph) -> None:
+    """Refuses a graph whose package names or probe hosts would not survive
+    compilation. Called at publish (a bad version never becomes PUBLISHED) and
+    at start_run (a version published before this check still cannot run)."""
+    for step in graph.steps:
+        for name in _package_names(step):
+            if not valid_package_name(name):
+                raise HTTPException(
+                    status_code=422, detail=f"step '{step.id}': invalid package name {name!r}",
+                )
+        host = _probe_host(step)
+        if host is not None and not valid_host(host):
+            raise HTTPException(status_code=422, detail=f"step '{step.id}': invalid host {host!r}")
+
+
 async def start_run(
-    db: AsyncSession, cache: RedisCache, workflow_id: UUID, *,
-    trigger_type: str, triggered_by: UUID | None, is_dry_run: bool = False, nats=None,
+    db: AsyncSession, cache: RedisCache, storage: ObjectStorage, workflow_id: UUID, *,
+    trigger_type: str, triggered_by: UUID | None, triggered_by_actor: str | None = None,
+    is_dry_run: bool = False, nats=None,
 ) -> WorkflowRun:
     workflow = await _get_workflow(db, workflow_id)
     if workflow.current_version_id is None:
@@ -146,6 +198,8 @@ async def start_run(
         raise HTTPException(status_code=409, detail="Workflow's current version is not published")
 
     graph = CompiledGraph.model_validate(version.graph)
+    # Refused before the run row exists; same channel as the no-agents 422 below.
+    validate_step_inputs(graph)
 
     # Targets resolved ONCE and frozen — a server added mid-run must not
     # silently receive only the remaining steps (plan §4).
@@ -156,6 +210,7 @@ async def start_run(
     run = WorkflowRun(
         workflow_id=workflow.id, workflow_version_id=version.id,
         status="RUNNING", trigger_type=trigger_type, triggered_by=triggered_by,
+        triggered_by_actor=triggered_by_actor,
         targets={"agent_ids": [str(a) for a in target_agent_ids]},
         vars=graph.vars, is_dry_run=is_dry_run, started_at=datetime.now(timezone.utc),
     )
@@ -173,7 +228,7 @@ async def start_run(
     )
 
     if not is_dry_run:
-        await advance_run(db, cache, run, nats)
+        await advance_run(db, cache, storage, run, nats)
     return run
 
 
@@ -276,9 +331,14 @@ def _compile_check(step: WorkflowStep) -> str:
     elif check_type == "service":
         base = f"systemctl is-active {q(_require(config, 'service', step.id))}"
     elif check_type == "port":
-        host = config.get("host") or "localhost"
+        host = str(config.get("host") or "localhost")
+        if not valid_host(host):
+            raise WorkflowRunError(
+                f"step '{step.id}' (type check, port): config.host {host!r} is not a hostname or IP"
+            )
         port = int(_require(config, "port", step.id))
-        base = f"timeout 2 bash -c '</dev/tcp/{host}/{port}'"
+        # host and port travel as bash positional args, never as script text.
+        base = f"timeout 2 bash -c '</dev/tcp/\"$1\"/\"$2\"' bash {q(host)} {q(port)}"
     elif check_type == "package":
         name = q(_require(config, "name", step.id))
         base = f"(command -v rpm >/dev/null 2>&1 && rpm -q {name}) || dpkg -s {name}"
@@ -295,7 +355,13 @@ def _compile_check(step: WorkflowStep) -> str:
         min_free = int(_require(config, "min_free_gb", step.id))
         base = f"[ $(df --output=avail -BG {q(path)} | tail -1 | tr -dc '0-9') -ge {min_free} ]"
     elif check_type == "network":
-        base = f"ping -c1 -W2 {q(_require(config, 'host', step.id))}"
+        host = _require(config, "host", step.id)
+        if not valid_host(host):
+            raise WorkflowRunError(
+                f"step '{step.id}' (type check, network): "
+                f"config.host {host!r} is not a hostname or IP"
+            )
+        base = f"ping -c1 -W2 {q(host)}"
     else:
         raise WorkflowRunError(f"step '{step.id}': check type '{check_type}' is not supported")
 
@@ -376,7 +442,8 @@ def _compile_package_remove(step: WorkflowStep) -> str:
 
 
 async def _dispatch_step(
-    db: AsyncSession, cache: RedisCache, step: WorkflowStep, target_agent_ids: list[UUID], run_id: UUID,
+    db: AsyncSession, cache: RedisCache, storage: ObjectStorage, step: WorkflowStep,
+    target_agent_ids: list[UUID], run_id: UUID,
 ) -> Job:
     """Translate one workflow step into a Job. requires_approval is always
     False here — the workflow's own `approval` node type is the human gate;
@@ -393,7 +460,7 @@ async def _dispatch_step(
         playbook_id = config.get("playbook_id")
         if not playbook_id:
             raise WorkflowRunError(f"step '{step.id}' (type ansible) has no config.playbook_id")
-        return await PlaybookService(db, cache).execute_playbook(
+        return await PlaybookService(db, cache, storage).execute_playbook(
             playbook_id=UUID(str(playbook_id)),
             agent_ids=target_agent_ids,
             extra_vars=config.get("extra_vars") or {},
@@ -405,8 +472,8 @@ async def _dispatch_step(
         action = config.get("action") or "install"
         if action in ("install", "update"):
             # Native module (package_updater.go) — already version/manager-
-            # aware, so this is the one Linux type that does NOT compile to
-            # shell for its primary actions.
+            # aware, so install/update don't compile to a shell line here (the
+            # agent still uses /bin/sh for apt only, with names as "$@").
             return await JobService(db, cache).create_job(
                 name=f"Workflow step: {step.name}", job_type="PACKAGE_UPDATE",
                 target_servers=target_servers,
@@ -488,16 +555,23 @@ async def _dispatch_notification(db: AsyncSession, nats, step: WorkflowStep, run
         raise WorkflowRunError(f"step '{step.id}': an ACTIVE alert with type '{alert_type}' already exists")
 
 
+# ponytail: fixed, not user-set — a long user timeout let one step hold a run open indefinitely.
+_WEBHOOK_TIMEOUT_SECONDS = 10.0
+
+
 async def _dispatch_webhook(step: WorkflowStep) -> None:
     """No Job — POSTs synchronously and raises on a non-2xx/network error so
     the step run fails cleanly instead of reporting success for a request
-    nobody received."""
+    nobody received. The URL must resolve only to public addresses (SSRF guard)."""
     config = step.config or {}
     url = _require(config, "url", step.id)
     method = str(config.get("method") or "POST").upper()
-    timeout = float(config.get("timeout") or 10)
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        await asyncio.to_thread(assert_safe_url, url)
+    except UnsafeURLError as exc:
+        raise WorkflowRunError(f"step '{step.id}' (type webhook): url refused: {exc}") from exc
+    try:
+        async with httpx.AsyncClient(timeout=_WEBHOOK_TIMEOUT_SECONDS) as client:
             response = await client.request(method, url, headers=config.get("headers") or None, json=config.get("body") or None)
             response.raise_for_status()
     except httpx.HTTPError as exc:
@@ -584,7 +658,9 @@ async def _wait_for_agent_satisfied(db: AsyncSession, sr: WorkflowStepRun, step:
     return True, False
 
 
-async def advance_run(db: AsyncSession, cache: RedisCache, run: WorkflowRun, nats=None) -> None:
+async def advance_run(
+    db: AsyncSession, cache: RedisCache, storage: ObjectStorage, run: WorkflowRun, nats=None
+) -> None:
     """One tick of the state machine — see module docstring for when this
     is called. No-op for a run that isn't actively RUNNING (WAITING_APPROVAL
     needs a human, terminal states need nothing). `nats` is optional and
@@ -605,7 +681,14 @@ async def advance_run(db: AsyncSession, cache: RedisCache, run: WorkflowRun, nat
 
     graph = CompiledGraph.model_validate(version.graph)
     steps_by_id = {s.id: s for s in graph.steps}
-    step_runs = await _load_step_runs(db, run.id)
+    # Captured once: JobService.create_job's duplicate-active-job guard
+    # rolls back on an IntegrityError race (job_service.py), and a
+    # rollback unconditionally expires every object in this session — run
+    # included, regardless of this session's expire_on_commit=False (that
+    # setting only governs commit). run.id is a plain UUID, safe to reuse
+    # after that without re-touching the (possibly expired) ORM instance.
+    run_id = run.id
+    step_runs = await _load_step_runs(db, run_id)
     target_agent_ids = [UUID(a) for a in run.targets.get("agent_ids", [])]
 
     # 1) Sync any RUNNING step that's reached a terminal state — either a
@@ -744,8 +827,17 @@ async def advance_run(db: AsyncSession, cache: RedisCache, run: WorkflowRun, nat
             continue
 
         try:
-            job = await _dispatch_step(db, cache, step, target_agent_ids, run.id)
+            job = await _dispatch_step(db, cache, storage, step, target_agent_ids, run.id)
         except (WorkflowRunError, ValueError) as exc:
+            # A ValueError here can only be JobService.create_job's
+            # duplicate-active-job guard, which rolls back on the
+            # IntegrityError race — see run_id's comment above. Reload
+            # before touching `sr` (and before any later step this tick,
+            # e.g. a CONDITION step reading sibling statuses, or the
+            # terminal check below) trips the same expired-attribute
+            # MissingGreenlet on one of this run's other step_runs.
+            step_runs = await _load_step_runs(db, run_id)
+            sr = step_runs[step.id]
             sr.status = "FAILED"
             sr.error = str(exc)
             sr.completed_at = datetime.now(timezone.utc)
@@ -772,7 +864,10 @@ async def advance_run(db: AsyncSession, cache: RedisCache, run: WorkflowRun, nat
     await db.commit()
 
 
-async def approve_step(db: AsyncSession, cache: RedisCache, run_id: UUID, step_id: str, *, actor: UUID | None, nats=None) -> WorkflowRun:
+async def approve_step(
+    db: AsyncSession, cache: RedisCache, storage: ObjectStorage, run_id: UUID, step_id: str, *,
+    actor: UUID | None, actor_id: str | None = None, nats=None,
+) -> WorkflowRun:
     run = await _get_run(db, run_id)
     step_runs = await _load_step_runs(db, run.id)
     sr = step_runs.get(step_id)
@@ -780,8 +875,19 @@ async def approve_step(db: AsyncSession, cache: RedisCache, run_id: UUID, step_i
         raise HTTPException(status_code=404, detail=f"Step '{step_id}' not found in this run")
     if sr.status != "WAITING_APPROVAL":
         raise HTTPException(status_code=409, detail=f"Step '{step_id}' is not waiting for approval (status: {sr.status})")
-    if actor is not None and run.triggered_by is not None and actor == run.triggered_by:
+    if (actor_id is not None and run.triggered_by_actor == actor_id) or (
+        actor is not None and run.triggered_by is not None and actor == run.triggered_by
+    ):
         raise HTTPException(status_code=403, detail="You cannot approve a run you triggered yourself")
+    # Phase 11, no-self-approval on publish: the publisher of the version this run
+    # executes cannot clear its gate either (ROADMAP / workflow plan §14). A nanoid
+    # publisher has published_by NULL, so the raw auth id (actor_id) is matched too.
+    version = await db.get(WorkflowVersion, run.workflow_version_id)
+    if version is not None and (
+        (actor_id is not None and version.published_by_actor == actor_id)
+        or (actor is not None and version.published_by == actor)
+    ):
+        raise HTTPException(status_code=403, detail="You cannot approve a run of a version you published")
 
     sr.status = "SUCCEEDED"
     sr.completed_at = datetime.now(timezone.utc)
@@ -792,7 +898,7 @@ async def approve_step(db: AsyncSession, cache: RedisCache, run_id: UUID, step_i
         action="workflow.step_approved", user_id=str(actor) if actor else None,
         resource_type="workflow_run", resource_id=str(run.id), changes={"step_id": step_id},
     )
-    await advance_run(db, cache, run, nats)
+    await advance_run(db, cache, storage, run, nats)
     return run
 
 

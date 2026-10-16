@@ -11,6 +11,7 @@ interface AuditLog {
   status: string
 }
 
+const { format: fmtDateTime } = useDateTime()
 const api = useApi()
 
 const cursor = ref<number | null>(null)
@@ -46,9 +47,16 @@ const columns = [
       Failed to load audit logs: {{ error.message }}
     </div>
 
-    <DataTable :rows="data?.items ?? []" :columns="columns" :loading="pending">
+    <DataTable
+      :rows="data?.items ?? []"
+      :columns="columns"
+      :loading="pending"
+      sortable
+      :page-size="25"
+      empty-title="No audit entries"
+    >
       <template #timestamp-data="{ row }">
-        <span class="font-mono text-xs text-muted-foreground">{{ new Date(String(row.timestamp)).toLocaleString() }}</span>
+        <span class="font-mono text-xs text-muted-foreground">{{ fmtDateTime(String(row.timestamp)) }}</span>
       </template>
       <template #resource_id-data="{ row }">
         <span class="font-mono text-xs">{{ row.resource_id ?? '—' }}</span>

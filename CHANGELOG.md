@@ -1,3 +1,23 @@
+## [Unreleased]
+
+- feat(security): security response headers (nosniff, X-Frame-Options DENY, Referrer-Policy, HSTS; CSP on API responses, not on /docs)
+- feat(security): SSRF guard `utils/url_guard.py` on webhook workflow steps and compliance datastream import; plugin installs limited to the platform origin
+- fix(security): `/ready` no longer returns driver error text in the response body
+- feat(security): `TRUST_PROXY_COUNT` — X-Forwarded-For is honoured for rate limiting only when set (default 0)
+- feat(agent): `max_parallel_jobs` (default 2) bounds concurrently executing jobs; excess jobs wait for a slot instead of running unbounded
+- fix(security): session cache keyed by token digest; CSV exports neutralise spreadsheet formulas; admin password written to a 0600 file, not printed
+- feat(security): Host header allowlist (`TRUSTED_HOSTS_MODE`: log by default, enforce after a live check); request body cap per path (10 MB default, 64 KB auth, storage limit for uploads)
+- feat(streams): JetStream streams capped at 10 GB each; compliance ingest drops duplicate snapshots within 5 min
+- feat(security): domain snapshots carry a per-agent HMAC, verified by the compliance service; `ENFORCE_SNAPSHOT_HMAC` (off) rejects unsigned ones (migration 053)
+- feat(workflow): no-self-approval on publish; the publisher of a version cannot approve its runs (migration 049 index, 050 published_by)
+- fix(incidents): at most one open incident per group, enforced by a partial unique index (migration 049); a lost race attaches to the winner
+- feat(vulns): Debian and Ubuntu packages matched against OSV every 30 min (migration 051, `source_package`; agents report source names)
+- feat(agents): heartbeat reports native job capabilities (migration 052); workflow dispatch does not use them yet
+- feat(agent-install): enrollment token via `LOKILINUX_ENROLLMENT_TOKEN` or `--token-file`; `--token` warns
+- ci(security): gitleaks, semgrep, pip-audit and npm audit gate the pipeline
+- docs(security): AI boundary contract (AI_BOUNDARY.md); X-Request-ID values are validated
+- chore(agent): removed the unwired typed heartbeat loop
+
 ## [0.5.0] - 2026-08-26
 
 - feat(observability): harden event/signal/correlation pipeline and compliance ingest (ab8394b)

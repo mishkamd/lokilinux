@@ -81,7 +81,17 @@ async function remove(workflow: Workflow) {
       </Button>
     </div>
 
-    <DataTable :rows="workflows" :columns="columns" :loading="loading" rows-clickable @row-click="(row) => navigateTo(`/workflows/${(row as unknown as Workflow).id}`)">
+    <DataTable
+      :rows="workflows"
+      :columns="columns"
+      :loading="loading"
+      sortable
+      :page-size="25"
+      empty-title="No workflows"
+      empty-description="Create a workflow to automate remediation."
+      rows-clickable
+      @row-click="(row) => navigateTo(`/workflows/${(row as unknown as Workflow).id}`)"
+    >
       <template #name-data="{ row }">
         <div class="flex items-center gap-2">
           <span class="flex size-7 shrink-0 items-center justify-center rounded-md bg-[color-mix(in_oklch,var(--info)_15%,transparent)] text-info">
@@ -108,14 +118,16 @@ async function remove(workflow: Workflow) {
       </template>
       <template #actions-data="{ row }">
         <div v-if="canEdit" class="flex items-center justify-end">
-          <Button
-            size="xs" variant="ghost" class="text-muted-foreground"
-            aria-label="Delete workflow"
-            :loading="deletingId === row.id"
-            @click.stop="remove(row as unknown as Workflow)"
-          >
-            <Trash2 class="size-3.5" />
-          </Button>
+          <Tooltip text="Delete workflow">
+            <Button
+              size="xs" variant="ghost"
+              aria-label="Delete workflow"
+              :loading="deletingId === row.id"
+              @click.stop="remove(row as unknown as Workflow)"
+            >
+              <Trash2 class="size-3.5" />
+            </Button>
+          </Tooltip>
         </div>
       </template>
     </DataTable>

@@ -88,7 +88,7 @@ Notă de arhitectură: spec-ul inițial menționa ClickHouse și LangGraph — *
 | ME-06 | Enrollment token în command line shell (`--token={token}`) | install_agent.sh.tmpl | Open (P2) |
 | ME-07 | `ip_address` self-reported peste adresa peer reală | api/grpc/agent_service.py:77-82 | Open (P2) |
 | ME-08 | Sesiuni cache-uite în Redis pe raw token; lag revocare 60s | auth/jwks_validator.py:28 | Open (P2, hash key) |
-| ME-09 | systemd unit incomplet întărit (lipsesc ProtectKernel*, PrivateDevices, MemoryDenyWriteExecute, SystemCallArchitectures, RestrictNamespaces, RestrictSUIDSGID) | scripts/install-agent.sh + tmpl | Open (P2) |
+| ME-09 | systemd unit hardening — toate cele 6 directive listate inițial (ProtectKernel*, PrivateDevices, MemoryDenyWriteExecute, SystemCallArchitectures, RestrictNamespaces, RestrictSUIDSGID) prezente în ambele installere; PrivateDevices+MemoryDenyWriteExecute live-verificate 2026-08-27 pe Rocky 9.8 (devapp.mishka.md) — vezi DISTRO_RUNBOOK.md. Ubuntu 22.04/24.04 rămân netestate | scripts/install-agent.sh + tmpl | Closed (Rocky) / Open (Ubuntu, P3) |
 | ME-10 | Infrastructura signed-jobs Ed25519 existentă dar inactivă | init-certificates.sh, settings | Open (P1) |
 
 ## Low Findings

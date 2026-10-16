@@ -38,6 +38,32 @@ func TestPayloadToRequest_AgentVersionAndFQDN(t *testing.T) {
 	}
 }
 
+// Phase G2: config_version (repurposed to carry the collector policy
+// version) must round-trip through payloadToRequest like every other
+// optional string field.
+func TestPayloadToRequest_ConfigVersion(t *testing.T) {
+	payload := map[string]interface{}{
+		"agent_id":       "agent-123",
+		"config_version": "7",
+	}
+
+	req := payloadToRequest(payload)
+
+	if req.ConfigVersion != "7" {
+		t.Errorf("ConfigVersion = %q, want %q", req.ConfigVersion, "7")
+	}
+}
+
+func TestPayloadToRequest_MissingConfigVersion(t *testing.T) {
+	payload := map[string]interface{}{"agent_id": "agent-123"}
+
+	req := payloadToRequest(payload)
+
+	if req.ConfigVersion != "" {
+		t.Errorf("ConfigVersion = %q, want empty when not supplied", req.ConfigVersion)
+	}
+}
+
 // Guards against a future refactor silently dropping agent_version when the
 // system info block is present but the map key is missing/empty — the field
 // should just stay unset, not panic or overwrite with an empty SystemStatus.

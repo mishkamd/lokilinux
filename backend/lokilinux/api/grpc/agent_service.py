@@ -9,6 +9,9 @@ Heartbeat flow:
   server → HeartbeatResponse(pending_jobs, policy_delta)
 """
 
+import base64
+import gzip
+import json
 import logging
 import re
 
@@ -23,13 +26,21 @@ from lokilinux.services.cert_revocation import (
     assert_not_revoked,
 )
 from lokilinux.events.publish import emit, is_pipeline_enabled
+from lokilinux.services.agent_policy_service import (
+    _apply_policy_report,
+    _pending_policy_envelope,
+)
 from lokilinux.services.compliance_ingest_service import (
     diff_domain_hashes,
     publish_domain_snapshots,
 )
 from lokilinux import metrics
-from lokilinux.services.job_envelope import maybe_attach_envelope
+from lokilinux.services.job_envelope import EnvelopeSigningError, maybe_attach_envelope
+from lokilinux.services.job_service import parameters_for_agent
 from lokilinux.services.policy_service import get_job_timeout_seconds
+from lokilinux.services import fim_scope_service
+from lokilinux.services.snapshot_hmac import key_for_agent as snapshot_key_for_agent
+from lokilinux.utils.agent_capability import MIN_AGENT_VERSION_FIM_SCOPES, agent_meets_minimum
 
 logger = logging.getLogger(__name__)
 
@@ -188,26 +199,66 @@ def _as_dict(obj):
         return [_as_dict(v) if _needs_recursion(v) else v for v in obj]
     return {k: _as_dict(v) if _needs_recursion(v) else v for k, v in vars(obj).items()}
 
-def _parameters_for_agent(job, agent_id) -> dict:
-    """Filter job parameters per-agent for COMPLIANCE_REMEDIATE jobs.
+async def _select_approval_claim(db, job_id, wire_agent_id: str):
+    """The approval claim served to this agent for a job (MIS-29 follow-up).
 
-    For non-remediation jobs, returns parameters unchanged.
-    For COMPLIANCE_REMEDIATE, extracts only this agent's actions from the
-    fleet-wide actions map, so the agent never sees other agents' payloads.
+    A multi-target job carries one claim per target, bound to that agent's wire
+    id, so the agent's own claim wins. A NULL target_agent_id claim is the legacy
+    job-scoped form and is served only when no per-agent claim exists. consumed_at
+    is filtered per row, so consuming one agent's claim never hides another's.
     """
-    params = job.parameters or {}
-    if job.job_type != "COMPLIANCE_REMEDIATE":
-        return params
+    from sqlalchemy import select
 
-    actions_map = params.get("actions", {})
-    agent_key = str(agent_id)
-    agent_actions = actions_map.get(agent_key, [])
+    from lokilinux.models.approval import ApprovalClaim
 
-    return {
-        "remediation_plan_id": params.get("remediation_plan_id"),
-        "operation": params.get("operation"),
-        "actions": agent_actions,
-    }
+    unconsumed = (
+        select(ApprovalClaim)
+        .where(ApprovalClaim.job_id == job_id, ApprovalClaim.consumed_at.is_(None))
+        .order_by(ApprovalClaim.created_at.desc())
+        .limit(1)
+    )
+    row = (
+        await db.execute(unconsumed.where(ApprovalClaim.target_agent_id == wire_agent_id))
+    ).scalar_one_or_none()
+    if row is None:
+        row = (
+            await db.execute(unconsumed.where(ApprovalClaim.target_agent_id.is_(None)))
+        ).scalar_one_or_none()
+    return row
+
+_COLLECTOR_POLICY_KEY = "observability.collector_policy"
+
+
+async def _get_collector_policy(db) -> dict:
+    """Global (fleet-wide) collector policy for Phase G2's SyncPolicy RPC —
+    stored directly in the settings table, deliberately NOT routed through
+    settings_schema.py's SETTINGS_SCHEMA (that system is for typed, admin
+    UI-editable scalars; this is a machine-internal JSON blob with no admin
+    UI in this phase). Same underlying table as the rest of platform
+    settings, just bypassing the schema-validation layer. No write path
+    exists yet — nothing in this phase sets this key, so an unset row
+    means every agent gets an empty collector map (all defaults) until an
+    operator or a future admin surface writes one."""
+    from sqlalchemy import select
+
+    from lokilinux.models.audit import Setting
+
+    row = (
+        await db.execute(select(Setting).where(Setting.key == _COLLECTOR_POLICY_KEY))
+    ).scalar_one_or_none()
+    if not row or not row.value:
+        return {"version": "0", "collectors": {}}
+    try:
+        parsed = json.loads(row.value)
+    except (TypeError, ValueError):
+        logger.warning("collector_policy: stored value is not valid JSON, using empty default")
+        return {"version": "0", "collectors": {}}
+    if not isinstance(parsed, dict):
+        return {"version": "0", "collectors": {}}
+    parsed.setdefault("version", "0")
+    parsed.setdefault("collectors", {})
+    return parsed
+
 
 class AgentServicer:
     def __init__(self, db_factory, cache, nats) -> None:
@@ -270,6 +321,7 @@ class AgentServicer:
                                 "job_results": [_as_dict(r) for r in (job_results or [])],
                                 "vulnerabilities": [_as_dict(v) for v in (vulnerabilities or [])],
                                 "agent_version": agent_version,
+                                "capabilities": list(getattr(request, "capabilities", None) or []),
                                 "recent_logs": getattr(request, "recent_logs", None),
                                 "log_connections": getattr(request, "log_connections", None),
                                 "log_informative": getattr(request, "log_informative", None),
@@ -309,19 +361,48 @@ class AgentServicer:
                     }
                     # Signed envelopes attach only to privileged job types for
                     # agents new enough to validate them (job_envelope module
-                    # handles gating; failures degrade to unsigned, never drop).
-                    signed_params = {
-                        j.id: maybe_attach_envelope(
-                            j, _parameters_for_agent(j, agent.id), agent_version
+                    # handles gating). A job that qualifies but cannot be signed
+                    # is held back from this heartbeat, never sent unsigned.
+                    signed_params = {}
+                    dispatchable = []
+                    held_ids = []
+                    for j in pending_jobs:
+                        try:
+                            signed_params[j.id] = maybe_attach_envelope(
+                                j, parameters_for_agent(j, agent.id), agent_version,
+                                # Envelope must carry the wire identity (Agent.agent_id),
+                                # not the PK — the agent validates envelope.agent_id
+                                # against what it reports in its own heartbeats, and
+                                # the two differ whenever re-enrollment assigned a new
+                                # PK for the same host (rocky: PK 9737…, identity 56c8…).
+                                agent_id=str(agent.agent_id),
+                            )
+                        except EnvelopeSigningError:
+                            logger.error(
+                                "job %s held for agent %s: envelope signing failed",
+                                j.id, agent.agent_id, exc_info=True,
+                            )
+                            held_ids.append(j.id)
+                            continue
+                        dispatchable.append(j)
+                    pending_jobs = dispatchable
+                    if held_ids:
+                        # get_pending_jobs() already marked every job it selected
+                        # RUNNING, and only PENDING results are selected. Put the
+                        # held ones back so the next heartbeat retries them; the
+                        # stale-job sweep bounds how long that can go on.
+                        from sqlalchemy import update as _update
+                        from lokilinux.models.job import JobResult
+
+                        await db.execute(
+                            _update(JobResult)
+                            .where(JobResult.job_id.in_(held_ids), JobResult.agent_id == agent.id)
+                            .values(status="PENDING", started_at=None)
                         )
-                        for j in pending_jobs
-                    }
+                        await db.commit()
                     # Attach signed approval claims to jobs that require them
                     # (plan §6): the agent verifies claim binding + signature
                     # before executing require_approval capabilities.
-                    from sqlalchemy import select as _select
-                    from lokilinux.models.approval import ApprovalClaim
-
                     attached_count = sum(
                         1 for p in signed_params.values() if "_envelope" in p
                     )
@@ -334,15 +415,7 @@ class AgentServicer:
                     for j in pending_jobs:
                         if not getattr(j, "requires_approval", False):
                             continue
-                        row = (
-                            await db.execute(
-                                _select(ApprovalClaim)
-                                .where(ApprovalClaim.job_id == j.id,
-                                       ApprovalClaim.consumed_at.is_(None))
-                                .order_by(ApprovalClaim.created_at.desc())
-                                .limit(1)
-                            )
-                        ).scalar_one_or_none()
+                        row = await _select_approval_claim(db, j.id, agent.agent_id)
                         if row is not None:
                             import json as _json
                             params_dict = dict(signed_params[j.id])
@@ -361,27 +434,59 @@ class AgentServicer:
                     )
                     domain_full_raw = _as_dict(getattr(request, "domain_full", None))
                     domain_full: dict = domain_full_raw if isinstance(domain_full_raw, dict) else {}
+                    domain_macs = _as_dict(getattr(request, "domain_macs", None))
+                    reported_key_id = getattr(request, "snapshot_hmac_key_id", 0) or 0
 
                     resync_domains: list[str] = []
                     if domain_hashes:
                         resync_domains = await diff_domain_hashes(db, agent.id, domain_hashes)
                     if domain_full:
                         await publish_domain_snapshots(
-                            self.nats, agent.id, domain_full, domain_hashes
+                            self.nats, agent.id, domain_full, domain_hashes,
+                            domain_macs if isinstance(domain_macs, dict) else None,
                         )
 
-                yield {
-                    "pending_jobs": [
-                        {
-                            "job_id": str(j.id),
-                            "job_type": j.job_type,
-                            "parameters": signed_params[j.id],
-                            **({"timeout_seconds": job_timeouts[j.id]} if job_timeouts.get(j.id) else {}),
-                        }
-                        for j in pending_jobs
-                    ],
-                    "resync_domains": resync_domains,
-                }
+                    # Agent policy reconciliation (plan Faza 2): process the
+                    # apply report from the previous cycle, then attach the
+                    # desired envelope when a deployment is still pending.
+                    policy_report_raw = _as_dict(getattr(request, "policy_report", None))
+                    if isinstance(policy_report_raw, dict) and policy_report_raw.get("policy_id"):
+                        await _apply_policy_report(
+                            db, agent, self.cache, policy_report_raw
+                        )
+
+                    policy_envelope = await _pending_policy_envelope(
+                        db, agent
+                    )
+
+                    # File-integrity watch/ignore scope (docs/compliance/
+                    # 11a-FRONTEND-PAGES.md §3.4) — attached on every
+                    # heartbeat, unlike policy_envelope: it must reach every
+                    # agent, not just ones with a policy deployment. Gated
+                    # on agent_version since older binaries' wire struct
+                    # simply has no field for it (compile-down is automatic,
+                    # this just skips a wasted sign_payload() call).
+                    fim_config = None
+                    if agent_meets_minimum(agent_version, MIN_AGENT_VERSION_FIM_SCOPES):
+                        fim_scope = await fim_scope_service.resolve_for_agent(db, agent.id)
+                        fim_config = fim_scope_service.signed_envelope(agent.id, fim_scope)
+
+                    hmac_key = snapshot_key_for_agent(agent, reported_key_id)
+                    yield {
+                        "pending_jobs": [
+                            {
+                                "job_id": str(j.id),
+                                "job_type": j.job_type,
+                                "parameters": signed_params[j.id],
+                                **({"timeout_seconds": job_timeouts[j.id]} if job_timeouts.get(j.id) else {}),
+                            }
+                            for j in pending_jobs
+                        ],
+                        "resync_domains": resync_domains,
+                        **({"policy_envelope": policy_envelope} if policy_envelope else {}),
+                        **({"fim_config": fim_config} if fim_config else {}),
+                        **({"snapshot_hmac": hmac_key} if hmac_key else {}),
+                    }
             except Exception:
                 logger.error("HeartbeatStream error", exc_info=True)
 
@@ -445,4 +550,84 @@ class AgentServicer:
             "cert_pem": cert_pem,
             "ca_cert_pem": ca_cert_pem,
             "not_after_unix": not_after_unix,
+        }
+
+    async def ReportEvents(self, request_iterator, context):
+        """Client-streaming (Phase G2): agent sends one or more gzip'd
+        EventBatch messages, servicer publishes each record to NATS via the
+        existing emit() helper, preserving the agent-issued event_id so
+        EventProcessorWorker's set_nx dedup (Task A4) makes redelivery/
+        retransmission idempotent end-to-end — see events/publish.py."""
+        from lokilinux.config import get_settings
+
+        settings = get_settings()
+        accepted = 0
+        authenticated = False
+
+        async for batch in request_iterator:
+            requested_id = str(getattr(batch, "agent_id", "") or "").strip()
+            if not authenticated:
+                try:
+                    await _authenticate_agent(context, requested_id, self.cache, settings)
+                except _AuthGateFailure as exc:
+                    await context.abort(exc.code, exc.detail)
+                    return {"accepted": False, "events_accepted": accepted, "error_message": exc.detail}
+                authenticated = True
+
+            raw_b64 = getattr(batch, "events_gzip", None)
+            if not raw_b64:
+                continue
+            try:
+                raw = gzip.decompress(base64.b64decode(raw_b64))
+                records = json.loads(raw)
+            except Exception:
+                logger.warning("ReportEvents: malformed batch from %s", requested_id, exc_info=True)
+                continue
+            if not isinstance(records, list):
+                continue
+
+            for rec in records:
+                if not isinstance(rec, dict):
+                    continue
+                rec_type = rec.get("type")
+                if not rec_type:
+                    continue
+                try:
+                    await emit(
+                        self.nats,
+                        source="agent",
+                        type_=rec_type,
+                        host_id=rec.get("host_id") or requested_id,
+                        service=rec.get("service"),
+                        severity=rec.get("severity") or "INFO",
+                        payload=rec.get("payload") or {},
+                        event_id=rec.get("event_id"),
+                    )
+                    accepted += 1
+                except Exception:
+                    logger.error("ReportEvents: emit failed for agent %s", requested_id, exc_info=True)
+
+        return {"accepted": True, "events_accepted": accepted, "error_message": ""}
+
+    async def SyncPolicy(self, request, context):
+        """Unary (Phase G2): agent pulls the current global collector
+        policy. Version comparison is the agent's job (it only rebuilds
+        local collector state when the returned version differs from what
+        it already has) — this RPC always returns the current policy."""
+        from lokilinux.config import get_settings
+
+        settings = get_settings()
+        requested_id = str(getattr(request, "agent_id", "") or "").strip()
+        try:
+            await _authenticate_agent(context, requested_id, self.cache, settings)
+        except _AuthGateFailure as exc:
+            await context.abort(exc.code, exc.detail)
+            return
+
+        async with self.db_factory() as db:
+            policy = await _get_collector_policy(db)
+
+        return {
+            "version": policy["version"],
+            "collectors": policy["collectors"],
         }

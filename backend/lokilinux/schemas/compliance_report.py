@@ -41,6 +41,7 @@ class ComplianceReportResponse(BaseModel):
     params: dict
     status: str
     artifact_uri: str | None = None
+    storage_object_id: UUID | None = None
     error_message: str | None = None
     generated_by: UUID | None = None
     created_at: datetime

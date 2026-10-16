@@ -17,9 +17,9 @@ a follow-up, not something a safe-by-default (AUTO off) MVP needs to block on.
 
 from typing import Any
 
+import structlog
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-import structlog
 
 from lokilinux.runbooks.models import Runbook
 from lokilinux.services.workflow_engine import start_run
@@ -46,14 +46,18 @@ async def find_matching_runbooks(
     return [r for r in rows if _SEVERITY_RANK.get(r.min_severity, 0) <= incident_rank]
 
 
-async def execute_runbook(db: AsyncSession, cache: Any, runbook: Runbook, *, nats: Any = None) -> Any:
+async def execute_runbook(
+    db: AsyncSession, cache: Any, storage: Any, runbook: Runbook, *, nats: Any = None
+) -> Any:
     if runbook.workflow_id is None:
         raise ValueError(f"runbook {runbook.id} has no workflow_id configured")
-    return await start_run(db, cache, runbook.workflow_id, trigger_type="API", triggered_by=None, nats=nats)
+    return await start_run(
+        db, cache, storage, runbook.workflow_id, trigger_type="API", triggered_by=None, nats=nats
+    )
 
 
 async def maybe_auto_run(
-    db: AsyncSession, cache: Any, incident_type: str, incident_severity: str, *,
+    db: AsyncSession, cache: Any, storage: Any, incident_type: str, incident_severity: str, *,
     autorun_enabled: bool, tenant_id: str = _TENANT_ID, nats: Any = None,
 ) -> list[Any]:
     """Called from IncidentWorker on INCIDENT_CREATED. autorun_enabled is
@@ -70,7 +74,7 @@ async def maybe_auto_run(
             logger.info("runbook.auto_run_skipped_kill_switch", runbook_id=str(runbook.id))
             continue
         try:
-            runs.append(await execute_runbook(db, cache, runbook, nats=nats))
+            runs.append(await execute_runbook(db, cache, storage, runbook, nats=nats))
         except Exception:
             logger.error("runbook.auto_run_failed", runbook_id=str(runbook.id), exc_info=True)
     return runs

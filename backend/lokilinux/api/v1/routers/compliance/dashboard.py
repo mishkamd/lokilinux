@@ -68,7 +68,8 @@ async def top_violations(
     # agent. The time predicate keeps this on recent hypertable chunks.
     rules_rows = (
         await db.execute(
-            text(
+            # _DASHBOARD_WINDOW is a module constant
+            text(  # nosemgrep: avoid-sqlalchemy-text
                 """
                 SELECT cr.id, cr.rule_key, cr.title, cr.domain, cr.severity,
                        count(*) AS fail_count
@@ -101,7 +102,8 @@ async def top_violations(
         await db.execute(
             select(DriftEvent, Agent.hostname)
             .outerjoin(Agent, Agent.id == DriftEvent.agent_id)
-            .where(text(f"time > now() - {_DASHBOARD_WINDOW}"))
+            # _DASHBOARD_WINDOW is a module constant
+            .where(text(f"time > now() - {_DASHBOARD_WINDOW}"))  # nosemgrep: avoid-sqlalchemy-text
             .order_by(
                 text("CASE severity WHEN 'CRITICAL' THEN 0 WHEN 'HIGH' THEN 1 WHEN 'MEDIUM' THEN 2 ELSE 3 END"),
                 DriftEvent.time.desc(),
@@ -156,7 +158,8 @@ async def overview(
     """
     counts_row = (
         await db.execute(
-            text(
+            # latest_cte built only from module constants
+            text(  # nosemgrep: avoid-sqlalchemy-text
                 f"""
                 WITH {latest_cte}
                 SELECT
@@ -200,7 +203,8 @@ async def overview(
     # `latest` CTE rather than a second full evaluation scan.
     remediation_row = (
         await db.execute(
-            text(
+            # latest_cte built only from module constants
+            text(  # nosemgrep: avoid-sqlalchemy-text
                 f"""
                 WITH {latest_cte},
                 failing_rules AS (
@@ -263,7 +267,8 @@ async def trend(
 
     rows = (
         await db.execute(
-            text(
+            # interval from fixed _TREND_RANGES; range is regex-validated
+            text(  # nosemgrep: avoid-sqlalchemy-text
                 f"""
                 SELECT day, avg(avg_score) AS compliance_pct
                 FROM compliance_scores_daily
@@ -291,7 +296,8 @@ async def top_changed_files(
     fighting a config file or an agent rewriting a path every cycle."""
     rows = (
         await db.execute(
-            text(
+            # _DASHBOARD_WINDOW is a module constant
+            text(  # nosemgrep: avoid-sqlalchemy-text
                 """
                 SELECT path, count(*) AS change_count
                 FROM file_changes

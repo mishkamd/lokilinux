@@ -2,19 +2,24 @@
 LokiLinux — Admin router: user management, settings, audit log.
 """
 
+import os
 from typing import Optional
 
 import httpx
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lokilinux import metrics
 from lokilinux.auth.dependencies import require_role
 from lokilinux.cache import RedisCache
 from lokilinux.config import get_settings
 from lokilinux.dependencies import get_cache, get_db
+from lokilinux.kms import KeyManager, KMSError
 from lokilinux.models.audit import Setting
 from lokilinux.services import cert_revocation
 from lokilinux.services.audit_service import AuditService
@@ -314,3 +319,153 @@ async def list_revoked_certificates(
 ) -> dict:
     """Admin-only listing; serials are not exposed through any non-admin API."""
     return {"revoked": await cert_revocation.list_revoked(cache)}
+
+
+# ── KMS key rotation (docs/security/KMS.md) ────────────────────────────────────
+
+def _generate_ed25519_key_file(path: str) -> None:
+    key = Ed25519PrivateKey.generate()
+    with open(path, "wb") as f:
+        f.write(key.private_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PrivateFormat.PKCS8,
+            encryption_algorithm=serialization.NoEncryption(),
+        ))
+
+
+@router.get("/kms/keys/{key_id}")
+async def get_kms_key_versions(
+    key_id: str,
+    _: dict = Depends(require_role("ADMIN")),
+) -> dict:
+    """Lists all known versions and their lifecycle state — used by the
+    rotation runbook to verify a stage/activate/retire step landed."""
+    keys_dir = os.environ.get("LOKILINUX_KEYS_DIR", "")
+    if not keys_dir:
+        raise HTTPException(
+            status_code=409,
+            detail="LOKILINUX_KEYS_DIR not configured — versioned key layout is off",
+        )
+    return {"key_id": key_id, "versions": KeyManager(keys_dir, key_id).versions()}
+
+
+class _KmsVersionStateIn(BaseModel):
+    state: str  # "ACTIVE" | "RETIRED"
+
+
+@router.post("/kms/keys/{key_id}/versions")
+async def stage_kms_key_version(
+    key_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(require_role("ADMIN")),
+) -> dict:
+    """Generates and registers a new key version as VERIFY_ONLY — signing
+    keeps using the current ACTIVE version until an explicit activate step.
+    Split from `rotate` so an operator can distribute the new public key to
+    the fleet before any job is signed with it (see JOB_SIGNING_ROTATION.md)."""
+    keys_dir = os.environ.get("LOKILINUX_KEYS_DIR", "")
+    if not keys_dir:
+        raise HTTPException(
+            status_code=409,
+            detail="LOKILINUX_KEYS_DIR not configured — versioned key layout is off",
+        )
+    km = KeyManager(keys_dir, key_id)
+    next_version = (km.active_version() or 0) + 1
+    try:
+        new_ref = km.create(next_version, write_key_file=_generate_ed25519_key_file)
+    except KMSError as exc:
+        raise HTTPException(status_code=500, detail=f"staging failed: {exc.reason}") from exc
+    await AuditService(db).log(
+        action="kms.key.staged",
+        user_id=current_user.get("id"),
+        actor_name=current_user.get("username") or current_user.get("email"),
+        resource_type="kms_key",
+        resource_id=key_id,
+        changes={"version": new_ref.version, "state": "VERIFY_ONLY"},
+        status="success",
+    )
+    return {"key_id": key_id, "version": new_ref.version, "state": "VERIFY_ONLY"}
+
+
+@router.patch("/kms/keys/{key_id}/versions/{version}")
+async def set_kms_key_version_state(
+    key_id: str,
+    version: int,
+    body: _KmsVersionStateIn,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(require_role("ADMIN")),
+) -> dict:
+    """Activates a staged version (old ACTIVE demotes to VERIFY_ONLY, never
+    deleted) or retires one (verification refused from then on). Retiring
+    the currently ACTIVE version is refused here — KeyManager.retire() has
+    no such guard, so it's enforced at the API boundary instead: retire
+    only after a new version is active and the fleet has moved off the old one."""
+    keys_dir = os.environ.get("LOKILINUX_KEYS_DIR", "")
+    if not keys_dir:
+        raise HTTPException(
+            status_code=409,
+            detail="LOKILINUX_KEYS_DIR not configured — versioned key layout is off",
+        )
+    if body.state not in ("ACTIVE", "RETIRED"):
+        raise HTTPException(status_code=422, detail="state must be ACTIVE or RETIRED")
+    km = KeyManager(keys_dir, key_id)
+    if body.state == "RETIRED" and version == km.active_version():
+        raise HTTPException(
+            status_code=409,
+            detail="cannot retire the active version — activate a replacement first",
+        )
+    try:
+        if body.state == "ACTIVE":
+            km.activate(version)
+            metrics.kms_rotation_total.inc()
+            action = "kms.key.activated"
+        else:
+            km.retire(version)
+            action = "kms.key.retired"
+    except KMSError as exc:
+        raise HTTPException(status_code=500, detail=f"state change failed: {exc.reason}") from exc
+    await AuditService(db).log(
+        action=action,
+        user_id=current_user.get("id"),
+        actor_name=current_user.get("username") or current_user.get("email"),
+        resource_type="kms_key",
+        resource_id=key_id,
+        changes={"version": version, "state": body.state},
+        status="success",
+    )
+    return {"key_id": key_id, "version": version, "state": body.state}
+
+
+@router.post("/kms/keys/{key_id}/rotate")
+async def rotate_kms_key(
+    key_id: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(require_role("ADMIN")),
+) -> dict:
+    """Generates a new key version, activates it, demotes the previous ACTIVE
+    to VERIFY_ONLY (old signatures stay verifiable). Requires LOKILINUX_KEYS_DIR
+    — without a versioned layout there's nothing to rotate into (the legacy
+    single-file deployment has no version 2 slot by design)."""
+    keys_dir = os.environ.get("LOKILINUX_KEYS_DIR", "")
+    if not keys_dir:
+        raise HTTPException(
+            status_code=409,
+            detail="LOKILINUX_KEYS_DIR not configured — versioned key layout is off",
+        )
+    km = KeyManager(keys_dir, key_id)
+    from_version = km.active_version()
+    try:
+        new_ref = km.rotate(write_key_file=_generate_ed25519_key_file)
+    except KMSError as exc:
+        raise HTTPException(status_code=500, detail=f"rotation failed: {exc.reason}") from exc
+    metrics.kms_rotation_total.inc()
+    await AuditService(db).log(
+        action="kms.key.rotated",
+        user_id=current_user.get("id"),
+        actor_name=current_user.get("username") or current_user.get("email"),
+        resource_type="kms_key",
+        resource_id=key_id,
+        changes={"from_version": from_version, "to_version": new_ref.version},
+        status="success",
+    )
+    return {"key_id": key_id, "previous_version": from_version, "active_version": new_ref.version}

@@ -39,7 +39,8 @@ def upgrade() -> None:
         "jobs",
         ["dedup_key"],
         unique=True,
-        postgresql_where=sa.text(
+        # _ACTIVE_STATUSES is a module constant
+        postgresql_where=sa.text(  # nosemgrep: avoid-sqlalchemy-text
             f"dedup_key IS NOT NULL AND status IN ({_ACTIVE_STATUSES})"
         ),
     )

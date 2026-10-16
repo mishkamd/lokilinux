@@ -5,6 +5,7 @@ const store = useSignalsStore()
 const { signals, total, loading, nextCursor, filters } = storeToRefs(store)
 const { severityColor } = useSeverity()
 const toast = useToast()
+const { format: fmtDateTime } = useDateTime()
 
 const STATUSES = ['', 'OPEN', 'RESOLVED', 'SUPPRESSED']
 const SEVERITIES = ['', 'CRITICAL', 'HIGH', 'MEDIUM', 'LOW']
@@ -63,7 +64,15 @@ onMounted(() => store.fetchSignals())
       <Badge color="gray">{{ total }} signals</Badge>
     </PageHeader>
 
-    <DataTable :rows="signals" :columns="columns" :loading="loading">
+    <DataTable
+      :rows="signals"
+      :columns="columns"
+      :loading="loading"
+      sortable
+      :page-size="25"
+      empty-title="No signals"
+      empty-description="Signals appear here once agents report activity."
+    >
       <template #severity-data="{ row }">
         <Badge :color="severityColor(String(row.severity))" size="xs">{{ row.severity }}</Badge>
       </template>
@@ -77,19 +86,23 @@ onMounted(() => store.fetchSignals())
         <span class="font-mono text-xs tabular-nums">{{ row.occurrence_count }}</span>
       </template>
       <template #last_seen-data="{ row }">
-        <span class="font-mono text-xs text-muted-foreground">{{ new Date(String(row.last_seen)).toLocaleString() }}</span>
+        <span class="font-mono text-xs text-muted-foreground">{{ fmtDateTime(String(row.last_seen)) }}</span>
       </template>
       <template #status-data="{ row }">
         <Badge :color="statusColor(String(row.status))" size="xs">{{ row.status }}</Badge>
       </template>
       <template #actions-data="{ row }">
         <div v-if="row.status === 'OPEN'" class="flex items-center justify-end gap-1">
-          <Button size="xs" variant="ghost" class="text-muted-foreground" aria-label="Resolve signal" :loading="acting === row.id" @click="resolve(String(row.id))">
-            <Check class="size-3.5" />
-          </Button>
-          <Button size="xs" variant="ghost" class="text-muted-foreground" aria-label="Suppress signal" :loading="acting === row.id" @click="suppress(String(row.id))">
-            <Ban class="size-3.5" />
-          </Button>
+          <Tooltip text="Resolve signal">
+            <Button size="xs" variant="ghost" aria-label="Resolve signal" :loading="acting === row.id" @click="resolve(String(row.id))">
+              <Check class="size-3.5" />
+            </Button>
+          </Tooltip>
+          <Tooltip text="Suppress signal">
+            <Button size="xs" variant="ghost" aria-label="Suppress signal" :loading="acting === row.id" @click="suppress(String(row.id))">
+              <Ban class="size-3.5" />
+            </Button>
+          </Tooltip>
         </div>
       </template>
     </DataTable>

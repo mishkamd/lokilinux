@@ -2,13 +2,16 @@
 LokiLinux FastAPI Application
 
 Auth: delegated to Better Auth (Nuxt 4).
-      FastAPI validates Bearer JWTs via JWKS at {BETTER_AUTH_URL}/api/auth/jwks.
+      Bearer tokens are opaque session tokens validated via
+      GET {better_auth_url}/api/auth/get-session.
       No JWT generation, no bcrypt, no passlib here.
 
 NATS topics use prefix  lokilinux.  (O1).
 """
 
 import os
+import re
+import uuid
 from contextlib import asynccontextmanager
 from typing import AsyncIterator
 
@@ -16,7 +19,6 @@ import nats
 import structlog
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.responses import JSONResponse
 
@@ -26,7 +28,11 @@ from lokilinux.cache import RedisCache
 from lokilinux.ch import ClickHouseStore
 from lokilinux.config import Settings
 from lokilinux.db import build_engine, build_session_factory
+from lokilinux.middleware.body_limit import BodyLimitMiddleware, body_limit_rules
 from lokilinux.middleware.rate_limit import RateLimitMiddleware
+from lokilinux.middleware.security_headers import SecurityHeadersMiddleware
+from lokilinux.middleware.trusted_hosts import TrustedHostsMiddleware, allowed_hosts
+from lokilinux.object_storage import ObjectStorage
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 
@@ -42,6 +48,7 @@ structlog.configure(
 
 logger = structlog.get_logger()
 settings = Settings()
+_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
 
 # ── Lifespan ──────────────────────────────────────────────────────────────────
 
@@ -59,7 +66,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # production demands the full trust model be ON before serving agents.
     if settings.security_profile == "production":
         problems = []
-        if not os.environ.get("JOB_SIGNING_REQUIRED", "").lower() in ("1", "true", "yes"):
+        if os.environ.get("JOB_SIGNING_REQUIRED", "").lower() not in ("1", "true", "yes"):
             problems.append("JOB_SIGNING_REQUIRED must be true in production")
         if not settings.certificate_revocation_enabled:
             problems.append("certificate_revocation_enabled must be true in production")
@@ -116,6 +123,21 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.ch = ch
     logger.info("clickhouse.ready")
 
+    # Object storage — RustFS/S3-compatible (Centralized S3 Object Storage plan)
+    storage = ObjectStorage(
+        endpoint_url=settings.s3_endpoint_url,
+        region=settings.s3_region,
+        access_key=settings.s3_access_key,
+        secret_key=settings.s3_secret_key,
+        bucket=settings.s3_bucket,
+        addressing_style=settings.s3_addressing_style,
+        public_endpoint_url=settings.s3_public_endpoint_url,
+    )
+    if settings.s3_enabled:
+        await storage.ensure_bucket()
+    app.state.storage = storage
+    logger.info("storage.ready", bucket=settings.s3_bucket)
+
     # NATS — all topics prefixed lokilinux. (O1)
     nc = await nats.connect(settings.nats_url)
     app.state.nats = nc
@@ -168,10 +190,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     cve_enrichment_worker = CVEEnrichmentWorker(session_factory, cache)
     await cve_enrichment_worker.start()
     from lokilinux.workers.workflow_runner import WorkflowRunnerWorker
-    workflow_runner_worker = WorkflowRunnerWorker(session_factory, cache, nc)
+    workflow_runner_worker = WorkflowRunnerWorker(session_factory, cache, storage, nc)
     await workflow_runner_worker.start()
     from lokilinux.workers.workflow_scheduler import WorkflowSchedulerWorker
-    workflow_scheduler_worker = WorkflowSchedulerWorker(session_factory, cache)
+    workflow_scheduler_worker = WorkflowSchedulerWorker(session_factory, cache, storage)
     await workflow_scheduler_worker.start()
     from lokilinux.workers.event_processor import EventProcessorWorker
     event_processor_worker = EventProcessorWorker(nc, cache, ch)
@@ -192,7 +214,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     correlation_worker = CorrelationWorker(nc, session_factory, cache, ch)
     await correlation_worker.start()
     from lokilinux.workers.incident_worker import IncidentWorker
-    incident_worker = IncidentWorker(nc, session_factory, cache, ch)
+    incident_worker = IncidentWorker(nc, session_factory, cache, ch, storage)
     await incident_worker.start()
 
     app.state.workers = [
@@ -202,12 +224,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         workflow_scheduler_worker, event_processor_worker, signal_processor_worker, correlation_worker,
         incident_worker,
     ]
+    osv_worker = None
+    if settings.osv_enabled:
+        from lokilinux.workers.osv_matcher import OsvMatcherWorker
+        osv_worker = OsvMatcherWorker(session_factory, settings.osv_base_url, settings.osv_match_interval_sec)
+        await osv_worker.start()
+        app.state.workers.append(osv_worker)
     logger.info("workers.ready")
 
     yield
 
     # Shutdown — reverse order
     logger.info("lokilinux.shutdown")
+    if osv_worker is not None:
+        await osv_worker.stop()
     await incident_worker.stop()
     await heartbeat_worker.stop()
     await remediation_verification_worker.stop()
@@ -249,13 +279,26 @@ app.add_middleware(
 
 app.add_middleware(GZipMiddleware, minimum_size=1024, compresslevel=6)
 app.add_middleware(RateLimitMiddleware)
+app.add_middleware(BodyLimitMiddleware, rules=body_limit_rules(settings))
+if settings.trusted_hosts_mode != "off":
+    app.add_middleware(
+        TrustedHostsMiddleware,
+        allowed=allowed_hosts(settings),
+        enforce=settings.trusted_hosts_mode == "enforce",
+    )
+# Added last = outermost, so headers also land on 400s, 429s and CORS preflights.
+app.add_middleware(SecurityHeadersMiddleware)
 
 # ── Request tracing middleware ────────────────────────────────────────────────
 
 
 @app.middleware("http")
 async def trace_requests(request: Request, call_next):  # type: ignore[no-untyped-def]
+    # Keep a client's id only if it is a short, plain token: it lands in logs and in the
+    # response header, so anything else (spaces, control characters) is replaced.
     request_id = request.headers.get("X-Request-ID", "")
+    if not _REQUEST_ID_RE.match(request_id):
+        request_id = uuid.uuid4().hex
     response = await call_next(request)
     response.headers["X-Request-ID"] = request_id
     logger.info(
@@ -282,12 +325,14 @@ async def readiness(request: Request) -> JSONResponse:
     """Kubernetes readiness probe — checks DB and cache."""
     errors: list[str] = []
 
+    # Driver messages stay in the log; the response only names the component (ROADMAP P1r-1.5).
     try:
         async with request.app.state.session_factory() as session:
             from sqlalchemy import text
             await session.execute(text("SELECT 1"))
-    except Exception as exc:
-        errors.append(f"db: {exc}")
+    except Exception:
+        logger.error("ready.db_unreachable", exc_info=True)
+        errors.append("db: unreachable")
 
     if not await request.app.state.cache.ping():
         errors.append("cache: unreachable")
@@ -295,16 +340,17 @@ async def readiness(request: Request) -> JSONResponse:
     if not await request.app.state.ch.ping():
         errors.append("clickhouse: unreachable")
 
+    if settings.s3_enabled:
+        try:
+            await request.app.state.storage.exists("__readiness_probe__")
+        except Exception:
+            logger.error("ready.storage_unreachable", exc_info=True)
+            errors.append("storage: unreachable")
+
     if errors:
         return JSONResponse(status_code=503, content={"status": "not_ready", "errors": errors})
     return JSONResponse({"status": "ready"})
 
-
-# ── Static files (agent packages) ────────────────────────────────────────────
-
-_pkg_dir = settings.agent_package_dir
-if os.path.isdir(_pkg_dir):
-    app.mount("/downloads", StaticFiles(directory=_pkg_dir), name="downloads")
 
 # ── Routers ───────────────────────────────────────────────────────────────────
 

@@ -142,7 +142,7 @@ func (c *GRPCClient) Reconnect() error {
 }
 
 // HeartbeatStream opens a bidirectional stream for heartbeat exchange.
-// Used by HeartbeatManager for typed access; see also SendHeartbeat.
+// Typed access; SendHeartbeat is the map-based path the agent actually uses.
 func (c *GRPCClient) HeartbeatStream(ctx context.Context) (gen.AgentService_HeartbeatStreamClient, error) {
 	if err := c.dial(); err != nil {
 		return nil, err
@@ -164,10 +164,28 @@ func (c *GRPCClient) RenewCertificate(ctx context.Context, agentID, publicKeyPEM
 	})
 }
 
+// ReportEvents opens a client-streaming call to send a batch of observability
+// events (Phase G2). Caller sends exactly one EventBatch then calls
+// CloseAndRecv — see agent/internal/agent/eventqueue.go.
+func (c *GRPCClient) ReportEvents(ctx context.Context) (gen.AgentService_ReportEventsClient, error) {
+	if err := c.dial(); err != nil {
+		return nil, err
+	}
+	return c.svc.ReportEvents(ctx)
+}
+
+// SyncPolicy pulls the current collector policy (Phase G2).
+func (c *GRPCClient) SyncPolicy(ctx context.Context, agentID, currentVersion string) (*gen.PolicyConfig, error) {
+	if err := c.dial(); err != nil {
+		return nil, err
+	}
+	return c.svc.SyncPolicy(ctx, &gen.PolicySyncRequest{AgentId: agentID, CurrentVersion: currentVersion})
+}
+
 // SendHeartbeat sends one heartbeat over a short-lived stream and returns the response.
 // Payload keys consumed: "agent_id" (string), "packages_checksum" (string).
-// ponytail: map interface preserved for AgentManager compat; HeartbeatManager uses
-// HeartbeatStream directly with fully-typed requests (Val 3 wires it in).
+// ponytail: map interface is what AgentManager uses. The typed heartbeat loop that
+// once sat beside it (heartbeat_manager.go) was never wired and has been removed.
 func (c *GRPCClient) SendHeartbeat(
 	ctx context.Context,
 	payload map[string]interface{},
@@ -200,8 +218,20 @@ func payloadToRequest(m map[string]interface{}) *gen.AgentHeartbeatRequest {
 	if v, ok := m["packages_checksum"].(string); ok {
 		req.PackagesChecksum = v
 	}
+	if caps, ok := m["capabilities"].([]string); ok {
+		req.Capabilities = caps
+	}
+	if v, ok := m["snapshot_hmac_key_id"].(int32); ok {
+		req.SnapshotKeyID = v
+	}
+	if macs, ok := m["domain_macs"].(map[string]*gen.SnapshotMAC); ok {
+		req.DomainMACs = macs
+	}
 	if v, ok := m["agent_version"].(string); ok {
 		req.AgentVersion = v
+	}
+	if v, ok := m["config_version"].(string); ok {
+		req.ConfigVersion = v
 	}
 	if v, ok := m["recent_logs"].([]string); ok {
 		req.RecentLogs = v
@@ -313,8 +343,26 @@ func payloadToRequest(m map[string]interface{}) *gen.AgentHeartbeatRequest {
 				ExitCode:     int32(r.ExitCode),
 				ErrorMessage: r.Error,
 				UpdatedAt:    time.Now(),
+				// DurationMs was already computed by every executor but
+				// never reached the backend before (plan P10 fix) — the
+				// other three are new audit fields, populated by manager.go.
+				DurationMs: r.DurationMs,
+				Capability: r.Capability,
+				RiskLevel:  r.Risk,
+				PolicyId:   r.PolicyID,
 			})
 		}
+	}
+	if report, ok := m["policy_report"].(map[string]interface{}); ok {
+		pr := &gen.PolicyReport{
+			PolicyID:  asString(report, "policy_id"),
+			Version:   int(asFloat(report, "version")),
+			Result:    asString(report, "result"),
+			Error:     asString(report, "error"),
+			DurationMs: int64(asFloat(report, "duration_ms")),
+			DeploymentID: asString(report, "deployment_id"),
+		}
+		req.PolicyReport = pr
 	}
 	if pkgs, ok := m["packages"].([]modules.Package); ok {
 		for _, p := range pkgs {
@@ -322,6 +370,7 @@ func payloadToRequest(m map[string]interface{}) *gen.AgentHeartbeatRequest {
 				Name:             p.Name,
 				Version:          p.Version,
 				Architecture:     p.Architecture,
+				Source:           p.Source,
 				LatestVersion:    p.LatestVersion,
 				UpdateAvailable:  p.UpdateAvailable,
 				IsSecurityUpdate: p.IsSecurityUpdate,
@@ -385,11 +434,52 @@ func responseToMap(resp *gen.AgentHeartbeatResponse) map[string]interface{} {
 	if resp.PluginAction != "" {
 		result["plugin_action"] = resp.PluginAction
 	}
+	if resp.SnapshotHmac != nil {
+		result["snapshot_hmac"] = resp.SnapshotHmac
+	}
 	if len(resp.ResyncDomains) > 0 {
 		result["resync_domains"] = resp.ResyncDomains
+	}
+	if resp.DesiredPolicy != nil {
+		// Desired-state policy envelope (agent-policy-modernization plan
+		// Faza 2) — passed through intact; internal/policy owns verification.
+		result["policy_envelope"] = map[string]interface{}{
+			"deployment_id": resp.DesiredPolicy.DeploymentID,
+			"policy_id":     resp.DesiredPolicy.PolicyID,
+			"version":       float64(resp.DesiredPolicy.Version),
+			"hash":          resp.DesiredPolicy.Hash,
+			"signature":     resp.DesiredPolicy.SignatureB64,
+			"signing_key_id": resp.DesiredPolicy.SigningKeyID,
+			"payload":       resp.DesiredPolicy.Payload,
+		}
+	}
+	if resp.FimConfig != nil {
+		result["fim_config"] = map[string]interface{}{
+			"signature":      resp.FimConfig.SignatureB64,
+			"signing_key_id": resp.FimConfig.SigningKeyID,
+			"payload":        resp.FimConfig.Payload,
+		}
 	}
 	if len(result) == 0 {
 		return nil
 	}
 	return result
+}
+
+func asString(m map[string]interface{}, key string) string {
+	s, _ := m[key].(string)
+	return s
+}
+
+func asFloat(m map[string]interface{}, key string) float64 {
+	switch v := m[key].(type) {
+	case float64:
+		return v
+	case int:
+		return float64(v)
+	case int64:
+		return float64(v)
+	default:
+		return 0
+	}
 }

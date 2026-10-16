@@ -2,6 +2,8 @@
 
 Runbook pentru înlocuirea CA-ului mTLS cu dual-trust, conform `scripts/security/rotate-ca.sh`.
 
+> **EXECUTAT (2026-08-27):** rotația a fost rulată live pe flota de referință (2 agenți). Ordinea validată: generate → bundle → server pe bundle → agenți pe bundle (0.38.0 installer/manual) → server cert re-sign sub CA_new → promote CA_new (ca.crt + ca.key signer) → signed-job smoke → E2E 8/8. Agent certs rămân CA_old-signed până la renew-ul automat (<7d TTL) — păstrați bundle-ul dual pe agenți până atunci. `retire-old` din script ASUMĂ certs re-emise; nu-l rula după un promote care păstrează certs vechi active.
+
 ## Premise
 
 - Agentul verifică serverul prin `ca_path` din `/etc/lokilinux/agent.yaml`. Installerul scrie **bundle-ul** (`ca-bundle.crt` = CA_old + CA_new), deci un agent instalat/actualizat în timpul ferestrei de dual-trust are deja ambele CA-uri.

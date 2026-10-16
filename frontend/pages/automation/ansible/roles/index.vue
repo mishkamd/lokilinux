@@ -11,16 +11,13 @@ const toast = useToast()
 // becomes the role name and every file under it becomes files[<relpath>].
 // Zero deps: browser File API only. Skips VCS/CI cruft and files too large
 // to be a sane role source.
-const dirInput = ref<HTMLInputElement | null>(null)
 const uploading = ref(false)
 
 const SKIP_SEGMENTS = new Set(['.git', '.github', '.svn', '__pycache__', 'node_modules'])
 const SKIP_NAMES = new Set(['.gitignore', '.travis.yml', '.DS_Store'])
 const MAX_FILE_BYTES = 512 * 1024
 
-async function onDirSelected(e: Event) {
-  const fileList = (e.target as HTMLInputElement).files
-  if (!fileList?.length) return
+async function onDirSelected(fileList: FileList) {
   uploading.value = true
   try {
     const files: Record<string, string> = {}
@@ -61,7 +58,6 @@ async function onDirSelected(e: Event) {
     toast.add({ title: 'Upload failed', description: err instanceof Error ? err.message : undefined, color: 'red' })
   } finally {
     uploading.value = false
-    if (dirInput.value) dirInput.value.value = ''
   }
 }
 
@@ -113,19 +109,10 @@ async function confirmDelete() {
         <Badge color="gray">{{ store.roles.length }} roles</Badge>
       </div>
       <div v-if="canEdit" class="flex items-center gap-2">
-        <input
-          ref="dirInput"
-          type="file"
-          webkitdirectory
-          directory
-          multiple
-          class="hidden"
-          @change="onDirSelected"
-        />
-        <Button variant="outline" :loading="uploading" @click="dirInput?.click()">
+        <FileInput directory multiple :loading="uploading" @change="onDirSelected">
           <Upload class="size-4" />
           Upload Role
-        </Button>
+        </FileInput>
         <Button @click="openCreate()">
           <Plus class="size-4" />
           New Role
@@ -140,7 +127,14 @@ async function confirmDelete() {
       description="Reusable roles (tasks, defaults, templates, handlers...). Attach roles to a playbook in the playbook editor — at run time they are shipped alongside the playbook and resolved from ./roles/ automatically."
     />
 
-    <DataTable :rows="store.roles" :columns="columns" :loading="store.loading">
+    <DataTable
+      :rows="store.roles"
+      :columns="columns"
+      :loading="store.loading"
+      sortable
+      :page-size="25"
+      empty-title="No roles"
+    >
       <template #files-data="{ row }">
         <Badge color="gray" size="xs">{{ Object.keys((row as AnsibleRole).files).length }} files</Badge>
       </template>
@@ -157,27 +151,34 @@ async function confirmDelete() {
       </template>
       <template #actions-data="{ row }">
         <div class="flex items-center justify-end gap-1">
-          <Button v-if="canEdit" size="xs" variant="ghost" class="text-muted-foreground" aria-label="Edit role" @click="openEdit(row as AnsibleRole)">
-            <Pencil class="size-3.5" />
-          </Button>
-          <Button v-if="canEdit" size="xs" variant="ghost" class="text-muted-foreground" aria-label="Delete role" @click="deletingRole = row as AnsibleRole">
-            <Trash2 class="size-3.5" />
-          </Button>
+          <Tooltip v-if="canEdit" text="Edit role">
+            <Button v-if="canEdit" size="xs" variant="ghost" aria-label="Edit role" @click="openEdit(row as AnsibleRole)">
+              <Pencil class="size-3.5" />
+            </Button>
+          </Tooltip>
+          <Tooltip v-if="canEdit" text="Delete role">
+            <Button v-if="canEdit" size="xs" variant="ghost" aria-label="Delete role" @click="deletingRole = row as AnsibleRole">
+              <Trash2 class="size-3.5" />
+            </Button>
+          </Tooltip>
         </div>
       </template>
     </DataTable>
 
-    <Dialog :model-value="!!deletingRole" title="Delete Role" @update:model-value="deletingRole = null">
-      <template #body>
+    <ConfirmDeleteDialog
+      :model-value="!!deletingRole"
+      :entity-name="deletingRole?.name"
+      :loading="deleting"
+      title="Delete Role"
+      @update:model-value="deletingRole = null"
+      @confirm="confirmDelete"
+    >
+      <template #description>
         <p class="text-sm text-muted-foreground">
           Delete role <strong class="text-foreground">{{ deletingRole?.name }}</strong>?
           Playbooks referencing it will run without it.
         </p>
       </template>
-      <template #footer>
-        <Button variant="ghost" @click="deletingRole = null">Cancel</Button>
-        <Button variant="destructive" :loading="deleting" @click="confirmDelete">Delete</Button>
-      </template>
-    </Dialog>
+    </ConfirmDeleteDialog>
   </div>
 </template>

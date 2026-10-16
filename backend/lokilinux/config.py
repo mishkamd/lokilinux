@@ -1,8 +1,8 @@
 """
 LokiLinux — Application Settings
 
-Auth is delegated to Better Auth (Nuxt 4 server).
-FastAPI validates Bearer JWTs via JWKS at {BETTER_AUTH_URL}/api/auth/jwks.
+Auth is delegated to Better Auth (Nuxt 4 server): Bearer tokens are opaque
+session tokens validated via GET {better_auth_url}/api/auth/get-session.
 No JWT_SECRET_KEY / JWT_ALGORITHM / bcrypt here.
 """
 
@@ -45,13 +45,12 @@ class Settings(BaseSettings):
     event_max_clock_skew_sec: int = 300
     correlation_state_backend: str = "redis"
 
-    # ── gRPC (agent communication) ────────────────────────────
-    grpc_port: int = 50051
-
     # ── Better Auth (Nuxt 4 instance) ─────────────────────────
-    # FastAPI fetches JWKS from {better_auth_url}/api/auth/jwks
+    # FastAPI validates opaque session tokens via
+    # GET {better_auth_url}/api/auth/get-session — the Better Auth SECRET
+    # lives only on the Nuxt side; the API never needed it (the required
+    # field that used to sit here broke boot on any env without it).
     better_auth_url: str  # e.g. http://localhost:3000
-    better_auth_secret: str  # shared secret for JWKS validation
 
     # ── Agent certificates ────────────────────────────────────
     agent_cert_dir: str = "/etc/lokilinux/certs"
@@ -59,18 +58,30 @@ class Settings(BaseSettings):
     ca_signer_socket_path: str = "/run/lokilinux/ca-signer/sign.sock"
 
     # ── Observability ─────────────────────────────────────────
-    log_level: str = "INFO"
+    # (grpc port comes from the GRPC_PORT env read in grpc_server.py;
+    # backend log level from LOG_LEVEL env / structlog config — neither
+    # belongs in Settings until something actually reads them.)
     environment: str = "development"
 
     # ── Frontend (CORS origin) ────────────────────────────────
     frontend_url: str = "http://localhost:3000"
+    # Trusted reverse-proxy hops appending X-Forwarded-For (ROADMAP P1r-1.4).
+    # 0 = header ignored, rate limiting keys on the socket peer.
+    trust_proxy_count: int = 0
+    # Host header allowlist (ROADMAP P1r-1.2). Extra names, comma-separated, on top of
+    # the platform/frontend hostnames and the internal names. Mode: off | log | enforce.
+    trusted_hosts: str = ""
+    trusted_hosts_mode: str = "log"
+
+    # Debian/Ubuntu CVE matching against OSV (ROADMAP R4). Off = no worker, no egress.
+    osv_enabled: bool = True
+    osv_base_url: str = "https://api.osv.dev"
+    osv_match_interval_sec: int = 1800
 
     # ── Agent distribution ────────────────────────────────────
     platform_url: str = "http://localhost:8000"
     agent_download_base: str = ""
     agent_version: str = "0.1.0"
-    agent_package_dir: str = "/opt/lokilinux/packages"
-    better_auth_admin_token: str = ""
 
     # ── Certificate revocation (P11) ──────────────────────────
     # enabled=False = compatibility mode (no lookups, no Redis dependency).
@@ -84,6 +95,25 @@ class Settings(BaseSettings):
     metrics_port: int = 9090
     job_signing_required: bool = False   # fail-closed dispatch when True
     security_profile: str = "development"  # production adds startup validations
+
+    # ── Object storage (RustFS / S3-compatible) ───────────────
+    s3_enabled: bool = True
+    s3_endpoint_url: str = "http://rustfs:9000"
+    # Set only when the bucket is reachable from a browser (AWS S3, R2,
+    # Wasabi, or RustFS behind a reverse proxy) — presigned URLs are signed
+    # against this instead of s3_endpoint_url. Left empty, presign requests
+    # are refused (409) and downloads go through the API proxy instead,
+    # since s3_endpoint_url normally points at an app-net-internal hostname
+    # no browser can resolve.
+    s3_public_endpoint_url: str = ""
+    s3_region: str = "us-east-1"
+    s3_bucket: str = "lokilinux"
+    s3_access_key: str = ""
+    s3_secret_key: str = ""
+    s3_addressing_style: str = "path"
+    s3_presigned_url_expiration: int = 3600
+    s3_max_upload_bytes: int = 500 * 1024 * 1024
+    s3_multipart_threshold_bytes: int = 8 * 1024 * 1024
 
     @property
     def debug(self) -> bool:

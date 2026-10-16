@@ -1,6 +1,6 @@
 # LokiLinux — Security Hardening Roadmap
 
-> Creat: 2026-08-24 · Status: PLAN APROBAT (neexecutat)
+> Creat: 2026-08-24 · Status: PARȚIAL (2026-10-14) — executate: P1r-1 1.1/1.4/1.5, P1r-2 (webhook, datastream, plugin origin), P1r-4 (PR #18). Deschise: P1r-1 1.2/1.3, P1r-3, P2, P3. Vezi SECURITY_MATRIX.md
 > Origine: security audit 2026-08-24 (`SECURITY_AUDIT.md`) — fazele P1r→P3 acoperă restanțele
 > după fix-urile P0 și după hardening-ul de container/semnare deja livrat.
 
@@ -79,7 +79,7 @@ SSRF guards · headers HTTP/body cap/XFF rate-limit · JetStream MaxBytes · HMA
 | 4.1 | TTL 30 zile | `agent_install.py:387`; NOII agenți primesc certs scurte; cei existenți rămân pe cele vechi până la re-enroll/upgrade (zero downtime) |
 | 4.2 | Renewal endpoint | Autentificat cu CERT-UL curent (nu enrollment token): validează chain+CN→agent_id, emite pereche nouă; rate-limit stricte |
 | 4.3 | CA key izolare | Scoasă din `certs_dir` partajat → serviciu signing dedicat (container separat, network intern); api/grpc nu văd niciodată cheia |
-| 4.4 | Endpoint revocare | ADMIN-only `POST /api/v1/agents/{id}/revoke` → wire `revoke_agent_identity()` (există deja în servicer) + `unrevoke` |
+| 4.4 | Endpoint revocare | ADMIN-only `POST /api/v1/certificates/{serial}/revoke` (implementat, `admin.py:269`; `unrevoke` la `:293`) → wire `revoke_agent_identity()` (există deja în servicer) + `unrevoke` |
 | 4.5 | Renew transparent agent | Agent cere renew când expiry < 7z înainte de conectare (Go, build local) |
 
 **⚠️ Dependențe**: fereastră mentenanță pentru mutarea CA key; rollout agent pentru renew automat.

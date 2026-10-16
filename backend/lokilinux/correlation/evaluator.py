@@ -56,6 +56,13 @@ class CorrelationEvaluator:
     async def _on_signal(
         self, rules: list[Any], signal: Any, *, tenant_id: str
     ) -> list[IncidentCandidate]:
+        # Redis-down fail-open (G3-3): RedisCache's zadd/zrangebyscore/expire/
+        # set_nx all swallow exceptions and return safe defaults ([]/False) —
+        # so without this check, an outage would silently return an empty
+        # window every time and every signal would just vanish with no
+        # incident and no error anywhere. One ping() per call, not per rule.
+        cache_healthy = await self.cache.ping()
+
         candidates: list[IncidentCandidate] = []
         for rule in rules:
             weights = _weights_by_type(rule)
@@ -66,6 +73,28 @@ class CorrelationEvaluator:
 
             group_values = {"host_id": str(signal.host_id) if signal.host_id else ""}
             group_key = _group_key(rule, tenant_id, group_values)
+
+            if not cache_healthy:
+                # Documented degradation: skip the windowed scoring path
+                # entirely (it would fail-open to an empty window anyway)
+                # and open one incident candidate per high-severity signal
+                # instead of silently dropping it. No set_nx lock is
+                # attempted — the cache is down — so a flapping high-
+                # severity signal CAN open more than one incident during
+                # the outage; incident-level dedup is a separate, already-
+                # existing concern (fingerprint-based) handled downstream,
+                # not this evaluator's job. Lower severities are dropped
+                # with no error, same as the healthy path drops
+                # below-threshold signals.
+                severity = getattr(signal, "severity", None)
+                if severity in ("ERROR", "CRITICAL"):
+                    candidates.append(IncidentCandidate(
+                        rule=rule, group_key=group_key, group_values=group_values,
+                        member_types=[signal.type], score=rule.threshold_score,
+                        root_signal_type=signal.type,
+                    ))
+                continue
+
             window_key = f"corr:{rule.id}:{group_key}"
 
             now_ms = time.time() * 1000

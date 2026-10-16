@@ -57,6 +57,8 @@ type Snapshot struct {
 	Domain      string
 	ContentHash string         // claimed by the agent
 	Facts       map[string]any // canonical fact document
+	MAC         string         // agent's HMAC over the claimed hash; empty = unsigned
+	KeyID       int32          // which agent key signed MAC
 }
 
 // Result summarizes what Ingest did, for logging/metrics — never used for
@@ -65,7 +67,6 @@ type Result struct {
 	SnapshotID     uuid.UUID
 	Unchanged      bool // content_hash matched the latest known snapshot; still stored (immutable log) but nothing new to evaluate against
 	RulesEvaluated int
-	DriftDetected  bool
 }
 
 // canonicalHash verifies a snapshot's claimed content_hash against the same
@@ -78,6 +79,10 @@ func canonicalHash(facts map[string]any) (string, error) {
 type Ingester struct {
 	store     *storage.Store
 	evaluator rules.Evaluator
+
+	// EnforceSnapshotHMAC rejects unsigned snapshots (ENFORCE_SNAPSHOT_HMAC).
+	// Off until the fleet reports MACs for a while: unsigned is accepted so old agents keep working.
+	EnforceSnapshotHMAC bool
 }
 
 func NewIngester(store *storage.Store, evaluator rules.Evaluator) *Ingester {
@@ -119,6 +124,19 @@ func (in *Ingester) Ingest(ctx context.Context, snap Snapshot) (Result, error) {
 		)
 	}
 
+	// Signature check: binds the claimed hash to this agent's key. The key record is
+	// loaded only when there is a signature to check.
+	var keys storage.SnapshotKeyRecord
+	if snap.MAC != "" {
+		keys, err = in.store.SnapshotHMACKeys(ctx, snap.AgentID)
+		if err != nil {
+			return Result{}, err
+		}
+	}
+	if err := verifySnapshotMAC(keys, snap, in.EnforceSnapshotHMAC); err != nil {
+		return Result{}, err
+	}
+
 	previousHash, hadPrevious, err := in.store.LatestSnapshotHash(ctx, snap.AgentID, snap.Domain)
 	if err != nil {
 		return Result{}, err
@@ -131,13 +149,12 @@ func (in *Ingester) Ingest(ctx context.Context, snap Snapshot) (Result, error) {
 
 		// Fetch the previous domain body *before* overwriting anything — this is
 		// the "vs previous snapshot" comparison from docs/compliance/08-DRIFT-FIM.md §1.
-		var driftDetected bool
+		// The result only feeds detectBaselineDrift's union below; Result no
+		// longer carries it (logging/metrics callers never read it).
 		if hadPrevious && !unchanged {
-			detected, err := txIn.detectDrift(ctx, snap, previousHash)
-			if err != nil {
+			if _, err := txIn.detectDrift(ctx, snap, previousHash); err != nil {
 				return err
 			}
-			driftDetected = detected
 		}
 
 		if !unchanged {
@@ -155,11 +172,9 @@ func (in *Ingester) Ingest(ctx context.Context, snap Snapshot) (Result, error) {
 		// the state changed since the previous snapshot: a deviation from the
 		// effective baseline is reportable even on the very first snapshot, and
 		// is recorded once per distinct diff state, not once per heartbeat.
-		baselineDrift, err := txIn.detectBaselineDrift(ctx, snap)
-		if err != nil {
+		if _, err := txIn.detectBaselineDrift(ctx, snap); err != nil {
 			return err
 		}
-		driftDetected = driftDetected || baselineDrift
 
 		evaluated, err := txIn.evaluateRules(ctx, snap)
 		if err != nil {
@@ -179,7 +194,6 @@ func (in *Ingester) Ingest(ctx context.Context, snap Snapshot) (Result, error) {
 
 		result.Unchanged = unchanged
 		result.RulesEvaluated = evaluated
-		result.DriftDetected = driftDetected
 		return nil
 	})
 	if err != nil {
@@ -556,12 +570,30 @@ func matchException(exceptions []storage.ActiveException, ruleID, agentID uuid.U
 	return uuid.Nil, false
 }
 
+// severityWeight implements the Enterprise Compliance plan KTD4 weight
+// table. Unrecognized/blank severity (legacy evaluations predating rule
+// severity, or any future value not in this list) weighs zero rather than
+// poisoning the weighted score with a guessed default.
+var severityWeight = map[string]float64{
+	"CRITICAL": 10,
+	"HIGH":     5,
+	"MEDIUM":   2,
+	"LOW":      1,
+}
+
 // categoryScore is one category's computed score sample, ready for
 // storage.InsertComplianceScore.
 type categoryScore struct {
 	category                      string
 	score                         float64
 	passed, failed, notApplicable int
+	// weightedScore, unknown, unknownShare, breakdown are the plan U5/KTD4
+	// severity-weighted projection, additive alongside the legacy fields
+	// above (which keep their exact pre-existing meaning/formula).
+	weightedScore float64
+	unknown       int
+	unknownShare  float64
+	breakdown     map[string]map[string]int // severity -> {"passed": n, "failed": m}
 }
 
 // computeCategoryScores is the pure half of updateComplianceScores — given
@@ -572,24 +604,43 @@ type categoryScore struct {
 // Split out from the DB-writing method so this is testable without a real
 // Postgres.
 func computeCategoryScores(evaluations []storage.EvaluationSummary) []categoryScore {
-	type bucket struct{ passed, failed, notApplicable int }
+	type bucket struct {
+		passed, failed, notApplicable, unknown int
+		passedWeight, failedWeight             float64
+		breakdown                              map[string]map[string]int
+	}
 	buckets := map[string]*bucket{}
 	var order []string
 	for _, e := range evaluations {
 		category := scoring.Classify(e.Domain)
 		b, ok := buckets[category]
 		if !ok {
-			b = &bucket{}
+			b = &bucket{breakdown: map[string]map[string]int{}}
 			buckets[category] = b
 			order = append(order, category)
+		}
+		w := severityWeight[e.Severity]
+		bump := func(field string) {
+			sev := b.breakdown[e.Severity]
+			if sev == nil {
+				sev = map[string]int{}
+				b.breakdown[e.Severity] = sev
+			}
+			sev[field]++
 		}
 		switch rules.Result(e.Result) {
 		case rules.ResultPass:
 			b.passed++
+			b.passedWeight += w
+			bump("passed")
 		case rules.ResultFail:
 			b.failed++
+			b.failedWeight += w
+			bump("failed")
 		case rules.ResultNotApplicable:
 			b.notApplicable++
+		case rules.ResultUnknown:
+			b.unknown++
 		}
 	}
 
@@ -605,7 +656,31 @@ func computeCategoryScores(evaluations []storage.EvaluationSummary) []categorySc
 			scoredSum += score
 			scoredCount++
 		}
-		out = append(out, categoryScore{category: category, score: score, passed: b.passed, failed: b.failed, notApplicable: b.notApplicable})
+		var weightedScore float64
+		weightedTotal := b.passedWeight + b.failedWeight
+		if weightedTotal > 0 {
+			weightedScore = 100.0 * b.passedWeight / weightedTotal
+		}
+		var unknownShare float64
+		// Denominator matches the plan's own definition (docs comment):
+		// every judged-relevant entry — PASS/FAIL/UNKNOWN/NOT_APPLICABLE —
+		// so a category that's mostly UNKNOWN can't hide behind an empty
+		// share just because nothing was PASS/FAIL yet.
+		shareTotal := b.passed + b.failed + b.unknown + b.notApplicable
+		if shareTotal > 0 {
+			unknownShare = float64(b.unknown) / float64(shareTotal)
+		}
+		out = append(out, categoryScore{
+			category:      category,
+			score:         score,
+			passed:        b.passed,
+			failed:        b.failed,
+			notApplicable: b.notApplicable,
+			weightedScore: weightedScore,
+			unknown:       b.unknown,
+			unknownShare:  unknownShare,
+			breakdown:     b.breakdown,
+		})
 	}
 
 	if scoredCount > 0 {
@@ -626,7 +701,10 @@ func (in *Ingester) updateComplianceScores(ctx context.Context, agentID uuid.UUI
 	}
 
 	for _, cs := range computeCategoryScores(evaluations) {
-		if err := in.store.InsertComplianceScore(ctx, agentID, cs.category, cs.score, cs.passed, cs.failed, cs.notApplicable); err != nil {
+		if err := in.store.InsertComplianceScore(
+			ctx, agentID, cs.category, cs.score, cs.passed, cs.failed, cs.notApplicable,
+			cs.weightedScore, cs.breakdown, cs.unknown,
+		); err != nil {
 			return err
 		}
 	}

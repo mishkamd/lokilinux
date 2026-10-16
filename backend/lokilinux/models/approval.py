@@ -26,6 +26,8 @@ class ApprovalClaim(Base):
         UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"), index=True
     )
     approver_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    # Wire agent_id this claim is bound to; NULL = legacy job-scoped claim (pre-055).
+    target_agent_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     claim_json: Mapped[str] = mapped_column(Text(), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow)

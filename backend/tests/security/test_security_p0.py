@@ -184,11 +184,58 @@ async def test_service_forces_approval_regardless_of_caller(
 @pytest.fixture
 def patched_cert_dir(monkeypatch, tmp_path):
     cert_dir, ca_key, ca_cert = _make_ca(tmp_path)
-    cfg = SimpleNamespace(agent_cert_dir=str(cert_dir))
+    cfg = SimpleNamespace(
+        agent_cert_dir=str(cert_dir),
+        certificate_revocation_enabled=True,
+        certificate_revocation_fail_closed=True,
+        agent_cert_ttl_days=30,
+    )
     monkeypatch.setattr(
         "lokilinux.api.v1.routers.agent_install.get_settings", lambda: cfg
     )
     return cert_dir, ca_key, ca_cert
+
+
+@pytest.fixture
+def ca_signing_stub(monkeypatch, patched_cert_dir):
+    """Production signs through the isolated ca-signer over a Unix socket
+    (services/ca_signer_client.py). Tests have no socket, so they sign with the test CA."""
+    _, ca_key, ca_cert = patched_cert_dir
+
+    async def sign_agent_cert(agent_id, public_key_pem, validity_days):
+        public_key = serialization.load_pem_public_key(public_key_pem.encode())
+        now = datetime.now(timezone.utc)
+        cert = (
+            x509.CertificateBuilder()
+            .subject_name(x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, agent_id)]))
+            .issuer_name(ca_cert.subject)
+            .public_key(public_key)
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(now)
+            .not_valid_after(now + timedelta(days=validity_days))
+            .sign(ca_key, hashes.SHA256())
+        )
+        return cert.public_bytes(serialization.Encoding.PEM).decode()
+
+    monkeypatch.setattr("lokilinux.services.ca_signer_client.sign_agent_cert", sign_agent_cert)
+
+
+async def _seed_enrollment_token(db_session, plaintext: str = "test-enrollment-token") -> None:
+    """DB-backed replacement for the old fake_cache._store["enrollment:..."]
+    seeding — agent-policy-modernization plan P0 cutover removed the Redis
+    enrollment-token path entirely."""
+    from lokilinux.models.agent_policy import EnrollmentToken
+    from lokilinux.services.agent_policies import AgentPolicyService
+
+    db_session.add(
+        EnrollmentToken(
+            token_hash=AgentPolicyService.hash_token(plaintext),
+            label="test",
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
+            single_use=True,
+        )
+    )
+    await db_session.commit()
 
 
 async def _enroll(client, hostname, *, extra=None):
@@ -207,9 +254,9 @@ async def _enroll(client, hostname, *, extra=None):
 
 
 @pytest.mark.asyncio
-async def test_register_new_hostname_succeeds(client, db_session, fake_cache, patched_cert_dir):
+async def test_register_new_hostname_succeeds(client, db_session, fake_cache, patched_cert_dir, ca_signing_stub):
     await db_session.commit()
-    fake_cache._store["enrollment:test-enrollment-token"] = True
+    await _seed_enrollment_token(db_session)
     resp = await _enroll(client, f"fresh-{uuid.uuid4().hex[:6]}")
     assert resp.status_code == 200
     body = resp.json()
@@ -225,7 +272,7 @@ async def test_hostname_takeover_blocked_without_proof(
     agent = await _make_agent(db_session)
     await db_session.commit()
 
-    fake_cache._store["enrollment:test-enrollment-token"] = True
+    await _seed_enrollment_token(db_session)
     resp = await _enroll(client, agent.hostname)
     assert resp.status_code == 409
 
@@ -240,7 +287,7 @@ async def test_hostname_takeover_blocked_with_wrong_cert(
     agent = await _make_agent(db_session)
     await db_session.commit()
 
-    fake_cache._store["enrollment:test-enrollment-token"] = True
+    await _seed_enrollment_token(db_session)
     # valid CA signature, but CN belongs to a DIFFERENT agent_id
     other_pem = _issue_agent_cert(ca_key, ca_cert, str(uuid.uuid4()))
     resp = await _enroll(client, agent.hostname, extra={"existing_cert_pem": other_pem})
@@ -256,7 +303,7 @@ async def test_reenrollment_with_valid_proof_rotates_identity(
     agent = await _make_agent(db_session)
     await db_session.commit()
 
-    fake_cache._store["enrollment:test-enrollment-token"] = True
+    await _seed_enrollment_token(db_session)
     proof = _issue_agent_cert(ca_key, ca_cert, agent.agent_id)
     resp = await _enroll(client, agent.hostname, extra={"existing_cert_pem": proof})
     assert resp.status_code == 200
@@ -271,7 +318,7 @@ async def test_reenrollment_with_expired_cert_blocked(
     agent = await _make_agent(db_session)
     await db_session.commit()
 
-    fake_cache._store["enrollment:test-enrollment-token"] = True
+    await _seed_enrollment_token(db_session)
     expired = _issue_agent_cert(ca_key, ca_cert, agent.agent_id, days=-5)
     resp = await _enroll(client, agent.hostname, extra={"existing_cert_pem": expired})
     assert resp.status_code == 409

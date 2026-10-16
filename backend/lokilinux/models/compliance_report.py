@@ -1,14 +1,18 @@
 """
 LokiLinux — Reporting Engine ORM model (Compliance module, Phase 5).
 
-`body` stores the generated artifact directly (BYTEA) rather than an
-external object-storage path — see migration 019's docstring for why.
+`body` (BYTEA) is the legacy inline-storage path — see migration 019's
+docstring for why it existed before object storage did. New reports are
+written to storage_objects instead (Object Storage plan, migration 046);
+`storage_object_id` is nullable so old rows keep reading from `body`
+(dual-read, see services/report_service.py and
+routers/compliance/reports.py).
 """
 
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, String, Text, text
+from sqlalchemy import DateTime, ForeignKey, String, Text, text
 from sqlalchemy.dialects.postgresql import BYTEA, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -29,6 +33,9 @@ class ComplianceReport(Base):
     status: Mapped[str] = mapped_column(String(20), nullable=False, default="PENDING")
     artifact_uri: Mapped[str | None] = mapped_column(String(1000))
     body: Mapped[bytes | None] = mapped_column(BYTEA)
+    storage_object_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("storage_objects.id")
+    )
     error_message: Mapped[str | None] = mapped_column(Text)
     generated_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     created_at: Mapped[datetime] = mapped_column(

@@ -5,7 +5,7 @@
     <!-- Mobile backdrop -->
     <div
       v-if="sidebarOpen"
-      class="fixed inset-0 z-30 bg-black/60 lg:hidden"
+      class="fixed inset-0 z-30 bg-black/40 backdrop-blur-sm lg:hidden"
       @click="sidebarOpen = false"
     />
 
@@ -253,7 +253,7 @@ import {
   LayoutDashboard, Server, Cpu, ClipboardList, ShieldAlert, Shield,
   FileText, Puzzle, BellDot, Bell, Users, Settings, UserCircle, LogOut, Search, Menu, X,
   PanelLeft, PanelLeftClose, Bot, Layers, FolderKanban, ShieldCheck,
-  BookCheck, ListChecks, GitCompare, Wrench, FileSearch, FileChartColumn, ShieldOff, CircleHelp,
+  BookCheck, ListChecks, GitCompare, Wrench, FileSearch, FileChartColumn, ShieldOff, CircleHelp, Flag, Award,
   Workflow, Siren, RadioTower, Activity, Network, GitMerge, PlayCircle,
 } from 'lucide-vue-next'
 import { Toaster } from 'vue-sonner'
@@ -366,20 +366,33 @@ const navSections = computed((): { title: string; links: NavLink[] }[] => [
     ],
   },
   {
+    // Domain separation (Enterprise Compliance plan U2): Configuration
+    // ("what should this host look like, and did it drift") and Compliance
+    // ("does it satisfy a rule/standard") are visibly separate products
+    // here even though every route still lives under /compliance/* — no
+    // engine moves, no table renames, sidebar routes stay exactly as they
+    // were (plan U2 Task 4 + the parent plan's own backward-compat list).
+    title: 'Configuration',
+    links: [
+      { to: '/compliance/baselines',      label: 'Baselines',      icon: FileText },
+      { to: '/compliance/drift',          label: 'Drift',          icon: GitCompare },
+      { to: '/compliance/file-integrity', label: 'File Integrity', icon: FileSearch },
+    ],
+  },
+  {
     title: 'Compliance',
     links: [
       { to: '/compliance', label: 'Overview', icon: ShieldCheck },
       {
-        to: '/compliance/baselines', label: 'Modules', icon: Layers,
+        to: '/compliance/standards', label: 'Modules', icon: Layers,
         children: [
-          { to: '/compliance/baselines',      label: 'Baselines',     icon: FileText },
-          { to: '/compliance/policies',       label: 'Policy Sets',   icon: BookCheck },
-          { to: '/compliance/rules',          label: 'Rule Catalog',  icon: ListChecks },
-          { to: '/compliance/drift',          label: 'Drift',         icon: GitCompare },
-          { to: '/compliance/file-integrity', label: 'File Integrity', icon: FileSearch },
-          { to: '/compliance/remediation',    label: 'Remediation',   icon: Wrench },
-          { to: '/compliance/exceptions',     label: 'Exceptions',    icon: ShieldOff },
-          { to: '/compliance/reports',        label: 'Reports',       icon: FileChartColumn },
+          { to: '/compliance/standards',   label: 'Standards',    icon: Award },
+          { to: '/compliance/findings',    label: 'Findings',     icon: Flag },
+          { to: '/compliance/policies',    label: 'Policy Sets',  icon: BookCheck },
+          { to: '/compliance/rules',       label: 'Rule Catalog', icon: ListChecks },
+          { to: '/compliance/remediation', label: 'Remediation',  icon: Wrench },
+          { to: '/compliance/exceptions',  label: 'Exceptions',   icon: ShieldOff },
+          { to: '/compliance/reports',     label: 'Reports',      icon: FileChartColumn },
         ],
       },
     ],

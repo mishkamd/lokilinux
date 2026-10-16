@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Download, Plus, RefreshCw } from 'lucide-vue-next'
+import { Download, Plus, RefreshCw, Wand2 } from 'lucide-vue-next'
 
 const store = useComplianceStore()
 const { policySets, policySetsTotal, policySetsLoading, policySetsNextCursor } = storeToRefs(store)
@@ -39,6 +39,12 @@ async function submitCreate() {
   } finally {
     creating.value = false
   }
+}
+
+const showWizard = ref(false)
+function onWizardSaved() {
+  showWizard.value = false
+  store.fetchPolicySets()
 }
 
 const showImport = ref(false)
@@ -82,14 +88,25 @@ async function submitImport() {
         <Button v-if="isAdmin" variant="outline" @click="showImport = true">
           <Download class="size-4" /> Import from ComplianceAsCode
         </Button>
-        <Button v-if="canEdit" @click="showCreate = true">
+        <Button v-if="canEdit" variant="outline" @click="showCreate = true">
           <Plus class="size-4" /> New policy set
+        </Button>
+        <Button v-if="canEdit" @click="showWizard = true">
+          <Wand2 class="size-4" /> New via wizard
         </Button>
       </div>
     </PageHeader>
 
-    <DataTable :rows="policySets" :columns="columns" :loading="policySetsLoading" rows-clickable
-               @row-click="(row) => navigateTo(`/compliance/policies/${row.id}`)">
+    <DataTable
+      :rows="policySets"
+      :columns="columns"
+      :loading="policySetsLoading"
+      sortable
+      :page-size="25"
+      empty-title="No policy sets"
+      rows-clickable
+      @row-click="(row) => navigateTo(`/compliance/policies/${row.id}`)"
+    >
       <template #name-data="{ row }">
         <div>
           <p class="font-medium">{{ row.name }}</p>
@@ -152,5 +169,7 @@ async function submitImport() {
         <Button :loading="importing" @click="submitImport">Start import</Button>
       </template>
     </Dialog>
+
+    <ComplianceWizard v-if="showWizard" @close="showWizard = false" @saved="onWizardSaved" />
   </div>
 </template>

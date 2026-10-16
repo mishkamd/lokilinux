@@ -45,9 +45,9 @@ const form = ref({
   cron_expr: props.policy?.cron_expr ?? '',
 
   action_type: (props.policy?.actions?.[0]?.type as string) ?? 'PACKAGE_UPDATE',
-  package_names: (props.policy?.actions?.[0]?.params?.package_names ?? []).join(', '),
-  security_only: props.policy?.actions?.[0]?.params?.security_only ?? false,
-  command: props.policy?.actions?.[0]?.params?.command ?? '',
+  package_names: ((props.policy?.actions?.[0]?.params as { package_names?: string[] } | undefined)?.package_names ?? []).join(', '),
+  security_only: (props.policy?.actions?.[0]?.params as { security_only?: boolean } | undefined)?.security_only ?? false,
+  command: (props.policy?.actions?.[0]?.params as { command?: string } | undefined)?.command ?? '',
 
   requires_approval: props.policy?.execution?.requires_approval ?? false,
 })

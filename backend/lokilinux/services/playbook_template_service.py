@@ -11,13 +11,17 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from lokilinux.cache import RedisCache
 from lokilinux.models.job import Job
 from lokilinux.models.playbook_template import PlaybookTemplate
+from lokilinux.object_storage import ObjectStorage
 from lokilinux.services.playbook_service import PlaybookService
 
 
 class PlaybookTemplateService:
-    def __init__(self, db: AsyncSession, cache: RedisCache, nats=None) -> None:
+    def __init__(
+        self, db: AsyncSession, cache: RedisCache, storage: ObjectStorage, nats=None
+    ) -> None:
         self.db = db
         self.cache = cache
+        self.storage = storage
         self.nats = nats
 
     async def list_templates(self, limit: int = 50) -> list[PlaybookTemplate]:
@@ -96,7 +100,7 @@ class PlaybookTemplateService:
         ]
         merged_extra_vars = {**(template.extra_vars or {}), **(extra_vars_override or {})}
 
-        pb_service = PlaybookService(self.db, self.cache, self.nats)
+        pb_service = PlaybookService(self.db, self.cache, self.storage, self.nats)
         job = await pb_service.execute_playbook(
             template.playbook_id,
             agent_ids=agent_ids,

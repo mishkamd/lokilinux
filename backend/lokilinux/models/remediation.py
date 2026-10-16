@@ -41,6 +41,7 @@ class RemediationPlan(Base):
     maintenance_window_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("maintenance_windows.id"))
     is_emergency: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    created_by_actor: Mapped[str | None] = mapped_column(String(255))  # raw auth id; created_by can't hold a nanoid
     approved_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"), nullable=False)

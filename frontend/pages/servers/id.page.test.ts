@@ -1,7 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mockNuxtImport, mountSuspended } from '@nuxt/test-utils/runtime'
 import { setActivePinia, createPinia } from 'pinia'
-// @ts-expect-error — Nuxt dynamic route brackets aren't in generated type declarations
 import ServerDetailPage from './[id].vue'
 
 const apiMocks = {

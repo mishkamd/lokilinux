@@ -23,20 +23,22 @@ services:
     ports:
       - "6379:6379"
 
+  rustfs:
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # console — never expose this in production
+
   lokilinux-api:
     build:
       context: ./backend
       dockerfile: Dockerfile.dev
     environment:
       ENVIRONMENT: development
-      DEBUG: "true"
-      RELOAD_ON_CHANGE: "true"
     command: ["uvicorn", "lokilinux.main:app", "--reload", "--host", "0.0.0.0", "--port", "8000"]
     volumes:
       - ./backend:/app
       - /app/.venv          # exclude venv from bind mount
       - certs_dir:/etc/lokilinux/certs:ro
-      - plugins_dir:/opt/lokilinux/plugins
     # prod caps this tighter (512M-2G); dev tooling (Vite/uvicorn --reload) needs headroom
     deploy:
       resources:
@@ -50,7 +52,6 @@ services:
       dockerfile: Dockerfile.dev
     environment:
       ENVIRONMENT: development
-      DEBUG: "true"
     volumes:
       - ./backend:/app
       - /app/.venv

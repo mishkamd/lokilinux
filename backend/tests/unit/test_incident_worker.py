@@ -60,7 +60,7 @@ async def _make_open_incident_with_signal(db_session, *, host_id: str, sig_type:
 @pytest.mark.asyncio
 async def test_sweep_resolves_incident_with_quiet_signals(db_session, fake_nats):
     incident, _ = await _make_open_incident_with_signal(db_session, host_id="host-1", sig_type="cpu.high", quiet=True)
-    worker = IncidentWorker(fake_nats, _db_factory(db_session), _FakeCache(), _FakeCH())
+    worker = IncidentWorker(fake_nats, _db_factory(db_session), _FakeCache(), _FakeCH(), None)
 
     await worker._sweep()
 
@@ -71,7 +71,7 @@ async def test_sweep_resolves_incident_with_quiet_signals(db_session, fake_nats)
 @pytest.mark.asyncio
 async def test_sweep_leaves_incident_open_when_signal_not_quiet(db_session, fake_nats):
     incident, _ = await _make_open_incident_with_signal(db_session, host_id="host-2", sig_type="cpu.high", quiet=False)
-    worker = IncidentWorker(fake_nats, _db_factory(db_session), _FakeCache(), _FakeCH())
+    worker = IncidentWorker(fake_nats, _db_factory(db_session), _FakeCache(), _FakeCH(), None)
 
     await worker._sweep()
 
@@ -81,7 +81,7 @@ async def test_sweep_leaves_incident_open_when_signal_not_quiet(db_session, fake
 
 @pytest.mark.asyncio
 async def test_sweep_with_no_open_incidents_is_a_noop(db_session, fake_nats):
-    worker = IncidentWorker(fake_nats, _db_factory(db_session), _FakeCache(), _FakeCH())
+    worker = IncidentWorker(fake_nats, _db_factory(db_session), _FakeCache(), _FakeCH(), None)
     await worker._sweep()  # must not raise
 
 
@@ -91,7 +91,7 @@ async def test_signal_resolved_watcher_triggers_check_but_quiet_gate_still_appli
     last_seen is "now", so the 600s quiet gate keeps the incident OPEN.
     Resolution only happens later, via the sweep."""
     incident, sig = await _make_open_incident_with_signal(db_session, host_id="host-3", sig_type="cpu.high", quiet=False)
-    worker = IncidentWorker(fake_nats, _db_factory(db_session), _FakeCache(), _FakeCH())
+    worker = IncidentWorker(fake_nats, _db_factory(db_session), _FakeCache(), _FakeCH(), None)
 
     await worker._handle_signal_resolved(_msg({"fingerprint": sig.fingerprint}))
 
@@ -101,11 +101,11 @@ async def test_signal_resolved_watcher_triggers_check_but_quiet_gate_still_appli
 
 @pytest.mark.asyncio
 async def test_signal_resolved_for_unknown_fingerprint_is_a_noop(db_session, fake_nats):
-    worker = IncidentWorker(fake_nats, _db_factory(db_session), _FakeCache(), _FakeCH())
+    worker = IncidentWorker(fake_nats, _db_factory(db_session), _FakeCache(), _FakeCH(), None)
     await worker._handle_signal_resolved(_msg({"fingerprint": "does-not-exist"}))  # must not raise
 
 
 @pytest.mark.asyncio
 async def test_malformed_json_does_not_raise(db_session, fake_nats):
-    worker = IncidentWorker(fake_nats, _db_factory(db_session), _FakeCache(), _FakeCH())
+    worker = IncidentWorker(fake_nats, _db_factory(db_session), _FakeCache(), _FakeCH(), None)
     await worker._handle_signal_resolved(SimpleNamespace(data=b"{not-json"))

@@ -20,7 +20,7 @@ def _validate_paths(files: dict) -> dict:
     return files
 
 
-class AnsibleRoleBase(BaseModel):
+class AnsibleRoleCreate(BaseModel):
     name: str
     description: str | None = None
     files: dict[str, str]
@@ -29,10 +29,6 @@ class AnsibleRoleBase(BaseModel):
     @classmethod
     def check_paths(cls, v: dict) -> dict:
         return _validate_paths(v)
-
-
-class AnsibleRoleCreate(AnsibleRoleBase):
-    pass
 
 
 class AnsibleRoleUpdate(BaseModel):
@@ -47,8 +43,32 @@ class AnsibleRoleUpdate(BaseModel):
         return _validate_paths(v) if v is not None else None
 
 
-class AnsibleRoleResponse(AnsibleRoleBase):
+class AnsibleRoleResponse(BaseModel):
+    """Full detail — GET/POST/PATCH single-item responses. `files` is
+    resolved explicitly by the router (legacy column or object storage), so
+    this is never built via `.model_validate(role)` alone."""
+
     id: UUID
+    name: str
+    description: str | None = None
+    files: dict[str, str]
+    version: int
+    is_enabled: bool
+    created_by: UUID | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class AnsibleRoleListItem(BaseModel):
+    """List endpoint response — omits `files` so listing roles never
+    triggers an object-storage read per row; file_count is a denormalized
+    column set on every create/update instead (see
+    AnsibleRoleService / routers/ansible_roles.py)."""
+
+    id: UUID
+    name: str
+    description: str | None = None
+    file_count: int
     version: int
     is_enabled: bool
     created_by: UUID | None = None

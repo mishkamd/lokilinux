@@ -9,13 +9,15 @@ from fastapi import APIRouter
 from .routers.admin import router as admin_router
 from .routers.agent_install import register_router as agent_register_router
 from .routers.agent_install import router as agent_install_router
+from .routers.agent_policies import router as agent_policies_router
 from .routers.alerts import router as alerts_router
 from .routers.ansible_projects import router as ansible_projects_router
 from .routers.ansible_roles import router as ansible_roles_router
 from .routers.categories import router as categories_router
 from .routers.compliance import router as compliance_router
-from .routers.cves import router as cves_router
+from .routers.configuration import router as configuration_router
 from .routers.correlation import router as correlation_router
+from .routers.cves import router as cves_router
 from .routers.dashboard import router as dashboard_router
 from .routers.events import router as events_router
 from .routers.incidents import router as incidents_router
@@ -29,6 +31,7 @@ from .routers.policies import router as policies_router
 from .routers.runbooks import router as runbooks_router
 from .routers.servers import router as servers_router
 from .routers.signals import router as signals_router
+from .routers.storage import router as storage_router
 from .routers.topology import router as topology_router
 from .routers.workflows import router as workflows_router
 
@@ -37,6 +40,7 @@ router = APIRouter()
 router.include_router(dashboard_router, prefix="/dashboard", tags=["dashboard"])
 router.include_router(categories_router, tags=["categories"])
 router.include_router(compliance_router, prefix="/compliance", tags=["compliance"])
+router.include_router(configuration_router, prefix="/configuration", tags=["configuration"])
 router.include_router(events_router, prefix="/events", tags=["events"])
 router.include_router(servers_router, prefix="/servers", tags=["servers"])
 router.include_router(jobs_router, prefix="/jobs", tags=["jobs"])
@@ -59,3 +63,5 @@ router.include_router(signals_router, prefix="/signals", tags=["signals"])
 router.include_router(correlation_router, prefix="/correlation", tags=["correlation"])
 router.include_router(observability_router, prefix="/observability", tags=["observability"])
 router.include_router(otlp_router, prefix="/otlp/v1", tags=["otlp"])
+router.include_router(agent_policies_router, prefix="/agent-policies", tags=["agent-policies"])
+router.include_router(storage_router, prefix="/storage", tags=["storage"])

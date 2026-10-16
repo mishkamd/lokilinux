@@ -35,6 +35,30 @@ func NewAnsibleExecutor() *AnsibleExecutor {
 // the agent's own sandbox and is a real host path.
 const ansibleTmpBase = "/var/lib/lokilinux/ansible-tmp"
 
+// maxPlaybookBytes (plan P7) — cumulative cap over the playbook plus every
+// role file's content, checked before any os.WriteFile so an oversized
+// payload never touches disk at all.
+const maxPlaybookBytes = 1 * 1024 * 1024
+
+// rolesTotalSize sums the byte length of every role file's content —
+// mirrors writeRoles' own type-asserting walk so the size check sees
+// exactly what would actually get written.
+func rolesTotalSize(roles map[string]any) int {
+	total := 0
+	for _, filesAny := range roles {
+		files, ok := filesAny.(map[string]any)
+		if !ok {
+			continue
+		}
+		for _, contentAny := range files {
+			if content, ok := contentAny.(string); ok {
+				total += len(content)
+			}
+		}
+	}
+	return total
+}
+
 // writeRoles materializes roles under dir/roles/<name>/<relpath>.
 // roles maps role name → {relative path → file content}. Paths are
 // validated against traversal: the backend validates on write, but the
@@ -82,6 +106,14 @@ func writeRoles(dir string, roles map[string]any) error {
 // functionality, not an agent-side stand-in.
 func (e *AnsibleExecutor) Execute(ctx context.Context, jobID, playbookContent string, extraVars map[string]any, roles map[string]any, timeoutSec int, checkMode bool) JobResult {
 	start := time.Now()
+
+	if total := len(playbookContent) + rolesTotalSize(roles); total > maxPlaybookBytes {
+		return JobResult{
+			JobID: jobID, ExitCode: 1,
+			Error:      fmt.Sprintf("playbook+roles size %d exceeds %d byte cap", total, maxPlaybookBytes),
+			DurationMs: msSince(start),
+		}
+	}
 
 	if _, err := exec.LookPath(e.binary); err != nil {
 		return JobResult{

@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ACTIVE_STATUSES } from '~/stores/jobs'
+import { RefreshCw, CheckCircle2, AlertTriangle, Undo2 } from 'lucide-vue-next'
 
 const route = useRoute()
 const store = useServersStore()
 const { statusColor } = useServers()
+const { format: fmtDateTime } = useDateTime()
 
 await store.fetchServer(route.params.id as string)
 
@@ -13,12 +15,45 @@ const { jobs, loading: jobsLoading } = useJobs()
 const packagesLoaded = ref(false)
 const metricsLoaded = ref(false)
 
+// ── Agent group assignment (agent-policy-modernization plan Phase 4) ───────
+const groups = ref<{ id: string; name: string }[]>([])
+const groupSelection = ref('')
+const groupSaving = ref(false)
+
+onMounted(async () => {
+  try {
+    const res = await useApi().get<{ items: { id: string; name: string }[] }>('/agent-policies/groups/list')
+    groups.value = res?.items ?? []
+  } catch {
+    // group list is a convenience — the rest of the tab still works without it
+  }
+})
+
+watch(server, (s) => { groupSelection.value = s?.agent_group_id ?? '' }, { immediate: true })
+
+async function saveGroup() {
+  if (!server.value) return
+  groupSaving.value = true
+  try {
+    await store.assignServer(
+      String(server.value.id), server.value.category_id, server.value.project_id,
+      groupSelection.value || null,
+    )
+    toast.add({ title: 'Group updated', color: 'green' })
+  } catch {
+    toast.add({ title: 'Failed to update group', color: 'red' })
+  } finally {
+    groupSaving.value = false
+  }
+}
+
 const tabs = [
   { label: 'Overview', slot: 'overview' },
   { label: 'Hardware', slot: 'hardware' },
   { label: 'Packages', slot: 'packages' },
   { label: 'Vulnerabilities', slot: 'vulnerabilities' },
   { label: 'Jobs', slot: 'jobs' },
+  { label: 'Policy', slot: 'policy' },
   { label: 'Users', slot: 'users' },
   { label: 'Logs', slot: 'logs' },
   { label: 'Settings', slot: 'settings' },
@@ -78,6 +113,76 @@ function onTabChange(index: number) {
   }
   if (index === 4) {
     useJobsStore().fetchJobs(route.params.id as string)
+  }
+  if (index === 5 && !policyLoaded.value) {
+    loadPolicyState()
+    policyLoaded.value = true
+  }
+}
+
+// ── Desired-state policy (agent-policy-modernization plan, Faza 4) ────────────
+interface PolicyStateInfo {
+  desired: { policy: string; policy_id?: string; version: number; hash: string } | null
+  actual: { policy: string; version: number; hash: string } | null
+  in_sync: boolean
+  status: string
+  last_error: string | null
+  versions?: { version: number; hash: string }[]
+}
+
+const policyLoaded = ref(false)
+const policyState = ref<PolicyStateInfo | null>(null)
+const policyLoading = ref(false)
+const rollbackTo = ref<number | null>(null)
+const policyBusy = ref(false)
+const policyMsg = ref('')
+
+async function loadPolicyState() {
+  policyLoading.value = true
+  policyMsg.value = ''
+  try {
+    const api = useApi()
+    policyState.value = await api.get<PolicyStateInfo>(`/agent-policies/agents/${route.params.id}/policy`)
+  } catch (e: unknown) {
+    policyMsg.value = (e as { data?: { detail?: string } })?.data?.detail ?? 'Failed to load policy state'
+  } finally {
+    policyLoading.value = false
+  }
+}
+
+async function syncNow() {
+  policyBusy.value = true
+  policyMsg.value = ''
+  try {
+    const api = useApi()
+    const res = await api.post<{ notified: boolean; desired_version: number }>(
+      `/agent-policies/agents/${route.params.id}/policy/sync-now`,
+    )
+    policyMsg.value = res?.notified ? `Re-notify sent (desired v${res.desired_version}).` : 'Notify failed'
+    setTimeout(() => loadPolicyState(), 2500)
+  } catch (e: unknown) {
+    policyMsg.value = (e as { data?: { detail?: string } })?.data?.detail ?? 'Sync failed'
+  } finally {
+    policyBusy.value = false
+  }
+}
+
+async function doRollback() {
+  if (rollbackTo.value == null) return
+  policyBusy.value = true
+  policyMsg.value = ''
+  try {
+    const api = useApi()
+    const res = await api.post<{ to_version: number; deployment_id: string }>(
+      `/agent-policies/agents/${route.params.id}/policy/rollback`,
+      { to_version: rollbackTo.value },
+    )
+    policyMsg.value = `Rollback deployment opened → v${res.to_version}. Applied on next heartbeat.`
+    await loadPolicyState()
+  } catch (e: unknown) {
+    policyMsg.value = (e as { data?: { detail?: string } })?.data?.detail ?? 'Rollback failed'
+  } finally {
+    policyBusy.value = false
   }
 }
 
@@ -240,7 +345,7 @@ const VULN_FILTER_OPTIONS = [
             </div>
             <div>
               <dt class="text-xs text-muted-foreground">Last Seen</dt>
-              <dd class="font-medium text-[13px] mt-0.5">{{ server.last_seen_at ? new Date(String(server.last_seen_at)).toLocaleString() : 'Never' }}</dd>
+              <dd class="font-medium text-[13px] mt-0.5">{{ server.last_seen_at ? fmtDateTime(String(server.last_seen_at)) : 'Never' }}</dd>
             </div>
             <div v-if="Object.keys(server.tags as object).length">
               <dt class="text-xs text-muted-foreground">Tags</dt>
@@ -261,7 +366,7 @@ const VULN_FILTER_OPTIONS = [
         <div class="mt-4 space-y-6">
           <div>
             <h3 class="text-sm font-medium mb-2">Disks</h3>
-            <DataTable :rows="server.disks ?? []" :columns="diskColumns">
+            <DataTable :rows="server.disks ?? []" :columns="diskColumns" sortable empty-title="No disks reported">
               <template #usage-data="{ row }">
                 {{ formatBytes(row.used_size) }} / {{ formatBytes(row.total_size) }}
               </template>
@@ -275,7 +380,7 @@ const VULN_FILTER_OPTIONS = [
 
           <div>
             <h3 class="text-sm font-medium mb-2">Network Interfaces</h3>
-            <DataTable :rows="server.network_interfaces ?? []" :columns="networkColumns">
+            <DataTable :rows="server.network_interfaces ?? []" :columns="networkColumns" sortable empty-title="No interfaces reported">
               <template #ip_addresses-data="{ row }">
                 {{ row.ip_addresses?.join(', ') || '—' }}
               </template>
@@ -287,7 +392,7 @@ const VULN_FILTER_OPTIONS = [
 
           <div>
             <h3 class="text-sm font-medium mb-2">Block Devices</h3>
-            <DataTable :rows="server.block_devices ?? []" :columns="blockDeviceColumns">
+            <DataTable :rows="server.block_devices ?? []" :columns="blockDeviceColumns" sortable empty-title="No block devices reported">
               <template #name-data="{ row }">
                 <span :class="row.parent_name ? 'pl-4' : ''">{{ row.parent_name ? '└─ ' : '' }}{{ row.name }}</span>
               </template>
@@ -297,7 +402,7 @@ const VULN_FILTER_OPTIONS = [
 
           <div>
             <h3 class="text-sm font-medium mb-2">Listening Ports</h3>
-            <DataTable :rows="server.listening_ports ?? []" :columns="listeningPortColumns">
+            <DataTable :rows="server.listening_ports ?? []" :columns="listeningPortColumns" sortable empty-title="No listening ports reported">
               <template #protocol-data="{ row }">
                 <Badge color="gray" size="xs">{{ row.protocol }}</Badge>
               </template>
@@ -324,6 +429,10 @@ const VULN_FILTER_OPTIONS = [
             :rows="store.packages"
             :columns="packageColumns"
             :loading="store.packagesLoading"
+            sortable
+            :page-size="25"
+            empty-title="No packages reported yet"
+            empty-description="This appears after the first heartbeat with inventory from the agent."
             selectable
             v-model:selected="selectedPackageIds"
           >
@@ -337,9 +446,6 @@ const VULN_FILTER_OPTIONS = [
               <span v-else class="text-muted-foreground text-xs">up to date</span>
             </template>
           </DataTable>
-          <p v-if="!store.packagesLoading && !store.packages.length" class="text-xs text-muted-foreground mt-2">
-            No packages reported yet. This appears after the first heartbeat with inventory from the agent.
-          </p>
         </div>
       </template>
 
@@ -349,7 +455,15 @@ const VULN_FILTER_OPTIONS = [
             <span class="text-xs text-muted-foreground">Status</span>
             <Select v-model="vulnFilter" :options="VULN_FILTER_OPTIONS" class="w-28" @update:model-value="onVulnFilterChange" />
           </div>
-          <DataTable :rows="store.vulnerabilities" :columns="vulnerabilityColumns" :loading="store.vulnerabilitiesLoading">
+          <DataTable
+            :rows="store.vulnerabilities"
+            :columns="vulnerabilityColumns"
+            :loading="store.vulnerabilitiesLoading"
+            sortable
+            :page-size="25"
+            empty-title="No vulnerabilities reported"
+            :empty-description="vulnFilter === 'open' ? 'Switch to “All” to see resolved findings.' : 'This appears after CVE scan processing for this server\'s packages.'"
+          >
             <template #severity-data="{ row }">
               <Badge v-if="row.severity" :color="SEVERITY_COLORS[row.severity] ?? 'gray'" size="xs">{{ row.severity }}</Badge>
               <span v-else class="text-muted-foreground text-xs">—</span>
@@ -365,26 +479,129 @@ const VULN_FILTER_OPTIONS = [
               <Badge :color="VULN_STATUS_COLORS[row.status] ?? 'gray'" size="xs">{{ row.status }}</Badge>
             </template>
           </DataTable>
-          <p v-if="!store.vulnerabilitiesLoading && !store.vulnerabilities.length" class="text-xs text-muted-foreground mt-2">
-            {{ vulnFilter === 'open' ? 'No open vulnerabilities. Switch to “All” to see resolved findings.' : 'No vulnerabilities reported. This appears after CVE scan processing for this server\'s packages.' }}
-          </p>
         </div>
       </template>
 
       <template #jobs>
         <div class="mt-4">
-          <DataTable :rows="jobs" :columns="jobColumns" :loading="jobsLoading" rows-clickable @row-click="selectedJob = $event">
+          <DataTable
+            :rows="jobs"
+            :columns="jobColumns"
+            :loading="jobsLoading"
+            sortable
+            :page-size="25"
+            empty-title="No jobs for this server yet"
+            rows-clickable
+            @row-click="selectedJob = $event"
+          >
             <template #status-data="{ row }">
               <Badge :color="jobStatusColor(String(row.status))" size="xs">{{ row.status }}</Badge>
             </template>
             <template #created_at-data="{ row }">
-              {{ new Date(String(row.created_at)).toLocaleString() }}
+              {{ fmtDateTime(String(row.created_at)) }}
             </template>
             <template #completed_at-data="{ row }">
-              {{ row.completed_at ? new Date(String(row.completed_at)).toLocaleString() : '—' }}
+              {{ row.completed_at ? fmtDateTime(String(row.completed_at)) : '—' }}
             </template>
           </DataTable>
           <p class="text-xs text-muted-foreground mt-2">Click a job for full output (stdout/stderr).</p>
+        </div>
+      </template>
+
+      <template #policy>
+        <div class="mt-4 space-y-4">
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-semibold">Desired-state policy</h3>
+            <div class="flex items-center gap-2">
+              <Button variant="outline" size="xs" :loading="policyLoading" @click="loadPolicyState">
+                <RefreshCw class="size-3.5" />
+                Refresh
+              </Button>
+              <Button
+                v-if="policyState?.desired && !policyState.in_sync"
+                size="xs"
+                :loading="policyBusy"
+                @click="syncNow"
+              >
+                Sync Now
+              </Button>
+            </div>
+          </div>
+
+          <div v-if="groups.length" class="flex items-end gap-2">
+            <FormField label="Group" help="GROUP-scope policy deploys target agents by this assignment.">
+              <Select
+                v-model="groupSelection"
+                :options="[{ label: 'No group', value: '' }, ...groups.map((g) => ({ label: g.name, value: g.id }))]"
+                class="w-48"
+              />
+            </FormField>
+            <Button variant="outline" size="sm" :loading="groupSaving" :disabled="groupSelection === (server?.agent_group_id ?? '')" @click="saveGroup">
+              Save
+            </Button>
+          </div>
+
+          <p v-if="policyLoading && !policyState" class="text-sm text-muted-foreground">Loading…</p>
+
+          <template v-else-if="policyState">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <Card>
+                <template #header><p class="label-caps">Desired</p></template>
+                <div v-if="policyState.desired" class="text-sm space-y-1">
+                  <p class="font-medium">{{ policyState.desired.policy }}</p>
+                  <p class="font-mono text-xs text-muted-foreground">
+                    v{{ policyState.desired.version }} · {{ policyState.desired.hash.slice(0, 16) }}…
+                  </p>
+                </div>
+                <p v-else class="text-sm text-muted-foreground">No policy assigned.</p>
+              </Card>
+              <Card>
+                <template #header><p class="label-caps">Actual (applied on agent)</p></template>
+                <div v-if="policyState.actual" class="text-sm space-y-1">
+                  <p class="font-medium">{{ policyState.actual.policy }}</p>
+                  <p class="font-mono text-xs text-muted-foreground">
+                    v{{ policyState.actual.version }} · {{ policyState.actual.hash.slice(0, 16) }}…
+                  </p>
+                </div>
+                <p v-else class="text-sm text-muted-foreground">Nothing applied yet — waiting for first reconcile.</p>
+              </Card>
+            </div>
+
+            <div class="flex items-center gap-2 text-sm">
+              <template v-if="policyState.in_sync">
+                <CheckCircle2 class="size-4 text-success" />
+                <span class="text-success font-medium">In sync</span>
+              </template>
+              <template v-else-if="policyState.desired">
+                <AlertTriangle class="size-4 text-amber-500" />
+                <span class="text-amber-500 font-medium">Out of sync</span>
+                <span class="text-xs text-muted-foreground">
+                  desired v{{ policyState.desired.version }} / actual
+                  {{ policyState.actual ? `v${policyState.actual.version}` : 'none' }}
+                </span>
+              </template>
+              <Badge v-if="policyState.status !== 'idle'" color="gray" size="xs">{{ policyState.status }}</Badge>
+            </div>
+
+            <p v-if="policyState.last_error" class="text-xs text-destructive">{{ policyState.last_error }}</p>
+            <p v-if="policyMsg" class="text-xs text-muted-foreground">{{ policyMsg }}</p>
+
+            <div v-if="policyState.desired && (policyState.versions?.length ?? 0) > 1" class="flex items-end gap-2">
+              <FormField label="Rollback to version">
+                <Select
+                  :model-value="rollbackTo != null ? String(rollbackTo) : undefined"
+                  :options="(policyState.versions ?? []).map((v) => ({ label: `v${v.version}`, value: String(v.version) }))"
+                  placeholder="Select version..."
+                  class="w-40"
+                  @update:model-value="rollbackTo = $event != null ? Number($event) : null"
+                />
+              </FormField>
+              <Button variant="outline" size="sm" :disabled="rollbackTo == null || policyBusy" @click="doRollback">
+                <Undo2 class="size-3.5" />
+                Rollback
+              </Button>
+            </div>
+          </template>
         </div>
       </template>
 

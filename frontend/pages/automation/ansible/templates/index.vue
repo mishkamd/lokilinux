@@ -159,7 +159,14 @@ async function openHistory(template: PlaybookTemplate) {
       description="A saved playbook + agents + extra_vars combo — launch it repeatedly with one click. Every launch still requires admin approval on the Jobs page before it reaches agents."
     />
 
-    <DataTable :rows="store.templates" :columns="columns" :loading="store.loading">
+    <DataTable
+      :rows="store.templates"
+      :columns="columns"
+      :loading="store.loading"
+      sortable
+      :page-size="25"
+      empty-title="No templates"
+    >
       <template #playbook_id-data="{ row }">
         <span class="text-sm">{{ playbookName((row as PlaybookTemplate).playbook_id) }}</span>
       </template>
@@ -171,18 +178,26 @@ async function openHistory(template: PlaybookTemplate) {
       </template>
       <template #actions-data="{ row }">
         <div class="flex items-center justify-end gap-1">
-          <Button size="xs" variant="ghost" class="text-success" aria-label="Launch template" :loading="launching === (row as PlaybookTemplate).id" @click="launch(row as PlaybookTemplate)">
-            <Play class="size-3.5" />
-          </Button>
-          <Button size="xs" variant="ghost" class="text-muted-foreground" aria-label="View history" @click="openHistory(row as PlaybookTemplate)">
-            <History class="size-3.5" />
-          </Button>
-          <Button v-if="canEdit" size="xs" variant="ghost" class="text-muted-foreground" aria-label="Edit template" @click="openEdit(row as PlaybookTemplate)">
-            <Pencil class="size-3.5" />
-          </Button>
-          <Button v-if="canEdit" size="xs" variant="ghost" class="text-muted-foreground" aria-label="Delete template" @click="deletingTemplate = row as PlaybookTemplate">
-            <Trash2 class="size-3.5" />
-          </Button>
+          <Tooltip text="Launch template">
+            <Button size="xs" variant="ghost" class="text-success" aria-label="Launch template" :loading="launching === (row as PlaybookTemplate).id" @click="launch(row as PlaybookTemplate)">
+              <Play class="size-3.5" />
+            </Button>
+          </Tooltip>
+          <Tooltip text="View history">
+            <Button size="xs" variant="ghost" aria-label="View history" @click="openHistory(row as PlaybookTemplate)">
+              <History class="size-3.5" />
+            </Button>
+          </Tooltip>
+          <Tooltip v-if="canEdit" text="Edit template">
+            <Button v-if="canEdit" size="xs" variant="ghost" aria-label="Edit template" @click="openEdit(row as PlaybookTemplate)">
+              <Pencil class="size-3.5" />
+            </Button>
+          </Tooltip>
+          <Tooltip v-if="canEdit" text="Delete template">
+            <Button v-if="canEdit" size="xs" variant="ghost" aria-label="Delete template" @click="deletingTemplate = row as PlaybookTemplate">
+              <Trash2 class="size-3.5" />
+            </Button>
+          </Tooltip>
         </div>
       </template>
     </DataTable>
@@ -219,17 +234,14 @@ async function openHistory(template: PlaybookTemplate) {
     </Dialog>
 
     <!-- Delete confirm -->
-    <Dialog :model-value="!!deletingTemplate" title="Delete Job Template" @update:model-value="deletingTemplate = null">
-      <template #body>
-        <p class="text-sm text-muted-foreground">
-          Delete <strong class="text-foreground">{{ deletingTemplate?.name }}</strong>? This cannot be undone.
-        </p>
-      </template>
-      <template #footer>
-        <Button variant="ghost" @click="deletingTemplate = null">Cancel</Button>
-        <Button variant="destructive" :loading="deleting" @click="confirmDelete">Delete</Button>
-      </template>
-    </Dialog>
+    <ConfirmDeleteDialog
+      :model-value="!!deletingTemplate"
+      :entity-name="deletingTemplate?.name"
+      :loading="deleting"
+      title="Delete Job Template"
+      @update:model-value="deletingTemplate = null"
+      @confirm="confirmDelete"
+    />
 
     <!-- History sheet -->
     <Sheet :model-value="!!historyTemplate" @update:model-value="(v: boolean) => { if (!v) historyTemplate = null }">

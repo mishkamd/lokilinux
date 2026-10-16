@@ -40,6 +40,11 @@ class ComplianceRule(Base):
     source: Mapped[str] = mapped_column(String(30), default="complianceascode", nullable=False)
     source_version: Mapped[str | None] = mapped_column(String(50))
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # Migration 036 (Enterprise Compliance plan U3/KTD2) — explicit lifecycle,
+    # ACTIVE/DISABLED/REFERENCE_ONLY/DEPRECATED. Only ACTIVE rules reach the
+    # Go evaluator (services/compliance/internal/storage/postgres.go rule
+    # queries filter on this column directly).
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="ACTIVE")
     imported_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
 
 
@@ -77,6 +82,10 @@ class PolicySet(Base):
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     published_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     parent_policy_set_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("policy_sets.id"))
+    # Migration 041 (Enterprise Compliance plan U7/KTD8) — nullable JSONB
+    # {mode: MONITOR|ASSISTED|AUTOMATIC, allowed: [domain,...], forbidden: [domain,...]}.
+    # NULL means ASSISTED — the pre-U7 behavior every existing policy set keeps.
+    remediation: Mapped[dict | None] = mapped_column(JSONB)
 
 
 class PolicySetRule(Base):

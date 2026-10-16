@@ -42,7 +42,7 @@ func (c *FirewallCollector) Collect(ctx context.Context) (Facts, error) {
 		if _, err := os.Stat(backend.binaryPath); err != nil {
 			continue
 		}
-		out, err := exec.CommandContext(ctx, backend.binaryPath, backend.args...).Output()
+		out, err := exec.CommandContext(ctx, backend.binaryPath, backend.args...).Output() // nosemgrep: go.lang.security.audit.dangerous-exec-command.dangerous-exec-command — fixed firewallBackends table, no request input
 		if err != nil {
 			// Binary present but erroring (permission denied, DBus down,
 			// missing CAP_NET_ADMIN in a netns, ...) is a degraded fact, not

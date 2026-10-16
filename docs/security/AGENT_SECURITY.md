@@ -27,12 +27,23 @@ Mirror strict backend (`job_envelope._CAPABILITY_REGISTRY`) ↔ agent (`security
 
 Canalul existent `AgentHeartbeatResponse.UpdatePolicy` (PolicyConfig) este acum consumat de agent: `policies` map name→valoare devine `capabilities`; ultima politică bună persistă în SQLite (`agent_config/security.local_policy`) și supraviețuiește restarturilor; un push malformat păstrează politica anterioară.
 
-## Privilege bridge (gap explicit, Faza 2)
+## Privilege bridge (construit, opt-in — nu mai e un gap Faza 2)
 
-Joburile host-mutating se execută prin unități systemd tranziente spawn-uite de PID1, care moștenesc userul serviciului (astăzi root). Un agent core non-root ar avea nevoie de un bridge (polkit larg = mai rău; setuid/broker dedicat = Faza 2 `loki-agent-exec`). Până atunci:
-- conținarea e asigurată de sandbox profiles per-capabilitate (MemoryMax/TasksMax/CPUQuota/NoNewPrivileges/ProtectHome) — vezi `systemd_run.go`;
-- userul `loki-agent` e deja provisionat de instalatoare pentru adoptare fără reinstalare;
-- gate-ul de privilegii rămâne pipeline-ul de validare din interiorul agentului.
+Bridge-ul dedicat există și rulează: `internal/broker/` + `cmd/exec-broker/`, expus ca unitatea `loki-agent-exec.service` (socket Unix, `IPAddressDeny` — vezi `DISTRO_RUNBOOK.md`). Core-ul agentului poate rula ca user non-root `loki-agent` (provisionat deja de instalatoare) și mută execuția host-mutating prin broker în loc s-o ruleze el însuși ca root — activat via `AGENT_NON_ROOT=1` la instalare sau reinstalare (`systemctl restart loki-agent-exec lokilinux-agent` după).
+
+- conținarea e asigurată de sandbox profiles per-capabilitate (MemoryMax/TasksMax/CPUQuota/NoNewPrivileges/ProtectHome, plus allowlist de variabile de mediu — vezi `systemd_run.go`);
+- gate-ul de privilegii rămâne pipeline-ul de validare din interiorul agentului, neschimbat de modul root/non-root.
+
+**Reziduu real, nu construcție lipsă:** flip-ul `AGENT_NON_ROOT=1` pe flotă n-a fost încă validat live nicăieri — doar Rocky 9.8 (`devapp.mishka.md`) a trecut pașii 1-6 din `DISTRO_RUNBOOK.md` (instalare/verificare/sandbox-bomb), pașii 7-8 (flip-ul efectiv + re-verificare post-flip) nu s-au rulat pe niciun host din flotă. Ubuntu 22.04/24.04 și al doilea host din flotă rămân netestate complet — vezi checklist-ul din `DISTRO_RUNBOOK.md`.
+
+## Executor hardening
+
+Fiecare executor (Bash/Python/Ansible) rulează prin `systemd_run.go`'s `SandboxProfile`, care în plus față de conținarea de resurse (secțiunea de mai sus) aplică:
+- **Env allowlist**: doar `PATH`/`LANG`/`HOME` sunt trecute explicit prin `-p Environment=` unității tranziente — mediul complet al agentului NU e moștenit, deci un payload de job nu poate citi/exploata variabile de mediu ale procesului agent.
+- **Timeout ceiling**: 3600s e acum un plafon real (`clampTimeoutSeconds`), nu doar default-ul pentru `timeoutSec<=0` — niciun job nu poate cere un timeout mai mare, indiferent ce trimite control plane-ul.
+- **Bash**: rulează într-un working directory dedicat (`/var/lib/lokilinux/job-workdir`), nu în cwd-ul agentului.
+- **Python**: script-uri peste 256KB sunt respinse înainte de dispatch (nu trunchiate).
+- **Ansible**: playbook + toate fișierele din roluri, cumulat, peste 1MB sunt respinse înainte de orice scriere pe disc. **Rulează exclusiv local** (`--connection=local`, `ansible-playbook` fără inventar la distanță) — agentul nu deține și nu folosește niciodată chei SSH.
 
 ## Ce NU poate garanta modelul (reziduuri)
 

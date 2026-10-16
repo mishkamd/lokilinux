@@ -23,7 +23,17 @@ MIN_AGENT_VERSION_NATIVE_MODULES = (0, 36, 0)
 # unknown "_envelope" parameter key and execute unsigned anyway, so gating
 # keeps rollout observable rather than silently inconsistent. Bump together
 # with the release that actually ships the pipeline.
-MIN_AGENT_VERSION_SIGNED_JOBS = (0, 37, 0)
+# v0.36.0 is the release that shipped the signed-job pipeline (agent
+# internal/security + manager pre-dispatch gate); stale pre-security
+# 0.36.0 binaries never reached a fleet, so the number was reused safely.
+MIN_AGENT_VERSION_SIGNED_JOBS = (0, 36, 0)
+
+# The agent version that decodes the signed fim_config heartbeat field
+# (agent/internal/compliance/fimconfig.go, gen/lokilinux.FIMConfigEnvelope).
+# Older agents don't have the field in their wire struct at all, so it's
+# simply dropped by their JSON unmarshal — compile-down is automatic, this
+# gate only avoids wasting a sign_payload() call on agents that can't use it.
+MIN_AGENT_VERSION_FIM_SCOPES = (0, 41, 0)
 
 
 def _parse_version(v) -> "tuple[int, int, int] | None":

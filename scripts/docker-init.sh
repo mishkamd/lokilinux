@@ -29,14 +29,14 @@ fi
 
 # 3. Required directories -------------------------------------------------
 echo "[*] Creating runtime directories..."
-mkdir -p logs/{api,frontend} backups
+mkdir -p logs/frontend backups
 
 # 4. Docker volumes -------------------------------------------------------
 echo "[*] Creating named volumes..."
 docker volume create lokilinux-postgres-data     2>/dev/null || true
 docker volume create lokilinux-nats-data         2>/dev/null || true
 docker volume create lokilinux-redis-data        2>/dev/null || true
-docker volume create lokilinux-plugins           2>/dev/null || true
+docker volume create lokilinux-rustfs-data       2>/dev/null || true
 docker volume create lokilinux-certs             2>/dev/null || true
 docker volume create lokilinux-ca-key            2>/dev/null || true
 docker volume create lokilinux-ca-signer-sock    2>/dev/null || true
@@ -102,6 +102,13 @@ docker compose exec -T lokilinux-api alembic upgrade head
 
 # 11b. Run Better Auth migrations (creates user/session/account/... tables) --
 echo "[*] Running Better Auth migrations..."
+# pgbouncer is not published to the host (docker-compose.yml, data-net), so the
+# host reaches it on its data-network address. The migration script reads the
+# target from MIGRATE_DB_HOST/PORT; its default (127.0.0.1:6432) assumes a
+# published port that this stack does not have.
+export POSTGRES_USER POSTGRES_PASSWORD POSTGRES_DB BETTER_AUTH_SECRET BETTER_AUTH_URL
+MIGRATE_DB_HOST="$(docker inspect -f '{{(index .NetworkSettings.Networks "lokilinux-data-net").IPAddress}}' lokilinux-pgbouncer)"
+export MIGRATE_DB_HOST MIGRATE_DB_PORT=5432
 ( cd frontend && npx --yes tsx scripts/migrate-db.ts )
 
 # 12. Create default admin via Better Auth admin API ----------------------
@@ -112,7 +119,11 @@ ADMIN_PASSWORD="${ADMIN_PASSWORD:-$(openssl rand -base64 16)}"
 # Bootstrap: admin plugin's /admin/create-user needs an existing admin session,
 # so the first admin is created via the public sign-up endpoint, then promoted
 # to role=admin directly in the DB (chicken-and-egg bootstrap).
-docker compose exec -T lokilinux-frontend node - <<NODEEOF
+# The values reach the snippet through its environment (-e NAME), not by being
+# spliced into the JS source: a quote or backslash in either would break the
+# snippet or inject code. Quoted heredoc, so the shell never expands the JS.
+export ADMIN_EMAIL ADMIN_PASSWORD
+docker compose exec -T -e ADMIN_EMAIL -e ADMIN_PASSWORD lokilinux-frontend node - <<'NODEEOF'
 // Post to localhost inside the container; set Origin to the trusted baseURL
 // so Better Auth's origin check passes.
 const origin = process.env.BETTER_AUTH_URL || "http://localhost:3000";
@@ -120,8 +131,8 @@ const res = await fetch("http://localhost:3000/api/auth/sign-up/email", {
   method: "POST",
   headers: { "Content-Type": "application/json", "Origin": origin },
   body: JSON.stringify({
-    email: "$ADMIN_EMAIL",
-    password: "$ADMIN_PASSWORD",
+    email: process.env.ADMIN_EMAIL,
+    password: process.env.ADMIN_PASSWORD,
     name: "Admin",
     username: "admin",
   }),
@@ -134,9 +145,13 @@ else {
 }
 NODEEOF
 
-# Promote to admin role
-docker compose exec -T postgres psql -U "\${POSTGRES_USER:-lokilinux}" -d "\${POSTGRES_DB:-lokilinux}" \
-  -c "UPDATE \"user\" SET role='admin' WHERE email='$ADMIN_EMAIL';"
+# Promote to admin role. The email goes to psql as a variable (-v) and the SQL
+# refers to it as :'email', which psql quotes safely. It never enters the SQL
+# text through shell expansion. Quoted heredoc: the shell does not expand the SQL.
+docker compose exec -T postgres psql -U "${POSTGRES_USER:-lokilinux}" -d "${POSTGRES_DB:-lokilinux}" \
+  -v ON_ERROR_STOP=1 -v "email=$ADMIN_EMAIL" <<'SQLEOF'
+UPDATE "user" SET role='admin' WHERE email=:'email';
+SQLEOF
 
 # 13. Status --------------------------------------------------------------
 echo ""
@@ -149,8 +164,12 @@ echo "  Web UI : https://${PLATFORM_HOSTNAME:-localhost}"
 echo "  API    : http://localhost:8000/docs"
 echo "  gRPC   : localhost:50051 (mTLS)"
 echo ""
+# The password goes to a 0600 file, not the terminal: terminal scrollback and
+# CI logs keep plaintext otherwise (ROADMAP P2, password echo).
+CREDS_FILE="${ADMIN_CREDENTIALS_FILE:-.admin-credentials}"
+(umask 077 && printf 'email=%s\npassword=%s\n' "$ADMIN_EMAIL" "$ADMIN_PASSWORD" > "$CREDS_FILE")
 echo "Admin credentials:"
 echo "  Email   : $ADMIN_EMAIL"
-echo "  Password: $ADMIN_PASSWORD"
+echo "  Password: written to $CREDS_FILE (mode 0600). Read it, then delete the file."
 echo ""
 echo "Next: change the admin password, generate an agent enrollment token, install agents."

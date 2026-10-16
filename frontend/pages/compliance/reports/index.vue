@@ -1,17 +1,29 @@
 <script setup lang="ts">
-import { Download, Plus, RefreshCw } from 'lucide-vue-next'
+import { Database, Download, Plus, RefreshCw } from 'lucide-vue-next'
 import type { ReportFormat, ReportStatus, ReportType } from '~/stores/compliance'
 
 const store = useComplianceStore()
+const { format: fmtDateTime } = useDateTime()
 const api = useApi()
 const toast = useToast()
-const { canEdit } = useCurrentUser()
+const { canEdit, hasRole } = useCurrentUser()
+// Download + storage metadata need storage.read on the backend (ADMIN always passes via hasRole).
+const canReadStorage = computed(() => hasRole('OPERATOR') || hasRole('AUDITOR'))
 const { reports, reportsTotal, reportsLoading, reportsNextCursor } = storeToRefs(store)
 
 onMounted(() => {
   store.fetchReports()
   fetchPolicySetPicks()
+  fetchFormatAvailability()
 })
+
+// Plan R10 — XLSX/PDF are gated by settings key reports.xlsx_pdf_enabled;
+// JSON/CSV always report true. Fetched once, not stored globally: this
+// page is the only consumer.
+const formatAvailability = ref<Record<string, boolean>>({ JSON: true, CSV: true, XLSX: true, PDF: true })
+async function fetchFormatAvailability() {
+  formatAvailability.value = await api.get<Record<string, boolean>>('/compliance/reports/formats')
+}
 
 // local fetch, not store.fetchPolicySets() — this is a one-off picker for
 // the create dialog, no reason to couple it to the Policy Sets page's own state.
@@ -31,7 +43,7 @@ const STATUS_COLORS: Record<ReportStatus, string> = {
 const REPORT_TYPES: ReportType[] = [
   'FLEET_SUMMARY', 'POLICY_SET', 'DATACENTER', 'CUSTOM', 'FRAMEWORK', 'EXCEPTION', 'EXECUTIVE_SUMMARY',
 ]
-const REPORT_FORMATS: ReportFormat[] = ['JSON', 'CSV', 'XLSX', 'PDF']
+const ALL_REPORT_FORMATS: ReportFormat[] = ['JSON', 'CSV', 'XLSX', 'PDF']
 
 const columns = [
   { key: 'report_type', label: 'Type' },
@@ -71,20 +83,16 @@ async function submitCreate() {
   }
 }
 
+const availableReportFormats = computed(() => ALL_REPORT_FORMATS.filter((f) => formatAvailability.value[f]))
+
 const downloading = ref<string | null>(null)
+const storageMetaObjectId = ref<string | null>(null)
 
 async function downloadReport(id: string, format: ReportFormat) {
   downloading.value = id
   try {
     const blob = await api.get<Blob>(`/compliance/reports/${id}/download`, { responseType: 'blob' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `compliance-report-${id}.${format.toLowerCase()}`
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
+    downloadBlob(blob, `compliance-report-${id}.${format.toLowerCase()}`)
   } catch (err) {
     toast.add({ title: (err as { data?: { detail?: string } })?.data?.detail ?? 'Download failed', color: 'red' })
   } finally {
@@ -107,7 +115,14 @@ async function downloadReport(id: string, format: ReportFormat) {
       </div>
     </PageHeader>
 
-    <DataTable :rows="reports" :columns="columns" :loading="reportsLoading">
+    <DataTable
+      :rows="reports"
+      :columns="columns"
+      :loading="reportsLoading"
+      sortable
+      :page-size="25"
+      empty-title="No reports generated yet"
+    >
       <template #report_type-data="{ row }">
         <Badge color="gray" size="xs">{{ row.report_type }}</Badge>
       </template>
@@ -118,16 +133,29 @@ async function downloadReport(id: string, format: ReportFormat) {
         <Badge :color="STATUS_COLORS[row.status as ReportStatus] ?? 'gray'" size="xs">{{ row.status }}</Badge>
       </template>
       <template #created_at-data="{ row }">
-        <span class="font-mono text-xs">{{ new Date(String(row.created_at)).toLocaleString() }}</span>
+        <span class="font-mono text-xs">{{ fmtDateTime(String(row.created_at)) }}</span>
       </template>
       <template #download-data="{ row }">
-        <Button v-if="row.status === 'COMPLETED'" size="xs" variant="outline"
-                :loading="downloading === row.id" @click="downloadReport(String(row.id), row.format)">
-          <Download class="size-3.5" /> Download
-        </Button>
+        <div v-if="row.status === 'COMPLETED' && canReadStorage" class="flex items-center gap-1">
+          <Button size="xs" variant="outline"
+                  :loading="downloading === row.id" @click="downloadReport(String(row.id), row.format)">
+            <Download class="size-3.5" /> Download
+          </Button>
+          <Tooltip v-if="row.storage_object_id" text="Storage info">
+            <Button size="xs" variant="ghost" aria-label="Storage info" @click="storageMetaObjectId = String(row.storage_object_id)">
+              <Database class="size-3.5" />
+            </Button>
+          </Tooltip>
+        </div>
         <span v-else-if="row.status === 'FAILED'" class="text-xs text-destructive">{{ row.error_message || 'Failed' }}</span>
       </template>
     </DataTable>
+
+    <Dialog :model-value="!!storageMetaObjectId" title="Storage info" size="sm" @update:model-value="storageMetaObjectId = null">
+      <template #body>
+        <StorageObjectMeta v-if="storageMetaObjectId" :object-id="storageMetaObjectId" />
+      </template>
+    </Dialog>
 
     <div v-if="reportsNextCursor" class="mt-4 flex justify-center">
       <Button variant="outline" @click="store.fetchReports(reportsNextCursor!)">
@@ -147,8 +175,9 @@ async function downloadReport(id: string, format: ReportFormat) {
           <FormField v-if="form.report_type === 'POLICY_SET'" label="Policy set" required>
             <Select v-model="form.policy_set_id" :options="policySetOptions" />
           </FormField>
-          <FormField label="Format" required>
-            <Select v-model="form.format" :options="REPORT_FORMATS" />
+          <FormField label="Format" required
+                     :help="availableReportFormats.length < ALL_REPORT_FORMATS.length ? 'XLSX/PDF disabled by an administrator (Settings → Reporting)' : undefined">
+            <Select v-model="form.format" :options="availableReportFormats" />
           </FormField>
           <Alert v-if="createError" color="red">{{ createError }}</Alert>
         </div>

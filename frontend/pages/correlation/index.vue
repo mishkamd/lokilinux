@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Plus, Trash2 } from 'lucide-vue-next'
+import { Plus, Trash2, Pencil } from 'lucide-vue-next'
 import type { CorrelationCondition, CorrelationRule, CorrelationRuleInput } from '~/stores/correlation'
 
 const store = useCorrelationStore()
@@ -14,8 +14,18 @@ const columns = [
   { key: 'threshold_score', label: 'Threshold' },
   { key: 'window_seconds', label: 'Window' },
   { key: 'enabled', label: 'Enabled' },
-  { key: 'actions', label: '' },
+  { key: 'actions', label: '', noSort: true },
 ]
+
+const searchQuery = ref('')
+
+const filteredRules = computed(() => {
+  const q = searchQuery.value.trim().toLowerCase()
+  if (!q) return rules.value
+  return rules.value.filter((r) =>
+    [r.name, r.incident_type, r.incident_severity].some((v) => v != null && String(v).toLowerCase().includes(q)),
+  )
+})
 
 const showEditor = ref(false)
 const editingId = ref<string | null>(null)
@@ -120,14 +130,27 @@ onMounted(() => store.fetchRules())
 
 <template>
   <div>
-    <div class="flex items-center justify-end mb-4">
-      <Button @click="openCreate">
-        <Plus class="size-4" />
-        New rule
-      </Button>
-    </div>
+    <PageHeader title="Correlation rules" description="Score-based rules that group signals into incidents.">
+      <template #actions>
+        <Button @click="openCreate">
+          <Plus class="size-4" />
+          New rule
+        </Button>
+      </template>
+    </PageHeader>
 
-    <DataTable :rows="rules" :columns="columns" :loading="loading">
+    <DataTable
+      :rows="filteredRules"
+      :columns="columns"
+      :loading="loading"
+      sortable
+      :page-size="25"
+      empty-title="No correlation rules"
+      :empty-description="searchQuery ? `Nothing matches “${searchQuery}”.` : 'Create a rule to start correlating signals into incidents.'"
+    >
+      <template #toolbar>
+        <Input v-model="searchQuery" placeholder="Search rules..." class="w-full sm:w-64" />
+      </template>
       <template #name-data="{ row }">
         <button class="font-medium hover:underline" @click="openEdit(row as CorrelationRule)">{{ row.name }}</button>
       </template>
@@ -144,9 +167,18 @@ onMounted(() => store.fetchRules())
         <Switch :model-value="Boolean(row.enabled)" @update:model-value="toggle(row as CorrelationRule)" />
       </template>
       <template #actions-data="{ row }">
-        <Button size="xs" variant="ghost" class="text-muted-foreground" aria-label="Delete rule" @click="deletingRule = row as CorrelationRule">
-          <Trash2 class="size-3.5" />
-        </Button>
+        <div class="flex items-center justify-end gap-1">
+          <Tooltip text="Edit rule">
+            <Button size="xs" variant="ghost" aria-label="Edit rule" @click="openEdit(row as CorrelationRule)">
+              <Pencil class="size-3.5" />
+            </Button>
+          </Tooltip>
+          <Tooltip text="Delete rule">
+            <Button size="xs" variant="ghost" aria-label="Delete rule" @click="deletingRule = row as CorrelationRule">
+              <Trash2 class="size-3.5" />
+            </Button>
+          </Tooltip>
+        </div>
       </template>
     </DataTable>
 
@@ -194,16 +226,13 @@ onMounted(() => store.fetchRules())
       </template>
     </Dialog>
 
-    <Dialog :model-value="!!deletingRule" title="Delete rule" @update:model-value="deletingRule = null">
-      <template #body>
-        <p class="text-sm text-muted-foreground">
-          Delete <strong class="text-foreground">{{ deletingRule?.name }}</strong>? This cannot be undone.
-        </p>
-      </template>
-      <template #footer>
-        <Button variant="ghost" @click="deletingRule = null">Cancel</Button>
-        <Button variant="destructive" :loading="deleting" @click="confirmDelete">Delete</Button>
-      </template>
-    </Dialog>
+    <ConfirmDeleteDialog
+      :model-value="!!deletingRule"
+      :entity-name="deletingRule?.name"
+      :loading="deleting"
+      title="Delete rule"
+      @update:model-value="deletingRule = null"
+      @confirm="confirmDelete"
+    />
   </div>
 </template>

@@ -65,7 +65,9 @@ class CorrelationWorker:
         except Exception:
             logger.error("correlation_worker.malformed_json", exc_info=True)
             return
-        signal = SimpleNamespace(type=data.get("type"), host_id=data.get("host_id"))
+        signal = SimpleNamespace(
+            type=data.get("type"), host_id=data.get("host_id"), severity=data.get("severity")
+        )
         try:
             async with self.db_factory() as db:
                 rules = await self.rule_cache.get_enabled_rules(db)

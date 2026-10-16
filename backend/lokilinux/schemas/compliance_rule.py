@@ -36,6 +36,7 @@ class ComplianceRuleResponse(BaseModel):
     source: str
     source_version: str | None = None
     is_enabled: bool
+    status: str  # ACTIVE / DISABLED / REFERENCE_ONLY / DEPRECATED
     imported_at: datetime
 
     model_config = {"from_attributes": True}
@@ -67,30 +68,6 @@ class RuleDetailResponse(ComplianceRuleResponse):
     failing_agents: list[FailingAgent] = []
 
 
-class RuleCoverageResponse(BaseModel):
-    rule_id: UUID
-    rule_key: str
-    check_source: CheckSource
-    # fleet-wide breakdown of how this rule has actually been evaluated so far,
-    # not just its static check_source — a CEL rule can still show 0 evaluations
-    # if no agent has reported the relevant domain yet.
-    evaluated_agent_count: int
-
-
-class RemediationTemplateResponse(BaseModel):
-    id: UUID
-    rule_key: str
-    provider: str
-    body: str
-    rollback_body: str | None = None
-    source: str
-    git_path: str | None = None
-    version: int
-    created_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
 class PolicySetCreate(BaseModel):
     name: str
     slug: str
@@ -113,11 +90,18 @@ class PolicySetResponse(BaseModel):
     published_at: datetime | None = None
     published_version: int = 1
     parent_policy_set_id: UUID | None = None
+    remediation: dict | None = None
 
     model_config = {"from_attributes": True}
 
 
 PolicySetListResponse = CursorPage[PolicySetResponse]
+
+
+class PolicySetRemediationUpdate(BaseModel):
+    mode: str  # MONITOR | ASSISTED | AUTOMATIC
+    allowed: list[str] = []
+    forbidden: list[str] = []
 
 
 class PolicySetCoverageResponse(BaseModel):

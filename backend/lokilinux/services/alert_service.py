@@ -2,9 +2,8 @@
 LokiLinux — AlertService: create, acknowledge, resolve, and list alerts.
 
 Alert.status uses plain strings: ACTIVE / ACKNOWLEDGED / RESOLVED / EXPIRED.
-Alert.acknowledged_by is UUID; Better Auth may use nanoid user IDs — conversion
-is attempted and silently skipped on failure (ponytail: model inconsistency from
-Val 2 design; unify to String(255) in Val 3 migration).
+Alert.acknowledged_by is UUID; Better Auth may use nanoid user IDs, which are
+kept in Alert.acknowledged_by_actor instead (MIS-8).
 """
 
 import json
@@ -16,6 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lokilinux.models.agent import Agent
 from lokilinux.models.alert import Alert, AlertRule
 from lokilinux.nats_topics import ALERT_CREATED
 
@@ -107,7 +107,8 @@ class AlertService:
             raise ValueError(f"Alert {alert_id} not found")
         alert.status = "ACKNOWLEDGED"
         alert.acknowledged_at = datetime.now(timezone.utc)
-        # ponytail: acknowledged_by is UUID in model; skip if user_id is nanoid
+        # The raw id is always kept; acknowledged_by (UUID) only takes UUID-shaped ids.
+        alert.acknowledged_by_actor = user_id
         try:
             alert.acknowledged_by = UUID(user_id)
         except ValueError:
@@ -144,10 +145,20 @@ class AlertService:
         count_query = select(func.count()).select_from(Alert).where(*filters)
         total = (await self.db.execute(count_query)).scalar_one()
 
-        query = select(Alert).where(*filters).order_by(Alert.created_at.desc()).limit(limit)
+        query = (
+            select(Alert, Agent.hostname)
+            .outerjoin(Agent, Agent.id == Alert.agent_id)
+            .where(*filters)
+            .order_by(Alert.created_at.desc())
+            .limit(limit)
+        )
         result = await self.db.execute(query)
-        alerts = result.scalars().all()
-        return {"items": alerts, "next_cursor": None, "total": total}
+        rows = result.all()
+        items = []
+        for alert, hostname in rows:
+            alert.hostname = hostname  # transient — not a DB column
+            items.append(alert)
+        return {"items": items, "next_cursor": None, "total": total}
 
     async def create_rule(
         self,
@@ -175,7 +186,9 @@ class AlertService:
 
     async def list_rules(self) -> dict:
         result = await self.db.execute(
-            select(AlertRule).where(AlertRule.is_enabled.is_(True)).order_by(AlertRule.created_at.desc())
+            select(AlertRule)
+            .where(AlertRule.is_enabled.is_(True))
+            .order_by(AlertRule.created_at.desc())
         )
         rules = result.scalars().all()
         return {"items": rules, "total": len(rules)}

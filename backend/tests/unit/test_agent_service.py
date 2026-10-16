@@ -401,6 +401,67 @@ async def test_update_heartbeat_applies_job_results(db_session, fake_cache):
 
 
 @pytest.mark.asyncio
+async def test_update_heartbeat_stores_audit_fields_in_resources_used(db_session, fake_cache):
+    """agent-security-hardening plan P10 — capability/risk/policy_id/
+    duration_ms ride in the otherwise-unused resources_used JSONB column."""
+    agent = await _make_agent(db_session, agent_id="agent-audit")
+    job = Job(
+        name="patch", job_type="PACKAGE_UPDATE",
+        target_servers={"agent_ids": ["agent-audit"]}, status=JobStatus.QUEUED,
+    )
+    db_session.add(job)
+    await db_session.flush()
+    result_row = JobResult(job_id=job.id, agent_id=agent.id, status="PENDING")
+    db_session.add(result_row)
+    await db_session.flush()
+
+    svc = AgentService(db_session, fake_cache)
+    await svc.update_heartbeat(
+        "agent-audit",
+        {
+            "job_results": [{
+                "job_id": str(job.id), "state": 2, "exit_code": 0, "output": "done",
+                "capability": "PACKAGE_MANAGEMENT", "risk_level": "HIGH",
+                "policy_id": "policy-xyz", "duration_ms": 1234,
+            }]
+        },
+    )
+
+    refreshed = (
+        await db_session.execute(select(JobResult).where(JobResult.id == result_row.id))
+    ).scalar_one()
+    assert refreshed.resources_used == {
+        "capability": "PACKAGE_MANAGEMENT", "risk_level": "HIGH",
+        "policy_id": "policy-xyz", "duration_ms": 1234,
+    }
+
+
+@pytest.mark.asyncio
+async def test_update_heartbeat_leaves_resources_used_null_without_audit_fields(db_session, fake_cache):
+    agent = await _make_agent(db_session, agent_id="agent-no-audit")
+    job = Job(
+        name="patch", job_type="PACKAGE_UPDATE",
+        target_servers={"agent_ids": ["agent-no-audit"]}, status=JobStatus.QUEUED,
+    )
+    db_session.add(job)
+    await db_session.flush()
+    result_row = JobResult(job_id=job.id, agent_id=agent.id, status="PENDING")
+    db_session.add(result_row)
+    await db_session.flush()
+
+    svc = AgentService(db_session, fake_cache)
+    await svc.update_heartbeat(
+        "agent-no-audit",
+        {"job_results": [{"job_id": str(job.id), "state": 2, "exit_code": 0, "output": "done"}]},
+    )
+
+    refreshed = (
+        await db_session.execute(select(JobResult).where(JobResult.id == result_row.id))
+    ).scalar_one()
+    assert refreshed.resources_used is None
+
+
+@pytest.mark.asyncio
 async def test_two_agent_job_partial_completion_sets_running_then_terminal(db_session, fake_cache):
     """Fan-out job to 2 agents: first completion -> Job.status RUNNING with
     started_at set; second completion -> Job.status COMPLETED."""

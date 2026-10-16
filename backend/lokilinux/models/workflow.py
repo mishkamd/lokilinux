@@ -61,7 +61,15 @@ class WorkflowVersion(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     workflow_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False)
     version: Mapped[int] = mapped_column(Integer, nullable=False)
-    yaml_source: Mapped[str] = mapped_column(Text, nullable=False)
+    # Legacy inline storage (dual-read) — new versions write to object
+    # storage instead and carry content_object_id (Object Storage plan,
+    # migration 048). content_hash is computed from the YAML text either
+    # way and is what optimistic concurrency / immutability actually key
+    # off, so it stays a plain column regardless of where the text lives.
+    yaml_source: Mapped[str | None] = mapped_column(Text)
+    content_object_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("storage_objects.id")
+    )
     # Parsed + validated form (services/workflow_compiler.py's CompiledGraph) —
     # what the engine reads; never re-parsed from yaml_source per tick.
     graph: Mapped[dict] = mapped_column(JSONB, nullable=False)
@@ -71,6 +79,10 @@ class WorkflowVersion(Base):
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Who published this version. Phase 11 no-self-approval: this user cannot
+    # clear an approval gate in a run of the version they published.
+    published_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    published_by_actor: Mapped[str | None] = mapped_column(String(255))  # raw auth id (nanoid-safe)
 
 
 class WorkflowRun(Base):
@@ -82,6 +94,7 @@ class WorkflowRun(Base):
     status: Mapped[str] = mapped_column(String(20), default="PENDING", nullable=False)
     trigger_type: Mapped[str] = mapped_column(String(20), nullable=False)  # MANUAL / SCHEDULE / API
     triggered_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    triggered_by_actor: Mapped[str | None] = mapped_column(String(255))  # raw auth id; a nanoid is not a UUID
     # Resolved agent id list, frozen at start — a server added mid-run must
     # not silently receive only the remaining steps (plan §4).
     targets: Mapped[dict] = mapped_column(JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"))
