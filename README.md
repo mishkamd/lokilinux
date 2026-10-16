@@ -322,7 +322,7 @@ make certs    # Generate CA + server certificates
 
 ```bash
 make scan-image                       # Trivy gate over all lokilinux/* images — FAILS on HIGH/CRITICAL (accepted CVEs in .trivyignore)
-make sbom IMAGE=lokilinux/api:0.3.0   # CycloneDX SBOM for one image, written to sbom/
+make sbom IMAGE=lokilinux/api:0.5.0   # CycloneDX SBOM for one image, written to sbom/
 ```
 
 ## Development
@@ -348,7 +348,7 @@ egress-net           : api only — outbound internet for NVD/CISA feeds and web
 
 Only `gateway-net` members can publish host ports: frontend `3000`, api `8000`/`9090`, grpc `50051`. Redis (`6379`), NATS (`4222`/`8222`), ClickHouse (`8123`), RustFS (`9000`/`9001`) and pgBouncer are internal-only.
 
-Images are tagged `${LOKILINUX_VERSION}` (pinned to `0.4.0` in `.env`) — never `latest`.
+Images are tagged `${LOKILINUX_VERSION}` (pinned to `0.5.0` in `.env`) — never `latest`.
 
 Service dependencies: `postgres` → `pgbouncer` → `lokilinux-migrate` → `lokilinux-api` / `lokilinux-grpc` / `lokilinux-compliance` → `lokilinux-frontend`; api additionally waits on `redis`, `nats`, `clickhouse` and `rustfs` health.
 
@@ -361,7 +361,7 @@ Service dependencies: `postgres` → `pgbouncer` → `lokilinux-migrate` → `lo
 - **Runtime restrictions**: application services run with `read_only` rootfs + tmpfs `/tmp`, `cap_drop: ALL`, `no-new-privileges`, and pids/memory/cpu limits. Infrastructure services are hardened with `no-new-privileges` plus limits.
 - **Network segmentation**: see the map under [Docker Compose Structure](#docker-compose-structure) — data/app/web networks are `internal: true`; only api has an egress path to the internet.
 - **Secrets**: `.env` is never copied into images (`backend/.dockerignore` blocks it).
-- **Version pinning**: images are tagged `${LOKILINUX_VERSION}` (`0.4.0`), never `latest`.
+- **Version pinning**: images are tagged `${LOKILINUX_VERSION}` (`0.5.0`), never `latest`.
 - **Vulnerability gate**: `make scan-image` runs Trivy over every `lokilinux/*` image and fails on HIGH/CRITICAL findings; explicitly accepted exceptions live in `.trivyignore`. SBOMs via `make sbom IMAGE=...` (CycloneDX, into `sbom/`). CI enforces the same gate in [.github/workflows/security-pipeline.yml](.github/workflows/security-pipeline.yml) (build → tests → Trivy gate → SBOM → GHCR push → cosign sign).
 - **KMS / signing**: every privileged job is Ed25519-signed; keys live in a versioned layout (`ACTIVE` / `VERIFY_ONLY` / `RETIRED`) with rotation via `POST /api/v1/admin/kms/keys/job-signing/rotate`. Provider interface defined for Vault / HSM / PKCS#11 — not implemented (explicit fail-closed `NotImplementedError`). See [`docs/security/KMS.md`](docs/security/KMS.md).
 - **CRL re-enrollment check**: a revoked agent certificate cannot resurrect its identity — re-enroll proof-of-possession validates against the CA certificate revocation list.
