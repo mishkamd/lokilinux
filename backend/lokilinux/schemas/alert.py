@@ -22,6 +22,7 @@ class AlertResponse(BaseModel):
     triggered_at: datetime
     created_at: datetime
     acknowledged_at: datetime | None = None
+    acknowledged_by_actor: str | None = None
     resolved_at: datetime | None = None
 
     model_config = {"from_attributes": True}

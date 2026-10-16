@@ -22,6 +22,7 @@ class DriftEventResponse(BaseModel):
     change_type: str
     summary: str
     acknowledged_by: UUID | None = None
+    acknowledged_by_actor: str | None = None
     acknowledged_at: datetime | None = None
     status: str = "OPEN"
     occurrences: int = 1

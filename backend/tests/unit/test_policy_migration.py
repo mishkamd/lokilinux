@@ -175,7 +175,7 @@ class TestRequiresApprovalEquivalence:
         assert step_runs["approval"].status == "WAITING_APPROVAL"
         assert step_runs["run"].status == "PENDING"
 
-        await approve_step(db_session, fake_cache, fake_storage, run.id, "approval", actor=None)
+        await approve_step(db_session, fake_cache, fake_storage, run.id, "approval", actor=None, actor_id=None)
 
         migrated_job = await _dispatched_job(db_session, run.id)
         # The dispatched Job's own requires_approval is False — the human

@@ -43,6 +43,7 @@ _FINDING_COLS = (
     RuleEvaluation.result,
     RuleEvaluation.exception_id,
     RuleEvaluation.acknowledged_by,
+    RuleEvaluation.acknowledged_by_actor,
     RuleEvaluation.acknowledged_at,
     ComplianceRule.rule_key,
     ComplianceRule.title,
@@ -99,6 +100,7 @@ def _to_response(row) -> FindingResponse:
         result=row.result,
         exception_id=row.exception_id,
         acknowledged_by=row.acknowledged_by,
+        acknowledged_by_actor=row.acknowledged_by_actor,
         acknowledged_at=row.acknowledged_at,
     )
 
@@ -227,6 +229,7 @@ async def get_finding(
         result=evaluation.result,
         exception_id=evaluation.exception_id,
         acknowledged_by=evaluation.acknowledged_by,
+        acknowledged_by_actor=evaluation.acknowledged_by_actor,
         acknowledged_at=evaluation.acknowledged_at,
         policy_set_id=evaluation.policy_set_id,
         actual_value=evaluation.actual_value,

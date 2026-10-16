@@ -866,7 +866,7 @@ async def advance_run(
 
 async def approve_step(
     db: AsyncSession, cache: RedisCache, storage: ObjectStorage, run_id: UUID, step_id: str, *,
-    actor: UUID | None, actor_id: str | None = None, nats=None,
+    actor: UUID | None, actor_id: str | None, nats=None,
 ) -> WorkflowRun:
     run = await _get_run(db, run_id)
     step_runs = await _load_step_runs(db, run.id)

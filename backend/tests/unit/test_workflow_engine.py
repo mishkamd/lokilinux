@@ -181,7 +181,7 @@ async def test_approval_blocks_then_unblocks_the_run(db_session, fake_cache, fak
     assert step_runs["gate"].status == "WAITING_APPROVAL"
     assert step_runs["apply"].status == "PENDING"
 
-    await approve_step(db_session, fake_cache, fake_storage, run.id, "gate", actor=None)
+    await approve_step(db_session, fake_cache, fake_storage, run.id, "gate", actor=None, actor_id=None)
 
     step_runs = {sr.step_id: sr for sr in (await db_session.execute(
         select(WorkflowStepRun).where(WorkflowStepRun.run_id == run.id)
@@ -223,7 +223,7 @@ async def test_dispatch_failure_does_not_crash_on_sibling_step_runs(db_session, 
     # approve_step's own advance_run call dispatches "apply" next, which
     # hits the patched create_job above — must not crash reading
     # "precheck" (this run's untouched-this-tick sibling) afterward.
-    await approve_step(db_session, fake_cache, fake_storage, run.id, "gate", actor=None)
+    await approve_step(db_session, fake_cache, fake_storage, run.id, "gate", actor=None, actor_id=None)
 
     step_runs = {sr.step_id: sr for sr in (await db_session.execute(
         select(WorkflowStepRun).where(WorkflowStepRun.run_id == run.id)
@@ -250,7 +250,7 @@ async def test_approver_cannot_be_the_run_trigger(db_session, fake_cache, fake_s
 
     from fastapi import HTTPException
     with pytest.raises(HTTPException) as exc_info:
-        await approve_step(db_session, fake_cache, fake_storage, run.id, "gate", actor=triggerer)
+        await approve_step(db_session, fake_cache, fake_storage, run.id, "gate", actor=triggerer, actor_id=str(triggerer))
     assert exc_info.value.status_code == 403
 
     step_runs = {sr.step_id: sr for sr in (await db_session.execute(
@@ -282,7 +282,7 @@ async def test_approver_cannot_be_the_version_publisher(db_session, fake_cache, 
 
     from fastapi import HTTPException
     with pytest.raises(HTTPException) as exc_info:
-        await approve_step(db_session, fake_cache, fake_storage, run.id, "gate", actor=publisher)
+        await approve_step(db_session, fake_cache, fake_storage, run.id, "gate", actor=publisher, actor_id=str(publisher))
     assert exc_info.value.status_code == 403
 
 
@@ -296,7 +296,7 @@ async def test_a_different_actor_can_approve(db_session, fake_cache, fake_storag
     await _complete_running_step_jobs(db_session, run.id, succeed=True)
     await advance_run(db_session, fake_cache, fake_storage, run)
 
-    await approve_step(db_session, fake_cache, fake_storage, run.id, "gate", actor=approver)
+    await approve_step(db_session, fake_cache, fake_storage, run.id, "gate", actor=approver, actor_id=str(approver))
 
     step_runs = {sr.step_id: sr for sr in (await db_session.execute(
         select(WorkflowStepRun).where(WorkflowStepRun.run_id == run.id)

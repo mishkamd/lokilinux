@@ -28,6 +28,7 @@ class FindingResponse(BaseModel):
     result: str
     exception_id: UUID | None = None
     acknowledged_by: UUID | None = None
+    acknowledged_by_actor: str | None = None
     acknowledged_at: datetime | None = None
 
 
