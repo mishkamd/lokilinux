@@ -80,3 +80,24 @@ async def test_db_down_before_any_good_read_uses_schema_defaults(fake_cache, set
     settings["up"] = False
 
     assert await rate_limit._rate_limit_config(fake_cache, _session_factory) == (True, 120)
+
+
+@pytest.mark.asyncio
+async def test_redis_outage_still_enforces_the_limit(app, fake_cache, settings, monkeypatch):
+    """MIS-30 (3b): a Redis error on the request counter must not switch the limit off.
+    Before the fix the middleware took incr()'s fail-open 0 and let every request through."""
+    monkeypatch.setattr(rate_limit, "_local_counts", {}, raising=False)
+
+    async def redis_down(key, ttl):
+        return None
+
+    async def incr_fail_open(key, ttl):  # cache.incr keeps its fail-open 0 for other callers
+        return 0
+
+    monkeypatch.setattr(fake_cache, "incr_checked", redis_down, raising=False)
+    monkeypatch.setattr(fake_cache, "incr", incr_fail_open)
+
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+        for _ in range(100):
+            assert (await client.get("/ping")).status_code == 200
+        assert (await client.get("/ping")).status_code == 429

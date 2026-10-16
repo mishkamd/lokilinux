@@ -34,6 +34,19 @@ _last_good: tuple[bool, int] = (
 )
 
 
+# ponytail: per-process counter, used only while Redis is down so the limit still holds.
+# Each worker counts on its own, so during an outage the effective limit is the
+# configured value times the number of workers.
+_local_counts: dict[tuple[str, int], int] = {}
+
+
+def _local_increment(client_ip: str, window: int) -> int:
+    for key in [k for k in _local_counts if k[1] < window]:
+        del _local_counts[key]
+    _local_counts[(client_ip, window)] = _local_counts.get((client_ip, window), 0) + 1
+    return _local_counts[(client_ip, window)]
+
+
 def _client_ip(request: Request) -> str:
     # ponytail: with N trusted proxies, the client is the N-th entry from the
     # right of X-Forwarded-For. Only honoured when TRUST_PROXY_COUNT > 0, so a
@@ -51,7 +64,8 @@ async def _rate_limit_config(cache, session_factory) -> tuple[bool, int]:
     global _last_good
     cached = await cache.get_cached(_CONFIG_CACHE_KEY)
     if cached is not None:
-        return bool(cached["enabled"]), int(cached["limit"])
+        _last_good = (bool(cached["enabled"]), int(cached["limit"]))
+        return _last_good
 
     try:
         async with session_factory() as db:
@@ -81,7 +95,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         client_ip = _client_ip(request)
         window = int(time.time() // 60)
-        count = await cache.incr(f"ratelimit:{client_ip}:{window}", ttl=90)
+        count = await cache.incr_checked(f"ratelimit:{client_ip}:{window}", ttl=90)
+        if count is None:
+            count = _local_increment(client_ip, window)
 
         if count > limit:
             logger.warning("rate_limit.exceeded", client_ip=client_ip, count=count, limit=limit)

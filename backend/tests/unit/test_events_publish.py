@@ -58,7 +58,9 @@ async def test_is_pipeline_enabled_reads_from_cache_when_present():
 
 
 @pytest.mark.asyncio
-async def test_is_pipeline_enabled_fails_open_when_settings_lookup_errors():
+async def test_is_pipeline_enabled_defaults_on_when_lookup_errors_before_any_read(monkeypatch):
+    # No good read in this process yet: the schema default (on) is what an outage returns.
+    monkeypatch.setattr("lokilinux.events.publish._last_good", True)
     cache = _FakeCache()
 
     class _BoomDB:

@@ -88,6 +88,9 @@ class FakeCache:
         self._store[key] = int(self._store.get(key, 0)) + 1
         return self._store[key]
 
+    async def incr_checked(self, key: str, ttl: int) -> int | None:
+        return await self.incr(key, ttl)
+
     async def invalidate_pattern(self, pattern: str) -> None:
         prefix = pattern.split("*")[0]
         for k in [k for k in self._store if k.startswith(prefix)]:

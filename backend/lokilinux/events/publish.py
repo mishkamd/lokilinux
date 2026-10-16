@@ -8,10 +8,10 @@ the host flow (heartbeat processing, job completion, ...) — same policy as
 the existing alert-publish try/except blocks elsewhere in this codebase.
 
 is_pipeline_enabled() checks the "observability.event_pipeline_enabled" kill
-switch (settings_schema.py), Redis-cached for 30s using the same
-fail-open-on-lookup-error pattern as middleware/rate_limit.py's
-_rate_limit_config — an unreachable settings store should not go silent
-across the whole app, just accept a stale flag for up to 30s.
+switch (settings_schema.py), Redis-cached for 30s. If the settings lookup
+fails, it returns the last value this process read from the settings DB, or
+the schema default if it has never read one — an outage keeps the kill switch
+where it was instead of turning the pipeline on.
 """
 
 from datetime import datetime, timezone
@@ -22,13 +22,17 @@ import json
 import structlog
 
 from lokilinux.nats_topics import EVENT_RAW
-from lokilinux.settings_schema import get_setting_value
+from lokilinux.settings_schema import SETTINGS_SCHEMA, get_setting_value
 
 logger = structlog.get_logger()
 
 _TENANT_ID = "default"
 _PIPELINE_ENABLED_CACHE_KEY = "settings:observability:event_pipeline_enabled"
 _PIPELINE_ENABLED_CACHE_TTL = 30
+# ponytail: process-local last good flag. Each worker keeps its own copy, and a
+# process that never read the DB runs on the schema default. Upgrade to a shared
+# last-good key if workers must agree during an outage.
+_last_good: bool = SETTINGS_SCHEMA["observability"]["event_pipeline_enabled"][1]
 
 
 async def emit(
@@ -61,13 +65,16 @@ async def emit(
 
 
 async def is_pipeline_enabled(cache: Any, db: Any) -> bool:
+    global _last_good
     cached = await cache.get_cached(_PIPELINE_ENABLED_CACHE_KEY)
     if cached is not None:
-        return bool(cached)
+        _last_good = bool(cached)
+        return _last_good
     try:
         enabled = await get_setting_value(db, "observability.event_pipeline_enabled")
     except Exception:
-        logger.warning("events.pipeline_flag_unavailable_fail_open", exc_info=True)
-        return True
+        logger.warning("events.pipeline_flag_unavailable_using_last_good", exc_info=True)
+        return _last_good
+    _last_good = bool(enabled)
     await cache.set_cached(_PIPELINE_ENABLED_CACHE_KEY, enabled, ttl=_PIPELINE_ENABLED_CACHE_TTL)
-    return bool(enabled)
+    return _last_good
