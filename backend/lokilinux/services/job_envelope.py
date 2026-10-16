@@ -29,6 +29,12 @@ from lokilinux.services.job_signing import JobSigner
 
 logger = logging.getLogger(__name__)
 
+
+class EnvelopeSigningError(RuntimeError):
+    """A job that qualifies for a signed envelope could not be signed. The
+    caller must hold the job: sending it unsigned bypasses agent verification."""
+
+
 # job_type -> (capability, risk). MUST stay in sync with the Go registry.
 _CAPABILITY_REGISTRY = {
     "HEARTBEAT": ("READ_SYSTEM", "LOW"),
@@ -146,7 +152,8 @@ def maybe_attach_envelope(
     job, params: dict, agent_version: Optional[str], agent_id: Optional[str] = None
 ) -> dict:
     """Returns params, with an "_envelope" added when this job/agent pair
-    qualifies for signed execution. Never raises.
+    qualifies for signed execution. Raises EnvelopeSigningError when it
+    qualifies but signing fails; it never returns the params unsigned then.
 
     agent_id: the real recipient — the gRPC dispatch loop passes agent.id here.
     Job has no single agent_id column (multi-target via target_servers), so
@@ -177,9 +184,8 @@ def maybe_attach_envelope(
         out = dict(payload)
         out["_envelope"] = env
         return out
-    except Exception:  # noqa: BLE001 — signing failure must never drop a job
-        logger.exception("envelope attachment failed — sending unsigned")
-        return params
+    except Exception as exc:  # noqa: BLE001 — re-raised as the one signing failure type
+        raise EnvelopeSigningError("envelope attachment failed") from exc
 
 
 def canonical_payload_bytes(payload: dict) -> bytes:

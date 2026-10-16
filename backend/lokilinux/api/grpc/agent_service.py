@@ -35,7 +35,8 @@ from lokilinux.services.compliance_ingest_service import (
     publish_domain_snapshots,
 )
 from lokilinux import metrics
-from lokilinux.services.job_envelope import maybe_attach_envelope
+from lokilinux.services.job_envelope import EnvelopeSigningError, maybe_attach_envelope
+from lokilinux.services.job_service import parameters_for_agent
 from lokilinux.services.policy_service import get_job_timeout_seconds
 from lokilinux.services import fim_scope_service
 from lokilinux.services.snapshot_hmac import key_for_agent as snapshot_key_for_agent
@@ -198,26 +199,32 @@ def _as_dict(obj):
         return [_as_dict(v) if _needs_recursion(v) else v for v in obj]
     return {k: _as_dict(v) if _needs_recursion(v) else v for k, v in vars(obj).items()}
 
-def _parameters_for_agent(job, agent_id) -> dict:
-    """Filter job parameters per-agent for COMPLIANCE_REMEDIATE jobs.
+async def _select_approval_claim(db, job_id, wire_agent_id: str):
+    """The approval claim served to this agent for a job (MIS-29 follow-up).
 
-    For non-remediation jobs, returns parameters unchanged.
-    For COMPLIANCE_REMEDIATE, extracts only this agent's actions from the
-    fleet-wide actions map, so the agent never sees other agents' payloads.
+    A multi-target job carries one claim per target, bound to that agent's wire
+    id, so the agent's own claim wins. A NULL target_agent_id claim is the legacy
+    job-scoped form and is served only when no per-agent claim exists. consumed_at
+    is filtered per row, so consuming one agent's claim never hides another's.
     """
-    params = job.parameters or {}
-    if job.job_type != "COMPLIANCE_REMEDIATE":
-        return params
+    from sqlalchemy import select
 
-    actions_map = params.get("actions", {})
-    agent_key = str(agent_id)
-    agent_actions = actions_map.get(agent_key, [])
+    from lokilinux.models.approval import ApprovalClaim
 
-    return {
-        "remediation_plan_id": params.get("remediation_plan_id"),
-        "operation": params.get("operation"),
-        "actions": agent_actions,
-    }
+    unconsumed = (
+        select(ApprovalClaim)
+        .where(ApprovalClaim.job_id == job_id, ApprovalClaim.consumed_at.is_(None))
+        .order_by(ApprovalClaim.created_at.desc())
+        .limit(1)
+    )
+    row = (
+        await db.execute(unconsumed.where(ApprovalClaim.target_agent_id == wire_agent_id))
+    ).scalar_one_or_none()
+    if row is None:
+        row = (
+            await db.execute(unconsumed.where(ApprovalClaim.target_agent_id.is_(None)))
+        ).scalar_one_or_none()
+    return row
 
 _COLLECTOR_POLICY_KEY = "observability.collector_policy"
 
@@ -354,25 +361,48 @@ class AgentServicer:
                     }
                     # Signed envelopes attach only to privileged job types for
                     # agents new enough to validate them (job_envelope module
-                    # handles gating; failures degrade to unsigned, never drop).
-                    signed_params = {
-                        j.id: maybe_attach_envelope(
-                            j, _parameters_for_agent(j, agent.id), agent_version,
-                            # Envelope must carry the wire identity (Agent.agent_id),
-                            # not the PK — the agent validates envelope.agent_id
-                            # against what it reports in its own heartbeats, and
-                            # the two differ whenever re-enrollment assigned a new
-                            # PK for the same host (rocky: PK 9737…, identity 56c8…).
-                            agent_id=str(agent.agent_id),
+                    # handles gating). A job that qualifies but cannot be signed
+                    # is held back from this heartbeat, never sent unsigned.
+                    signed_params = {}
+                    dispatchable = []
+                    held_ids = []
+                    for j in pending_jobs:
+                        try:
+                            signed_params[j.id] = maybe_attach_envelope(
+                                j, parameters_for_agent(j, agent.id), agent_version,
+                                # Envelope must carry the wire identity (Agent.agent_id),
+                                # not the PK — the agent validates envelope.agent_id
+                                # against what it reports in its own heartbeats, and
+                                # the two differ whenever re-enrollment assigned a new
+                                # PK for the same host (rocky: PK 9737…, identity 56c8…).
+                                agent_id=str(agent.agent_id),
+                            )
+                        except EnvelopeSigningError:
+                            logger.error(
+                                "job %s held for agent %s: envelope signing failed",
+                                j.id, agent.agent_id, exc_info=True,
+                            )
+                            held_ids.append(j.id)
+                            continue
+                        dispatchable.append(j)
+                    pending_jobs = dispatchable
+                    if held_ids:
+                        # get_pending_jobs() already marked every job it selected
+                        # RUNNING, and only PENDING results are selected. Put the
+                        # held ones back so the next heartbeat retries them; the
+                        # stale-job sweep bounds how long that can go on.
+                        from sqlalchemy import update as _update
+                        from lokilinux.models.job import JobResult
+
+                        await db.execute(
+                            _update(JobResult)
+                            .where(JobResult.job_id.in_(held_ids), JobResult.agent_id == agent.id)
+                            .values(status="PENDING", started_at=None)
                         )
-                        for j in pending_jobs
-                    }
+                        await db.commit()
                     # Attach signed approval claims to jobs that require them
                     # (plan §6): the agent verifies claim binding + signature
                     # before executing require_approval capabilities.
-                    from sqlalchemy import select as _select
-                    from lokilinux.models.approval import ApprovalClaim
-
                     attached_count = sum(
                         1 for p in signed_params.values() if "_envelope" in p
                     )
@@ -385,15 +415,7 @@ class AgentServicer:
                     for j in pending_jobs:
                         if not getattr(j, "requires_approval", False):
                             continue
-                        row = (
-                            await db.execute(
-                                _select(ApprovalClaim)
-                                .where(ApprovalClaim.job_id == j.id,
-                                       ApprovalClaim.consumed_at.is_(None))
-                                .order_by(ApprovalClaim.created_at.desc())
-                                .limit(1)
-                            )
-                        ).scalar_one_or_none()
+                        row = await _select_approval_claim(db, j.id, agent.agent_id)
                         if row is not None:
                             import json as _json
                             params_dict = dict(signed_params[j.id])

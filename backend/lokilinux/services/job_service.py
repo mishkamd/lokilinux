@@ -15,6 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.cache import RedisCache
+from lokilinux.models.agent import Agent
 from lokilinux.models.approval import ApprovalClaim
 from lokilinux.models.drift import DriftEvent
 from lokilinux.models.job import Job, JobResult, JobStatus
@@ -235,6 +236,35 @@ async def sync_remediation_plan(db: AsyncSession, job_id: UUID) -> None:
         await _sync_remediation_plan(db, job)
 
 
+def parameters_for_agent(job, agent_id) -> dict:
+    """The parameters one agent is sent. For COMPLIANCE_REMEDIATE that is only
+    this agent's actions, so the approval claim must hash the same view
+    (claim.job_hash is checked against exactly what the agent receives)."""
+    params = job.parameters or {}
+    if job.job_type != "COMPLIANCE_REMEDIATE":
+        return params
+
+    actions_map = params.get("actions", {})
+    agent_actions = actions_map.get(str(agent_id), [])
+
+    return {
+        "remediation_plan_id": params.get("remediation_plan_id"),
+        "operation": params.get("operation"),
+        "actions": agent_actions,
+    }
+
+
+def _target_agent_uuids(target_servers) -> list[UUID]:
+    """Agent PK UUIDs a job targets. target_servers arrives as {"<uuid>": true}
+    from the dashboard checkbox map; older callers pass a list or {"agent_ids":[...]}."""
+    if isinstance(target_servers, dict):
+        ids = target_servers.get("agent_ids") or [k for k, v in target_servers.items() if v]
+        return [UUID(a) for a in ids]
+    if isinstance(target_servers, list):
+        return [UUID(a) for a in target_servers]
+    return []
+
+
 class JobService:
     def __init__(self, db: AsyncSession, cache: RedisCache, nats=None) -> None:
         self.db = db
@@ -288,16 +318,7 @@ class JobService:
         if existing.scalar_one_or_none():
             raise ValueError("Duplicate job already active")
 
-        # target_servers arrives as {"<uuid>": true} from the dashboard
-        # checkbox map; older callers pass a list or {"agent_ids":[...]}.
-        agent_uuids: list[UUID] = []
-        if isinstance(target_servers, dict):
-            ids = target_servers.get("agent_ids") or [
-                k for k, v in target_servers.items() if v
-            ]
-            agent_uuids = [UUID(a) for a in ids]
-        elif isinstance(target_servers, list):
-            agent_uuids = [UUID(a) for a in target_servers]
+        agent_uuids = _target_agent_uuids(target_servers)
 
         job = Job(
             name=name,
@@ -364,33 +385,35 @@ class JobService:
         # metrics rather than blocking the administrative action here.
         claim_json = None
         try:
-            from lokilinux.services.approval_claims import create_claim
-            from lokilinux.services.job_signing import JobSigner
-
             signer = _get_job_signer()
             if signer is not None:
                 capabilities = [job.job_type]
-                target_agent = (
-                    str(job.target_servers[0]) if job.target_servers else ""
-                )
-                claim = signer.sign_approval_claim(
-                    job_id=str(job.id),
-                    target_agent_id=target_agent,
-                    payload=job.parameters or {},
-                    capabilities=capabilities,
-                    approver_id=str(approved_by) if approved_by else "",
-                )
-                self.db.add(ApprovalClaim(
-                    job_id=job.id,
-                    approver_id=str(approved_by) if approved_by else None,
-                    claim_json=json.dumps(claim),
-                    expires_at=datetime.fromtimestamp(claim["expires_at"], tz=timezone.utc),
-                ))
-                claim_json = json.dumps(claim)
+                # One claim per target: each agent rejects a claim whose target is
+                # not its own. The agent checks claim.target_agent_id against its
+                # wire agent_id (Agent.agent_id), not the Agent PK in target_servers.
+                for aid in _target_agent_uuids(job.target_servers):
+                    target_row = await self.db.get(Agent, aid)
+                    target_agent = target_row.agent_id if target_row else ""
+                    claim = signer.sign_approval_claim(
+                        job_id=str(job.id),
+                        target_agent_id=target_agent,
+                        payload=parameters_for_agent(job, aid),
+                        capabilities=capabilities,
+                        approver_id=str(approved_by) if approved_by else "",
+                    )
+                    self.db.add(ApprovalClaim(
+                        job_id=job.id,
+                        approver_id=str(approved_by) if approved_by else None,
+                        target_agent_id=target_agent,
+                        claim_json=json.dumps(claim),
+                        expires_at=datetime.fromtimestamp(claim["expires_at"], tz=timezone.utc),
+                    ))
+                    if claim_json is None:
+                        claim_json = json.dumps(claim)  # first target's claim, for existing callers
         except Exception:  # noqa: BLE001 — approval must not fail for signing infra
             import logging
 
-            logging.getLogger(__name__).warning("approval claim issuance failed", exc_info=True)
+            logging.getLogger(__name__).exception("approval claim issuance failed")
 
         await self.db.commit()
         await self.cache.invalidate(f"job:{job_id}:status")
@@ -432,18 +455,23 @@ class JobService:
 
 
 def _get_job_signer():
-    """Lazy JobSigner over the KMS file provider (v1); None when unprovisioned."""
+    """Lazy JobSigner; None when unprovisioned. Same layout choice as
+    job_envelope._get_signer: with LOKILINUX_KEYS_DIR, signing uses the ACTIVE
+    key version (v1 bootstrapped from the legacy file); without it the legacy
+    single file is implicit v1."""
     try:
         import os
 
-        from lokilinux.kms import get_provider
+        from lokilinux.kms import KeyManager, get_provider
+        from lokilinux.services.job_envelope import _bootstrap_versioned_key
         from lokilinux.services.job_signing import JobSigner
 
-        provider = get_provider({
-            "provider": "file",
-            "file": {"key_path": os.environ.get(
-                "JOB_SIGNING_KEY_PATH", "/etc/lokilinux/certs/job_signing.key")},
-        })
-        return JobSigner(provider=provider)
+        keys_dir = os.environ.get("LOKILINUX_KEYS_DIR", "")
+        if not keys_dir:
+            return JobSigner()
+        key_path = os.environ.get("JOB_SIGNING_KEY_PATH", "/etc/lokilinux/certs/job_signing.key")
+        provider = get_provider({"provider": "file", "file": {"key_path": key_path}})
+        _bootstrap_versioned_key(KeyManager(keys_dir, "job-signing"), key_path)
+        return JobSigner(provider=provider, keys_dir=keys_dir)
     except Exception:  # noqa: BLE001 — no key installed yet
         return None

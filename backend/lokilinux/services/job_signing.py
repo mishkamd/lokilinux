@@ -186,13 +186,15 @@ class JobSigner:
                             approver_id: str, ttl_seconds: int = 300):
         from lokilinux.services.approval_claims import create_claim
 
+        ref = self._active_ref()
         return create_claim(
-            lambda msg: self._provider_sign(self._active_ref(), msg),
+            lambda msg: self._provider_sign(ref, msg),
             job_id=job_id,
             target_agent_id=target_agent_id,
             payload=payload,
             capabilities=capabilities,
             approver_id=approver_id,
+            key_version=ref.version,
             ttl_seconds=ttl_seconds,
         )
 
