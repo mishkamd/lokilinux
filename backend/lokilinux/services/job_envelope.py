@@ -159,13 +159,16 @@ def maybe_attach_envelope(
     Job has no single agent_id column (multi-target via target_servers), so
     falling back to job.agent_id only covers legacy single-target callers.
     """
+    job_type = getattr(job, "job_type", "") or ""
+    # Before the signer lookup: a missing key or signer must hold only privileged jobs.
+    if job_type not in _CAPABILITY_REGISTRY:
+        return params
     try:
         signer = _get_signer()
         if signer is None:
             metrics.unsigned_privileged_jobs_total.inc()
-            return params
-        job_type = getattr(job, "job_type", "") or ""
-        if job_type not in _CAPABILITY_REGISTRY:
+            if signing_required():
+                raise RuntimeError("job_signing_required=true but no usable signer")
             return params
         if not agent_meets_minimum(agent_version, MIN_AGENT_VERSION_SIGNED_JOBS):
             return params
