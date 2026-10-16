@@ -19,7 +19,7 @@ import grpc
 from cryptography import x509
 from cryptography.x509.oid import NameOID
 
-from lokilinux.services.agent_service import AgentService
+from lokilinux.services.agent_service import PENDING_JOBS_PER_HEARTBEAT, AgentService
 from lokilinux.services.cert_revocation import (
     CertificateRevoked,
     RevocationUnavailable,
@@ -355,37 +355,57 @@ class AgentServicer:
                                 },
                             )
 
-                    pending_jobs = await svc.get_pending_jobs(agent.id)
-                    job_timeouts = {
-                        j.id: await get_job_timeout_seconds(db, j) for j in pending_jobs
-                    }
                     # Signed envelopes attach only to privileged job types for
                     # agents new enough to validate them (job_envelope module
                     # handles gating). A job that qualifies but cannot be signed
                     # is held back from this heartbeat, never sent unsigned.
+                    # Held jobs stay PENDING, so they would keep filling the pending window:
+                    # ask again without the ids already seen, while a round held something back
+                    # and the window is not full. Held ids get a hold (mark_held) after the loop,
+                    # so later heartbeats skip them too. Still at most 10 sent per heartbeat.
+                    # ponytail: no round cap, a 3-round cap starved agents with more than 30 held
+                    # jobs. Cost is one query per 10 held jobs on a heartbeat; upgrade path is
+                    # a held-job count per agent if that backlog ever gets large.
                     signed_params = {}
-                    dispatchable = []
-                    for j in pending_jobs:
-                        try:
-                            signed_params[j.id] = maybe_attach_envelope(
-                                j, parameters_for_agent(j, agent.id), agent_version,
-                                # Envelope must carry the wire identity (Agent.agent_id),
-                                # not the PK — the agent validates envelope.agent_id
-                                # against what it reports in its own heartbeats, and
-                                # the two differ whenever re-enrollment assigned a new
-                                # PK for the same host (rocky: PK 9737…, identity 56c8…).
-                                agent_id=str(agent.agent_id),
-                            )
-                        except EnvelopeSigningError:
-                            # Held: not dispatched, so it stays PENDING and is retried
-                            # on the next heartbeat (never marked RUNNING, see mark_dispatched).
-                            logger.error(
-                                "job %s held for agent %s: envelope signing failed",
-                                j.id, agent.agent_id, exc_info=True,
-                            )
-                            continue
-                        dispatchable.append(j)
-                    pending_jobs = dispatchable
+                    pending_jobs = []
+                    job_timeouts = {}
+                    seen: set = set()
+                    held_ids: list = []
+                    while len(pending_jobs) < PENDING_JOBS_PER_HEARTBEAT:
+                        batch = await svc.get_pending_jobs(
+                            agent.id, exclude_ids=seen,
+                            limit=PENDING_JOBS_PER_HEARTBEAT - len(pending_jobs),
+                        )
+                        if not batch:
+                            break
+                        held_in_batch = False
+                        for j in batch:
+                            seen.add(j.id)
+                            try:
+                                signed_params[j.id] = maybe_attach_envelope(
+                                    j, parameters_for_agent(j, agent.id), agent_version,
+                                    # Envelope must carry the wire identity (Agent.agent_id),
+                                    # not the PK — the agent validates envelope.agent_id
+                                    # against what it reports in its own heartbeats, and
+                                    # the two differ whenever re-enrollment assigned a new
+                                    # PK for the same host (rocky: PK 9737…, identity 56c8…).
+                                    agent_id=str(agent.agent_id),
+                                )
+                            except EnvelopeSigningError:
+                                # Held: not dispatched, so it stays PENDING (never marked RUNNING,
+                                # see mark_dispatched) and gets a hold from mark_held below.
+                                logger.error(
+                                    "job %s held for agent %s: envelope signing failed",
+                                    j.id, agent.agent_id, exc_info=True,
+                                )
+                                held_ids.append(j.id)
+                                held_in_batch = True
+                                continue
+                            pending_jobs.append(j)
+                            job_timeouts[j.id] = await get_job_timeout_seconds(db, j)
+                        if not held_in_batch:
+                            break
+                    await svc.mark_held(agent.id, held_ids)
                     # Attach signed approval claims to jobs that require them
                     # (plan §6): the agent verifies claim binding + signature
                     # before executing require_approval capabilities.

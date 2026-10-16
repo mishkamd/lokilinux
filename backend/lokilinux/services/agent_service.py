@@ -3,7 +3,7 @@ LokiLinux — AgentService: heartbeat updates, pending-job dispatch, inactivity 
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from sqlalchemy import and_, case, delete, or_, select, tuple_, update
@@ -25,6 +25,12 @@ logger = logging.getLogger(__name__)
 # health % thresholds above which the dashboard should flag the resource as critical
 _DISK_FULL_THRESHOLD = 90.0
 _MEMORY_CRITICAL_THRESHOLD = 90.0
+
+# Jobs handed to one agent per heartbeat: the get_pending_jobs window.
+PENDING_JOBS_PER_HEARTBEAT = 10
+
+# Seconds a job held back for a signing failure is skipped before it is signed again.
+HELD_JOB_SECONDS = 60
 
 # proto JobState enum values (agent/gen/lokilinux/lokilinux.pb.go) -> JobResult.status
 _JOB_STATE_TO_STATUS = {
@@ -420,7 +426,9 @@ class AgentService:
         if touched_job_ids:
             await self.cache.invalidate_pattern("job:list:*")
 
-    async def get_pending_jobs(self, agent_id: UUID) -> list:
+    async def get_pending_jobs(
+        self, agent_id: UUID, exclude_ids=(), limit: int = PENDING_JOBS_PER_HEARTBEAT
+    ) -> list:
         """Return Jobs assigned to this agent whose JobResult status is PENDING.
 
         Jobs with requires_approval=True are withheld until Job.approved_at
@@ -433,10 +441,15 @@ class AgentService:
         approved_by can be NULL on a genuinely-approved job. approved_at is
         always set by JobService.approve_job regardless of that.
 
+        exclude_ids: job ids the caller already looked at this heartbeat (already
+        selected), so they don't refill the window. Rows under a live hold from
+        mark_held() (held_until still in the future) are skipped too.
+
         Read-only: the caller marks what it actually sends via mark_dispatched().
         """
         from lokilinux.models.job import Job, JobResult
 
+        now = datetime.now(timezone.utc)
         result = await self.db.execute(
             select(Job)
             .join(JobResult, JobResult.job_id == Job.id)
@@ -444,13 +457,15 @@ class AgentService:
                 and_(
                     JobResult.agent_id == agent_id,
                     JobResult.status == "PENDING",
+                    or_(JobResult.held_until.is_(None), JobResult.held_until <= now),
+                    Job.id.not_in(list(exclude_ids)),
                     or_(
                         Job.requires_approval.is_(False),
                         Job.approved_at.isnot(None),
                     ),
                 )
             )
-            .limit(10)
+            .limit(limit)
         )
         return result.scalars().all()
 
@@ -460,7 +475,8 @@ class AgentService:
         left RUNNING because the agent died is swept to TIMEOUT by JobTimeoutWorker.
 
         Called after envelope signing: a job held back for a signing failure must stay
-        PENDING and never show RUNNING, so nothing has to revert it.
+        PENDING and never show RUNNING, so nothing has to revert it. Claiming also clears
+        any hold (held_until) left by mark_held().
         """
         from lokilinux.models.job import Job, JobStatus
 
@@ -476,7 +492,7 @@ class AgentService:
                 JobResult.agent_id == agent_id,
                 JobResult.status == "PENDING",
             )
-            .values(status="RUNNING", started_at=now)
+            .values(status="RUNNING", started_at=now, held_until=None)
             .returning(JobResult.job_id)
         )).scalars().all())
         if not claimed:
@@ -492,6 +508,20 @@ class AgentService:
             await self.cache.invalidate(f"job:{jid}:status")
         await self.cache.invalidate_pattern("job:list:*")
         return [j for j in jobs if j.id in claimed]
+
+    async def mark_held(self, agent_id: UUID, job_ids: list) -> None:
+        """Hold back jobs that failed envelope signing for HELD_JOB_SECONDS. They stay
+        PENDING; get_pending_jobs skips them until held_until passes, so they stop taking
+        window slots and stop being re-signed on every heartbeat.
+        """
+        if not job_ids:
+            return
+        await self.db.execute(
+            update(JobResult)
+            .where(JobResult.job_id.in_(job_ids), JobResult.agent_id == agent_id)
+            .values(held_until=datetime.now(timezone.utc) + timedelta(seconds=HELD_JOB_SECONDS))
+        )
+        await self.db.commit()
 
     async def mark_inactive(self, agent_id: UUID) -> None:
         """Mark agent INACTIVE (called by a background stale-check task)."""

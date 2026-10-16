@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 # Same-directory helpers from the CR-03 suite: real CA + agent cert, and the
 # stub gRPC context (auth_context/abort) the identity gate reads.
@@ -151,7 +151,13 @@ async def test_heartbeat_holds_unsignable_privileged_job_and_dispatches_the_rest
             select(JobResult).where(JobResult.job_id == held.id, JobResult.agent_id == agent.id)
         )
     ).scalar_one()
-    assert held_result.status == "PENDING", "held job must be re-selectable on the next heartbeat"
+    assert held_result.status == "PENDING", "held job stays PENDING during its hold window"
+
+    # The hold window (60 s) has to pass before the job is tried again; simulate that.
+    await db_session.execute(
+        update(JobResult).where(JobResult.job_id == held.id).values(held_until=None)
+    )
+    await db_session.commit()
 
     monkeypatch.setattr(job_envelope, "_get_signer", lambda: _WorkingSigner())
     second = await heartbeat()

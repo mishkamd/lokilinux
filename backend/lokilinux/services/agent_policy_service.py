@@ -146,7 +146,8 @@ async def _apply_policy_report(
         )
 
     await cache.invalidate_pattern(f"agent:*{agent.id}*")
-    # The HeartbeatStream session spans many heartbeats and never commits
-    # otherwise (only get_pending_jobs commits on its own path) — without this
-    # the deployment/agent updates are lost when the session closes.
+    # The HeartbeatStream session spans many heartbeats, and its other commits are
+    # conditional: mark_dispatched (agent_service.py) commits only when it claims a job,
+    # _pending_policy_envelope only when it delivers an envelope, and get_pending_jobs
+    # is read-only. Without this the deployment/agent updates are lost when the session closes.
     await db.commit()
