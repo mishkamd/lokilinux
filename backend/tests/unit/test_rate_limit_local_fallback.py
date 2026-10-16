@@ -49,7 +49,9 @@ async def test_events_post_returns_429_over_limit_while_redis_down(client, redis
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("path", ["/api/v1/otlp/v1/logs", "/api/v1/otlp/v1/traces"])
-async def test_otlp_post_returns_429_over_limit_while_redis_down(client, redis_down, small_limit, path):
+async def test_otlp_post_returns_429_over_limit_while_redis_down(
+    client, redis_down, small_limit, path
+):
     # An empty export request is valid OTLP and reaches the limiter without publishing anything.
     for _ in range(_LIMIT):
         assert (await client.post(path, content=b"", headers=_HEADERS)).status_code == 200
@@ -63,7 +65,8 @@ async def test_events_and_otlp_share_one_bucket_per_principal(
     # Same logical key as Redis (rate:ev:{principal}), so both endpoints draw from one bucket.
     for _ in range(_LIMIT):
         assert (await client.post("/api/v1/events", json=_EVENT)).status_code == 200
-    assert (await client.post("/api/v1/otlp/v1/logs", content=b"", headers=_HEADERS)).status_code == 429
+    resp = await client.post("/api/v1/otlp/v1/logs", content=b"", headers=_HEADERS)
+    assert resp.status_code == 429
 
     # Another principal has its own bucket. The client's auth override returns this same dict.
     current_user["id"] = str(uuid4())
