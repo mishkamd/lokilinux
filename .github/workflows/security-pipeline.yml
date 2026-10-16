@@ -80,6 +80,8 @@ jobs:
         working-directory: backend
         run: |
           python -m venv .venv
+          # The venv ships pip 24.0, which has known advisories; audit the upgraded tool.
+          .venv/bin/pip install --upgrade pip
           .venv/bin/pip install -e ".[dev]"
           .venv/bin/pip install pip-audit
           .venv/bin/pip-audit
