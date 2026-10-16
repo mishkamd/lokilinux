@@ -64,6 +64,7 @@ class RemediationService:
         is_emergency: bool = False,
         maintenance_window_id: UUID | None = None,
         created_by: UUID | None = None,
+        created_by_actor: str | None = None,
     ) -> RemediationPlan:
         if not actions:
             raise HTTPException(status_code=400, detail="A remediation plan needs at least one action")
@@ -94,6 +95,7 @@ class RemediationService:
             is_emergency=is_emergency,
             maintenance_window_id=maintenance_window_id,
             created_by=created_by,
+            created_by_actor=created_by_actor,
         )
         self.db.add(plan)
         await self.db.flush()
@@ -146,6 +148,15 @@ class RemediationService:
             raise HTTPException(status_code=409, detail=f"Cannot approve from status {plan.status}")
 
         approver_id = actor.get("id")
+        # Same no-self-approval rule as workflow_engine.approve_step. created_by is None
+        # for system (autopilot) plans, so there is no creator to match. created_by_actor
+        # covers nanoid creators, whose created_by is NULL.
+        if (plan.created_by_actor and plan.created_by_actor == approver_id) or (
+            plan.created_by is not None and plan.created_by == _safe_uuid(approver_id)
+        ):
+            raise HTTPException(
+                status_code=403, detail="You cannot approve a plan you created yourself",
+            )
         plan.approved_by = _safe_uuid(approver_id)
         plan.approved_at = datetime.now(timezone.utc)
 

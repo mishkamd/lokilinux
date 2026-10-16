@@ -24,6 +24,7 @@ from lokilinux.models.cve import AgentVulnerability, Package
 from lokilinux.schemas.common import CursorPage, decode_cursor, encode_cursor
 from lokilinux.schemas.cve import PackageResponse
 from lokilinux.schemas.server import AgentAssignmentUpdate, AgentHealthResponse, AgentResponse
+from lokilinux.services.audit_service import AuditService
 from lokilinux.services.trends import OPEN_VULN_STATUSES
 
 router = APIRouter()
@@ -231,7 +232,7 @@ async def set_maintenance(
     agent_id: str,
     db: AsyncSession = Depends(get_db),
     cache: RedisCache = Depends(get_cache),
-    _: dict = Depends(get_current_user),
+    current_user: dict = Depends(require_role("ADMIN", "OPERATOR")),
 ) -> AgentResponse:
     pk = parse_agent_pk(agent_id)
     row = (await db.execute(
@@ -247,6 +248,12 @@ async def set_maintenance(
     )
     await db.flush()
     await cache.invalidate_agent(agent_id)
+    await AuditService(db).log(
+        action="agent.maintenance_toggled", user_id=current_user.get("id"),
+        actor_name=current_user.get("username") or current_user.get("email"),
+        resource_type="agent", resource_id=str(row.id),
+        changes={"status": row.status.value},
+    )
 
     cve_counts = await _open_cve_counts(db, [row.id])
     return AgentResponse.model_validate(row).model_copy(update={"cve_count": cve_counts.get(row.id, 0)})

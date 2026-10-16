@@ -267,7 +267,7 @@ async def cancel_job(
     job_id: UUID,
     db: AsyncSession = Depends(get_db),
     cache: RedisCache = Depends(get_cache),
-    _: dict = Depends(get_current_user),
+    _: dict = Depends(require_role("ADMIN", "OPERATOR")),
 ) -> None:
     row = (await db.execute(select(Job).where(Job.id == job_id))).scalar_one_or_none()
     if row is None:

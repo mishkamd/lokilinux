@@ -142,6 +142,7 @@ async def create_remediation_plan(
         is_emergency=body.is_emergency,
         maintenance_window_id=body.maintenance_window_id,
         created_by=safe_user_uuid(current_user),
+        created_by_actor=current_user.get("id"),
     )
     return RemediationPlanResponse.model_validate(plan)
 
