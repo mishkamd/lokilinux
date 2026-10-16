@@ -34,7 +34,7 @@ dependencies = [
 
     # Auth (JWKS validation against Better Auth — opaque session tokens, no JWT)
     "httpx==0.28.1",
-    "cryptography==46.0.3",  # direct dependency — api/v1/routers/agent_install.py imports cryptography.x509 itself
+    "cryptography==50.0.0",  # direct dependency — api/v1/routers/agent_install.py imports cryptography.x509 itself
 
     # Observability
     "structlog==26.1.0",
