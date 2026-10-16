@@ -30,6 +30,7 @@ def no_signer(monkeypatch, tmp_path):
     """Fresh singleton, no key file, no versioned KMS dir."""
     monkeypatch.setattr(job_envelope, "_signer_instance", None)
     monkeypatch.setattr(job_envelope, "_signer_init_done", False)
+    monkeypatch.setattr(job_envelope, "_signer_retry_at", 0.0)
     monkeypatch.setenv("JOB_SIGNING_KEY_PATH", str(tmp_path / "missing.key"))
     monkeypatch.delenv("LOKILINUX_KEYS_DIR", raising=False)
     monkeypatch.delenv("KMS_PROVIDER", raising=False)

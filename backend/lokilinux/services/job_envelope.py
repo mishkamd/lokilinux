@@ -17,6 +17,7 @@ import base64
 import json
 import logging
 import os
+import time
 from typing import List, Optional
 
 from lokilinux.utils.agent_capability import (
@@ -63,6 +64,9 @@ _STEP_TYPE_TO_CAP = {
 
 _signer_instance: Optional[JobSigner] = None
 _signer_init_done = False
+# ponytail: fixed 60s retry, no exponential backoff; one key read a minute is cheap.
+_SIGNER_RETRY_SECONDS = 60.0
+_signer_retry_at = 0.0
 
 
 def _required_capabilities(job_type: str, params: dict) -> List[str]:
@@ -109,7 +113,8 @@ def _bootstrap_versioned_key(key_manager: KeyManager, legacy_key_path: str) -> N
 
 def _get_signer() -> Optional[JobSigner]:
     """Lazily construct the singleton signer. Returns None while no usable
-    key is provisioned; a later call re-attempts (cheap file stat).
+    key is provisioned; a later call re-attempts (cheap file stat), and a
+    failed init is retried once _SIGNER_RETRY_SECONDS have passed.
     Raises when job_signing_required=True and the key never materializes —
     no-downgrade guarantee (plan C3).
 
@@ -117,7 +122,7 @@ def _get_signer() -> Optional[JobSigner]:
     KeyManager lifecycle (bootstrapping v1 from the legacy file on first use)
     so admin-triggered rotation actually reaches the running dispatch path —
     without it, KeyManager.rotate() would mutate state nothing ever reads."""
-    global _signer_instance, _signer_init_done
+    global _signer_instance, _signer_init_done, _signer_retry_at
     key_path = os.environ.get("JOB_SIGNING_KEY_PATH", "/etc/lokilinux/certs/job_signing.key")
     keys_dir = os.environ.get("LOKILINUX_KEYS_DIR", "")
     enabled = os.environ.get("JOB_SIGNING_ENVELOPES", "true").lower() != "false"
@@ -133,7 +138,7 @@ def _get_signer() -> Optional[JobSigner]:
                 f"job_signing_required=true but signing key missing at {key_path} — refusing unsigned dispatch"
             )
         return None
-    if not _signer_init_done:
+    if not _signer_init_done and time.monotonic() >= _signer_retry_at:
         try:
             if keys_dir:
                 provider = get_provider({"provider": os.environ.get("KMS_PROVIDER", "file"),
@@ -142,9 +147,11 @@ def _get_signer() -> Optional[JobSigner]:
                 _signer_instance = JobSigner(provider=provider, keys_dir=keys_dir)
             else:
                 _signer_instance = JobSigner()  # legacy layout: implicit v1 only
+            _signer_init_done = True
         except Exception:  # noqa: BLE001 — unusable key must never break dispatch
-            logger.exception("job signing key unreadable — envelopes disabled")
-        _signer_init_done = True
+            logger.exception("job signing key unreadable — envelopes disabled, retrying in %ds",
+                             _SIGNER_RETRY_SECONDS)
+            _signer_retry_at = time.monotonic() + _SIGNER_RETRY_SECONDS
     return _signer_instance
 
 

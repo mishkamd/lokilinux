@@ -72,6 +72,7 @@ def reset_signer(monkeypatch):
     monkeypatch.delenv("LOKILINUX_KEYS_DIR", raising=False)
     monkeypatch.setattr(job_envelope, "_signer_instance", None)
     monkeypatch.setattr(job_envelope, "_signer_init_done", False)
+    monkeypatch.setattr(job_envelope, "_signer_retry_at", 0.0)
 
 
 @pytest.mark.asyncio

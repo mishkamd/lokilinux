@@ -27,6 +27,7 @@ def key_env(tmp_path, monkeypatch):
     # reset singleton between tests
     monkeypatch.setattr(job_envelope, "_signer_instance", None)
     monkeypatch.setattr(job_envelope, "_signer_init_done", False)
+    monkeypatch.setattr(job_envelope, "_signer_retry_at", 0.0)
     return key
 
 

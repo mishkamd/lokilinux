@@ -42,11 +42,12 @@ async def _agent_with_jobs(db_session, fake_cache, fake_nats, tmp_path, monkeypa
     await db_session.flush()
 
     svc = JobService(db_session, fake_cache, fake_nats)
+    # Distinct parameters per job: create_job rejects an active duplicate by dedup key.
     held_jobs = [
         await svc.create_job(
             name=f"held-{i}", job_type="SERVICE",
             target_servers={"agent_ids": [str(agent.id)]},
-            parameters={"service_name": "nginx"},
+            parameters={"service_name": f"svc-{i}"},
         )
         for i in range(held)
     ]
@@ -54,6 +55,7 @@ async def _agent_with_jobs(db_session, fake_cache, fake_nats, tmp_path, monkeypa
         await svc.create_job(
             name=f"sent-{i}", job_type="INVENTORY_SCAN",
             target_servers={"agent_ids": [str(agent.id)]},
+            parameters={"batch": i},
         )
         for i in range(sent)
     ]
@@ -117,7 +119,7 @@ def test_failed_signer_init_is_retried_after_backoff(monkeypatch, tmp_path):
     now = [1000.0]
     monkeypatch.setattr(time, "monotonic", lambda: now[0])
     # Backoff deadline is module state; restore it so it cannot leak into later tests.
-    monkeypatch.setattr(job_envelope, "_signer_retry_at", 0.0, raising=False)
+    monkeypatch.setattr(job_envelope, "_signer_retry_at", 0.0)
     monkeypatch.setattr(job_envelope, "_signer_instance", None)
     monkeypatch.setattr(job_envelope, "_signer_init_done", False)
     key = tmp_path / "job_signing.key"
