@@ -40,6 +40,7 @@ class RuleEvaluation(Base):
     # Migration 039 (Enterprise Compliance plan U4) — finding-level
     # acknowledgment, same shape as DriftEvent.acknowledged_by/at.
     acknowledged_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    acknowledged_by_actor: Mapped[str | None] = mapped_column(String(255))  # raw auth id (nanoid)
     acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 

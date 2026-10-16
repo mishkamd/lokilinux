@@ -54,6 +54,7 @@ class Alert(Base):
     # Status & resolution
     status: Mapped[str] = mapped_column(String(50), default="ACTIVE", nullable=False)  # ACTIVE / ACKNOWLEDGED / RESOLVED / EXPIRED
     acknowledged_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))  # Better Auth user — no FK
+    acknowledged_by_actor: Mapped[str | None] = mapped_column(String(255))  # raw auth id (nanoid)
     acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     resolved_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))  # Better Auth user — no FK
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

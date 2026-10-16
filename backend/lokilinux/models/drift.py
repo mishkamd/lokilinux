@@ -40,6 +40,7 @@ class DriftEvent(Base):
     change_type: Mapped[str] = mapped_column(String(30), nullable=False)
     summary: Mapped[str] = mapped_column(Text, nullable=False)
     acknowledged_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    acknowledged_by_actor: Mapped[str | None] = mapped_column(String(255))  # raw auth id (nanoid)
     acknowledged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # Lifecycle + dedup (migration 025) — see services/compliance ingest.go's
     # correlation_key computation for how occurrences/first_seen/last_seen
