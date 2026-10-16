@@ -20,6 +20,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from lokilinux.config import get_settings
 from lokilinux.settings_schema import SETTINGS_SCHEMA, get_setting_value
+from lokilinux.utils.local_counter import local_counter
 
 logger = structlog.get_logger()
 
@@ -32,19 +33,6 @@ _last_good: tuple[bool, int] = (
     SETTINGS_SCHEMA["security"]["rate_limit_enabled"][1],
     SETTINGS_SCHEMA["security"]["rate_limit_per_minute"][1],
 )
-
-
-# ponytail: per-process counter, used only while Redis is down so the limit still holds.
-# Each worker counts on its own, so during an outage the effective limit is the
-# configured value times the number of workers.
-_local_counts: dict[tuple[str, int], int] = {}
-
-
-def _local_increment(client_ip: str, window: int) -> int:
-    for key in [k for k in _local_counts if k[1] < window]:
-        del _local_counts[key]
-    _local_counts[(client_ip, window)] = _local_counts.get((client_ip, window), 0) + 1
-    return _local_counts[(client_ip, window)]
 
 
 def _client_ip(request: Request) -> str:
@@ -97,7 +85,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         window = int(time.time() // 60)
         count = await cache.incr_checked(f"ratelimit:{client_ip}:{window}", ttl=90)
         if count is None:
-            count = _local_increment(client_ip, window)
+            count = local_counter.increment(f"ratelimit:{client_ip}", window)
 
         if count > limit:
             logger.warning("rate_limit.exceeded", client_ip=client_ip, count=count, limit=limit)

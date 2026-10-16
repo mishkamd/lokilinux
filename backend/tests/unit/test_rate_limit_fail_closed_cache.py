@@ -12,6 +12,7 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from lokilinux.middleware import rate_limit
+from lokilinux.utils.local_counter import local_counter
 
 
 @asynccontextmanager
@@ -86,7 +87,7 @@ async def test_db_down_before_any_good_read_uses_schema_defaults(fake_cache, set
 async def test_redis_outage_still_enforces_the_limit(app, fake_cache, settings, monkeypatch):
     """MIS-30 (3b): a Redis error on the request counter must not switch the limit off.
     Before the fix the middleware took incr()'s fail-open 0 and let every request through."""
-    monkeypatch.setattr(rate_limit, "_local_counts", {}, raising=False)
+    monkeypatch.setattr(local_counter, "_counts", {})
 
     async def redis_down(key, ttl):
         return None
