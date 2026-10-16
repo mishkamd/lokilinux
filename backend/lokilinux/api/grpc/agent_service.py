@@ -365,7 +365,6 @@ class AgentServicer:
                     # is held back from this heartbeat, never sent unsigned.
                     signed_params = {}
                     dispatchable = []
-                    held_ids = []
                     for j in pending_jobs:
                         try:
                             signed_params[j.id] = maybe_attach_envelope(
@@ -378,28 +377,15 @@ class AgentServicer:
                                 agent_id=str(agent.agent_id),
                             )
                         except EnvelopeSigningError:
+                            # Held: not dispatched, so it stays PENDING and is retried
+                            # on the next heartbeat (never marked RUNNING, see mark_dispatched).
                             logger.error(
                                 "job %s held for agent %s: envelope signing failed",
                                 j.id, agent.agent_id, exc_info=True,
                             )
-                            held_ids.append(j.id)
                             continue
                         dispatchable.append(j)
                     pending_jobs = dispatchable
-                    if held_ids:
-                        # get_pending_jobs() already marked every job it selected
-                        # RUNNING, and only PENDING results are selected. Put the
-                        # held ones back so the next heartbeat retries them; the
-                        # stale-job sweep bounds how long that can go on.
-                        from sqlalchemy import update as _update
-                        from lokilinux.models.job import JobResult
-
-                        await db.execute(
-                            _update(JobResult)
-                            .where(JobResult.job_id.in_(held_ids), JobResult.agent_id == agent.id)
-                            .values(status="PENDING", started_at=None)
-                        )
-                        await db.commit()
                     # Attach signed approval claims to jobs that require them
                     # (plan §6): the agent verifies claim binding + signature
                     # before executing require_approval capabilities.
@@ -472,6 +458,10 @@ class AgentServicer:
                         fim_config = fim_scope_service.signed_envelope(agent.id, fim_scope)
 
                     hmac_key = snapshot_key_for_agent(agent, reported_key_id)
+                    # Last step before the yield. Only the jobs this heartbeat claims (PENDING to
+                    # RUNNING) are sent; a concurrent heartbeat that already claimed one gets
+                    # nothing back for it. Anything above that raises leaves them PENDING.
+                    pending_jobs = await svc.mark_dispatched(agent.id, pending_jobs)
                     yield {
                         "pending_jobs": [
                             {

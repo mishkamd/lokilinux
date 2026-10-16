@@ -432,8 +432,10 @@ class AgentService:
         user id often doesn't parse as UUID — see auth/dependencies.py), so
         approved_by can be NULL on a genuinely-approved job. approved_at is
         always set by JobService.approve_job regardless of that.
+
+        Read-only: the caller marks what it actually sends via mark_dispatched().
         """
-        from lokilinux.models.job import Job, JobResult, JobStatus
+        from lokilinux.models.job import Job, JobResult
 
         result = await self.db.execute(
             select(Job)
@@ -450,38 +452,46 @@ class AgentService:
             )
             .limit(10)
         )
-        jobs = result.scalars().all()
+        return result.scalars().all()
 
-        # Mark as dispatched so the same job isn't re-selected (and re-sent
-        # to the agent) on every subsequent heartbeat until a result comes
-        # back — this SELECT used to be side-effect free, which meant a job
-        # stayed QUEUED/PENDING for its entire run and got re-executed each
-        # heartbeat. A job left RUNNING because the agent died is swept to
-        # TIMEOUT by JobTimeoutWorker.
-        if jobs:
-            job_ids = [j.id for j in jobs]
-            now = datetime.now(timezone.utc)
-            await self.db.execute(
-                update(JobResult)
-                .where(
-                    JobResult.job_id.in_(job_ids),
-                    JobResult.agent_id == agent_id,
-                    JobResult.status == "PENDING",
-                )
-                .values(status="RUNNING", started_at=now)
+    async def mark_dispatched(self, agent_id: UUID, jobs: list) -> list:
+        """Mark jobs that go out in this heartbeat RUNNING, so they aren't re-selected
+        (and re-sent) on every subsequent heartbeat until a result comes back — a job
+        left RUNNING because the agent died is swept to TIMEOUT by JobTimeoutWorker.
+
+        Called after envelope signing: a job held back for a signing failure must stay
+        PENDING and never show RUNNING, so nothing has to revert it.
+        """
+        from lokilinux.models.job import Job, JobStatus
+
+        if not jobs:
+            return []
+        now = datetime.now(timezone.utc)
+        # Claim only rows still PENDING. A concurrent heartbeat that selected the same job
+        # has its UPDATE match nothing once this one commits, so it cannot send it twice.
+        claimed = set((await self.db.execute(
+            update(JobResult)
+            .where(
+                JobResult.job_id.in_([j.id for j in jobs]),
+                JobResult.agent_id == agent_id,
+                JobResult.status == "PENDING",
             )
-            await self.db.execute(
-                update(Job)
-                .where(Job.id.in_(job_ids), Job.status.in_((JobStatus.QUEUED, JobStatus.SCHEDULED)))
-                .values(status=JobStatus.RUNNING, started_at=now)
-            )
-            await self.db.commit()
+            .values(status="RUNNING", started_at=now)
+            .returning(JobResult.job_id)
+        )).scalars().all())
+        if not claimed:
+            return []
+        await self.db.execute(
+            update(Job)
+            .where(Job.id.in_(claimed), Job.status.in_((JobStatus.QUEUED, JobStatus.SCHEDULED)))
+            .values(status=JobStatus.RUNNING, started_at=now)
+        )
+        await self.db.commit()
 
-            for jid in job_ids:
-                await self.cache.invalidate(f"job:{jid}:status")
-            await self.cache.invalidate_pattern("job:list:*")
-
-        return jobs
+        for jid in claimed:
+            await self.cache.invalidate(f"job:{jid}:status")
+        await self.cache.invalidate_pattern("job:list:*")
+        return [j for j in jobs if j.id in claimed]
 
     async def mark_inactive(self, agent_id: UUID) -> None:
         """Mark agent INACTIVE (called by a background stale-check task)."""
