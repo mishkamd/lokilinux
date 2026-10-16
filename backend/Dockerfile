@@ -64,7 +64,8 @@ RUN groupadd --gid 10001 appuser && \
     apt-get install -y --no-install-recommends --only-upgrade \
       util-linux bsdutils mount login \
       libblkid1 libmount1 libsmartcols1 libuuid1 liblastlog2-2 \
-      perl-base gzip && \
+      perl-base gzip \
+      libpcre2-8-0 libsqlite3-0 libssl3t64 openssl openssl-provider-legacy && \
     rm -rf /var/lib/apt/lists/* && \
     rm -rf /usr/local/lib/python3.11/site-packages/* /usr/local/bin/pip*
 
