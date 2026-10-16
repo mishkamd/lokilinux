@@ -136,6 +136,9 @@ jobs:
       - name: Vulnerability gate (fails on HIGH/CRITICAL)
         uses: aquasecurity/trivy-action@v0.33.1
         with:
+          # v0.65.0 (the action's default) has no Linux tarball on its release, so
+          # setup-trivy 404s; v0.76.0 is the first release with one.
+          version: v0.76.0
           image-ref: lokilinux/${{ matrix.image.name }}:${{ env.PLATFORM_VERSION }}
           severity: HIGH,CRITICAL
           ignore-unfixed: true
@@ -145,6 +148,7 @@ jobs:
       - name: Generate SBOM (CycloneDX)
         uses: aquasecurity/trivy-action@v0.33.1
         with:
+          version: v0.76.0
           image-ref: lokilinux/${{ matrix.image.name }}:${{ env.PLATFORM_VERSION }}
           format: cyclonedx
           output: sbom-${{ matrix.image.name }}.cdx.json
