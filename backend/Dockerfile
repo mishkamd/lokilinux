@@ -28,7 +28,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
     grpcio==1.81.1 protobuf==6.33.5 \
     pydantic==2.13.4 pydantic-settings==2.14.2 \
     structlog==26.1.0 httpx==0.28.1 \
-    PyYAML==6.0.3 cryptography==46.0.3 \
+    PyYAML==6.0.3 cryptography==50.0.0 \
     openpyxl==3.1.5 reportlab==5.0.0 \
     croniter==6.2.4 prometheus-client==0.21.1 \
     boto3==1.43.87 python-multipart==0.0.32 && \
@@ -63,7 +63,8 @@ RUN groupadd --gid 10001 appuser && \
     apt-get update && \
     apt-get install -y --no-install-recommends --only-upgrade \
       util-linux bsdutils mount login \
-      libblkid1 libmount1 libsmartcols1 libuuid1 liblastlog2-2 && \
+      libblkid1 libmount1 libsmartcols1 libuuid1 liblastlog2-2 \
+      perl-base gzip && \
     rm -rf /var/lib/apt/lists/* && \
     rm -rf /usr/local/lib/python3.11/site-packages/* /usr/local/bin/pip*
 
