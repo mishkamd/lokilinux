@@ -534,6 +534,8 @@ services:
       DATABASE_URL: "host=pgbouncer port=5432 user=${POSTGRES_USER} password=${POSTGRES_PASSWORD} dbname=${POSTGRES_DB}"
       NATS_URL: nats://${NATS_USER}:${NATS_PASSWORD}@nats:4222
       LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Rejects unsigned snapshots. Keep false until the whole fleet sends a MAC (docs/security/SNAPSHOT_HMAC.md).
+      ENFORCE_SNAPSHOT_HMAC: ${ENFORCE_SNAPSHOT_HMAC:-false}
     volumes:
       - certs_dir:/etc/lokilinux/certs:ro
     networks:
