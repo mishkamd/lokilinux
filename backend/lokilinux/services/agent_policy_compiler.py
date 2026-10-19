@@ -132,10 +132,9 @@ def validate(doc: dict) -> dict:
     if not isinstance(heartbeat, dict):
         raise PolicyValidationError("spec.heartbeat: must be a mapping")
     _reject_unknown(heartbeat, {"interval_seconds"}, "spec.heartbeat")
-    if "interval_seconds" in heartbeat or True:
-        heartbeat["interval_seconds"] = _clamp_int(
-            heartbeat.get("interval_seconds", 60), HEARTBEAT_INTERVAL_BOUNDS, "spec.heartbeat.interval_seconds"
-        )
+    heartbeat["interval_seconds"] = _clamp_int(
+        heartbeat.get("interval_seconds", 60), HEARTBEAT_INTERVAL_BOUNDS, "spec.heartbeat.interval_seconds"
+    )
     spec["heartbeat"] = heartbeat
 
     health = spec.get("health") or {}
