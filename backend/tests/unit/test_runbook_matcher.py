@@ -74,14 +74,16 @@ async def test_severity_at_or_above_min_severity_matches(db_session):
 async def test_execute_runbook_without_workflow_id_raises(db_session):
     rb = await _make_runbook(db_session, workflow_id=None)
     with pytest.raises(ValueError):
-        await execute_runbook(db_session, cache=None, runbook=rb)
+        await execute_runbook(db_session, cache=None, storage=None, runbook=rb)
 
 
 @pytest.mark.asyncio
 async def test_execute_runbook_calls_start_run(db_session, monkeypatch):
     calls = []
 
-    async def _fake_start_run(db, cache, workflow_id, *, trigger_type, triggered_by, nats=None, **kw):
+    async def _fake_start_run(
+        db, cache, storage, workflow_id, *, trigger_type, triggered_by, nats=None, **kw
+    ):
         calls.append((workflow_id, trigger_type, triggered_by))
         return SimpleNamespace(id=uuid4())
 
@@ -89,7 +91,7 @@ async def test_execute_runbook_calls_start_run(db_session, monkeypatch):
     workflow_id = (await _make_workflow(db_session)).id
     rb = await _make_runbook(db_session, workflow_id=workflow_id)
 
-    run = await execute_runbook(db_session, cache=None, runbook=rb)
+    run = await execute_runbook(db_session, cache=None, storage=None, runbook=rb)
 
     assert run is not None
     assert calls == [(workflow_id, "API", None)]
@@ -104,7 +106,10 @@ async def test_maybe_auto_run_skips_manual_runbooks(db_session, monkeypatch):
     monkeypatch.setattr(runbook_service, "execute_runbook", _recording_execute(calls))
     await _make_runbook(db_session, trigger_mode="MANUAL", with_workflow=True)
 
-    await maybe_auto_run(db_session, cache=None, incident_type="application_degradation", incident_severity="CRITICAL", autorun_enabled=True)
+    await maybe_auto_run(
+        db_session, cache=None, storage=None, incident_type="application_degradation",
+        incident_severity="CRITICAL", autorun_enabled=True,
+    )
     assert calls == []
 
 
@@ -114,7 +119,10 @@ async def test_maybe_auto_run_skips_when_kill_switch_off(db_session, monkeypatch
     monkeypatch.setattr(runbook_service, "execute_runbook", _recording_execute(calls))
     await _make_runbook(db_session, trigger_mode="AUTO", with_workflow=True)
 
-    await maybe_auto_run(db_session, cache=None, incident_type="application_degradation", incident_severity="CRITICAL", autorun_enabled=False)
+    await maybe_auto_run(
+        db_session, cache=None, storage=None, incident_type="application_degradation",
+        incident_severity="CRITICAL", autorun_enabled=False,
+    )
     assert calls == []
 
 
@@ -124,24 +132,30 @@ async def test_maybe_auto_run_executes_auto_runbooks_when_enabled(db_session, mo
     monkeypatch.setattr(runbook_service, "execute_runbook", _recording_execute(calls))
     rb = await _make_runbook(db_session, trigger_mode="AUTO", with_workflow=True)
 
-    await maybe_auto_run(db_session, cache=None, incident_type="application_degradation", incident_severity="CRITICAL", autorun_enabled=True)
+    await maybe_auto_run(
+        db_session, cache=None, storage=None, incident_type="application_degradation",
+        incident_severity="CRITICAL", autorun_enabled=True,
+    )
     assert [r.id for r in calls] == [rb.id]
 
 
 @pytest.mark.asyncio
 async def test_maybe_auto_run_continues_after_one_failure(db_session, monkeypatch):
-    async def _failing_execute(db, cache, runbook, **kw):
+    async def _failing_execute(db, cache, storage, runbook, **kw):
         raise RuntimeError("boom")
 
     monkeypatch.setattr(runbook_service, "execute_runbook", _failing_execute)
     await _make_runbook(db_session, trigger_mode="AUTO", with_workflow=True)
 
-    runs = await maybe_auto_run(db_session, cache=None, incident_type="application_degradation", incident_severity="CRITICAL", autorun_enabled=True)
+    runs = await maybe_auto_run(
+        db_session, cache=None, storage=None, incident_type="application_degradation",
+        incident_severity="CRITICAL", autorun_enabled=True,
+    )
     assert runs == []  # failure caught, not raised
 
 
 def _recording_execute(calls):
-    async def _execute(db, cache, runbook, **kw):
+    async def _execute(db, cache, storage, runbook, **kw):
         calls.append(runbook)
         return SimpleNamespace(id=uuid4())
 
@@ -169,7 +183,7 @@ async def test_incident_created_handler_respects_kill_switch(db_session, fake_ca
     monkeypatch.setattr(runbook_service, "execute_runbook", _recording_execute(calls))
     await _make_runbook(db_session, trigger_mode="AUTO", with_workflow=True, incident_type="application_degradation")
 
-    worker = IncidentWorker(fake_nats, _db_factory(db_session), fake_cache, None)
+    worker = IncidentWorker(fake_nats, _db_factory(db_session), fake_cache, None, None)
     await worker._handle_incident_created(_msg({"type": "application_degradation", "severity": "CRITICAL"}))
 
     assert calls == []  # kill switch defaults False, no Setting row overriding it
@@ -177,5 +191,5 @@ async def test_incident_created_handler_respects_kill_switch(db_session, fake_ca
 
 @pytest.mark.asyncio
 async def test_incident_created_handler_malformed_json_does_not_raise(db_session, fake_cache, fake_nats):
-    worker = IncidentWorker(fake_nats, _db_factory(db_session), fake_cache, None)
+    worker = IncidentWorker(fake_nats, _db_factory(db_session), fake_cache, None, None)
     await worker._handle_incident_created(SimpleNamespace(data=b"{not-json"))

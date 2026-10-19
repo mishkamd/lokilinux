@@ -15,12 +15,13 @@ const STATUS_COLOR: Record<string, string> = {
   ACTIVE: 'red', ACKNOWLEDGED: 'gray', RESOLVED: 'green', EXPIRED: 'gray',
 }
 
-// Resolved from the Inventory widget's already-loaded list — alerts only
-// carry agent_id (UUID), no hostname of their own. Falls back to the raw
+// Alert carries hostname from the backend; when it's null, resolve from the
+// Inventory widget's already-loaded list via agent_id. Falls back to the raw
 // id when the agent isn't in the (top-10) inventory slice.
-function hostname(agentId: string | null): string {
-  if (!agentId) return '—'
-  return props.inventory.find((s) => s.id === agentId)?.hostname ?? agentId
+function hostname(alert: Alert): string {
+  if (alert.hostname) return alert.hostname
+  if (!alert.agent_id) return '—'
+  return props.inventory.find((s) => s.id === alert.agent_id)?.hostname ?? alert.agent_id
 }
 
 function duration(triggeredAt: string): string {
@@ -70,7 +71,7 @@ function duration(triggeredAt: string): string {
           <TableCell><Badge size="xs" :color="severityColor(incident.severity)">{{ severityLabel(incident.severity) }}</Badge></TableCell>
           <TableCell>
             <p class="font-medium leading-tight">{{ incident.title }}</p>
-            <p class="text-xs text-muted-foreground">{{ hostname(incident.agent_id) }}</p>
+            <p class="text-xs text-muted-foreground">{{ hostname(incident) }}</p>
           </TableCell>
           <TableCell class="text-xs text-muted-foreground">{{ incident.alert_type ?? '—' }}</TableCell>
           <TableCell class="font-mono text-xs text-muted-foreground">{{ duration(incident.triggered_at) }}</TableCell>

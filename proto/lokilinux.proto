@@ -25,9 +25,22 @@ message AgentHeartbeatRequest {
   repeated Vulnerability vulnerabilities = 8;
   AgentHealth health           = 9;
   int32 pending_jobs           = 10;
+  // Repurposed (Phase G2) to report the observability collector policy
+  // version the agent is currently running — was declared but never set
+  // or read anywhere before this. If a future feature wants a generic
+  // "config version" again, give it its own field instead.
   string config_version        = 11;
 
-  // fields 12-19 reserved for future use
+  // Native job types this agent executes without the CUSTOM_COMMAND shell fallback
+  // (ROADMAP R5). The server dispatches natively only to agents that list them.
+  repeated string capabilities = 12;
+
+  // Snapshot signing key id the agent currently holds, and one MAC per domain
+  // carried in full on this heartbeat.
+  int32 snapshot_hmac_key_id = 13;
+  map<string, SnapshotMAC> domain_macs = 14;
+
+  // fields 15-19 reserved for future use
 
   // SHA-256 of the serialised packages list — used for delta-sync optimisation
   string packages_checksum = 20;
@@ -48,6 +61,18 @@ message AgentHeartbeatRequest {
   map<string, google.protobuf.Struct> domain_full = 28; // full canonical fact bodies, resync only
 }
 
+// HMAC over "v1|agent_id|domain|content_hash" with the agent's snapshot key
+// (docs/security/SNAPSHOT_HMAC.md).
+message SnapshotMAC {
+  int32  key_id = 1;
+  string mac    = 2;
+}
+
+message SnapshotHMACKey {
+  int32  key_id = 1;
+  string key    = 2; // base64 of the raw key
+}
+
 message AgentHeartbeatResponse {
   oneof command {
     JobRequest    execute_job    = 1;
@@ -60,6 +85,8 @@ message AgentHeartbeatResponse {
   // latest snapshot — the agent sends a full body for each in domain_full
   // on its next heartbeat (docs/compliance/04-PROTOCOL.md §3).
   repeated string resync_domains = 5;
+  // Snapshot signing key, sent only when the agent's key_id is stale (SNAPSHOT_HMAC.md).
+  SnapshotHMACKey snapshot_hmac = 6;
 }
 
 // ============================================================================
@@ -223,17 +250,35 @@ message JobResult {
   int32  exit_code       = 5;
   string error_message   = 6;
   google.protobuf.Timestamp updated_at = 7;
+  // Audit fields (Enterprise Compliance / agent-security-hardening plan
+  // P10) — populated by the agent from its security.Registry capability
+  // lookup and the job's signed envelope, when present.
+  string capability   = 8;
+  string risk_level    = 9;
+  string policy_id     = 10;
+  int64  duration_ms   = 11;
 }
 
 // ============================================================================
 // POLICY / CONFIG SYNC
 // ============================================================================
 
+message CollectorPolicy {
+  bool  enabled           = 1;
+  int32 interval_seconds  = 2;
+  map<string, double> thresholds = 3;
+}
+
 message PolicyConfig {
   string version                   = 1;
   google.protobuf.Struct policies  = 2;
   repeated string command_whitelist = 3;
   int32  heartbeat_interval        = 4;   // seconds
+  // Observability collector config (Phase G2), keyed by collector name.
+  // Distinct concern from `policies` above (that Struct carries the
+  // unrelated security LocalPolicy bag) — own typed field, same pattern
+  // as command_whitelist/heartbeat_interval.
+  map<string, CollectorPolicy> collectors = 5;
 }
 
 message PolicySyncRequest {
@@ -255,6 +300,33 @@ message MetricsData {
 
 message MetricsAck {
   bool success = 1;
+}
+
+// ============================================================================
+// OBSERVABILITY EVENT REPORTING (Phase G2)
+// ============================================================================
+
+message EventRecord {
+  string event_id       = 1;   // agent-issued UUID — must survive to NATS unchanged (idempotency)
+  string type            = 2;
+  string severity        = 3;  // DEBUG/INFO/WARNING/ERROR/CRITICAL — matches events/schemas.py SEVERITIES
+  string host_id         = 4;
+  string service         = 5;
+  google.protobuf.Timestamp timestamp = 6;
+  google.protobuf.Struct payload       = 7;
+  string priority_class   = 8; // CRITICAL/HIGH/NORMAL/LOW (internal/eq class) — informational only server-side
+}
+
+message EventBatch {
+  string agent_id    = 1;
+  string batch_id     = 2;  // server-side batch-level logging only, NOT the idempotency key (event_id is)
+  bytes  events_gzip  = 3;  // gzip(json(repeated EventRecord))
+}
+
+message EventAck {
+  bool   accepted        = 1;
+  int32  events_accepted = 2;
+  string error_message   = 3;
 }
 
 // ============================================================================
@@ -304,6 +376,10 @@ service AgentService {
 
   // Agent streams metrics in bulk; server acknowledges
   rpc ReportMetrics(stream MetricsData) returns (MetricsAck);
+
+  // Agent streams batched observability events (gzip'd); server acknowledges
+  // with an accepted count. Client-streaming, mirrors ReportMetrics's shape.
+  rpc ReportEvents(stream EventBatch) returns (EventAck);
 
   // Agent pulls latest policy configuration
   rpc SyncPolicy(PolicySyncRequest) returns (PolicyConfig);

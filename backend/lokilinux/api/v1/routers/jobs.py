@@ -15,6 +15,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.auth.dependencies import get_current_user, require_role, safe_user_uuid
+from lokilinux.auth.permissions import has_permission
 from lokilinux.cache import TTL_JOB_STATUS, RedisCache
 from lokilinux.dependencies import get_cache, get_db, get_nats
 from lokilinux.models.agent import Agent
@@ -39,6 +40,19 @@ _HOST_MUTATING_JOB_TYPES = frozenset(
     {JobType.CUSTOM_COMMAND.value, JobType.ANSIBLE_PLAYBOOK.value}
 )
 
+# Ansible job parameters carry the playbook source and role bodies. Callers
+# without storage.read get the job without these keys; the stored row is untouched.
+_CONTENT_JOB_PARAMS = frozenset({"playbook_content", "roles"})
+
+
+def redact_job_for_user(job: JobResponse, user: dict) -> JobResponse:
+    """Copy of job with content parameters removed for callers lacking storage.read.
+    Returns a new model, so cached and DB-backed objects are never mutated."""
+    if job.parameters is None or has_permission(user, "storage.read"):
+        return job
+    params = {k: v for k, v in job.parameters.items() if k not in _CONTENT_JOB_PARAMS}
+    return job.model_copy(update={"parameters": params})
+
 
 # ── List jobs ─────────────────────────────────────────────────────────────────
 
@@ -51,11 +65,13 @@ async def list_jobs(
     policy_id: UUID | None = Query(None),
     db: AsyncSession = Depends(get_db),
     cache: RedisCache = Depends(get_cache),
-    _: dict = Depends(get_current_user),
+    user: dict = Depends(get_current_user),
 ) -> CursorPage[JobResponse]:
+    # Cache holds unredacted pages (shared across callers); redaction happens per response.
     cache_key = f"job:list:{agent_id}:{status}:{policy_id}:{cursor}:{limit}"
     if hit := await cache.get_cached(cache_key):
-        return CursorPage[JobResponse].model_validate(hit)
+        page = CursorPage[JobResponse].model_validate(hit)
+        return page.model_copy(update={"items": [redact_job_for_user(j, user) for j in page.items]})
 
     q = select(Job).order_by(Job.created_at.desc(), Job.id.desc())
 
@@ -108,7 +124,7 @@ async def list_jobs(
         total=total,
     )
     await cache.set_cached(cache_key, json.loads(page.model_dump_json()), ttl=TTL_JOB_STATUS)
-    return page
+    return page.model_copy(update={"items": [redact_job_for_user(j, user) for j in page.items]})
 
 
 # ── Create job ────────────────────────────────────────────────────────────────
@@ -177,11 +193,11 @@ async def get_job(
     job_id: UUID,
     db: AsyncSession = Depends(get_db),
     cache: RedisCache = Depends(get_cache),
-    _: dict = Depends(get_current_user),
+    user: dict = Depends(get_current_user),
 ) -> JobResponse:
     cache_key = f"job:{job_id}:status"
     if hit := await cache.get_cached(cache_key):
-        return JobResponse.model_validate(hit)
+        return redact_job_for_user(JobResponse.model_validate(hit), user)
 
     row = (await db.execute(select(Job).where(Job.id == job_id))).scalar_one_or_none()
     if row is None:
@@ -189,7 +205,7 @@ async def get_job(
 
     resp = JobResponse.model_validate(row)
     await cache.set_cached(cache_key, json.loads(resp.model_dump_json()), ttl=TTL_JOB_STATUS)
-    return resp
+    return redact_job_for_user(resp, user)
 
 
 # ── Job results (per agent) ──────────────────────────────────────────────────
@@ -251,7 +267,7 @@ async def cancel_job(
     job_id: UUID,
     db: AsyncSession = Depends(get_db),
     cache: RedisCache = Depends(get_cache),
-    _: dict = Depends(get_current_user),
+    _: dict = Depends(require_role("ADMIN", "OPERATOR")),
 ) -> None:
     row = (await db.execute(select(Job).where(Job.id == job_id))).scalar_one_or_none()
     if row is None:

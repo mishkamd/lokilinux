@@ -87,29 +87,6 @@ func (s *Store) Close() error { return s.db.Close() }
 
 // ---- Job queue ---------------------------------------------------------------
 
-// Job holds a locally queued job entry.
-type Job struct {
-	ID         string
-	JobType    string
-	Status     string
-	Parameters string // JSON
-	CreatedAt  time.Time
-}
-
-// EnqueueJob stores a job for offline or deferred execution.
-func (s *Store) EnqueueJob(ctx context.Context, j Job) error {
-	now := time.Now().Unix()
-	expires := time.Now().AddDate(0, 0, 30).Unix()
-	_, err := s.db.ExecContext(ctx,
-		`INSERT OR REPLACE INTO jobs(id, job_type, status, parameters, created_at, updated_at, expires_at)
-         VALUES(?,?,?,?,?,?,?)`,
-		j.ID, j.JobType, j.Status, j.Parameters, now, now, expires,
-	)
-	return err
-}
-
-// UpdateJobStatus changes a job's status.
-
 // MarkJobSeen records a replay-protection nonce. Returns false when the
 // nonce was already present — the caller must then reject the job as a
 // duplicate (INSERT OR IGNORE semantics, single statement = race-free).
@@ -136,38 +113,6 @@ func (s *Store) PruneSeenJobs(ctx context.Context, cutoff time.Time) error {
 	_, err := s.db.ExecContext(ctx,
 		`DELETE FROM seen_jobs WHERE seen_at < ?`, cutoff.Unix())
 	return err
-}
-
-// UpdateJobStatus changes a job's status.
-func (s *Store) UpdateJobStatus(ctx context.Context, id, status string) error {
-	_, err := s.db.ExecContext(ctx,
-		`UPDATE jobs SET status=?, updated_at=? WHERE id=?`,
-		status, time.Now().Unix(), id,
-	)
-	return err
-}
-
-// PendingJobs returns all jobs with status PENDING.
-func (s *Store) PendingJobs(ctx context.Context) ([]Job, error) {
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, job_type, status, parameters, created_at FROM jobs WHERE status='PENDING' ORDER BY created_at ASC`,
-	)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	var jobs []Job
-	for rows.Next() {
-		var j Job
-		var ts int64
-		if err := rows.Scan(&j.ID, &j.JobType, &j.Status, &j.Parameters, &ts); err != nil {
-			return nil, err
-		}
-		j.CreatedAt = time.Unix(ts, 0)
-		jobs = append(jobs, j)
-	}
-	return jobs, rows.Err()
 }
 
 // PurgeExpiredJobs removes jobs older than 30 days.
@@ -201,56 +146,7 @@ func (s *Store) GetConfig(ctx context.Context, key string) (string, error) {
 	return value, err
 }
 
-// ---- Packages cache ----------------------------------------------------------
-
-// CachedPackage is one row in packages_cache.
-type CachedPackage struct {
-	Name     string
-	Version  string
-	Arch     string
-	Checksum string // SHA256 of the full snapshot
-}
-
-// UpsertPackagesCache replaces the package snapshot for an agent.
-// Runs in a single transaction for consistency.
-func (s *Store) UpsertPackagesCache(ctx context.Context, agentID string, pkgs []CachedPackage, checksum string) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback() //nolint:errcheck
-
-	if _, err := tx.ExecContext(ctx,
-		`DELETE FROM packages_cache WHERE agent_id=?`, agentID,
-	); err != nil {
-		return err
-	}
-
-	now := time.Now().Unix()
-	for _, p := range pkgs {
-		if _, err := tx.ExecContext(ctx,
-			`INSERT INTO packages_cache(agent_id, name, version, arch, checksum, cached_at) VALUES(?,?,?,?,?,?)`,
-			agentID, p.Name, p.Version, p.Arch, checksum, now,
-		); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
-}
-
-// GetPackagesChecksum returns the last stored checksum for agentID, or "" if none.
-func (s *Store) GetPackagesChecksum(ctx context.Context, agentID string) (string, error) {
-	var checksum string
-	err := s.db.QueryRowContext(ctx,
-		`SELECT checksum FROM packages_cache WHERE agent_id=? LIMIT 1`, agentID,
-	).Scan(&checksum)
-	if err == sql.ErrNoRows {
-		return "", nil
-	}
-	return checksum, err
-}
-
-// ---- Compliance state ---------------------------------------------------------
+// ---- Config store ------------------------------------------------------------
 
 // ComplianceState is one domain's last-collected snapshot, persisted so an
 // agent restart doesn't lose lastHash/lastRun — internal/compliance.Runner

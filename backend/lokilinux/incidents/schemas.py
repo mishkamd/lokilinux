@@ -25,6 +25,7 @@ class IncidentResponse(BaseModel):
     id: UUID
     tenant_id: str
     title: str
+    hostname: str | None = None  # transient — filled by the router from the owning agent
     type: str
     severity: str
     status: str

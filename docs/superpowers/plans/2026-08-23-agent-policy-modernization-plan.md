@@ -1,6 +1,10 @@
 # Plan — Modernizare Agent: Enterprise Policy Management
 
 - **Data:** 2026-08-23
+
+> **STATUS (2026-08-27): MVP LIVE pe devapp — full closed loop VERIFICAT.** Migrația 038 aplicată (037→038). Backend: models/compiler/API/signing (commits 2494ce3, 0343a73, c4f4fd8). Agent: internal/policy + DesiredPolicyManager pe heartbeat (58c41d3, c4f4fd8); release agent 0.39/0.40. UI admin: listă+editor+publish+deploy (0fb9515). Live pe devapp.mishka.md: deploy rocky-prod-policy v1 → envelope pe heartbeat → verify+apply+commit local (policy.json 0600) → report → deployment=applied, agents.policy_status=idle, drift in_sync=true. E2E real pe 1/2 agenți.
+> **NOT TESTED / rămâne:** rocky = agent DOWN de la fix-ul yaml prin job (host viu, SSH refuzat — necesită consolă locală: repara /etc/lokilinux/agent.yaml + restart lokilinux-agent). Faza 4 UI restanțe: panou drift per agent, grupuri UI, audit view, rollback UI (API-urile există). Faza 5/6 nescoperite.
+
 - **Scop:** Sistem Enterprise de Agent Policy Management — Control Plane = desired state, Agent = autonomous managed worker cu ultima politică validă local.
 - **MVP livrabil:** Fazele 0–4. Faza 5 (signals/logs/buffer runtime) și Faza 6 (integrations) rămân iterații separate.
 - **Decizii blocate (2026-08-23):**

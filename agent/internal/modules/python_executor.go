@@ -2,9 +2,14 @@ package modules
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
 	"time"
 )
+
+// maxPythonScriptBytes (plan P6) — rejected before dispatch, never
+// truncated: a truncated script silently changes what runs.
+const maxPythonScriptBytes = 256 * 1024
 
 // PythonExecutor runs Python scripts via python3 -c <script> — no shell,
 // argv-based dispatch via runViaSystemdRunArgv (same sandbox escape as
@@ -23,18 +28,25 @@ func NewPythonExecutor() *PythonExecutor {
 func (e *PythonExecutor) Execute(ctx context.Context, jobID, script string, timeoutSec int) JobResult {
 	start := time.Now()
 
-	if _, err := exec.LookPath(e.binary); err != nil {
-		return JobResult{
-			JobID: jobID, ExitCode: 1,
-			Error:      "python3 not installed on target (python3 not found in PATH)",
-			DurationMs: msSince(start),
-		}
-	}
-
 	if script == "" {
 		return JobResult{
 			JobID: jobID, ExitCode: 1,
 			Error:      "empty python script",
+			DurationMs: msSince(start),
+		}
+	}
+	if len(script) > maxPythonScriptBytes {
+		return JobResult{
+			JobID: jobID, ExitCode: 1,
+			Error:      fmt.Sprintf("python script exceeds %d byte cap", maxPythonScriptBytes),
+			DurationMs: msSince(start),
+		}
+	}
+
+	if _, err := exec.LookPath(e.binary); err != nil {
+		return JobResult{
+			JobID: jobID, ExitCode: 1,
+			Error:      "python3 not installed on target (python3 not found in PATH)",
 			DurationMs: msSince(start),
 		}
 	}
@@ -58,15 +70,22 @@ const checkScript = "import ast, sys\nast.parse(sys.argv[1])\n"
 // arbitrary quotes/newlines in it can't break out of the -c program.
 func (e *PythonExecutor) CheckSyntax(ctx context.Context, jobID, script string, timeoutSec int) JobResult {
 	start := time.Now()
+	if script == "" {
+		return JobResult{JobID: jobID, ExitCode: 1, Error: "empty python script", DurationMs: msSince(start)}
+	}
+	if len(script) > maxPythonScriptBytes {
+		return JobResult{
+			JobID: jobID, ExitCode: 1,
+			Error:      fmt.Sprintf("python script exceeds %d byte cap", maxPythonScriptBytes),
+			DurationMs: msSince(start),
+		}
+	}
 	if _, err := exec.LookPath(e.binary); err != nil {
 		return JobResult{
 			JobID: jobID, ExitCode: 1,
 			Error:      "python3 not installed on target (python3 not found in PATH)",
 			DurationMs: msSince(start),
 		}
-	}
-	if script == "" {
-		return JobResult{JobID: jobID, ExitCode: 1, Error: "empty python script", DurationMs: msSince(start)}
 	}
 
 	argv := []string{e.binary, "-c", checkScript, script}

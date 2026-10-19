@@ -23,6 +23,7 @@ from lokilinux.models.compliance_assessment import ComplianceAssessment
 from lokilinux.api.v1.routers.compliance._pagination import paginate_keyset
 from lokilinux.schemas.common import CursorPage
 from lokilinux.schemas.compliance_assessment import AssessmentCreate, AssessmentResponse
+from lokilinux.services.audit_service import AuditService
 
 router = APIRouter()
 
@@ -42,6 +43,15 @@ async def create_assessment(
     db.add(assessment)
     await db.commit()
     await db.refresh(assessment)
+
+    await AuditService(db).log(
+        action="compliance.assessment_created",
+        user_id=current_user.get("id"),
+        actor_name=current_user.get("username") or current_user.get("email"),
+        resource_type="compliance_assessment",
+        resource_id=str(assessment.id),
+        changes={"policy_set_id": str(body.policy_set_id)},
+    )
     return AssessmentResponse.model_validate(assessment)
 
 

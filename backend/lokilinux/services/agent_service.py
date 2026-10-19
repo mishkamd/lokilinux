@@ -2,7 +2,8 @@
 LokiLinux — AgentService: heartbeat updates, pending-job dispatch, inactivity marking.
 """
 
-from datetime import datetime, timezone
+import logging
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from sqlalchemy import and_, case, delete, or_, select, tuple_, update
@@ -16,10 +17,20 @@ from lokilinux.models.cve import CVE, AgentVulnerability, Package
 from lokilinux.models.job import JobResult
 from lokilinux.services.alert_service import AlertService
 from lokilinux.services.job_service import recompute_job_status
+from lokilinux.services.snapshot_hmac import ensure_key as ensure_snapshot_key
+from lokilinux.utils.shell import valid_package_name
+
+logger = logging.getLogger(__name__)
 
 # health % thresholds above which the dashboard should flag the resource as critical
 _DISK_FULL_THRESHOLD = 90.0
 _MEMORY_CRITICAL_THRESHOLD = 90.0
+
+# Jobs handed to one agent per heartbeat: the get_pending_jobs window.
+PENDING_JOBS_PER_HEARTBEAT = 10
+
+# Seconds a job held back for a signing failure is skipped before it is signed again.
+HELD_JOB_SECONDS = 60
 
 # proto JobState enum values (agent/gen/lokilinux/lokilinux.pb.go) -> JobResult.status
 _JOB_STATE_TO_STATUS = {
@@ -61,6 +72,7 @@ class AgentService:
         was_active = agent.status == AgentStatus.ACTIVE
         agent.last_heartbeat = datetime.now(timezone.utc)
         agent.status = AgentStatus.ACTIVE
+        ensure_snapshot_key(agent)
         if not was_active:
             # Recovery transition only — checking this on every heartbeat
             # would mean a query per agent per 60s in steady state for
@@ -86,6 +98,9 @@ class AgentService:
 
         if data.get("agent_version"):
             agent.agent_version = data["agent_version"]
+        if isinstance(data.get("capabilities"), list):
+            # Bounded: the agent sends a short fixed list; anything longer is malformed.
+            agent.capabilities = [str(c)[:64] for c in data["capabilities"][:32]]
         recent_logs = data.get("recent_logs")
         if recent_logs is not None:
             agent.recent_logs = {
@@ -147,19 +162,27 @@ class AgentService:
         — they're all in the current report, so none of their rows match the
         delete condition.
         """
+        candidates = [p for p in packages if p.get("name") and p.get("version")]
         rows = [
             {
                 "agent_id": agent_pk,
                 "name": p["name"],
                 "version": p["version"],
                 "architecture": p.get("architecture") or None,
+                "source_package": p.get("source") or None,
                 "latest_version": p.get("latest_version") or None,
                 "is_update_available": bool(p.get("update_available", False)),
                 "is_security_update_available": bool(p.get("is_security_update", False)),
             }
-            for p in packages
-            if p.get("name") and p.get("version")
+            for p in candidates
+            if valid_package_name(p["name"])
         ]
+        if len(rows) < len(candidates):
+            # osv_matcher reads these names back and builds CVE rows from them.
+            logger.warning(
+                "dropped %d package row(s) with an invalid name",
+                len(candidates) - len(rows),
+            )
         if not rows:
             return
 
@@ -168,6 +191,7 @@ class AgentService:
             constraint="uq_packages_agent_name_version",
             set_={
                 "architecture": stmt.excluded.architecture,
+                "source_package": stmt.excluded.source_package,
                 "latest_version": stmt.excluded.latest_version,
                 "is_update_available": stmt.excluded.is_update_available,
                 "is_security_update_available": stmt.excluded.is_security_update_available,
@@ -215,6 +239,7 @@ class AgentService:
         never be misread as "everything got patched" and silently resolve a
         host's real, still-open vulnerabilities.
         """
+        candidates = [v for v in vulnerabilities if v.get("cve_id") and v.get("package_name")]
         rows = [
             {
                 "cve_id": v["cve_id"],
@@ -223,9 +248,14 @@ class AgentService:
                 "severity": v.get("severity") or None,
                 "fixed_version": v.get("fixed_version") or None,
             }
-            for v in vulnerabilities
-            if v.get("cve_id") and v.get("package_name")
+            for v in candidates
+            if valid_package_name(v["package_name"])
         ]
+        if len(rows) < len(candidates):
+            logger.warning(
+                "dropped %d vulnerability row(s) with an invalid package_name",
+                len(candidates) - len(rows),
+            )
 
         if rows:
             # One CVE routinely affects several packages in the same heartbeat
@@ -370,6 +400,20 @@ class AgentService:
             row.error_message = r.get("error_message") or None
             row.stdout = r.get("output") or None
             row.completed_at = datetime.now(timezone.utc)
+
+            # Audit fields (agent-security-hardening plan P10) — reuses the
+            # otherwise-unused resources_used JSONB column rather than a new
+            # migration; only present when the agent actually populated them
+            # (capability/risk from a known job_type, policy_id from a
+            # signed envelope — see manager.go's populateAuditFields).
+            audit_meta = {
+                k: r.get(k)
+                for k in ("capability", "risk_level", "policy_id", "duration_ms")
+                if r.get(k)
+            }
+            if audit_meta:
+                row.resources_used = audit_meta
+
             touched_job_ids.add(UUID(job_id))
 
         for jid in touched_job_ids:
@@ -382,7 +426,9 @@ class AgentService:
         if touched_job_ids:
             await self.cache.invalidate_pattern("job:list:*")
 
-    async def get_pending_jobs(self, agent_id: UUID) -> list:
+    async def get_pending_jobs(
+        self, agent_id: UUID, exclude_ids=(), limit: int = PENDING_JOBS_PER_HEARTBEAT
+    ) -> list:
         """Return Jobs assigned to this agent whose JobResult status is PENDING.
 
         Jobs with requires_approval=True are withheld until Job.approved_at
@@ -394,9 +440,16 @@ class AgentService:
         user id often doesn't parse as UUID — see auth/dependencies.py), so
         approved_by can be NULL on a genuinely-approved job. approved_at is
         always set by JobService.approve_job regardless of that.
-        """
-        from lokilinux.models.job import Job, JobResult, JobStatus
 
+        exclude_ids: job ids the caller already looked at this heartbeat (already
+        selected), so they don't refill the window. Rows under a live hold from
+        mark_held() (held_until still in the future) are skipped too.
+
+        Read-only: the caller marks what it actually sends via mark_dispatched().
+        """
+        from lokilinux.models.job import Job, JobResult
+
+        now = datetime.now(timezone.utc)
         result = await self.db.execute(
             select(Job)
             .join(JobResult, JobResult.job_id == Job.id)
@@ -404,46 +457,71 @@ class AgentService:
                 and_(
                     JobResult.agent_id == agent_id,
                     JobResult.status == "PENDING",
+                    or_(JobResult.held_until.is_(None), JobResult.held_until <= now),
+                    Job.id.not_in(list(exclude_ids)),
                     or_(
                         Job.requires_approval.is_(False),
                         Job.approved_at.isnot(None),
                     ),
                 )
             )
-            .limit(10)
+            .limit(limit)
         )
-        jobs = result.scalars().all()
+        return result.scalars().all()
 
-        # Mark as dispatched so the same job isn't re-selected (and re-sent
-        # to the agent) on every subsequent heartbeat until a result comes
-        # back — this SELECT used to be side-effect free, which meant a job
-        # stayed QUEUED/PENDING for its entire run and got re-executed each
-        # heartbeat. A job left RUNNING because the agent died is swept to
-        # TIMEOUT by JobTimeoutWorker.
-        if jobs:
-            job_ids = [j.id for j in jobs]
-            now = datetime.now(timezone.utc)
-            await self.db.execute(
-                update(JobResult)
-                .where(
-                    JobResult.job_id.in_(job_ids),
-                    JobResult.agent_id == agent_id,
-                    JobResult.status == "PENDING",
-                )
-                .values(status="RUNNING", started_at=now)
+    async def mark_dispatched(self, agent_id: UUID, jobs: list) -> list:
+        """Mark jobs that go out in this heartbeat RUNNING, so they aren't re-selected
+        (and re-sent) on every subsequent heartbeat until a result comes back — a job
+        left RUNNING because the agent died is swept to TIMEOUT by JobTimeoutWorker.
+
+        Called after envelope signing: a job held back for a signing failure must stay
+        PENDING and never show RUNNING, so nothing has to revert it. Claiming also clears
+        any hold (held_until) left by mark_held().
+        """
+        from lokilinux.models.job import Job, JobStatus
+
+        if not jobs:
+            return []
+        now = datetime.now(timezone.utc)
+        # Claim only rows still PENDING. A concurrent heartbeat that selected the same job
+        # has its UPDATE match nothing once this one commits, so it cannot send it twice.
+        claimed = set((await self.db.execute(
+            update(JobResult)
+            .where(
+                JobResult.job_id.in_([j.id for j in jobs]),
+                JobResult.agent_id == agent_id,
+                JobResult.status == "PENDING",
             )
-            await self.db.execute(
-                update(Job)
-                .where(Job.id.in_(job_ids), Job.status.in_((JobStatus.QUEUED, JobStatus.SCHEDULED)))
-                .values(status=JobStatus.RUNNING, started_at=now)
-            )
-            await self.db.commit()
+            .values(status="RUNNING", started_at=now, held_until=None)
+            .returning(JobResult.job_id)
+        )).scalars().all())
+        if not claimed:
+            return []
+        await self.db.execute(
+            update(Job)
+            .where(Job.id.in_(claimed), Job.status.in_((JobStatus.QUEUED, JobStatus.SCHEDULED)))
+            .values(status=JobStatus.RUNNING, started_at=now)
+        )
+        await self.db.commit()
 
-            for jid in job_ids:
-                await self.cache.invalidate(f"job:{jid}:status")
-            await self.cache.invalidate_pattern("job:list:*")
+        for jid in claimed:
+            await self.cache.invalidate(f"job:{jid}:status")
+        await self.cache.invalidate_pattern("job:list:*")
+        return [j for j in jobs if j.id in claimed]
 
-        return jobs
+    async def mark_held(self, agent_id: UUID, job_ids: list) -> None:
+        """Hold back jobs that failed envelope signing for HELD_JOB_SECONDS. They stay
+        PENDING; get_pending_jobs skips them until held_until passes, so they stop taking
+        window slots and stop being re-signed on every heartbeat.
+        """
+        if not job_ids:
+            return
+        await self.db.execute(
+            update(JobResult)
+            .where(JobResult.job_id.in_(job_ids), JobResult.agent_id == agent_id)
+            .values(held_until=datetime.now(timezone.utc) + timedelta(seconds=HELD_JOB_SECONDS))
+        )
+        await self.db.commit()
 
     async def mark_inactive(self, agent_id: UUID) -> None:
         """Mark agent INACTIVE (called by a background stale-check task)."""

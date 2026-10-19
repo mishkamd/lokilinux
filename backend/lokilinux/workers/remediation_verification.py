@@ -26,6 +26,7 @@ from sqlalchemy import select, text
 from lokilinux.models.job import Job
 from lokilinux.models.remediation import RemediationAction, RemediationJob, RemediationPlan
 from lokilinux.services.audit_service import AuditService
+from lokilinux.services.job_service import _revert_drift_to_open
 
 logger = structlog.get_logger()
 
@@ -105,6 +106,7 @@ class RemediationVerificationWorker:
 
         if any(v == "FAIL" for v in verdicts.values()):
             plan.status = "FAILED"
+            await _revert_drift_to_open(db, plan.id)
             await AuditService(db).log(
                 action="compliance.remediation_plan_verification_failed",
                 resource_type="remediation_plan",
@@ -122,6 +124,7 @@ class RemediationVerificationWorker:
         # we've been waiting too long.
         if datetime.now(timezone.utc) - apply_job.completed_at > _VERIFICATION_TIMEOUT:
             plan.status = "FAILED"
+            await _revert_drift_to_open(db, plan.id)
             await AuditService(db).log(
                 action="compliance.remediation_plan_verification_timeout",
                 resource_type="remediation_plan",

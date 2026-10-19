@@ -173,6 +173,7 @@ async function rescan() {
         </EmptyState>
         <DataTable
           v-else :rows="selectedCveResources" :columns="resourceColumns" row-key="agent_id"
+          sortable :page-size="25"
           :selectable="canEdit" :selected="selected" @update:selected="selected = $event"
         >
           <template #hostname-data="{ row }">
@@ -202,7 +203,7 @@ async function rescan() {
     <Dialog v-model="showAcceptRisk" title="Accept risk">
       <template #body>
         <FormField label="Reason" required help="Recorded on the audit log">
-          <Textarea v-model="acceptRiskReason" rows="3" placeholder="Compensating control in place; no exposed network path." />
+          <Textarea v-model="acceptRiskReason" :rows="3" placeholder="Compensating control in place; no exposed network path." />
         </FormField>
       </template>
       <template #footer>

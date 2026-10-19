@@ -4,15 +4,20 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
+
+	gen "github.com/lokilinux/agent/gen/lokilinux"
 	"github.com/lokilinux/agent/internal/communication"
 	"github.com/lokilinux/agent/internal/compliance"
 	"github.com/lokilinux/agent/internal/broker"
 	"github.com/lokilinux/agent/internal/config"
+	"github.com/lokilinux/agent/internal/eq"
 	"github.com/lokilinux/agent/internal/modules"
 	"github.com/lokilinux/agent/internal/security"
 	"github.com/lokilinux/agent/internal/storage"
@@ -39,6 +44,7 @@ type Manager struct {
 	remediationExec   *modules.RemediationExecutor
 	workflowStepsExec *modules.WorkflowStepsExecutor
 	complianceRunner  *compliance.Runner
+	fimCollector      *compliance.FileIntegrityCollector
 	stop              chan struct{}
 
 	// signed-job trust model (docs/security/AGENT_SECURITY.md): verifier
@@ -53,6 +59,12 @@ type Manager struct {
 	secCfg       configSecurity
 	policyMu sync.RWMutex
 	policy   *security.LocalPolicy
+
+	// desired-state policy reconciliation (agent-policy-modernization plan);
+	// nil when cfg.Policy.Enabled is false.
+	desiredPolicy  *DesiredPolicyManager
+	policyReportMu sync.Mutex
+	policyReport   map[string]interface{}
 
 	failCount int // consecutive heartbeat failures, drives backoff
 
@@ -86,6 +98,33 @@ type Manager struct {
 	// just deadlock each other on its lock file).
 	inFlightMu sync.Mutex
 	inFlight   map[string]struct{}
+
+	// jobSlots caps jobs executing at once (JobExecution.MaxParallelJobs). A
+	// job over the limit keeps its goroutine and waits for a slot — it is
+	// never dropped, so the server never sees it vanish.
+	jobSlots chan struct{}
+
+	// eventQueue/eventFlusher: Phase G2 observability event pipeline. nil
+	// when cfg.EventQueue.Enabled is false — every call site guards on
+	// this, so the feature is fully off by default with zero overhead.
+	eventQueue   *eq.Queue
+	eventFlusher *eq.Flusher
+
+	// collectorPolicy*: Phase G2 SyncPolicy pull loop state, guarded
+	// separately from policyMu (unrelated security LocalPolicy above).
+	collectorPolicyMu      sync.RWMutex
+	collectorPolicyVersion string
+	collectorPolicies      map[string]gen.CollectorPolicy
+
+	// fimScopeVersion is the last-applied fim_config document version —
+	// touched only from handleResponse, which always runs on the heartbeat
+	// goroutine, so it needs no lock (same reasoning as pendingResults'
+	// comment above, just without the job-goroutine producer side).
+	fimScopeVersion int64
+
+	// snapshotKeys signs domain snapshots (docs/security/SNAPSHOT_HMAC.md). Touched
+	// only from the heartbeat goroutine, like fimScopeVersion.
+	snapshotKeys compliance.SnapshotKeys
 }
 
 const (
@@ -97,6 +136,27 @@ const (
 	// wedges the agent. Threshold matches nextDelay's backoff-start point.
 	reconnectAfterFailures = 3
 )
+
+// defaultMaxParallelJobs keeps a 2-vCPU host from being saturated by a burst of
+// package or playbook jobs (they also contend on package-manager locks).
+const defaultMaxParallelJobs = 2
+
+func maxParallelJobs(configured int) int {
+	if configured <= 0 {
+		return defaultMaxParallelJobs
+	}
+	return configured
+}
+
+// acquireJobSlot blocks until a job may run, or returns false if ctx ends first.
+func acquireJobSlot(ctx context.Context, slots chan struct{}) bool {
+	select {
+	case slots <- struct{}{}:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
 
 // NewManager wires up all subsystems. Returns an error if storage is unavailable.
 func NewManager(cfg *config.Config, log *slog.Logger, version string, logBuf *LogRingBuffer) (*Manager, error) {
@@ -127,6 +187,32 @@ func NewManager(cfg *config.Config, log *slog.Logger, version string, logBuf *Lo
 			"path", cfg.Security.SigningPubKeyPath)
 	}
 
+	// fimCollector is constructed once and shared between the runner's live
+	// registry and the policy manager's baseRegistry — a signed fim_config
+	// document (handleResponse below) calls SetPaths on this single
+	// instance, so the watch list stays in sync everywhere it's referenced
+	// instead of being frozen at whichever BuildRegistry call happened to
+	// run first (compliance.BuildRegistryWithFIM's own comment).
+	fimCollector := compliance.NewFileIntegrityCollectorWithConfig(cfg.FileIntegrity.WatchPaths, cfg.FileIntegrity.Ignores)
+	var fimScopeVersion int64
+	if blob, err := store.GetConfig(context.Background(), "compliance.fim_scope"); err == nil && blob != "" {
+		var scope compliance.FIMScope
+		if err := json.Unmarshal([]byte(blob), &scope); err == nil {
+			fimCollector.SetPaths(scope.WatchPaths, scope.IgnorePaths)
+			fimScopeVersion = scope.Version
+		} else {
+			log.Warn("discarding malformed persisted fim_scope", "error", err)
+		}
+	}
+
+	var snapshotKeys compliance.SnapshotKeys
+	if blob, err := store.GetConfig(context.Background(), "compliance.snapshot_hmac"); err == nil && blob != "" {
+		if err := json.Unmarshal([]byte(blob), &snapshotKeys); err != nil {
+			log.Warn("discarding malformed persisted snapshot HMAC keys", "error", err)
+			snapshotKeys = compliance.SnapshotKeys{}
+		}
+	}
+
 	// Restore last-good local policy across restarts (freshness is judged
 	// against ReceivedAt, so a stale one still fails HIGH+ jobs fail-closed).
 	mgr := &Manager{
@@ -150,20 +236,35 @@ func NewManager(cfg *config.Config, log *slog.Logger, version string, logBuf *Lo
 			modules.NewJobExecutor(),
 		),
 		complianceRunner: compliance.NewRunner(
-			compliance.BuildRegistry(cfg.FileIntegrity.WatchPaths, cfg.FileIntegrity.Ignores), store, log,
+			compliance.BuildRegistryWithFIM(fimCollector), store, log,
 		),
-		verifier: verifier,
-		replay:   security.NewReplayStore(store),
-		secCfg:   secCfg,
+		fimCollector:    fimCollector,
+		fimScopeVersion: fimScopeVersion,
+		snapshotKeys:    snapshotKeys,
+		verifier:        verifier,
+		replay:          security.NewReplayStore(store),
+		secCfg:          secCfg,
 		brokerClient: newBrokerClientIfConfigured(cfg.Security.ExecBrokerSocket),
-		stop:     make(chan struct{}),
-		nudge:    make(chan struct{}, 1),
-		inFlight: make(map[string]struct{}),
+		stop:         make(chan struct{}),
+		nudge:        make(chan struct{}, 1),
+		inFlight:     make(map[string]struct{}),
+		jobSlots:     make(chan struct{}, maxParallelJobs(cfg.JobExecution.MaxParallelJobs)),
 	}
 	if cfg.Security.ExecBrokerSocket != "" {
 		wireBrokerUpdateChecker(mgr, broker.NewClient(cfg.Security.ExecBrokerSocket))
 		wireBrokerRemediation(mgr, broker.NewClient(cfg.Security.ExecBrokerSocket))
 		log.Info("privileged execution delegated to exec broker", "socket", cfg.Security.ExecBrokerSocket)
+	}
+
+	if cfg.Policy.Enabled {
+		baseRegistry := compliance.BuildRegistryWithFIM(fimCollector)
+		dpm, derr := newDesiredPolicyManager(cfg, mgr.complianceRunner, baseRegistry)
+		if derr != nil {
+			return nil, fmt.Errorf("desired policy manager: %w", derr)
+		}
+		mgr.desiredPolicy = dpm
+		log.Info("desired-state policy reconciliation enabled",
+			"trusted_key_ids", len(cfg.Policy.TrustedKeys))
 	}
 
 	if blob, err := store.GetConfig(context.Background(), "security.local_policy"); err == nil && blob != "" {
@@ -173,6 +274,35 @@ func NewManager(cfg *config.Config, log *slog.Logger, version string, logBuf *Lo
 				"received_at", lp.ReceivedAt.Format(time.RFC3339))
 		}
 	}
+
+	if cfg.EventQueue.Enabled {
+		mgr.eventQueue = eq.NewQueue(cfg.EventQueue.Capacity)
+		mgr.eventFlusher = eq.NewFlusher(
+			mgr.eventQueue,
+			cfg.EventQueue.FlushMaxEvents,
+			cfg.EventQueue.FlushMaxBytes,
+			time.Duration(cfg.EventQueue.FlushIntervalSec)*time.Second,
+		)
+		// Phase G2 proof-path producer: route critical-level log entries
+		// into the queue. Every other event source (compliance collectors,
+		// job executor, security package) is explicitly out of scope for
+		// this phase — see docs/superpowers/plans/2026-08-24-observability-
+		// event-intelligence.md Phase G2 decision #3.
+		if logBuf != nil {
+			logBuf.SetOnCritical(func(line string, t time.Time) {
+				mgr.eventQueue.Push(eq.EventRecord{
+					EventID:   uuid.New().String(),
+					Type:      "agent.log.critical",
+					Severity:  "ERROR",
+					HostID:    cfg.Identity.AgentID,
+					Timestamp: t,
+					Payload:   map[string]interface{}{"line": line},
+				}, eq.CRITICAL)
+			})
+		}
+		log.Info("observability event queue enabled", "capacity", cfg.EventQueue.Capacity)
+	}
+
 	return mgr, nil
 }
 
@@ -188,6 +318,11 @@ func (m *Manager) Run(ctx context.Context) {
 		m.log.Warn("loading persisted compliance state failed", "error", err)
 	}
 	go m.complianceRunner.Run(ctx, complianceTickInterval)
+
+	if m.eventFlusher != nil {
+		go m.eventFlusher.Run(ctx, m.sendEventBatch)
+		go m.syncPolicyLoop(ctx)
+	}
 
 	// fire immediately on start, then on each computed delay
 	m.sendHeartbeat(ctx)
@@ -296,6 +431,40 @@ func (m *Manager) sendHeartbeat(ctx context.Context) {
 	}
 
 	payload := buildPayload(m.cfg.Identity.AgentID, sysInfo, pkgs, checksum, m.version, recentLogs, connCount, infoCount, critCount, health, results, domainHashes, domainFull, vulns)
+	payload["capabilities"] = nativeCapabilities()
+	// Sign each domain this heartbeat carries in full, binding its hash to our key.
+	payload["snapshot_hmac_key_id"] = m.snapshotKeys.CurrentKeyID()
+	if len(domainFull) > 0 && m.snapshotKeys.CurrentKeyID() > 0 {
+		macs := make(map[string]*gen.SnapshotMAC, len(domainFull))
+		for domain := range domainFull {
+			keyID, mac, err := m.snapshotKeys.MACFor(m.cfg.Identity.AgentID, domain, domainHashes[domain])
+			if err != nil {
+				m.log.Warn("snapshot MAC skipped", "domain", domain, "error", err)
+				continue
+			}
+			macs[domain] = &gen.SnapshotMAC{KeyID: keyID, MAC: mac}
+		}
+		payload["domain_macs"] = macs
+	}
+
+	// Phase G2: report the collector policy version we're currently
+	// running, repurposing the previously-dormant config_version field
+	// (confirmed unused anywhere before this — see G2-1 commit message).
+	if m.eventFlusher != nil {
+		if v := m.currentCollectorPolicyVersion(); v != "" {
+			payload["config_version"] = v
+		}
+	}
+
+	// Desired-policy apply report from the previous cycle (queued by
+	// handleResponse) rides this heartbeat — after a confirmed successful
+	// send the queued copy is cleared, same lifecycle as pendingResults.
+	m.policyReportMu.Lock()
+	if m.policyReport != nil {
+		payload["policy_report"] = m.policyReport
+	}
+	policyReport := m.policyReport
+	m.policyReportMu.Unlock()
 
 	resp, err := m.client.SendHeartbeat(ctx, payload)
 	if err != nil {
@@ -327,6 +496,15 @@ func (m *Manager) sendHeartbeat(ctx context.Context) {
 		m.resyncMu.Lock()
 		m.resyncDomains = nil
 		m.resyncMu.Unlock()
+	}
+
+	if policyReport != nil {
+		m.policyReportMu.Lock()
+		if m.policyReport != nil && m.policyReport["policy_id"] == policyReport["policy_id"] &&
+			m.policyReport["version"] == policyReport["version"] {
+			m.policyReport = nil
+		}
+		m.policyReportMu.Unlock()
 	}
 
 	m.log.Info("heartbeat sent",
@@ -382,10 +560,60 @@ func buildPayload(
 
 // handleResponse processes jobs and policy deltas from the server response.
 func (m *Manager) handleResponse(ctx context.Context, resp map[string]interface{}) {
+	// Desired-state policy (agent-policy-modernization plan Faza 2) — runs
+	// regardless of whether jobs came along, and queues the apply report for
+	// the NEXT heartbeat's policy_report field.
+	if envelopeRaw, ok := resp["policy_envelope"]; ok {
+		if envelope, ok := envelopeRaw.(map[string]interface{}); ok {
+			report := m.desiredPolicy.HandleEnvelope(ctx, envelope, m.complianceRunner)
+			if report != nil {
+				m.policyReportMu.Lock()
+				m.policyReport = report
+				m.policyReportMu.Unlock()
+			}
+		}
+	}
+
 	if domains, ok := resp["resync_domains"].([]string); ok && len(domains) > 0 {
 		m.resyncMu.Lock()
 		m.resyncDomains = domains
 		m.resyncMu.Unlock()
+	}
+
+	// Signed file-integrity watch/ignore scope (docs/compliance/11a-FRONTEND-
+	// PAGES.md §3.4) — independent of desired-state policy so it reaches
+	// every agent, not just ones with a policy deployment.
+	if envRaw, ok := resp["fim_config"].(map[string]interface{}); ok && m.fimCollector != nil {
+		raw, err := json.Marshal(envRaw)
+		if err != nil {
+			m.log.Warn("fim_config: re-marshal failed", "error", err)
+		} else {
+			scope, err := compliance.VerifyFIMConfig(raw, m.cfg.Identity.AgentID, m.cfg.Policy.TrustedKeys, m.fimScopeVersion)
+			switch {
+			case errors.Is(err, compliance.ErrFIMConfigDuplicate):
+				// expected on most heartbeats — the control plane re-attaches
+				// the current scope every time, not just on change.
+			case err != nil:
+				m.log.Warn("fim_config: rejected", "error", err)
+			default:
+				m.fimCollector.SetPaths(scope.WatchPaths, scope.IgnorePaths)
+				m.fimScopeVersion = scope.Version
+				if persisted, err := json.Marshal(scope); err == nil {
+					_ = m.store.SetConfig(ctx, "compliance.fim_scope", string(persisted))
+				}
+				m.log.Info("fim_config applied", "version", scope.Version, "watch_paths", len(scope.WatchPaths))
+			}
+		}
+	}
+
+	// Server-issued snapshot signing key (sent only when our key_id is stale).
+	if key, ok := resp["snapshot_hmac"].(*gen.SnapshotHMACKey); ok && key != nil {
+		if m.snapshotKeys.Install(compliance.SnapshotKey{KeyID: key.KeyID, Key: key.Key}) {
+			if blob, err := json.Marshal(m.snapshotKeys); err == nil {
+				_ = m.store.SetConfig(ctx, "compliance.snapshot_hmac", string(blob))
+			}
+			m.log.Info("snapshot HMAC key installed", "key_id", key.KeyID)
+		}
 	}
 
 	jobs, ok := resp["pending_jobs"]
@@ -461,10 +689,16 @@ func (m *Manager) handleResponse(ctx context.Context, resp map[string]interface{
 				m.inFlightMu.Unlock()
 			}()
 
+			if !acquireJobSlot(ctx, m.jobSlots) {
+				return
+			}
+			defer func() { <-m.jobSlots }()
+
 			result, ok := m.runJob(ctx, jobID, jobType, params, timeoutSec)
 			if !ok {
 				return
 			}
+			result = populateAuditFields(result, jobType, params)
 
 			m.log.Info("job executed",
 				"job_id", jobID,
@@ -507,6 +741,24 @@ func (m *Manager) runJob(ctx context.Context, jobID, jobType string, params map[
 		return m.runJobViaBroker(jobID, jobType, params, timeoutSec), true
 	}
 	return m.runLocal(ctx, jobID, jobType, params, timeoutSec), true
+}
+
+// populateAuditFields stamps capability/risk (plan P10) from the same
+// security.Registry the pre-dispatch trust gate already consulted, and
+// policy_id from the job's signed envelope when present — a free function
+// (no Manager state needed) so it's testable without spinning up the
+// dispatch goroutine.
+func populateAuditFields(result modules.JobResult, jobType string, params map[string]interface{}) modules.JobResult {
+	if capInfo, known := security.Registry[jobType]; known {
+		result.Capability = capInfo.Name
+		result.Risk = string(capInfo.Risk)
+	}
+	if envelope, signed := params["_envelope"].(map[string]interface{}); signed {
+		if pid, ok := envelope["policy_id"].(string); ok {
+			result.PolicyID = pid
+		}
+	}
+	return result
 }
 
 // runLocal is the legacy in-process dispatch (root mode).

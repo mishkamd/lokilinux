@@ -1,0 +1,51 @@
+# LokiLinux — LSP sidecars (standalone; does NOT join the app stack)
+# Usage:
+#   docker compose -f docker-compose.lsp.yml up -d --build
+#   # one-time Go module warm-up (needs egress):
+#   docker compose -f docker-compose.lsp.yml exec lsp-go sh -c \
+#     'cd /opt/lokilinux/agent && go mod download && cd /opt/lokilinux/services/compliance && go mod download'
+#
+# Repos are mounted at the SAME absolute path as on the host so LSP rootUri
+# resolves identically inside the containers. opencode starts servers with
+# `docker exec -i <container> <server> --stdio` (see ~/.config/opencode/opencode.jsonc).
+
+services:
+  lsp-ts:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.lsp
+    image: lokilinux/lsp-ts:dev
+    container_name: lokilinux-lsp-ts
+    working_dir: /opt/lokilinux/frontend
+    volumes:
+      - .:/opt/lokilinux
+    networks:
+      - lsp-net
+      - lsp-egress
+    restart: unless-stopped
+
+  lsp-go:
+    build:
+      context: ./agent
+      dockerfile: Dockerfile.lsp
+    image: lokilinux/lsp-go:dev
+    container_name: lokilinux-lsp-go
+    working_dir: /opt/lokilinux
+    volumes:
+      - .:/opt/lokilinux
+      - lsp-gomodcache:/go/pkg/mod
+    networks:
+      - lsp-net
+      - lsp-egress
+    restart: unless-stopped
+
+networks:
+  lsp-net:
+    name: lokilinux-lsp-net
+    internal: true
+  lsp-egress:
+    name: lokilinux-lsp-egress
+
+volumes:
+  lsp-gomodcache:
+    name: lokilinux-lsp-gomodcache

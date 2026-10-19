@@ -247,8 +247,10 @@ func (s *Store) LoadActivePolicyAssignments(ctx context.Context) ([]PolicyAssign
 	return out, rowsResult.Err()
 }
 
-// RulesForPolicySetsAndDomain returns enabled CEL/OVAL_UNMAPPED/OSCAP_FALLBACK
-// rules for a domain that belong to any of policySetIDs — the caller (ingest.go)
+// RulesForPolicySetsAndDomain returns ACTIVE (Enterprise Compliance plan
+// U3/KTD2 — REFERENCE_ONLY/DISABLED never reach the evaluator) CEL/
+// OVAL_UNMAPPED/OSCAP_FALLBACK rules for a domain that belong to any of
+// policySetIDs — the caller (ingest.go)
 // resolves policySetIDs via policy.MatchingSetIDs first, keeping scope
 // resolution and rule loading as separate, independently testable steps.
 // An empty policySetIDs returns no rows (no matching assignment for this
@@ -262,7 +264,7 @@ func (s *Store) RulesForPolicySetsAndDomain(ctx context.Context, policySetIDs []
 		       cr.platform_filter, cr.expected_value, psr.policy_set_id
 		FROM compliance_rules cr
 		JOIN policy_set_rules psr ON psr.rule_id = cr.id
-		WHERE cr.domain = $1 AND cr.is_enabled = true AND psr.policy_set_id = ANY($2)
+		WHERE cr.domain = $1 AND cr.status = 'ACTIVE' AND psr.policy_set_id = ANY($2)
 	`, domain, policySetIDs)
 	if err != nil {
 		return nil, fmt.Errorf("querying rules for domain %s: %w", domain, err)
@@ -569,7 +571,7 @@ func (s *Store) RulesForResourcePaths(ctx context.Context, resourceType string, 
 		SELECT DISTINCT crr.rule_id, cr.domain
 		FROM compliance_rule_resources crr
 		JOIN compliance_rules cr ON cr.id = crr.rule_id
-		WHERE crr.resource_type = $1 AND crr.resource_path = ANY($2) AND cr.is_enabled = true
+		WHERE crr.resource_type = $1 AND crr.resource_path = ANY($2) AND cr.status = 'ACTIVE'
 	`, resourceType, paths)
 	if err != nil {
 		return nil, fmt.Errorf("querying rules for resource paths: %w", err)
@@ -590,8 +592,9 @@ func (s *Store) RulesForResourcePaths(ctx context.Context, resourceType string, 
 // EvaluationSummary is one agent's latest verdict for one rule, joined with
 // the rule's domain — the input to per-category score computation.
 type EvaluationSummary struct {
-	Domain string
-	Result string
+	Domain   string
+	Result   string
+	Severity string // compliance_rules.severity — LOW/MEDIUM/HIGH/CRITICAL (plan U5/KTD4 weighting)
 }
 
 // LatestEvaluationsForAgent returns the most recent verdict per rule for
@@ -600,7 +603,7 @@ type EvaluationSummary struct {
 // rescore needs after any domain's rule_evaluations change.
 func (s *Store) LatestEvaluationsForAgent(ctx context.Context, agentID uuid.UUID) ([]EvaluationSummary, error) {
 	rowsResult, err := s.db.Query(ctx, `
-		SELECT DISTINCT ON (re.rule_id) cr.domain, re.result
+		SELECT DISTINCT ON (re.rule_id) cr.domain, re.result, cr.severity
 		FROM rule_evaluations re
 		JOIN compliance_rules cr ON cr.id = re.rule_id
 		WHERE re.agent_id = $1
@@ -614,7 +617,7 @@ func (s *Store) LatestEvaluationsForAgent(ctx context.Context, agentID uuid.UUID
 	var out []EvaluationSummary
 	for rowsResult.Next() {
 		var e EvaluationSummary
-		if err := rowsResult.Scan(&e.Domain, &e.Result); err != nil {
+		if err := rowsResult.Scan(&e.Domain, &e.Result, &e.Severity); err != nil {
 			return nil, fmt.Errorf("scanning evaluation summary row: %w", err)
 		}
 		out = append(out, e)
@@ -625,17 +628,38 @@ func (s *Store) LatestEvaluationsForAgent(ctx context.Context, agentID uuid.UUID
 // InsertComplianceScore records one category's score sample for an agent —
 // an append-only hypertable row (migration 016), the raw input
 // compliance_scores_daily aggregates for the fleet trend chart.
+//
+// weightedScore/severityBreakdown/unknownCount are the plan U5/KTD4
+// projection (migration 037, nullable alongside the legacy score/*_count
+// columns above which keep their exact pre-existing meaning). breakdown may
+// be nil (never scored / no severity data) — stored as SQL NULL, not "{}",
+// so a consumer can tell "not computed" apart from "computed, all zero".
 func (s *Store) InsertComplianceScore(
 	ctx context.Context,
 	agentID uuid.UUID,
 	category string,
 	score float64,
 	passedCount, failedCount, notApplicableCount int,
+	weightedScore float64,
+	severityBreakdown map[string]map[string]int,
+	unknownCount int,
 ) error {
+	var breakdownJSON []byte
+	if len(severityBreakdown) > 0 {
+		var err error
+		breakdownJSON, err = json.Marshal(severityBreakdown)
+		if err != nil {
+			return fmt.Errorf("marshaling severity breakdown (agent=%s category=%s): %w", agentID, category, err)
+		}
+	}
 	_, err := s.db.Exec(ctx, `
-		INSERT INTO compliance_scores (time, agent_id, category, score, passed_count, failed_count, not_applicable_count)
-		VALUES ($1, $2, $3, $4, $5, $6, $7)
-	`, time.Now().UTC(), agentID, category, score, passedCount, failedCount, notApplicableCount)
+		INSERT INTO compliance_scores (
+			time, agent_id, category, score, passed_count, failed_count, not_applicable_count,
+			weighted_score, severity_breakdown, unknown_count
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+	`, time.Now().UTC(), agentID, category, score, passedCount, failedCount, notApplicableCount,
+		weightedScore, breakdownJSON, unknownCount)
 	if err != nil {
 		return fmt.Errorf("inserting compliance score (agent=%s category=%s): %w", agentID, category, err)
 	}
@@ -923,7 +947,7 @@ func (s *Store) RulesForPolicySet(ctx context.Context, policySetID uuid.UUID) ([
 		       cr.expected_value, cr.domain, psr.policy_set_id
 		FROM compliance_rules cr
 		JOIN policy_set_rules psr ON psr.rule_id = cr.id
-		WHERE psr.policy_set_id = $1 AND cr.is_enabled = true
+		WHERE psr.policy_set_id = $1 AND cr.status = 'ACTIVE'
 	`, policySetID)
 	if err != nil {
 		return nil, fmt.Errorf("querying rules for policy set %s: %w", policySetID, err)

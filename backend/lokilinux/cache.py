@@ -94,7 +94,13 @@ class RedisCache:
             logger.warning("cache.set_error", key=key, error=str(exc))
 
     async def incr(self, key: str, ttl: int) -> int:
-        """Atomic INCR + EXPIRE, e.g. for rate-limit counters. Fails open (returns 0) on Redis errors."""
+        """Atomic INCR + EXPIRE. Fails open (returns 0) on Redis errors: the event and
+        detector counters rely on that. Rate limiting uses incr_checked instead."""
+        count = await self.incr_checked(key, ttl)
+        return 0 if count is None else count
+
+    async def incr_checked(self, key: str, ttl: int) -> int | None:
+        """Atomic INCR + EXPIRE. Returns None on a Redis error so the caller can decide."""
         try:
             pipe = self._client.pipeline()  # type: ignore[union-attr]
             pipe.incr(key)
@@ -103,7 +109,7 @@ class RedisCache:
             return int(results[0])
         except Exception as exc:
             logger.warning("cache.incr_error", key=key, error=str(exc))
-            return 0
+            return None
 
     async def invalidate(self, key: str) -> None:
         try:

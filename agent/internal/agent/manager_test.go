@@ -8,7 +8,11 @@ import (
 	"testing"
 	"time"
 
+	gen "github.com/lokilinux/agent/gen/lokilinux"
+	"github.com/lokilinux/agent/internal/communication"
+	"github.com/lokilinux/agent/internal/config"
 	"github.com/lokilinux/agent/internal/modules"
+	"github.com/lokilinux/agent/internal/security"
 )
 
 // TestNextDelay locks the heartbeat backoff curve: base interval until 3
@@ -117,5 +121,80 @@ func TestNudge_CoalescesBurst(t *testing.T) {
 	case <-m.nudge:
 		t.Fatal("nudge channel had a second pending item — burst did not coalesce")
 	default:
+	}
+}
+
+// TestPopulateAuditFields_KnownCapability locks plan P10: a job_type present
+// in security.Registry gets its capability/risk stamped from that same
+// registry the pre-dispatch trust gate already consults.
+func TestPopulateAuditFields_KnownCapability(t *testing.T) {
+	result := populateAuditFields(modules.JobResult{JobID: "job-1"}, "PACKAGE_UPDATE", nil)
+
+	if result.Capability != security.CapPackageManagement {
+		t.Fatalf("Capability = %q, want %q", result.Capability, security.CapPackageManagement)
+	}
+	if result.Risk != string(security.RiskHigh) {
+		t.Fatalf("Risk = %q, want %q", result.Risk, security.RiskHigh)
+	}
+}
+
+func TestPopulateAuditFields_UnknownJobType_LeavesFieldsEmpty(t *testing.T) {
+	result := populateAuditFields(modules.JobResult{JobID: "job-1"}, "SOME_FUTURE_JOB_TYPE", nil)
+
+	if result.Capability != "" || result.Risk != "" {
+		t.Fatalf("expected empty Capability/Risk for an unregistered job_type, got %+v", result)
+	}
+}
+
+func TestPopulateAuditFields_SignedEnvelope_CarriesPolicyID(t *testing.T) {
+	params := map[string]interface{}{
+		"_envelope": map[string]interface{}{"policy_id": "policy-abc"},
+	}
+	result := populateAuditFields(modules.JobResult{JobID: "job-1"}, "PACKAGE_UPDATE", params)
+
+	if result.PolicyID != "policy-abc" {
+		t.Fatalf("PolicyID = %q, want %q", result.PolicyID, "policy-abc")
+	}
+}
+
+func TestPopulateAuditFields_NoEnvelope_LeavesPolicyIDEmpty(t *testing.T) {
+	result := populateAuditFields(modules.JobResult{JobID: "job-1"}, "PACKAGE_UPDATE", map[string]interface{}{})
+
+	if result.PolicyID != "" {
+		t.Fatalf("PolicyID = %q, want empty (no envelope present)", result.PolicyID)
+	}
+}
+
+// TestSyncPolicyOnce_RetainsPreviousOnClientError locks Phase G2's
+// "malformed push never widens enforcement" invariant (same rule
+// policy_cache.go documents for the unrelated security LocalPolicy): a
+// failed SyncPolicy call must leave the previously-applied collector
+// policy untouched. The client here dials a bogus cert path, so the RPC
+// fails at dial() — a real error path, not a mock.
+func TestSyncPolicyOnce_RetainsPreviousOnClientError(t *testing.T) {
+	m := &Manager{
+		log: slog.New(slog.NewTextHandler(io.Discard, nil)),
+		cfg: &config.Config{Identity: config.IdentityConfig{AgentID: "agent-1"}},
+		client: communication.NewGRPCClient(
+			"127.0.0.1:0", "/nonexistent/cert.pem", "/nonexistent/key.pem", "/nonexistent/ca.pem",
+		),
+	}
+	m.collectorPolicyVersion = "5"
+	m.collectorPolicies = map[string]gen.CollectorPolicy{"cpu": {Enabled: true}}
+
+	m.syncPolicyOnce(context.Background())
+
+	if got := m.currentCollectorPolicyVersion(); got != "5" {
+		t.Fatalf("collectorPolicyVersion = %q, want retained %q after a failed sync", got, "5")
+	}
+	if got := m.currentCollectorPolicies(); len(got) != 1 {
+		t.Fatalf("collectorPolicies = %v, want the previous map retained", got)
+	}
+}
+
+func TestCurrentCollectorPolicyVersion_DefaultsEmpty(t *testing.T) {
+	m := &Manager{}
+	if got := m.currentCollectorPolicyVersion(); got != "" {
+		t.Fatalf("currentCollectorPolicyVersion() = %q, want empty on a fresh Manager", got)
 	}
 }

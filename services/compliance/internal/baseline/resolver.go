@@ -31,7 +31,6 @@ var scopeRank = map[string]int{
 
 // Effective is the resolved effective baseline for one agent.
 type Effective struct {
-	AgentID            uuid.UUID
 	BaselineVersionIDs []uuid.UUID // ordered GLOBAL -> ... -> APPLICATION
 	MergedState        map[string]any
 	MergedHash         string
@@ -96,7 +95,7 @@ func mergeForAgent(agentID uuid.UUID, attrs storage.AgentAttributes, published [
 		}
 	}
 	if len(matching) == 0 {
-		return Effective{AgentID: agentID, MergedState: map[string]any{}}
+		return Effective{MergedState: map[string]any{}}
 	}
 
 	sort.SliceStable(matching, func(i, j int) bool {
@@ -110,7 +109,6 @@ func mergeForAgent(agentID uuid.UUID, attrs storage.AgentAttributes, published [
 		versionIDs = append(versionIDs, p.VersionID)
 	}
 	return Effective{
-		AgentID:            agentID,
 		BaselineVersionIDs: versionIDs,
 		MergedState:        merged,
 	}

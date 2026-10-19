@@ -35,8 +35,8 @@ async def _make_agent(db_session) -> Agent:
     return agent
 
 
-async def _make_due_scheduled_workflow(db_session, slug: str) -> Workflow:
-    svc = WorkflowService(db_session)
+async def _make_due_scheduled_workflow(db_session, fake_storage, slug: str) -> Workflow:
+    svc = WorkflowService(db_session, fake_storage)
     workflow = await svc.create_workflow(
         name="Scheduled", yaml_source=LINEAR_YAML.replace("scheduler-test-wf", slug), created_by=None,
     )
@@ -55,12 +55,16 @@ async def _make_due_scheduled_workflow(db_session, slug: str) -> Workflow:
 
 
 @pytest.mark.asyncio
-async def test_claim_and_run_starts_a_run_and_advances_next_run_at(db_session, fake_cache):
+async def test_claim_and_run_starts_a_run_and_advances_next_run_at(
+    db_session, fake_cache, fake_storage
+):
     await _make_agent(db_session)
-    workflow = await _make_due_scheduled_workflow(db_session, "scheduler-claim-test")
+    workflow = await _make_due_scheduled_workflow(db_session, fake_storage, "scheduler-claim-test")
     old_next_run = workflow.next_run_at
 
-    worker = WorkflowSchedulerWorker(db_session_factory=None, cache=fake_cache)
+    worker = WorkflowSchedulerWorker(
+        db_session_factory=None, cache=fake_cache, storage=fake_storage
+    )
     await worker._claim_and_run(db_session, workflow)
 
     runs = (await db_session.execute(select(WorkflowRun).where(WorkflowRun.workflow_id == workflow.id))).scalars().all()
@@ -73,14 +77,18 @@ async def test_claim_and_run_starts_a_run_and_advances_next_run_at(db_session, f
 
 
 @pytest.mark.asyncio
-async def test_claim_and_run_is_a_no_op_when_next_run_at_already_moved(db_session, fake_cache):
+async def test_claim_and_run_is_a_no_op_when_next_run_at_already_moved(
+    db_session, fake_cache, fake_storage
+):
     """Same race-loser scenario as test_policy_scheduler.py's equivalent
     test: a second replica's UPDATE ... WHERE next_run_at = <stale value>
     touches 0 rows once another replica already claimed the tick."""
     await _make_agent(db_session)
-    workflow = await _make_due_scheduled_workflow(db_session, "scheduler-race-test")
+    workflow = await _make_due_scheduled_workflow(db_session, fake_storage, "scheduler-race-test")
 
-    worker = WorkflowSchedulerWorker(db_session_factory=None, cache=fake_cache)
+    worker = WorkflowSchedulerWorker(
+        db_session_factory=None, cache=fake_cache, storage=fake_storage
+    )
 
     stale_workflow = Workflow(**{c.name: getattr(workflow, c.name) for c in Workflow.__table__.columns})
     stale_workflow.next_run_at = workflow.next_run_at  # the value this "replica" observed
@@ -94,13 +102,17 @@ async def test_claim_and_run_is_a_no_op_when_next_run_at_already_moved(db_sessio
 
 
 @pytest.mark.asyncio
-async def test_claim_and_run_invalid_cron_does_not_crash(db_session, fake_cache):
+async def test_claim_and_run_invalid_cron_does_not_crash(db_session, fake_cache, fake_storage):
     await _make_agent(db_session)
-    workflow = await _make_due_scheduled_workflow(db_session, "scheduler-badcron-test")
+    workflow = await _make_due_scheduled_workflow(
+        db_session, fake_storage, "scheduler-badcron-test"
+    )
     workflow.cron_expr = "garbage"
     await db_session.commit()
 
-    worker = WorkflowSchedulerWorker(db_session_factory=None, cache=fake_cache)
+    worker = WorkflowSchedulerWorker(
+        db_session_factory=None, cache=fake_cache, storage=fake_storage
+    )
     await worker._claim_and_run(db_session, workflow)  # must not raise
 
     runs = (await db_session.execute(select(WorkflowRun).where(WorkflowRun.workflow_id == workflow.id))).scalars().all()
@@ -108,14 +120,21 @@ async def test_claim_and_run_invalid_cron_does_not_crash(db_session, fake_cache)
 
 
 @pytest.mark.asyncio
-async def test_claim_and_run_with_no_matching_agents_does_not_crash(db_session, fake_cache):
+async def test_claim_and_run_with_no_matching_agents_does_not_crash(
+    db_session, fake_cache, fake_storage
+):
     """start_run raises HTTPException(422) when no agents match — the
     scheduler's broad except must swallow that too, not just cron errors,
     or one misconfigured workflow would wedge every other due workflow on
     the same tick."""
-    workflow = await _make_due_scheduled_workflow(db_session, "scheduler-noagents-test")  # no agent created
+    # no agent created
+    workflow = await _make_due_scheduled_workflow(
+        db_session, fake_storage, "scheduler-noagents-test"
+    )
 
-    worker = WorkflowSchedulerWorker(db_session_factory=None, cache=fake_cache)
+    worker = WorkflowSchedulerWorker(
+        db_session_factory=None, cache=fake_cache, storage=fake_storage
+    )
     await worker._claim_and_run(db_session, workflow)  # must not raise
 
     runs = (await db_session.execute(select(WorkflowRun).where(WorkflowRun.workflow_id == workflow.id))).scalars().all()

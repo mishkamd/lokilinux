@@ -10,23 +10,31 @@ import "time"
 // ─── Heartbeat ───────────────────────────────────────────────────────────────
 
 type AgentHeartbeatRequest struct {
-	AgentId          string           `json:"agent_id"`
-	Timestamp        time.Time        `json:"timestamp"`
-	SystemStatus     *SystemStatus    `json:"system_status,omitempty"`
-	Packages         []*Package       `json:"packages,omitempty"`
-	Services         []*Service       `json:"services,omitempty"`
-	Repositories     []*Repository    `json:"repositories,omitempty"`
-	Vulnerabilities  []*Vulnerability `json:"vulnerabilities,omitempty"`
-	Health           *AgentHealth     `json:"health,omitempty"`
-	PendingJobs      int32            `json:"pending_jobs,omitempty"`
-	ConfigVersion    string           `json:"config_version,omitempty"`
-	PackagesChecksum string           `json:"packages_checksum,omitempty"`
-	AgentVersion     string           `json:"agent_version,omitempty"`
-	RecentLogs       []string         `json:"recent_logs,omitempty"`
-	LogConnections   int32            `json:"log_connections,omitempty"`
-	LogInformative   int32            `json:"log_informative,omitempty"`
-	LogCritical      int32            `json:"log_critical,omitempty"`
-	JobResults       []*JobResult     `json:"job_results,omitempty"`
+	AgentId          string                  `json:"agent_id"`
+	Timestamp        time.Time               `json:"timestamp"`
+	SystemStatus     *SystemStatus           `json:"system_status,omitempty"`
+	Packages         []*Package              `json:"packages,omitempty"`
+	Capabilities     []string                `json:"capabilities,omitempty"`
+	SnapshotKeyID    int32                   `json:"snapshot_hmac_key_id,omitempty"`
+	DomainMACs       map[string]*SnapshotMAC `json:"domain_macs,omitempty"`
+	Services         []*Service              `json:"services,omitempty"`
+	Repositories     []*Repository           `json:"repositories,omitempty"`
+	Vulnerabilities  []*Vulnerability        `json:"vulnerabilities,omitempty"`
+	Health           *AgentHealth            `json:"health,omitempty"`
+	PendingJobs      int32                   `json:"pending_jobs,omitempty"`
+	ConfigVersion    string                  `json:"config_version,omitempty"`
+	PackagesChecksum string                  `json:"packages_checksum,omitempty"`
+	AgentVersion     string                  `json:"agent_version,omitempty"`
+	RecentLogs       []string                `json:"recent_logs,omitempty"`
+	LogConnections   int32                   `json:"log_connections,omitempty"`
+	LogInformative   int32                   `json:"log_informative,omitempty"`
+	LogCritical      int32                   `json:"log_critical,omitempty"`
+	JobResults       []*JobResult            `json:"job_results,omitempty"`
+
+	// PolicyReport reports the outcome of the previous cycle's desired-state
+	// policy apply (agent-policy-modernization plan Faza 2). Present only in
+	// the heartbeat right after an attempt.
+	PolicyReport *PolicyReport `json:"policy_report,omitempty"`
 
 	// DomainHashes/DomainFull carry the compliance module's per-domain delta
 	// sync (docs/compliance/04-PROTOCOL.md §3) — DomainHashes goes out every
@@ -40,16 +48,77 @@ type AgentHeartbeatRequest struct {
 // PendingJobs replaces the proto's single-job oneof (ExecuteJob) — the
 // server can return up to 10 pending jobs per heartbeat (see
 // AgentService.get_pending_jobs), which a oneof cannot represent.
+// SnapshotMAC is one domain snapshot's MAC and the key_id it was made with
+// (docs/security/SNAPSHOT_HMAC.md).
+type SnapshotMAC struct {
+	KeyID int32  `json:"key_id"`
+	MAC   string `json:"mac"`
+}
+
+// SnapshotHMACKey is a snapshot signing key the server issues on heartbeat.
+type SnapshotHMACKey struct {
+	KeyID int32  `json:"key_id"`
+	Key   string `json:"key"`
+}
+
 type AgentHeartbeatResponse struct {
-	PendingJobs   []*JobRequest `json:"pending_jobs,omitempty"`
-	UpdatePolicy  *PolicyConfig `json:"update_policy,omitempty"`
-	RebootRequest string        `json:"reboot_request,omitempty"`
-	PluginAction  string        `json:"plugin_action,omitempty"`
+	PendingJobs   []*JobRequest    `json:"pending_jobs,omitempty"`
+	SnapshotHmac  *SnapshotHMACKey `json:"snapshot_hmac,omitempty"`
+	UpdatePolicy  *PolicyConfig    `json:"update_policy,omitempty"`
+	RebootRequest string           `json:"reboot_request,omitempty"`
+	PluginAction  string           `json:"plugin_action,omitempty"`
 
 	// ResyncDomains lists compliance domains whose last-reported hash didn't
 	// match the server's latest snapshot — the agent sends a full body for
 	// each of these in DomainFull on its *next* heartbeat (04-PROTOCOL.md §3).
 	ResyncDomains []string `json:"resync_domains,omitempty"`
+
+	// DesiredPolicy carries a pending desired-state policy envelope (plan
+	// Faza 2). Present only when a deployment is pending; the agent verifies,
+	// applies, and reports back via PolicyReport on the next heartbeat.
+	DesiredPolicy *PolicyEnvelope `json:"policy_envelope,omitempty"`
+
+	// FimConfig carries a signed file-integrity watch/ignore scope override
+	// (docs/compliance/11a-FRONTEND-PAGES.md §3.4). Present only for agents
+	// meeting MIN_AGENT_VERSION_FIM_SCOPES; older agents never see this
+	// field and keep scanning the compiled-in default (/etc).
+	FimConfig *FIMConfigEnvelope `json:"fim_config,omitempty"`
+}
+
+// FIMConfigEnvelope is signed the same way as PolicyEnvelope (Ed25519 over
+// Payload's exact bytes, pinned via the agent's existing
+// policy.trusted_keys) but is a separate, smaller document: FIM scope must
+// reach every agent regardless of whether it has any desired-state policy
+// deployed, whereas PolicyEnvelope only reaches agents with an explicit
+// policy deployment.
+type FIMConfigEnvelope struct {
+	SignatureB64 string `json:"signature"`
+	SigningKeyID string `json:"signing_key_id"`
+	// Payload is canonical JSON as a STRING — see PolicyEnvelope.Payload.
+	Payload string `json:"payload"`
+}
+
+// ─── Desired-state policy (agent-policy-modernization plan) ──────────────────
+
+type PolicyEnvelope struct {
+	DeploymentID string `json:"deployment_id"`
+	PolicyID     string `json:"policy_id"`
+	Version      int    `json:"version"`
+	Hash         string `json:"hash"`
+	SignatureB64 string `json:"signature"`
+	SigningKeyID string `json:"signing_key_id"`
+	// Payload is canonical JSON as a STRING — the agent hashes and verifies
+	// these exact bytes; never re-serialized anywhere along the path.
+	Payload string `json:"payload"`
+}
+
+type PolicyReport struct {
+	PolicyID     string `json:"policy_id"`
+	Version      int    `json:"version"`
+	Result       string `json:"result"` // applied|failed
+	Error        string `json:"error,omitempty"`
+	DurationMs   int64  `json:"duration_ms,omitempty"`
+	DeploymentID string `json:"deployment_id,omitempty"`
 }
 
 // ─── System ───────────────────────────────────────────────────────────────────
@@ -207,6 +276,14 @@ type JobResult struct {
 	ExitCode        int32     `json:"exit_code,omitempty"`
 	ErrorMessage    string    `json:"error_message,omitempty"`
 	UpdatedAt       time.Time `json:"updated_at,omitempty"`
+	// Audit fields (agent-security-hardening plan P10) — see
+	// proto/lokilinux.proto's JobResult message for the source of truth;
+	// this hand-written struct is what's actually wire-serialized (JSON
+	// codec, not real protobuf — see this file's own header comment).
+	Capability string `json:"capability,omitempty"`
+	RiskLevel  string `json:"risk_level,omitempty"`
+	PolicyId   string `json:"policy_id,omitempty"`
+	DurationMs int64  `json:"duration_ms,omitempty"`
 }
 
 type JobState int32
@@ -223,11 +300,21 @@ const (
 
 // ─── Policy ───────────────────────────────────────────────────────────────────
 
+type CollectorPolicy struct {
+	Enabled         bool               `json:"enabled"`
+	IntervalSeconds int32              `json:"interval_seconds,omitempty"`
+	Thresholds      map[string]float64 `json:"thresholds,omitempty"`
+}
+
 type PolicyConfig struct {
 	Version           string            `json:"version"`
 	Policies          map[string]string `json:"policies,omitempty"`
 	CommandWhitelist  []string          `json:"command_whitelist,omitempty"`
 	HeartbeatInterval int32             `json:"heartbeat_interval,omitempty"`
+	// Collectors carries Phase G2 observability collector config, keyed by
+	// collector name — distinct concern from Policies (unrelated security
+	// LocalPolicy bag).
+	Collectors map[string]CollectorPolicy `json:"collectors,omitempty"`
 }
 
 type PolicySyncRequest struct {
@@ -247,6 +334,31 @@ type MetricsData struct {
 
 type MetricsAck struct {
 	Success bool `json:"success"`
+}
+
+// ─── Observability events (Phase G2) ───────────────────────────────────────────
+
+type EventRecord struct {
+	EventId       string                 `json:"event_id"`
+	Type          string                 `json:"type"`
+	Severity      string                 `json:"severity"`
+	HostId        string                 `json:"host_id,omitempty"`
+	Service       string                 `json:"service,omitempty"`
+	Timestamp     time.Time              `json:"timestamp"`
+	Payload       map[string]interface{} `json:"payload,omitempty"`
+	PriorityClass string                 `json:"priority_class,omitempty"`
+}
+
+type EventBatch struct {
+	AgentId    string `json:"agent_id"`
+	BatchId    string `json:"batch_id"`
+	EventsGzip []byte `json:"events_gzip,omitempty"` // encoding/json base64-encodes []byte automatically
+}
+
+type EventAck struct {
+	Accepted       bool   `json:"accepted"`
+	EventsAccepted int32  `json:"events_accepted,omitempty"`
+	ErrorMessage   string `json:"error_message,omitempty"`
 }
 
 // ─── Plugins ──────────────────────────────────────────────────────────────────

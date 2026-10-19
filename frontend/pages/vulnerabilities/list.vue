@@ -16,14 +16,7 @@ async function exportCves(format: 'csv' | 'json') {
     if (cveFilters.value.severity) params.set('severity', cveFilters.value.severity)
     if (cveFilters.value.exploited_only) params.set('exploited_only', 'true')
     const blob = await api.get<Blob>(`/vulnerabilities/export?${params}`, { responseType: 'blob' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `vulnerabilities.${format}`
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
+    downloadBlob(blob, `vulnerabilities.${format}`)
   } catch (err) {
     toast.add({ title: (err as { data?: { detail?: string } })?.data?.detail ?? 'Export failed', color: 'red' })
   } finally {
@@ -104,8 +97,16 @@ function filterBySeverity(sev: string) {
       <Badge color="gray">{{ cvesTotal }} CVEs</Badge>
     </PageHeader>
 
-    <DataTable :rows="cves" :columns="columns" :loading="cvesLoading" rows-clickable
-               @row-click="(row) => navigateTo(`/vulnerabilities/${row.cve_id}`)">
+    <DataTable
+      :rows="cves"
+      :columns="columns"
+      :loading="cvesLoading"
+      sortable
+      :page-size="25"
+      empty-title="No CVEs recorded yet"
+      rows-clickable
+      @row-click="(row) => navigateTo(`/vulnerabilities/${row.cve_id}`)"
+    >
       <template #cve_id-data="{ row }">
         <span class="font-mono text-sm text-primary">{{ row.cve_id }}</span>
       </template>

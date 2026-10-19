@@ -10,7 +10,7 @@ MetaData registry, so the Python attribute name can't literally be
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Text, text
+from sqlalchemy import DateTime, Float, ForeignKey, Index, Text, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -19,6 +19,18 @@ from lokilinux.db import Base
 
 class Incident(Base):
     __tablename__ = "incidents"
+    __table_args__ = (
+        # At most one open incident per group (ROADMAP M5). Mirrors migration 049.
+        Index(
+            "uq_incident_open_group",
+            "tenant_id",
+            "group_key",
+            unique=True,
+            postgresql_where=text(
+                "status IN ('OPEN', 'ACKNOWLEDGED', 'IN_PROGRESS') AND group_key IS NOT NULL"
+            ),
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()"))
     tenant_id: Mapped[str] = mapped_column(Text(), nullable=False, server_default="default")

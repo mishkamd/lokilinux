@@ -6,7 +6,8 @@ Mirrors BaselineService's DRAFT -> PUBLISHED lifecycle (services/baseline_servic
 that changes which version is "current" for a workflow. Unlike Baseline there
 is no APPROVED intermediate state in Phase 1 (no-self-approval enforcement on
 publish lands in Phase 11, plan §14) — DRAFT publishes straight to PUBLISHED,
-gated only on the compiler reporting the YAML valid.
+gated on the compiler reporting the YAML valid and on validate_step_inputs
+(package names and probe hosts) passing.
 
 workflows.slug is exactly the YAML document's metadata.name (already
 constrained to the same ^[a-z0-9-]{3,64}$ shape) — one identifier, not two
@@ -22,9 +23,14 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.models.workflow import Workflow, WorkflowAudit, WorkflowVersion
+from lokilinux.object_storage import ObjectStorage
 from lokilinux.schemas.workflow import ValidationResult
 from lokilinux.services.policy_service import compute_next_run_at
+from lokilinux.services.storage_service import StorageService
 from lokilinux.services.workflow_compiler import compile_workflow, compute_content_hash
+from lokilinux.services.workflow_engine import validate_step_inputs
+
+_MAX_YAML_BYTES = 1024 * 1024  # 1MiB — matches PlaybookService's own text-size ceiling
 
 
 def _validation_error(result: ValidationResult) -> HTTPException:
@@ -32,12 +38,37 @@ def _validation_error(result: ValidationResult) -> HTTPException:
 
 
 class WorkflowService:
-    def __init__(self, db: AsyncSession) -> None:
+    def __init__(self, db: AsyncSession, storage: ObjectStorage) -> None:
         self.db = db
+        self.storage = storage
 
     async def validate(self, yaml_source: str) -> ValidationResult:
         _doc, _graph, result = compile_workflow(yaml_source)
         return result
+
+    async def resolve_yaml_source(self, version: WorkflowVersion) -> str:
+        """The version's YAML text, regardless of whether it lives in the
+        legacy `yaml_source` column or object storage."""
+        if version.content_object_id is not None:
+            _, stream = await StorageService(self.storage, self.db).open_stream(
+                version.content_object_id
+            )
+            body = b"".join([chunk async for chunk in stream])
+            return body.decode("utf-8")
+        return version.yaml_source or ""
+
+    async def _store_yaml(
+        self, slug: str, version_num: int, yaml_source: str, created_by: UUID | None
+    ) -> UUID:
+        obj = await StorageService(self.storage, self.db).store_bytes(
+            yaml_source.encode("utf-8"),
+            category="workflow",
+            original_filename=f"{slug}-v{version_num}.yml",
+            content_type="application/yaml",
+            max_bytes=_MAX_YAML_BYTES,
+            created_by=created_by,
+        )
+        return obj.id
 
     async def _get_workflow(self, workflow_id: UUID) -> Workflow:
         row = (await self.db.execute(select(Workflow).where(Workflow.id == workflow_id))).scalar_one_or_none()
@@ -70,8 +101,9 @@ class WorkflowService:
         self.db.add(workflow)
         await self.db.flush()  # populate workflow.id before the version row references it
 
+        content_object_id = await self._store_yaml(doc.metadata.name, 1, yaml_source, created_by)
         version = WorkflowVersion(
-            workflow_id=workflow.id, version=1, yaml_source=yaml_source,
+            workflow_id=workflow.id, version=1, content_object_id=content_object_id,
             graph=graph.model_dump(mode="json", by_alias=True), content_hash=compute_content_hash(yaml_source),
             status="DRAFT", created_by=created_by,
         )
@@ -85,7 +117,7 @@ class WorkflowService:
         return workflow
 
     async def create_version(self, workflow_id: UUID, yaml_source: str, created_by: UUID | None) -> WorkflowVersion:
-        await self._get_workflow(workflow_id)  # 404 if missing
+        workflow = await self._get_workflow(workflow_id)  # 404 if missing
         _doc, graph, result = compile_workflow(yaml_source)
         if not result.valid:
             raise _validation_error(result)
@@ -94,9 +126,12 @@ class WorkflowService:
         max_version = (await self.db.execute(
             select(func.max(WorkflowVersion.version)).where(WorkflowVersion.workflow_id == workflow_id)
         )).scalar_one()
-
+        version_num = (max_version or 0) + 1
+        content_object_id = await self._store_yaml(
+            workflow.slug, version_num, yaml_source, created_by
+        )
         version = WorkflowVersion(
-            workflow_id=workflow_id, version=(max_version or 0) + 1, yaml_source=yaml_source,
+            workflow_id=workflow_id, version=version_num, content_object_id=content_object_id,
             graph=graph.model_dump(mode="json", by_alias=True), content_hash=compute_content_hash(yaml_source),
             status="DRAFT", created_by=created_by,
         )
@@ -125,13 +160,19 @@ class WorkflowService:
             raise _validation_error(result)
         assert graph is not None
 
-        version.yaml_source = yaml_source
+        workflow = await self._get_workflow(workflow_id)
+        version.content_object_id = await self._store_yaml(
+            workflow.slug, version.version, yaml_source, version.created_by
+        )
+        version.yaml_source = None  # new edits always move fully onto object storage
         version.graph = graph.model_dump(mode="json", by_alias=True)
         version.content_hash = compute_content_hash(yaml_source)
         await self.db.commit()
         return version
 
-    async def publish_version(self, workflow_id: UUID, version_id: UUID, actor: UUID | None) -> WorkflowVersion:
+    async def publish_version(
+        self, workflow_id: UUID, version_id: UUID, actor: UUID | None, actor_id: str | None = None,
+    ) -> WorkflowVersion:
         version = await self._get_version(workflow_id, version_id)
         if version.status != "DRAFT":
             raise HTTPException(status_code=409, detail=f"Cannot publish from status {version.status}")
@@ -140,9 +181,13 @@ class WorkflowService:
         # result — the two requests are never guaranteed adjacent in time,
         # and this is the last gate before a workflow can ever run (plan
         # §13 Level 3: "Un DRAFT invalid nu poate deveni PUBLISHED").
-        _doc, _graph, result = compile_workflow(version.yaml_source)
+        _doc, graph, result = compile_workflow(await self.resolve_yaml_source(version))
         if not result.valid:
             raise _validation_error(result)
+        assert graph is not None  # result.valid guarantees it
+        # Same package-name and probe-host walk start_run runs: a version that
+        # could never run must not become the PUBLISHED one.
+        validate_step_inputs(graph)
 
         workflow = await self._get_workflow(workflow_id)
 
@@ -158,6 +203,8 @@ class WorkflowService:
 
         version.status = "PUBLISHED"
         version.published_at = datetime.now(timezone.utc)
+        version.published_by = actor
+        version.published_by_actor = actor_id
         workflow.current_version_id = version.id
 
         self.db.add(WorkflowAudit(

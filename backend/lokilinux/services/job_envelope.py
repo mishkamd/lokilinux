@@ -17,6 +17,7 @@ import base64
 import json
 import logging
 import os
+import time
 from typing import List, Optional
 
 from lokilinux.utils.agent_capability import (
@@ -24,9 +25,16 @@ from lokilinux.utils.agent_capability import (
     agent_meets_minimum,
 )
 from lokilinux import metrics
+from lokilinux.kms import KeyManager, get_provider
 from lokilinux.services.job_signing import JobSigner
 
 logger = logging.getLogger(__name__)
+
+
+class EnvelopeSigningError(RuntimeError):
+    """A job that qualifies for a signed envelope could not be signed. The
+    caller must hold the job: sending it unsigned bypasses agent verification."""
+
 
 # job_type -> (capability, risk). MUST stay in sync with the Go registry.
 _CAPABILITY_REGISTRY = {
@@ -56,6 +64,9 @@ _STEP_TYPE_TO_CAP = {
 
 _signer_instance: Optional[JobSigner] = None
 _signer_init_done = False
+# ponytail: fixed 60s retry, no exponential backoff; one key read a minute is cheap.
+_SIGNER_RETRY_SECONDS = 60.0
+_signer_retry_at = 0.0
 
 
 def _required_capabilities(job_type: str, params: dict) -> List[str]:
@@ -82,13 +93,38 @@ def signing_required() -> bool:
     return os.environ.get("JOB_SIGNING_REQUIRED", "").lower() in ("1", "true", "yes")
 
 
+def _bootstrap_versioned_key(key_manager: KeyManager, legacy_key_path: str) -> None:
+    """First activation of the versioned layout: seeds v1 from the existing
+    legacy key file's bytes so rotation has a known starting point, without
+    touching the legacy file agents/installers already trust. No-op once any
+    version is registered (rotation has already taken over)."""
+    if key_manager.active_version() is not None or key_manager.state_of(1) is not None:
+        return
+    with open(legacy_key_path, "rb") as f:
+        raw = f.read()
+
+    def _write(path: str) -> None:
+        with open(path, "wb") as out:
+            out.write(raw)
+
+    key_manager.create(1, write_key_file=_write)
+    key_manager.activate(1)
+
+
 def _get_signer() -> Optional[JobSigner]:
     """Lazily construct the singleton signer. Returns None while no usable
-    key is provisioned; a later call re-attempts (cheap file stat).
+    key is provisioned; a later call re-attempts (cheap file stat), and a
+    failed init is retried once _SIGNER_RETRY_SECONDS have passed.
     Raises when job_signing_required=True and the key never materializes —
-    no-downgrade guarantee (plan C3)."""
-    global _signer_instance, _signer_init_done
+    no-downgrade guarantee (plan C3).
+
+    When LOKILINUX_KEYS_DIR is set, this wires JobSigner to the versioned
+    KeyManager lifecycle (bootstrapping v1 from the legacy file on first use)
+    so admin-triggered rotation actually reaches the running dispatch path —
+    without it, KeyManager.rotate() would mutate state nothing ever reads."""
+    global _signer_instance, _signer_init_done, _signer_retry_at
     key_path = os.environ.get("JOB_SIGNING_KEY_PATH", "/etc/lokilinux/certs/job_signing.key")
+    keys_dir = os.environ.get("LOKILINUX_KEYS_DIR", "")
     enabled = os.environ.get("JOB_SIGNING_ENVELOPES", "true").lower() != "false"
     if not enabled:
         if signing_required():
@@ -102,25 +138,44 @@ def _get_signer() -> Optional[JobSigner]:
                 f"job_signing_required=true but signing key missing at {key_path} — refusing unsigned dispatch"
             )
         return None
-    if not _signer_init_done:
+    if not _signer_init_done and time.monotonic() >= _signer_retry_at:
         try:
-            _signer_instance = JobSigner()  # reads JOB_SIGNING_KEY_PATH itself
+            if keys_dir:
+                provider = get_provider({"provider": os.environ.get("KMS_PROVIDER", "file"),
+                                         "file": {"key_path": key_path}})
+                _bootstrap_versioned_key(KeyManager(keys_dir, "job-signing"), key_path)
+                _signer_instance = JobSigner(provider=provider, keys_dir=keys_dir)
+            else:
+                _signer_instance = JobSigner()  # legacy layout: implicit v1 only
+            _signer_init_done = True
         except Exception:  # noqa: BLE001 — unusable key must never break dispatch
-            logger.exception("job signing key unreadable — envelopes disabled")
-        _signer_init_done = True
+            logger.exception("job signing key unreadable — envelopes disabled, retrying in %ds",
+                             _SIGNER_RETRY_SECONDS)
+            _signer_retry_at = time.monotonic() + _SIGNER_RETRY_SECONDS
     return _signer_instance
 
 
-def maybe_attach_envelope(job, params: dict, agent_version: Optional[str]) -> dict:
+def maybe_attach_envelope(
+    job, params: dict, agent_version: Optional[str], agent_id: Optional[str] = None
+) -> dict:
     """Returns params, with an "_envelope" added when this job/agent pair
-    qualifies for signed execution. Never raises."""
+    qualifies for signed execution. Raises EnvelopeSigningError when it
+    qualifies but signing fails; it never returns the params unsigned then.
+
+    agent_id: the real recipient — the gRPC dispatch loop passes agent.id here.
+    Job has no single agent_id column (multi-target via target_servers), so
+    falling back to job.agent_id only covers legacy single-target callers.
+    """
+    job_type = getattr(job, "job_type", "") or ""
+    # Before the signer lookup: a missing key or signer must hold only privileged jobs.
+    if job_type not in _CAPABILITY_REGISTRY:
+        return params
     try:
         signer = _get_signer()
         if signer is None:
             metrics.unsigned_privileged_jobs_total.inc()
-            return params
-        job_type = getattr(job, "job_type", "") or ""
-        if job_type not in _CAPABILITY_REGISTRY:
+            if signing_required():
+                raise RuntimeError("job_signing_required=true but no usable signer")
             return params
         if not agent_meets_minimum(agent_version, MIN_AGENT_VERSION_SIGNED_JOBS):
             return params
@@ -128,7 +183,7 @@ def maybe_attach_envelope(job, params: dict, agent_version: Optional[str]) -> di
         payload = {k: v for k, v in (params or {}).items() if k != "_envelope"}
         env = signer.sign(
             job_id=str(getattr(job, "id", "")),
-            agent_id=str(getattr(job, "agent_id", "") or ""),
+            agent_id=str(agent_id or getattr(job, "agent_id", "") or ""),
             tenant_id=str(getattr(job, "tenant_id", "") or ""),
             job_type=job_type,
             payload=payload,
@@ -139,9 +194,8 @@ def maybe_attach_envelope(job, params: dict, agent_version: Optional[str]) -> di
         out = dict(payload)
         out["_envelope"] = env
         return out
-    except Exception:  # noqa: BLE001 — signing failure must never drop a job
-        logger.exception("envelope attachment failed — sending unsigned")
-        return params
+    except Exception as exc:  # noqa: BLE001 — re-raised as the one signing failure type
+        raise EnvelopeSigningError("envelope attachment failed") from exc
 
 
 def canonical_payload_bytes(payload: dict) -> bytes:

@@ -25,9 +25,10 @@ _TICK_SECONDS = 5
 
 
 class WorkflowRunnerWorker:
-    def __init__(self, db_session_factory, cache, nats=None) -> None:
+    def __init__(self, db_session_factory, cache, storage, nats=None) -> None:
         self.db_factory = db_session_factory
         self.cache = cache
+        self.storage = storage
         self.nats = nats
         self._task: asyncio.Task | None = None
 
@@ -53,4 +54,4 @@ class WorkflowRunnerWorker:
                 select(WorkflowRun).where(WorkflowRun.status == "RUNNING")
             )).scalars().all()
             for run in runs:
-                await advance_run(db, self.cache, run, self.nats)
+                await advance_run(db, self.cache, self.storage, run, self.nats)

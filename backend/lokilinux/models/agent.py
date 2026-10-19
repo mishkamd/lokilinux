@@ -8,7 +8,7 @@ import enum
 import uuid
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, String, text
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, ForeignKey, Integer, String, Text, text
 from sqlalchemy import Enum as SAEnum
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
@@ -44,7 +44,27 @@ class Agent(Base):
 
     # Versions
     agent_version: Mapped[str | None] = mapped_column(String(50))
+    # Native job types the agent reported on its last heartbeat (ROADMAP R5). NULL = never reported.
+    capabilities: Mapped[list | None] = mapped_column(JSONB)
+    # Snapshot signing keys (docs/security/SNAPSHOT_HMAC.md): current, and the one before it.
+    snapshot_hmac_key: Mapped[str | None] = mapped_column(Text)
+    snapshot_hmac_key_id: Mapped[int | None] = mapped_column(Integer)
+    snapshot_hmac_prev_key: Mapped[str | None] = mapped_column(Text)
+    snapshot_hmac_prev_key_id: Mapped[int | None] = mapped_column(Integer)
     platform_version: Mapped[str | None] = mapped_column(String(50))
+
+    # Desired-state policy (migration 038, agent-policy-modernization plan)
+    desired_policy_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agent_policy_versions.id", ondelete="SET NULL")
+    )
+    current_policy_version_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("agent_policy_versions.id", ondelete="SET NULL")
+    )
+    policy_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="idle"
+    )  # idle|syncing|pending|failed
+    policy_last_error: Mapped[str | None] = mapped_column(Text)
+    policy_updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # Server identity — names match AgentResponse schema fields
     hostname: Mapped[str | None] = mapped_column(String(255))
@@ -77,6 +97,9 @@ class Agent(Base):
 
     category_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("categories.id", ondelete="SET NULL"))
     project_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("projects.id", ondelete="SET NULL"))
+    # Migration 043 — agent-policy-modernization plan Phase 3/4: GROUP-scope
+    # policy deploys and enrollment-token group binding both key off this.
+    agent_group_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("agent_groups.id", ondelete="SET NULL"))
 
     # Active policy (nullable FK — policies created first)
     current_policy_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), ForeignKey("policies.id", use_alter=True, name="fk_agent_current_policy"))

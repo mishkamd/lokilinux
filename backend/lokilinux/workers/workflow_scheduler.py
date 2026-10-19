@@ -24,9 +24,10 @@ _TICK_SECONDS = 30
 
 
 class WorkflowSchedulerWorker:
-    def __init__(self, db_session_factory, cache) -> None:
+    def __init__(self, db_session_factory, cache, storage) -> None:
         self.db_factory = db_session_factory
         self.cache = cache
+        self.storage = storage
         self._task: asyncio.Task | None = None
 
     async def start(self) -> None:
@@ -80,7 +81,10 @@ class WorkflowSchedulerWorker:
             return  # another replica already claimed this tick
 
         try:
-            run = await start_run(db, self.cache, workflow.id, trigger_type="SCHEDULE", triggered_by=None)
+            run = await start_run(
+                db, self.cache, self.storage, workflow.id,
+                trigger_type="SCHEDULE", triggered_by=None,
+            )
             logger.info("workflow.scheduled_run", workflow_id=str(workflow.id), run_id=str(run.id))
         except Exception:
             # A workflow whose targets no longer resolve (or whose current

@@ -163,16 +163,16 @@ Fiecare fază se termină cu `ruff check` + `mypy` (strict config există) + `py
 
 ## Verificare finală
 
-- [ ] Contract API păstrat (în afara celor 2 schimbări aprobate: mount routere, role-gated detail schema)
+- [x] Contract API păstrat (în afara celor 2 schimbări aprobate: mount routere, role-gated detail schema)
 - [ ] pytest + ruff + mypy verde
 - [ ] Fără blocking event-loop operations
 - [ ] Connection pools reutilizate (HTTP client unic, Redis pool existent, DB pool existent)
 - [ ] Authorization object-level unde e cazul
 - [ ] Input validated la boundary (ingest package_name, rendered_body, cursori, cache-keys)
-- [ ] SSRF protejat (safe_fetch_url)
+- [x] SSRF protejat (safe_fetch_url → utils/url_guard.py: webhook, datastream, origine plugin)
 - [ ] Command execution secured (charset validation + shlex.quote + q())
 - [ ] Rate limits + resource limits (caps output/body/export)
 - [ ] Structured logging + request_id correlation
-- [ ] Security headers + CORS reviewed
+- [x] Security headers + CORS reviewed
 - [ ] Deps curate + pins unificate
 - [ ] Dead code eliminat / montat conform deciziilor

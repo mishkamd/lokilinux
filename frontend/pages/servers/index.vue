@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { RefreshCw, Search, Pencil, Plus } from 'lucide-vue-next'
+import type { Server } from '~/stores/servers'
 
 const {
   servers, total, loading, filters, fetchServers, statusColor, toggleMaintenance,
   categories, projects, fetchCategories, fetchProjects, createCategory, createProject, assignServer,
 } = useServers()
 const toast = useToast()
+const { format: fmtDateTime } = useDateTime()
 
 // Client-only fetch (matches pages/jobs/index.vue): the last_seen_at column
 // below renders new Date(...).toLocaleString(), which formats differently
@@ -62,7 +64,7 @@ const savingRowId = ref<string | null>(null)
 async function updateCategory(row: (typeof servers.value)[0], value: string) {
   savingRowId.value = String(row.id)
   try {
-    await assignServer(String(row.id), value || null, row.project_id)
+    await assignServer(String(row.id), value || null, row.project_id, row.agent_group_id)
   } catch {
     toast.add({ title: 'Failed to update category', color: 'red' })
   } finally {
@@ -73,7 +75,7 @@ async function updateCategory(row: (typeof servers.value)[0], value: string) {
 async function updateProject(row: (typeof servers.value)[0], value: string) {
   savingRowId.value = String(row.id)
   try {
-    await assignServer(String(row.id), row.category_id, value || null)
+    await assignServer(String(row.id), row.category_id, value || null, row.agent_group_id)
   } catch {
     toast.add({ title: 'Failed to update project', color: 'red' })
   } finally {
@@ -166,6 +168,9 @@ async function saveNewEntity() {
       :rows="filteredServers"
       :columns="columns"
       :loading="loading"
+      sortable
+      :page-size="25"
+      empty-title="No servers found"
       rows-clickable
       selectable
       v-model:selected="selectedIds"
@@ -186,7 +191,7 @@ async function saveNewEntity() {
             :model-value="row.category_id ?? ''"
             :options="assignOptions"
             :disabled="savingRowId === String(row.id)"
-            @update:model-value="updateCategory(row as typeof servers.value[0], $event)"
+            @update:model-value="updateCategory(row as Server, $event)"
           />
         </div>
       </template>
@@ -196,24 +201,25 @@ async function saveNewEntity() {
             :model-value="row.project_id ?? ''"
             :options="projectAssignOptions"
             :disabled="savingRowId === String(row.id)"
-            @update:model-value="updateProject(row as typeof servers.value[0], $event)"
+            @update:model-value="updateProject(row as Server, $event)"
           />
         </div>
       </template>
       <template #last_seen_at-data="{ row }">
-        <span class="font-mono text-xs">{{ row.last_seen_at ? new Date(String(row.last_seen_at)).toLocaleString() : 'Never' }}</span>
+        <span class="font-mono text-xs">{{ row.last_seen_at ? fmtDateTime(String(row.last_seen_at)) : 'Never' }}</span>
       </template>
       <template #actions-data="{ row }">
         <div class="flex items-center justify-end">
-          <Button
-            size="xs"
-            variant="ghost"
-            class="text-muted-foreground"
-            aria-label="Edit server"
-            @click.stop="editingServer = row as typeof servers.value[0]"
-          >
-            <Pencil class="size-3.5" />
-          </Button>
+          <Tooltip text="Edit server">
+            <Button
+              size="xs"
+              variant="ghost"
+              aria-label="Edit server"
+              @click.stop="editingServer = row as Server"
+            >
+              <Pencil class="size-3.5" />
+            </Button>
+          </Tooltip>
         </div>
       </template>
     </DataTable>

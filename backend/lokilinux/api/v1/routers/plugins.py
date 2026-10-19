@@ -69,14 +69,3 @@ async def disable_plugin(
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-
-@router.delete("/{plugin_id}", response_model=PluginResponse)
-async def uninstall_plugin(
-    plugin_id: UUID,
-    svc: PluginService = Depends(_svc),
-    _: dict = Depends(require_role("ADMIN")),
-) -> PluginResponse:
-    try:
-        return await svc.uninstall_plugin(plugin_id)
-    except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))

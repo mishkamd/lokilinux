@@ -11,7 +11,8 @@ import (
 	"time"
 )
 
-// Both runViaSystemdRun and runViaSystemdRunArgv escape the agent's own
+// Both runViaSystemdRunArgv and runSystemdRunUnit (called directly by
+// JobExecutor.Execute) escape the agent's own
 // mount-namespace sandbox (ProtectSystem=strict, PrivateTmp) via a transient
 // systemd unit that PID1 spawns fresh, outside that namespace — the same
 // way any systemctl-started unit escapes a caller's private mounts. The
@@ -45,17 +46,6 @@ import (
 // mount namespace) and the agent reading the result afterward agree on it.
 const jobOutputDir = "/var/lib/lokilinux/job-output"
 
-// runViaSystemdRun executes `command` under /bin/sh -c. Only for callers
-// whose command is either fixed or built from trusted, well-formed parts
-// (e.g. package manager names) — never for job payloads that carry
-// arbitrary untrusted content, see runViaSystemdRunArgv for that case.
-func runViaSystemdRun(ctx context.Context, jobID, command string, timeoutSec, maxOutputBytes int, profile ...*SandboxProfile) JobResult {
-	if err := validateCommand(command); err != nil {
-		return JobResult{JobID: jobID, ExitCode: 1, Error: err.Error(), DurationMs: 0}
-	}
-	return runSystemdRunUnit(ctx, jobID, []string{"/bin/sh", "-c", command}, "", timeoutSec, maxOutputBytes, firstProfile(profile))
-}
-
 // runViaSystemdRunArgv executes argv directly — no shell involved at any
 // point, so untrusted content (e.g. an ansible playbook's own files, only
 // ever referenced here by path) can never be interpreted as shell syntax.
@@ -83,12 +73,18 @@ func firstProfile(ps []*SandboxProfile) *SandboxProfile {
 // the agent's user. A true privilege boundary (non-root core + privileged
 // broker) is Faza 2; until then profiles are the honest containment layer.
 type SandboxProfile struct {
-	MemoryMax        string // systemd MemoryMax, e.g. "512M" / "1G"
-	TasksMax         int    // systemd TasksMax — anti fork-bomb
-	CPUQuotaPercent  int    // systemd CPUQuota=NN%
-	NoNewPrivileges  bool   // blocks setuid/setcap escalation inside the job
-	ProtectHome      string // "" | "yes" | "read-only"
-	PrivateTmp       bool   // isolated /tmp for the unit
+	MemoryMax       string // systemd MemoryMax, e.g. "512M" / "1G"
+	TasksMax        int    // systemd TasksMax — anti fork-bomb
+	CPUQuotaPercent int    // systemd CPUQuota=NN%
+	NoNewPrivileges bool   // blocks setuid/setcap escalation inside the job
+	ProtectHome     string // "" | "yes" | "read-only"
+	PrivateTmp      bool   // isolated /tmp for the unit
+	// EnvAllowlist (plan P4.3) — only these variables are passed to the
+	// spawned unit via explicit -p Environment=K=V, read from the agent
+	// process's own environment. Everything else is NOT inherited — a job
+	// payload can no longer smuggle e.g. LD_PRELOAD through the caller's
+	// environment.
+	EnvAllowlist []string
 }
 
 // Presets shared by every executor dispatch site.
@@ -100,6 +96,7 @@ var (
 		TasksMax:        256,
 		CPUQuotaPercent: 100,
 		NoNewPrivileges: true,
+		EnvAllowlist:    []string{"PATH", "LANG", "HOME"},
 	}
 	// ProfileArbitraryCode: EXEC_BASH / EXEC_PYTHON / ansible playbooks —
 	// payloads that carry untrusted-by-design content from the control plane.
@@ -109,6 +106,7 @@ var (
 		CPUQuotaPercent: 80,
 		NoNewPrivileges: true,
 		ProtectHome:     "read-only",
+		EnvAllowlist:    []string{"PATH", "LANG", "HOME"},
 	}
 )
 
@@ -138,15 +136,33 @@ func (p *SandboxProfile) args() []string {
 	if p.PrivateTmp {
 		out = append(out, "-p", "PrivateTmp=true")
 	}
+	for _, k := range p.EnvAllowlist {
+		if v, ok := os.LookupEnv(k); ok {
+			add("Environment", k+"="+v)
+		}
+	}
 	return out
+}
+
+// maxTimeoutSec is the hard ceiling on any job's execution window (plan
+// P5-P7) — mirrors manager.go's JobExecution.TimeoutSeconds config default,
+// but as an upper bound now, not just a fallback for the zero-value.
+const maxTimeoutSec = 3600
+
+// clampTimeoutSeconds maps timeoutSec <= 0 to the default and anything
+// above maxTimeoutSec down to it — no caller-supplied timeout can ever
+// exceed the ceiling.
+func clampTimeoutSeconds(timeoutSec int) int {
+	if timeoutSec <= 0 || timeoutSec > maxTimeoutSec {
+		return maxTimeoutSec
+	}
+	return timeoutSec
 }
 
 func runSystemdRunUnit(ctx context.Context, jobID string, argv []string, workDir string, timeoutSec, maxOutputBytes int, profile *SandboxProfile) JobResult {
 	start := time.Now()
 
-	if timeoutSec <= 0 {
-		timeoutSec = 3600 // config default, mirrors manager.go's JobExecution.TimeoutSeconds fallback
-	}
+	timeoutSec = clampTimeoutSeconds(timeoutSec)
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithTimeout(ctx, time.Duration(timeoutSec)*time.Second)
 	defer cancel()

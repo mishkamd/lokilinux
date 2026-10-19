@@ -91,6 +91,28 @@ describe('useComplianceStore', () => {
       expect(apiMocks.post).toHaveBeenCalledWith('/compliance/policy-sets/import', expect.objectContaining({ content_version: 'v1' }))
       expect(result.job_id).toBe('job-1')
     })
+
+    it('setPolicySetRemediation patches selectedPolicySet in place', async () => {
+      const store = useComplianceStore()
+      store.selectedPolicySet = { id: 'ps1', remediation: null } as any
+      apiMocks.patch.mockResolvedValueOnce({
+        id: 'ps1',
+        remediation: { mode: 'AUTOMATIC', allowed: ['sshd'], forbidden: [] },
+      })
+
+      const updated = await store.setPolicySetRemediation('ps1', {
+        mode: 'AUTOMATIC',
+        allowed: ['sshd'],
+        forbidden: [],
+      })
+
+      expect(apiMocks.patch).toHaveBeenCalledWith(
+        '/compliance/policy-sets/ps1/remediation',
+        { mode: 'AUTOMATIC', allowed: ['sshd'], forbidden: [] },
+      )
+      expect(updated.remediation?.mode).toBe('AUTOMATIC')
+      expect(store.selectedPolicySet?.remediation?.mode).toBe('AUTOMATIC')
+    })
   })
 
   describe('drift', () => {
@@ -120,6 +142,72 @@ describe('useComplianceStore', () => {
       expect(apiMocks.post).toHaveBeenCalledWith('/compliance/drift-events/d1/acknowledge')
       expect(store.driftEvents[0]!.acknowledged_at).toBe('2026-01-01T00:00:00Z')
       expect(store.selectedDriftEvent?.acknowledged_at).toBe('2026-01-01T00:00:00Z')
+    })
+  })
+
+  describe('findings', () => {
+    it('fetchFindings defaults to result=FAIL and populates the list', async () => {
+      apiMocks.get.mockResolvedValueOnce({
+        items: [{ id: 'f1', domain: 'sshd', severity: 'HIGH', result: 'FAIL', acknowledged_at: null }],
+        next_cursor: null,
+        total: 1,
+      })
+      const store = useComplianceStore()
+
+      await store.fetchFindings()
+
+      expect(apiMocks.get).toHaveBeenCalledWith(expect.stringContaining('/compliance/findings?'))
+      expect(apiMocks.get).toHaveBeenCalledWith(expect.stringContaining('result=FAIL'))
+      expect(store.findings).toHaveLength(1)
+      expect(store.findingsTotal).toBe(1)
+    })
+
+    it('fetchFinding populates selectedFinding', async () => {
+      apiMocks.get.mockResolvedValueOnce({ id: 'f1', title: 'Disable root login', acknowledged_at: null })
+      const store = useComplianceStore()
+
+      await store.fetchFinding('f1')
+
+      expect(apiMocks.get).toHaveBeenCalledWith('/compliance/findings/f1')
+      expect(store.selectedFinding?.title).toBe('Disable root login')
+    })
+
+    it('acknowledgeFinding patches both the list entry and selectedFinding in place', async () => {
+      const store = useComplianceStore()
+      store.findings = [{ id: 'f1', acknowledged_at: null } as any]
+      store.selectedFinding = { id: 'f1', acknowledged_at: null } as any
+      apiMocks.post.mockResolvedValueOnce({ id: 'f1', acknowledged_at: '2026-01-01T00:00:00Z' })
+
+      await store.acknowledgeFinding('f1')
+
+      expect(apiMocks.post).toHaveBeenCalledWith('/compliance/findings/f1/acknowledge')
+      expect(store.findings[0]!.acknowledged_at).toBe('2026-01-01T00:00:00Z')
+      expect(store.selectedFinding?.acknowledged_at).toBe('2026-01-01T00:00:00Z')
+    })
+  })
+
+  describe('standards', () => {
+    it('fetchStandards populates the list', async () => {
+      apiMocks.get.mockResolvedValueOnce([
+        { key: 'cis', name: 'CIS Benchmarks', version: '8.0', rules_total: 10, executable: 4, reference_only: 6, coverage_executable_pct: 40 },
+      ])
+      const store = useComplianceStore()
+
+      await store.fetchStandards()
+
+      expect(apiMocks.get).toHaveBeenCalledWith('/compliance/standards')
+      expect(store.standards).toHaveLength(1)
+      expect(store.standards[0]!.coverage_executable_pct).toBe(40)
+    })
+
+    it('fetchStandard populates selectedStandard', async () => {
+      apiMocks.get.mockResolvedValueOnce({ key: 'cis', name: 'CIS Benchmarks', version: '8.0', controls: [] })
+      const store = useComplianceStore()
+
+      await store.fetchStandard('cis', '8.0')
+
+      expect(apiMocks.get).toHaveBeenCalledWith('/compliance/standards/cis/8.0')
+      expect(store.selectedStandard?.name).toBe('CIS Benchmarks')
     })
   })
 

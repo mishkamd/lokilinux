@@ -18,9 +18,10 @@ from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lokilinux.models.drift import OPEN_DRIFT_STATUSES, DriftEvent
 from lokilinux.models.remediation import (
     MaintenanceWindow,
     RemediationAction,
@@ -63,9 +64,22 @@ class RemediationService:
         is_emergency: bool = False,
         maintenance_window_id: UUID | None = None,
         created_by: UUID | None = None,
+        created_by_actor: str | None = None,
     ) -> RemediationPlan:
         if not actions:
             raise HTTPException(status_code=400, detail="A remediation plan needs at least one action")
+
+        from lokilinux.services.auto_remediation import is_monitor_only
+
+        for a in actions:
+            if a.rule_id is not None and await is_monitor_only(self.db, a.rule_id):
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"Rule {a.rule_id} is covered only by MONITOR-mode policies — "
+                        "remediation is disabled for it (plan U7)"
+                    ),
+                )
 
         if maintenance_window_id is not None:
             window = await self.db.get(MaintenanceWindow, maintenance_window_id)
@@ -81,6 +95,7 @@ class RemediationService:
             is_emergency=is_emergency,
             maintenance_window_id=maintenance_window_id,
             created_by=created_by,
+            created_by_actor=created_by_actor,
         )
         self.db.add(plan)
         await self.db.flush()
@@ -133,6 +148,15 @@ class RemediationService:
             raise HTTPException(status_code=409, detail=f"Cannot approve from status {plan.status}")
 
         approver_id = actor.get("id")
+        # Same no-self-approval rule as workflow_engine.approve_step. created_by is None
+        # for system (autopilot) plans, so there is no creator to match. created_by_actor
+        # covers nanoid creators, whose created_by is NULL.
+        if (plan.created_by_actor and plan.created_by_actor == approver_id) or (
+            plan.created_by is not None and plan.created_by == _safe_uuid(approver_id)
+        ):
+            raise HTTPException(
+                status_code=403, detail="You cannot approve a plan you created yourself",
+            )
         plan.approved_by = _safe_uuid(approver_id)
         plan.approved_at = datetime.now(timezone.utc)
 
@@ -194,6 +218,24 @@ class RemediationService:
 
         self.db.add(RemediationJob(remediation_plan_id=plan.id, job_id=job.id))
         plan.status = "EXECUTING"
+
+        # Plan U6/incident wiring: an open drift incident this plan is
+        # addressing shouldn't still read OPEN while a fix for it is
+        # actually running — IN_REMEDIATION until the outcome is known
+        # (verification COMPLETED resolves it; FAILED/ROLLED_BACK reverts
+        # it, see job_service._sync_remediation_plan and
+        # remediation_verification.py).
+        drift_event_ids = [a.drift_event_id for a in actions if a.drift_event_id is not None]
+        if drift_event_ids:
+            await self.db.execute(
+                update(DriftEvent)
+                .where(
+                    DriftEvent.id.in_(drift_event_ids),
+                    DriftEvent.status.in_(OPEN_DRIFT_STATUSES),
+                )
+                .values(status="IN_REMEDIATION")
+            )
+
         await self.db.commit()
 
     async def dry_run(self, plan_id: UUID, actor: dict) -> RemediationPlan:

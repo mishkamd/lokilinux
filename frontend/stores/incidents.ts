@@ -24,6 +24,7 @@ export interface Incident {
   id: string
   tenant_id: string
   title: string
+  hostname?: string | null
   type: string
   severity: string
   status: 'OPEN' | 'ACKNOWLEDGED' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED'

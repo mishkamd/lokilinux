@@ -62,6 +62,9 @@ Unitățile tranziente moștenesc userul serviciului agent (astăzi root). Trece
 5. **Enforcement** — per agent: `security.enforce_signed_jobs: true` în config. `JOB_SIGNING_REQUIRED=true` server-side odată ce toți agenții privilegiali sunt ≥0.37.0.
 6. **Non-root** (după DISTRO_RUNBOOK verde): instalezi brokerul + `AGENT_NON_ROOT=1`. COMPLIANCE_REMEDIATE și package-checks merg prin broker.
 7. **Production profile** — `SECURITY_PROFILE=production` validează toate cele de mai sus la startup.
+   Independent de `ENVIRONMENT` — niciun compose/env file nu-l setează implicit, deci nu se declanșează
+   singur în deployment-ul standard. Setat prematur (înainte ca pașii 1-6 să fie completați pe toată
+   flota), startup-ul eșuează cu `RuntimeError` — e un flag manual de finalizare, nu un gate automat.
 
 ## Broker security model
 

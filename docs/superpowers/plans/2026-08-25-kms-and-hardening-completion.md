@@ -2,6 +2,7 @@
 
 > **STATUS (2026-08-25): IMPLEMENTAT.** Commits: `62b297f` A1/A2 revocare service · `1846239` A3 heartbeat wire · `831b2c3` A4 admin API · `adb70bb`+`63d7534` B CA bundle+runbook · `ca5c927` C metrics+fail-closed · `1da1126` D1 claims · `d182bf7` F kms core · `4f4e40a` D3 approve+attach · `f72d419` D4 agent verify · `66b04f0` E broker · `c950ca1` G production profile.
 > **TESTED:** 173 Go `-race` + 39 pytest security suites. **NOT TESTED:** live distro (Ubuntu/Rocky), E2E stack real, dual-trust pe flotă. Detalii în raportul final al sesiunii.
+> **STATUS (2026-08-27): 100% — dual-trust rollout EXECUTAT LIVE pe flotă (2 agenți: devapp.mishka.md, rocky).** CA_new generat, bundle dual distribuit (server + ambii agenți), server cert re-semnat sub CA_new, CA_new promovat (ca_signer semnează de-acum cu cheia nouă), agent release 0.38.0 (cert renewal + installer bundle) livrat pe ambele hosturi, signed-job smoke 2/2 COMPLETED post-promote, E2E `e2e_signed_job.sh` 8/8 PASS. Fix-uri de traseu întâlnite la rollout: envelope agent_id folosea PK-ul în loc de identitatea wire (f6be87c), iar inițial citea un câmp inexistent pe Job (ab757cb). Cert-urile agenților rămân CA_old-signed până la renew-ul automat (<7d TTL) — bundle-ul dual rămâne pe locațiile agentului până atunci; NU revocați serialurile CA_old înainte ca toate certs flotei să fie re-emise.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: superpowers:executing-plans or subagent-driven-development. Steps use checkbox (`- [ ]`).
 

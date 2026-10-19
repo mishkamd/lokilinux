@@ -10,17 +10,13 @@ from pydantic import BaseModel
 from lokilinux.schemas.job import JobResponse
 
 
-class PlaybookBase(BaseModel):
+class PlaybookCreate(BaseModel):
     name: str
     description: str | None = None
     content: str
     default_extra_vars: dict | None = None
     role_ids: list[UUID] = []
     project_id: UUID | None = None
-
-
-class PlaybookCreate(PlaybookBase):
-    pass
 
 
 class PlaybookUpdate(BaseModel):
@@ -33,8 +29,37 @@ class PlaybookUpdate(BaseModel):
     project_id: UUID | None = None
 
 
-class PlaybookResponse(PlaybookBase):
+class PlaybookResponse(BaseModel):
+    """Full detail — GET/POST/PATCH single-item responses. `content` is
+    resolved explicitly by the router (legacy column or object storage), so
+    this is never built via `.model_validate(playbook)` alone."""
+
     id: UUID
+    name: str
+    description: str | None = None
+    content: str
+    default_extra_vars: dict | None = None
+    role_ids: list[UUID] = []
+    project_id: UUID | None = None
+    version: int
+    is_enabled: bool
+    generated_by: str | None = None
+    created_by: UUID | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class PlaybookListItem(BaseModel):
+    """List endpoint response — omits `content` so listing playbooks never
+    triggers an object-storage read per row (see PlaybookService.list_playbooks
+    / routers/playbooks.py)."""
+
+    id: UUID
+    name: str
+    description: str | None = None
+    default_extra_vars: dict | None = None
+    role_ids: list[UUID] = []
+    project_id: UUID | None = None
     version: int
     is_enabled: bool
     generated_by: str | None = None

@@ -14,6 +14,11 @@ RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 COPY pyproject.toml ./
+# ⚠ This pin list MUST stay in sync with pyproject.toml dependencies — it
+# exists only to keep the dependency layer cacheable across code changes.
+# Drift here has already shipped a broken image once (cryptography 50 vs
+# pyproject 46; PyYAML missing entirely and working only via a transitive
+# pull). When you change pyproject.toml, change this list in the same commit.
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir \
     fastapi==0.138.1 uvicorn[standard]==0.49.0 \
@@ -22,10 +27,11 @@ RUN pip install --no-cache-dir --upgrade pip && \
     opentelemetry-proto==1.44.0 \
     grpcio==1.81.1 protobuf==6.33.5 \
     pydantic==2.13.4 pydantic-settings==2.14.2 \
-    structlog==26.1.0 orjson==3.11.9 httpx==0.28.1 python-multipart==0.0.32 \
-    PyJWT[cryptography]==2.13.0 cryptography==50.0.0 \
+    structlog==26.1.0 httpx==0.28.1 \
+    PyYAML==6.0.3 cryptography==50.0.0 \
     openpyxl==3.1.5 reportlab==5.0.0 \
-    croniter==6.2.4 prometheus-client==0.21.1 && \
+    croniter==6.2.4 prometheus-client==0.21.1 \
+    boto3==1.43.87 python-multipart==0.0.32 && \
     # Transitive-dep security fixes, forced AFTER main install so the
     # resolver cannot downgrade them back:
     # setuptools CVE-2025-47273, wheel CVE-2026-24049, jaraco.context
@@ -57,7 +63,9 @@ RUN groupadd --gid 10001 appuser && \
     apt-get update && \
     apt-get install -y --no-install-recommends --only-upgrade \
       util-linux bsdutils mount login \
-      libblkid1 libmount1 libsmartcols1 libuuid1 liblastlog2-2 && \
+      libblkid1 libmount1 libsmartcols1 libuuid1 liblastlog2-2 \
+      perl-base gzip \
+      libpcre2-8-0 libsqlite3-0 libssl3t64 openssl openssl-provider-legacy && \
     rm -rf /var/lib/apt/lists/* && \
     rm -rf /usr/local/lib/python3.11/site-packages/* /usr/local/bin/pip*
 

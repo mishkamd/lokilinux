@@ -74,8 +74,8 @@ async def _make_agent(db_session) -> Agent:
     return agent
 
 
-async def _publish(db_session, yaml_source: str, name: str = "Test WF"):
-    svc = WorkflowService(db_session)
+async def _publish(db_session, fake_storage, yaml_source: str, name: str = "Test WF"):
+    svc = WorkflowService(db_session, fake_storage)
     workflow = await svc.create_workflow(name=name, yaml_source=yaml_source, created_by=None)
     version_row = (await db_session.execute(
         select(WorkflowVersion).where(WorkflowVersion.workflow_id == workflow.id)
@@ -95,32 +95,32 @@ async def _complete_running_step_jobs(db_session, run_id, *, succeed: bool = Tru
 
 
 @pytest.mark.asyncio
-async def test_start_run_requires_published_version(db_session, fake_cache):
-    svc = WorkflowService(db_session)
+async def test_start_run_requires_published_version(db_session, fake_cache, fake_storage):
+    svc = WorkflowService(db_session, fake_storage)
     workflow = await svc.create_workflow(name="Unpublished", yaml_source=LINEAR_TWO_STEP.replace("engine-linear-two-step", "unpublished-wf"), created_by=None)
 
     from fastapi import HTTPException
     with pytest.raises(HTTPException) as exc_info:
-        await start_run(db_session, fake_cache, workflow.id, trigger_type="MANUAL", triggered_by=None)
+        await start_run(db_session, fake_cache, fake_storage, workflow.id, trigger_type="MANUAL", triggered_by=None)
     assert exc_info.value.status_code == 409
 
 
 @pytest.mark.asyncio
-async def test_start_run_with_no_matching_agents_is_422(db_session, fake_cache):
-    workflow, _version = await _publish(db_session, LINEAR_TWO_STEP.replace("engine-linear-two-step", "no-agents-wf"))
+async def test_start_run_with_no_matching_agents_is_422(db_session, fake_cache, fake_storage):
+    workflow, _version = await _publish(db_session, fake_storage, LINEAR_TWO_STEP.replace("engine-linear-two-step", "no-agents-wf"))
 
     from fastapi import HTTPException
     with pytest.raises(HTTPException) as exc_info:
-        await start_run(db_session, fake_cache, workflow.id, trigger_type="MANUAL", triggered_by=None)
+        await start_run(db_session, fake_cache, fake_storage, workflow.id, trigger_type="MANUAL", triggered_by=None)
     assert exc_info.value.status_code == 422
 
 
 @pytest.mark.asyncio
-async def test_linear_two_step_run_completes_end_to_end(db_session, fake_cache):
+async def test_linear_two_step_run_completes_end_to_end(db_session, fake_cache, fake_storage):
     await _make_agent(db_session)
-    workflow, _version = await _publish(db_session, LINEAR_TWO_STEP.replace("engine-linear-two-step", "linear-e2e-wf"))
+    workflow, _version = await _publish(db_session, fake_storage, LINEAR_TWO_STEP.replace("engine-linear-two-step", "linear-e2e-wf"))
 
-    run = await start_run(db_session, fake_cache, workflow.id, trigger_type="MANUAL", triggered_by=None)
+    run = await start_run(db_session, fake_cache, fake_storage, workflow.id, trigger_type="MANUAL", triggered_by=None)
     assert run.status == "RUNNING"
 
     step_runs = {sr.step_id: sr for sr in (await db_session.execute(
@@ -131,7 +131,7 @@ async def test_linear_two_step_run_completes_end_to_end(db_session, fake_cache):
     assert step_runs["apply"].status == "PENDING"  # not started — waiting on precheck
 
     await _complete_running_step_jobs(db_session, run.id, succeed=True)
-    await advance_run(db_session, fake_cache, run)
+    await advance_run(db_session, fake_cache, fake_storage, run)
 
     step_runs = {sr.step_id: sr for sr in (await db_session.execute(
         select(WorkflowStepRun).where(WorkflowStepRun.run_id == run.id)
@@ -141,20 +141,20 @@ async def test_linear_two_step_run_completes_end_to_end(db_session, fake_cache):
     assert run.status == "RUNNING"
 
     await _complete_running_step_jobs(db_session, run.id, succeed=True)
-    await advance_run(db_session, fake_cache, run)
+    await advance_run(db_session, fake_cache, fake_storage, run)
 
     assert run.status == "SUCCEEDED"
     assert run.completed_at is not None
 
 
 @pytest.mark.asyncio
-async def test_failed_step_fails_the_run(db_session, fake_cache):
+async def test_failed_step_fails_the_run(db_session, fake_cache, fake_storage):
     await _make_agent(db_session)
-    workflow, _version = await _publish(db_session, LINEAR_TWO_STEP.replace("engine-linear-two-step", "failing-wf"))
+    workflow, _version = await _publish(db_session, fake_storage, LINEAR_TWO_STEP.replace("engine-linear-two-step", "failing-wf"))
 
-    run = await start_run(db_session, fake_cache, workflow.id, trigger_type="MANUAL", triggered_by=None)
+    run = await start_run(db_session, fake_cache, fake_storage, workflow.id, trigger_type="MANUAL", triggered_by=None)
     await _complete_running_step_jobs(db_session, run.id, succeed=False)
-    await advance_run(db_session, fake_cache, run)
+    await advance_run(db_session, fake_cache, fake_storage, run)
 
     step_runs = {sr.step_id: sr for sr in (await db_session.execute(
         select(WorkflowStepRun).where(WorkflowStepRun.run_id == run.id)
@@ -166,13 +166,13 @@ async def test_failed_step_fails_the_run(db_session, fake_cache):
 
 
 @pytest.mark.asyncio
-async def test_approval_blocks_then_unblocks_the_run(db_session, fake_cache):
+async def test_approval_blocks_then_unblocks_the_run(db_session, fake_cache, fake_storage):
     await _make_agent(db_session)
-    workflow, _version = await _publish(db_session, WITH_APPROVAL.replace("engine-with-approval", "approval-wf"))
+    workflow, _version = await _publish(db_session, fake_storage, WITH_APPROVAL.replace("engine-with-approval", "approval-wf"))
 
-    run = await start_run(db_session, fake_cache, workflow.id, trigger_type="MANUAL", triggered_by=None)
+    run = await start_run(db_session, fake_cache, fake_storage, workflow.id, trigger_type="MANUAL", triggered_by=None)
     await _complete_running_step_jobs(db_session, run.id, succeed=True)
-    await advance_run(db_session, fake_cache, run)
+    await advance_run(db_session, fake_cache, fake_storage, run)
 
     assert run.status == "WAITING_APPROVAL"
     step_runs = {sr.step_id: sr for sr in (await db_session.execute(
@@ -181,7 +181,7 @@ async def test_approval_blocks_then_unblocks_the_run(db_session, fake_cache):
     assert step_runs["gate"].status == "WAITING_APPROVAL"
     assert step_runs["apply"].status == "PENDING"
 
-    await approve_step(db_session, fake_cache, run.id, "gate", actor=None)
+    await approve_step(db_session, fake_cache, fake_storage, run.id, "gate", actor=None, actor_id=None)
 
     step_runs = {sr.step_id: sr for sr in (await db_session.execute(
         select(WorkflowStepRun).where(WorkflowStepRun.run_id == run.id)
@@ -191,27 +191,66 @@ async def test_approval_blocks_then_unblocks_the_run(db_session, fake_cache):
     assert run.status == "RUNNING"
 
     await _complete_running_step_jobs(db_session, run.id, succeed=True)
-    await advance_run(db_session, fake_cache, run)
+    await advance_run(db_session, fake_cache, fake_storage, run)
     assert run.status == "SUCCEEDED"
 
 
 @pytest.mark.asyncio
-async def test_approver_cannot_be_the_run_trigger(db_session, fake_cache):
+async def test_dispatch_failure_does_not_crash_on_sibling_step_runs(db_session, fake_cache, monkeypatch, fake_storage):
+    """JobService.create_job rolls back the session on its duplicate-
+    active-job race (job_service.py's IntegrityError handler) — a
+    rollback unconditionally expires every object in the session
+    regardless of this session's expire_on_commit=False (that setting
+    only governs commit). Before this was fixed, advance_run's next
+    synchronous read of a sibling step_run loaded earlier in the same
+    tick (here: "precheck", untouched since section 1) raised
+    sqlalchemy.exc.MissingGreenlet instead of just failing the step."""
+    await _make_agent(db_session)
+    workflow, _version = await _publish(db_session, fake_storage, WITH_APPROVAL.replace("engine-with-approval", "dispatch-failure-wf"))
+
+    run = await start_run(db_session, fake_cache, fake_storage, workflow.id, trigger_type="MANUAL", triggered_by=None)
+    await _complete_running_step_jobs(db_session, run.id, succeed=True)
+    await advance_run(db_session, fake_cache, fake_storage, run)  # precheck -> SUCCEEDED, gate -> WAITING_APPROVAL
+
+    from lokilinux.services import job_service as job_service_module
+
+    async def _raise_after_rollback(self, *args, **kwargs):
+        await self.db.rollback()
+        raise ValueError("Duplicate job already active")
+
+    monkeypatch.setattr(job_service_module.JobService, "create_job", _raise_after_rollback)
+
+    # approve_step's own advance_run call dispatches "apply" next, which
+    # hits the patched create_job above — must not crash reading
+    # "precheck" (this run's untouched-this-tick sibling) afterward.
+    await approve_step(db_session, fake_cache, fake_storage, run.id, "gate", actor=None, actor_id=None)
+
+    step_runs = {sr.step_id: sr for sr in (await db_session.execute(
+        select(WorkflowStepRun).where(WorkflowStepRun.run_id == run.id)
+    )).scalars().all()}
+    assert step_runs["precheck"].status == "SUCCEEDED"
+    assert step_runs["apply"].status == "FAILED"
+    assert step_runs["apply"].error == "Duplicate job already active"
+    assert run.status == "FAILED"
+
+
+@pytest.mark.asyncio
+async def test_approver_cannot_be_the_run_trigger(db_session, fake_cache, fake_storage):
     """Faza 11 — no-self-approval, the pattern already established for
     baseline DRAFT submissions (docs/compliance/06-BASELINE.md): whoever
     started the run cannot be the one clearing its approval gate."""
     await _make_agent(db_session)
-    workflow, _version = await _publish(db_session, WITH_APPROVAL.replace("engine-with-approval", "self-approve-wf"))
+    workflow, _version = await _publish(db_session, fake_storage, WITH_APPROVAL.replace("engine-with-approval", "self-approve-wf"))
     triggerer = uuid.uuid4()
 
-    run = await start_run(db_session, fake_cache, workflow.id, trigger_type="MANUAL", triggered_by=triggerer)
+    run = await start_run(db_session, fake_cache, fake_storage, workflow.id, trigger_type="MANUAL", triggered_by=triggerer)
     await _complete_running_step_jobs(db_session, run.id, succeed=True)
-    await advance_run(db_session, fake_cache, run)
+    await advance_run(db_session, fake_cache, fake_storage, run)
     assert run.status == "WAITING_APPROVAL"
 
     from fastapi import HTTPException
     with pytest.raises(HTTPException) as exc_info:
-        await approve_step(db_session, fake_cache, run.id, "gate", actor=triggerer)
+        await approve_step(db_session, fake_cache, fake_storage, run.id, "gate", actor=triggerer, actor_id=str(triggerer))
     assert exc_info.value.status_code == 403
 
     step_runs = {sr.step_id: sr for sr in (await db_session.execute(
@@ -221,16 +260,43 @@ async def test_approver_cannot_be_the_run_trigger(db_session, fake_cache):
 
 
 @pytest.mark.asyncio
-async def test_a_different_actor_can_approve(db_session, fake_cache):
+async def test_approver_cannot_be_the_version_publisher(db_session, fake_cache, fake_storage):
+    """Phase 11 — no-self-approval on publish: whoever published the version a
+    run executes cannot clear that run's approval gate."""
     await _make_agent(db_session)
-    workflow, _version = await _publish(db_session, WITH_APPROVAL.replace("engine-with-approval", "other-approve-wf"))
+    publisher, starter = uuid.uuid4(), uuid.uuid4()
+    svc = WorkflowService(db_session, fake_storage)
+    workflow = await svc.create_workflow(
+        name="Publisher WF",
+        yaml_source=WITH_APPROVAL.replace("engine-with-approval", "publisher-approve-wf"),
+        created_by=None,
+    )
+    version_row = (await db_session.execute(
+        select(WorkflowVersion).where(WorkflowVersion.workflow_id == workflow.id)
+    )).scalar_one()
+    await svc.publish_version(workflow.id, version_row.id, actor=publisher)
+
+    run = await start_run(db_session, fake_cache, fake_storage, workflow.id, trigger_type="MANUAL", triggered_by=starter)
+    await _complete_running_step_jobs(db_session, run.id, succeed=True)
+    await advance_run(db_session, fake_cache, fake_storage, run)
+
+    from fastapi import HTTPException
+    with pytest.raises(HTTPException) as exc_info:
+        await approve_step(db_session, fake_cache, fake_storage, run.id, "gate", actor=publisher, actor_id=str(publisher))
+    assert exc_info.value.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_a_different_actor_can_approve(db_session, fake_cache, fake_storage):
+    await _make_agent(db_session)
+    workflow, _version = await _publish(db_session, fake_storage, WITH_APPROVAL.replace("engine-with-approval", "other-approve-wf"))
     triggerer, approver = uuid.uuid4(), uuid.uuid4()
 
-    run = await start_run(db_session, fake_cache, workflow.id, trigger_type="MANUAL", triggered_by=triggerer)
+    run = await start_run(db_session, fake_cache, fake_storage, workflow.id, trigger_type="MANUAL", triggered_by=triggerer)
     await _complete_running_step_jobs(db_session, run.id, succeed=True)
-    await advance_run(db_session, fake_cache, run)
+    await advance_run(db_session, fake_cache, fake_storage, run)
 
-    await approve_step(db_session, fake_cache, run.id, "gate", actor=approver)
+    await approve_step(db_session, fake_cache, fake_storage, run.id, "gate", actor=approver, actor_id=str(approver))
 
     step_runs = {sr.step_id: sr for sr in (await db_session.execute(
         select(WorkflowStepRun).where(WorkflowStepRun.run_id == run.id)
@@ -239,13 +305,13 @@ async def test_a_different_actor_can_approve(db_session, fake_cache):
 
 
 @pytest.mark.asyncio
-async def test_rejecting_approval_fails_the_run_and_skips_the_rest(db_session, fake_cache):
+async def test_rejecting_approval_fails_the_run_and_skips_the_rest(db_session, fake_cache, fake_storage):
     await _make_agent(db_session)
-    workflow, _version = await _publish(db_session, WITH_APPROVAL.replace("engine-with-approval", "reject-wf"))
+    workflow, _version = await _publish(db_session, fake_storage, WITH_APPROVAL.replace("engine-with-approval", "reject-wf"))
 
-    run = await start_run(db_session, fake_cache, workflow.id, trigger_type="MANUAL", triggered_by=None)
+    run = await start_run(db_session, fake_cache, fake_storage, workflow.id, trigger_type="MANUAL", triggered_by=None)
     await _complete_running_step_jobs(db_session, run.id, succeed=True)
-    await advance_run(db_session, fake_cache, run)
+    await advance_run(db_session, fake_cache, fake_storage, run)
     assert run.status == "WAITING_APPROVAL"
 
     await reject_step(db_session, run.id, "gate", actor=None)
@@ -259,11 +325,11 @@ async def test_rejecting_approval_fails_the_run_and_skips_the_rest(db_session, f
 
 
 @pytest.mark.asyncio
-async def test_cancel_run_marks_pending_and_running_steps_cancelled(db_session, fake_cache):
+async def test_cancel_run_marks_pending_and_running_steps_cancelled(db_session, fake_cache, fake_storage):
     await _make_agent(db_session)
-    workflow, _version = await _publish(db_session, LINEAR_TWO_STEP.replace("engine-linear-two-step", "cancel-wf"))
+    workflow, _version = await _publish(db_session, fake_storage, LINEAR_TWO_STEP.replace("engine-linear-two-step", "cancel-wf"))
 
-    run = await start_run(db_session, fake_cache, workflow.id, trigger_type="MANUAL", triggered_by=None)
+    run = await start_run(db_session, fake_cache, fake_storage, workflow.id, trigger_type="MANUAL", triggered_by=None)
     await cancel_run(db_session, run.id, actor=None)
 
     assert run.status == "CANCELLED"
@@ -275,11 +341,14 @@ async def test_cancel_run_marks_pending_and_running_steps_cancelled(db_session, 
 
 
 @pytest.mark.asyncio
-async def test_dry_run_creates_no_jobs(db_session, fake_cache):
+async def test_dry_run_creates_no_jobs(db_session, fake_cache, fake_storage):
     await _make_agent(db_session)
-    workflow, _version = await _publish(db_session, LINEAR_TWO_STEP.replace("engine-linear-two-step", "dry-run-wf"))
+    workflow, _version = await _publish(db_session, fake_storage, LINEAR_TWO_STEP.replace("engine-linear-two-step", "dry-run-wf"))
 
-    run = await start_run(db_session, fake_cache, workflow.id, trigger_type="MANUAL", triggered_by=None, is_dry_run=True)
+    run = await start_run(
+        db_session, fake_cache, fake_storage, workflow.id,
+        trigger_type="MANUAL", triggered_by=None, is_dry_run=True,
+    )
 
     step_runs = (await db_session.execute(
         select(WorkflowStepRun).where(WorkflowStepRun.run_id == run.id)
@@ -310,14 +379,14 @@ spec:
 
 
 @pytest.mark.asyncio
-async def test_condition_true_takes_the_success_edge(db_session, fake_cache):
+async def test_condition_true_takes_the_success_edge(db_session, fake_cache, fake_storage):
     await _make_agent(db_session)
-    workflow, _version = await _publish(db_session, WITH_CONDITION_ROLLBACK.replace("engine-condition-rollback", "cond-true-wf"))
+    workflow, _version = await _publish(db_session, fake_storage, WITH_CONDITION_ROLLBACK.replace("engine-condition-rollback", "cond-true-wf"))
 
-    run = await start_run(db_session, fake_cache, workflow.id, trigger_type="MANUAL", triggered_by=None)
+    run = await start_run(db_session, fake_cache, fake_storage, workflow.id, trigger_type="MANUAL", triggered_by=None)
     await _complete_running_step_jobs(db_session, run.id, succeed=True)
-    await advance_run(db_session, fake_cache, run)  # dispatches `check` (no Job — synchronous)
-    await advance_run(db_session, fake_cache, run)  # advances past check to finish
+    await advance_run(db_session, fake_cache, fake_storage, run)  # dispatches `check` (no Job — synchronous)
+    await advance_run(db_session, fake_cache, fake_storage, run)  # advances past check to finish
 
     step_runs = {sr.step_id: sr for sr in (await db_session.execute(
         select(WorkflowStepRun).where(WorkflowStepRun.run_id == run.id)
@@ -329,14 +398,14 @@ async def test_condition_true_takes_the_success_edge(db_session, fake_cache):
 
 
 @pytest.mark.asyncio
-async def test_condition_false_takes_the_failure_edge_rollback_branch(db_session, fake_cache):
+async def test_condition_false_takes_the_failure_edge_rollback_branch(db_session, fake_cache, fake_storage):
     await _make_agent(db_session)
-    workflow, _version = await _publish(db_session, WITH_CONDITION_ROLLBACK.replace("engine-condition-rollback", "cond-false-wf"))
+    workflow, _version = await _publish(db_session, fake_storage, WITH_CONDITION_ROLLBACK.replace("engine-condition-rollback", "cond-false-wf"))
 
-    run = await start_run(db_session, fake_cache, workflow.id, trigger_type="MANUAL", triggered_by=None)
+    run = await start_run(db_session, fake_cache, fake_storage, workflow.id, trigger_type="MANUAL", triggered_by=None)
     await _complete_running_step_jobs(db_session, run.id, succeed=False)  # upgrade fails
-    await advance_run(db_session, fake_cache, run)
-    await advance_run(db_session, fake_cache, run)
+    await advance_run(db_session, fake_cache, fake_storage, run)
+    await advance_run(db_session, fake_cache, fake_storage, run)
 
     step_runs = {sr.step_id: sr for sr in (await db_session.execute(
         select(WorkflowStepRun).where(WorkflowStepRun.run_id == run.id)
@@ -347,16 +416,16 @@ async def test_condition_false_takes_the_failure_edge_rollback_branch(db_session
 
 
 @pytest.mark.asyncio
-async def test_condition_referencing_unknown_step_fails_the_step_not_the_process(db_session, fake_cache):
+async def test_condition_referencing_unknown_step_fails_the_step_not_the_process(db_session, fake_cache, fake_storage):
     await _make_agent(db_session)
     bad = WITH_CONDITION_ROLLBACK.replace("engine-condition-rollback", "cond-bad-wf").replace(
         "steps.upgrade.status == 'SUCCEEDED'", "steps.nonexistent.status == 'SUCCEEDED'",
     )
-    workflow, _version = await _publish(db_session, bad)
+    workflow, _version = await _publish(db_session, fake_storage, bad)
 
-    run = await start_run(db_session, fake_cache, workflow.id, trigger_type="MANUAL", triggered_by=None)
+    run = await start_run(db_session, fake_cache, fake_storage, workflow.id, trigger_type="MANUAL", triggered_by=None)
     await _complete_running_step_jobs(db_session, run.id, succeed=True)
-    await advance_run(db_session, fake_cache, run)
+    await advance_run(db_session, fake_cache, fake_storage, run)
 
     step_runs = {sr.step_id: sr for sr in (await db_session.execute(
         select(WorkflowStepRun).where(WorkflowStepRun.run_id == run.id)
@@ -385,13 +454,13 @@ spec:
 
 
 @pytest.mark.asyncio
-async def test_wait_for_agent_goes_running_with_no_job(db_session, fake_cache):
+async def test_wait_for_agent_goes_running_with_no_job(db_session, fake_cache, fake_storage):
     await _make_agent(db_session)
-    workflow, _version = await _publish(db_session, WITH_WAIT_FOR_AGENT.replace("engine-wait-for-agent", "wfa-running-wf"))
+    workflow, _version = await _publish(db_session, fake_storage, WITH_WAIT_FOR_AGENT.replace("engine-wait-for-agent", "wfa-running-wf"))
 
-    run = await start_run(db_session, fake_cache, workflow.id, trigger_type="MANUAL", triggered_by=None)
+    run = await start_run(db_session, fake_cache, fake_storage, workflow.id, trigger_type="MANUAL", triggered_by=None)
     await _complete_running_step_jobs(db_session, run.id, succeed=True)
-    await advance_run(db_session, fake_cache, run)
+    await advance_run(db_session, fake_cache, fake_storage, run)
 
     step_runs = {sr.step_id: sr for sr in (await db_session.execute(
         select(WorkflowStepRun).where(WorkflowStepRun.run_id == run.id)
@@ -402,13 +471,13 @@ async def test_wait_for_agent_goes_running_with_no_job(db_session, fake_cache):
 
 
 @pytest.mark.asyncio
-async def test_wait_for_agent_succeeds_once_enough_heartbeat_time_has_passed(db_session, fake_cache):
+async def test_wait_for_agent_succeeds_once_enough_heartbeat_time_has_passed(db_session, fake_cache, fake_storage):
     agent = await _make_agent(db_session)
-    workflow, _version = await _publish(db_session, WITH_WAIT_FOR_AGENT.replace("engine-wait-for-agent", "wfa-succeed-wf"))
+    workflow, _version = await _publish(db_session, fake_storage, WITH_WAIT_FOR_AGENT.replace("engine-wait-for-agent", "wfa-succeed-wf"))
 
-    run = await start_run(db_session, fake_cache, workflow.id, trigger_type="MANUAL", triggered_by=None)
+    run = await start_run(db_session, fake_cache, fake_storage, workflow.id, trigger_type="MANUAL", triggered_by=None)
     await _complete_running_step_jobs(db_session, run.id, succeed=True)
-    await advance_run(db_session, fake_cache, run)  # `wait` goes RUNNING
+    await advance_run(db_session, fake_cache, fake_storage, run)  # `wait` goes RUNNING
 
     # Backdate the step's start so min_heartbeats*60s has already "elapsed",
     # and give the agent a fresh heartbeat — matches what a real reboot ->
@@ -420,7 +489,7 @@ async def test_wait_for_agent_succeeds_once_enough_heartbeat_time_has_passed(db_
     agent.last_heartbeat = datetime.now(timezone.utc)
     await db_session.commit()
 
-    await advance_run(db_session, fake_cache, run)
+    await advance_run(db_session, fake_cache, fake_storage, run)
 
     step_runs = {sr.step_id: sr for sr in (await db_session.execute(
         select(WorkflowStepRun).where(WorkflowStepRun.run_id == run.id)
@@ -430,14 +499,14 @@ async def test_wait_for_agent_succeeds_once_enough_heartbeat_time_has_passed(db_
 
 
 @pytest.mark.asyncio
-async def test_wait_for_agent_times_out(db_session, fake_cache):
+async def test_wait_for_agent_times_out(db_session, fake_cache, fake_storage):
     agent = await _make_agent(db_session)
     yaml_source = WITH_WAIT_FOR_AGENT.replace("engine-wait-for-agent", "wfa-timeout-wf").replace("timeout_seconds: 300", "timeout_seconds: 60")
-    workflow, _version = await _publish(db_session, yaml_source)
+    workflow, _version = await _publish(db_session, fake_storage, yaml_source)
 
-    run = await start_run(db_session, fake_cache, workflow.id, trigger_type="MANUAL", triggered_by=None)
+    run = await start_run(db_session, fake_cache, fake_storage, workflow.id, trigger_type="MANUAL", triggered_by=None)
     await _complete_running_step_jobs(db_session, run.id, succeed=True)
-    await advance_run(db_session, fake_cache, run)  # `wait` goes RUNNING (timeout_seconds: 60)
+    await advance_run(db_session, fake_cache, fake_storage, run)  # `wait` goes RUNNING (timeout_seconds: 60)
 
     step_runs = {sr.step_id: sr for sr in (await db_session.execute(
         select(WorkflowStepRun).where(WorkflowStepRun.run_id == run.id)
@@ -446,7 +515,7 @@ async def test_wait_for_agent_times_out(db_session, fake_cache):
     agent.last_heartbeat = None  # agent never came back
     await db_session.commit()
 
-    await advance_run(db_session, fake_cache, run)
+    await advance_run(db_session, fake_cache, fake_storage, run)
 
     step_runs = {sr.step_id: sr for sr in (await db_session.execute(
         select(WorkflowStepRun).where(WorkflowStepRun.run_id == run.id)
@@ -527,7 +596,7 @@ def test_compile_check_service_type_quotes_service_name():
 
 def test_compile_check_port_type_generates_dev_tcp_probe():
     cmd = _compile_check(_step(WorkflowNodeType.CHECK, {"type": "port", "host": "localhost", "port": 443}))
-    assert cmd == "timeout 2 bash -c '</dev/tcp/localhost/443'"
+    assert cmd == "timeout 2 bash -c '</dev/tcp/\"$1\"/\"$2\"' bash localhost 443"
 
 
 def test_compile_check_disk_type_generates_df_comparison():
@@ -563,13 +632,13 @@ spec:
 
 
 @pytest.mark.asyncio
-async def test_service_step_dispatches_as_custom_command_job(db_session, fake_cache):
+async def test_service_step_dispatches_as_custom_command_job(db_session, fake_cache, fake_storage):
     """The Compile-Down Rule end to end: a `service` node produces a
     CUSTOM_COMMAND Job with the compiled shell — zero agent changes."""
     await _make_agent(db_session)
-    workflow, _version = await _publish(db_session, WITH_SERVICE_STEP.replace("engine-service-compile-down", "service-compile-wf"))
+    workflow, _version = await _publish(db_session, fake_storage, WITH_SERVICE_STEP.replace("engine-service-compile-down", "service-compile-wf"))
 
-    run = await start_run(db_session, fake_cache, workflow.id, trigger_type="MANUAL", triggered_by=None)
+    run = await start_run(db_session, fake_cache, fake_storage, workflow.id, trigger_type="MANUAL", triggered_by=None)
 
     step_runs = {sr.step_id: sr for sr in (await db_session.execute(
         select(WorkflowStepRun).where(WorkflowStepRun.run_id == run.id)
@@ -583,16 +652,16 @@ async def test_service_step_dispatches_as_custom_command_job(db_session, fake_ca
 # ── Faza 10: native dispatch gate ───────────────────────────────────────
 
 @pytest.mark.asyncio
-async def test_service_step_dispatches_natively_when_agent_meets_minimum(db_session, fake_cache):
+async def test_service_step_dispatches_natively_when_agent_meets_minimum(db_session, fake_cache, fake_storage):
     """Once every target agent's agent_version meets MIN_AGENT_VERSION_NATIVE_MODULES,
     a service step must produce a real SERVICE job (agent/internal/modules/service.go),
     not a compiled shell command."""
     agent = await _make_agent(db_session)
     agent.agent_version = "0.36.0"
     await db_session.commit()
-    workflow, _version = await _publish(db_session, WITH_SERVICE_STEP.replace("engine-service-compile-down", "service-native-wf"))
+    workflow, _version = await _publish(db_session, fake_storage, WITH_SERVICE_STEP.replace("engine-service-compile-down", "service-native-wf"))
 
-    run = await start_run(db_session, fake_cache, workflow.id, trigger_type="MANUAL", triggered_by=None)
+    run = await start_run(db_session, fake_cache, fake_storage, workflow.id, trigger_type="MANUAL", triggered_by=None)
 
     step_runs = {sr.step_id: sr for sr in (await db_session.execute(
         select(WorkflowStepRun).where(WorkflowStepRun.run_id == run.id)
@@ -604,7 +673,7 @@ async def test_service_step_dispatches_natively_when_agent_meets_minimum(db_sess
 
 
 @pytest.mark.asyncio
-async def test_service_step_falls_back_to_compile_down_when_one_target_agent_is_old(db_session, fake_cache):
+async def test_service_step_falls_back_to_compile_down_when_one_target_agent_is_old(db_session, fake_cache, fake_storage):
     """A Job's job_type is uniform across every agent it fans out to — if
     even one of two target agents is below the minimum, the whole Job must
     stay compile-down rather than splitting job_type per agent."""
@@ -613,9 +682,9 @@ async def test_service_step_falls_back_to_compile_down_when_one_target_agent_is_
     old_agent = await _make_agent(db_session)
     old_agent.agent_version = "0.35.3"
     await db_session.commit()
-    workflow, _version = await _publish(db_session, WITH_SERVICE_STEP.replace("engine-service-compile-down", "service-mixed-wf"))
+    workflow, _version = await _publish(db_session, fake_storage, WITH_SERVICE_STEP.replace("engine-service-compile-down", "service-mixed-wf"))
 
-    run = await start_run(db_session, fake_cache, workflow.id, trigger_type="MANUAL", triggered_by=None)
+    run = await start_run(db_session, fake_cache, fake_storage, workflow.id, trigger_type="MANUAL", triggered_by=None)
 
     step_runs = {sr.step_id: sr for sr in (await db_session.execute(
         select(WorkflowStepRun).where(WorkflowStepRun.run_id == run.id)
@@ -639,13 +708,13 @@ spec:
 
 
 @pytest.mark.asyncio
-async def test_system_reboot_dispatches_natively_when_agent_meets_minimum(db_session, fake_cache):
+async def test_system_reboot_dispatches_natively_when_agent_meets_minimum(db_session, fake_cache, fake_storage):
     agent = await _make_agent(db_session)
     agent.agent_version = "0.36.0"
     await db_session.commit()
-    workflow, _version = await _publish(db_session, WITH_REBOOT_STEP.replace("engine-reboot-native", "reboot-native-wf"))
+    workflow, _version = await _publish(db_session, fake_storage, WITH_REBOOT_STEP.replace("engine-reboot-native", "reboot-native-wf"))
 
-    run = await start_run(db_session, fake_cache, workflow.id, trigger_type="MANUAL", triggered_by=None)
+    run = await start_run(db_session, fake_cache, fake_storage, workflow.id, trigger_type="MANUAL", triggered_by=None)
 
     step_runs = {sr.step_id: sr for sr in (await db_session.execute(
         select(WorkflowStepRun).where(WorkflowStepRun.run_id == run.id)
@@ -669,15 +738,15 @@ spec:
 
 
 @pytest.mark.asyncio
-async def test_system_hostname_always_compiles_to_shell_even_on_a_new_agent(db_session, fake_cache):
+async def test_system_hostname_always_compiles_to_shell_even_on_a_new_agent(db_session, fake_cache, fake_storage):
     """reboot.go only implements action=reboot|shutdown — hostname/timezone/
     sysctl have no native module regardless of agent version."""
     agent = await _make_agent(db_session)
     agent.agent_version = "0.99.0"
     await db_session.commit()
-    workflow, _version = await _publish(db_session, WITH_SYSTEM_HOSTNAME_STEP.replace("engine-hostname-native", "hostname-native-wf"))
+    workflow, _version = await _publish(db_session, fake_storage, WITH_SYSTEM_HOSTNAME_STEP.replace("engine-hostname-native", "hostname-native-wf"))
 
-    run = await start_run(db_session, fake_cache, workflow.id, trigger_type="MANUAL", triggered_by=None)
+    run = await start_run(db_session, fake_cache, fake_storage, workflow.id, trigger_type="MANUAL", triggered_by=None)
 
     step_runs = {sr.step_id: sr for sr in (await db_session.execute(
         select(WorkflowStepRun).where(WorkflowStepRun.run_id == run.id)
@@ -701,13 +770,13 @@ spec:
 
 
 @pytest.mark.asyncio
-async def test_file_step_dispatches_natively_when_agent_meets_minimum(db_session, fake_cache):
+async def test_file_step_dispatches_natively_when_agent_meets_minimum(db_session, fake_cache, fake_storage):
     agent = await _make_agent(db_session)
     agent.agent_version = "0.37.2"
     await db_session.commit()
-    workflow, _version = await _publish(db_session, WITH_FILE_STEP.replace("engine-file-native", "file-native-wf"))
+    workflow, _version = await _publish(db_session, fake_storage, WITH_FILE_STEP.replace("engine-file-native", "file-native-wf"))
 
-    run = await start_run(db_session, fake_cache, workflow.id, trigger_type="MANUAL", triggered_by=None)
+    run = await start_run(db_session, fake_cache, fake_storage, workflow.id, trigger_type="MANUAL", triggered_by=None)
 
     step_runs = {sr.step_id: sr for sr in (await db_session.execute(
         select(WorkflowStepRun).where(WorkflowStepRun.run_id == run.id)
@@ -734,11 +803,11 @@ spec:
 
 
 @pytest.mark.asyncio
-async def test_notification_step_creates_an_alert_with_no_job(db_session, fake_cache):
+async def test_notification_step_creates_an_alert_with_no_job(db_session, fake_cache, fake_storage):
     await _make_agent(db_session)
-    workflow, _version = await _publish(db_session, WITH_NOTIFICATION_STEP.replace("engine-notification-compile-down", "notify-wf"))
+    workflow, _version = await _publish(db_session, fake_storage, WITH_NOTIFICATION_STEP.replace("engine-notification-compile-down", "notify-wf"))
 
-    run = await start_run(db_session, fake_cache, workflow.id, trigger_type="MANUAL", triggered_by=None)
+    run = await start_run(db_session, fake_cache, fake_storage, workflow.id, trigger_type="MANUAL", triggered_by=None)
 
     step_runs = {sr.step_id: sr for sr in (await db_session.execute(
         select(WorkflowStepRun).where(WorkflowStepRun.run_id == run.id)
@@ -753,17 +822,17 @@ async def test_notification_step_creates_an_alert_with_no_job(db_session, fake_c
 
 
 @pytest.mark.asyncio
-async def test_second_notification_for_the_same_run_and_step_does_not_duplicate_the_alert(db_session, fake_cache):
+async def test_second_notification_for_the_same_run_and_step_does_not_duplicate_the_alert(db_session, fake_cache, fake_storage):
     """AlertService's ACTIVE-alert dedup is scoped by (agent_id, alert_type)
     — _dispatch_notification derives alert_type from run_id+step_id so a
     re-tick of the SAME step run can't spam duplicate alerts, without
     accidentally deduping two different runs' notifications against
     each other (plan §Etapa4)."""
     await _make_agent(db_session)
-    workflow, _version = await _publish(db_session, WITH_NOTIFICATION_STEP.replace("engine-notification-compile-down", "notify-dedup-wf"))
+    workflow, _version = await _publish(db_session, fake_storage, WITH_NOTIFICATION_STEP.replace("engine-notification-compile-down", "notify-dedup-wf"))
 
-    run = await start_run(db_session, fake_cache, workflow.id, trigger_type="MANUAL", triggered_by=None)
-    await advance_run(db_session, fake_cache, run)  # already-SUCCEEDED step is a no-op re-tick
+    run = await start_run(db_session, fake_cache, fake_storage, workflow.id, trigger_type="MANUAL", triggered_by=None)
+    await advance_run(db_session, fake_cache, fake_storage, run)  # already-SUCCEEDED step is a no-op re-tick
 
     alerts = (await db_session.execute(select(Alert).where(Alert.title == "Done"))).scalars().all()
     assert len(alerts) == 1
@@ -783,15 +852,19 @@ spec:
 
 
 @pytest.mark.asyncio
-async def test_webhook_step_fails_cleanly_on_unreachable_url(db_session, fake_cache):
+async def test_webhook_step_fails_cleanly_on_unreachable_url(db_session, fake_cache, fake_storage, monkeypatch):
     """No mock HTTP server in this test environment — asserting against a
     connection failure is still a real, meaningful check: the step must
     fail the run rather than silently reporting success for a request that
     was never delivered."""
+    # The SSRF guard refuses loopback before any connection is attempted (see
+    # test_webhook_step_refuses_loopback_url). Lift it so this test exercises the
+    # connection-failure path it was written for.
+    monkeypatch.setattr("lokilinux.services.workflow_engine.assert_safe_url", lambda *a, **k: None)
     await _make_agent(db_session)
-    workflow, _version = await _publish(db_session, WITH_WEBHOOK_STEP.replace("engine-webhook-compile-down", "webhook-wf"))
+    workflow, _version = await _publish(db_session, fake_storage, WITH_WEBHOOK_STEP.replace("engine-webhook-compile-down", "webhook-wf"))
 
-    run = await start_run(db_session, fake_cache, workflow.id, trigger_type="MANUAL", triggered_by=None)
+    run = await start_run(db_session, fake_cache, fake_storage, workflow.id, trigger_type="MANUAL", triggered_by=None)
 
     step_runs = {sr.step_id: sr for sr in (await db_session.execute(
         select(WorkflowStepRun).where(WorkflowStepRun.run_id == run.id)
@@ -799,4 +872,20 @@ async def test_webhook_step_fails_cleanly_on_unreachable_url(db_session, fake_ca
     assert step_runs["hook"].status == "FAILED"
     assert step_runs["hook"].job_id is None
     assert "request failed" in step_runs["hook"].error
+    assert run.status == "FAILED"
+
+
+@pytest.mark.asyncio
+async def test_webhook_step_refuses_loopback_url(db_session, fake_cache, fake_storage):
+    """SSRF guard: a loopback target fails the step with 'url refused' before any request."""
+    await _make_agent(db_session)
+    workflow, _version = await _publish(db_session, fake_storage, WITH_WEBHOOK_STEP.replace("engine-webhook-compile-down", "webhook-wf"))
+
+    run = await start_run(db_session, fake_cache, fake_storage, workflow.id, trigger_type="MANUAL", triggered_by=None)
+
+    step_runs = {sr.step_id: sr for sr in (await db_session.execute(
+        select(WorkflowStepRun).where(WorkflowStepRun.run_id == run.id)
+    )).scalars().all()}
+    assert step_runs["hook"].status == "FAILED"
+    assert "url refused" in step_runs["hook"].error
     assert run.status == "FAILED"

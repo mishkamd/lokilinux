@@ -18,7 +18,7 @@ from typing import Any
 SETTINGS_SCHEMA: dict[str, dict[str, tuple[str, Any]]] = {
     "agent": {
         "platform_url": ("string", ""),
-        "version": ("string", "0.37.0"),
+        "version": ("string", "0.41.0"),
         "download_base": ("string", ""),
     },
     "security": {
@@ -62,6 +62,25 @@ SETTINGS_SCHEMA: dict[str, dict[str, tuple[str, Any]]] = {
     "retention": {
         "metrics_days": ("integer", 365),
     },
+    "compliance": {
+        # Master kill-switch for AUTOMATIC-mode remediation (Enterprise
+        # Compliance plan U7/KTD8, Autopilot A2) — off by default, same
+        # safe-by-default precedent as observability.incident_autorun_runbooks.
+        # A policy_set with remediation.mode=AUTOMATIC has zero effect while
+        # this is false; ASSISTED/MONITOR are untouched either way.
+        "auto_remediation_enabled": ("boolean", False),
+        # Anti-storm cap shared across the whole fleet, not per policy —
+        # counts AUTOMATIC-trigger_type plans created today.
+        "auto_remediation_max_plans_per_day": ("integer", 10),
+        # ponytail: Autopilot A1 (docs/modules/10-compliance-autopilot.md)
+        # — the value this setting is meant to drive
+        # (compliance_assessment_scheduler.py, a worker reading this key and
+        # creating a GLOBAL assessment every N days) isn't built. This is
+        # config-only today: the wizard's Schedule step (plan U10) reads and
+        # writes it so an admin's choice survives the moment A1 ships,
+        # rather than defining the key twice. 0 = off either way.
+        "auto_assessment_days": ("integer", 0),
+    },
     "cve": {
         "feed_source_url": ("string", ""),
         "sync_interval_hours": ("integer", 24),
@@ -76,6 +95,15 @@ SETTINGS_SCHEMA: dict[str, dict[str, tuple[str, Any]]] = {
     },
     "repo": {
         "default_mirror_url": ("string", ""),
+    },
+    "reports": {
+        # Enterprise Compliance plan R10/U8 Task 4 — office-format serializers
+        # (openpyxl/reportlab) are heavier and less audited than the JSON/CSV
+        # paths, which stay always-on regardless of this flag. Default True
+        # to avoid surprising anyone relying on the existing behavior; an
+        # operator flips it off as a deliberate ops decision (plan's own
+        # wording), not something this change decides for them.
+        "xlsx_pdf_enabled": ("boolean", True),
     },
 }
 

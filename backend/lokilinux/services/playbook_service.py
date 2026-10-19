@@ -5,6 +5,10 @@ Execution runs locally on each target agent (ansible-playbook --connection=local
 not via SSH from a control node — the agent already holds an outbound mTLS
 channel, so no inbound SSH exposure is needed. "Target servers" means agents
 already registered in this fleet, selected the same way as regular jobs.
+
+Content lives in object storage (Object Storage plan) — new playbooks write
+through StorageService and carry content_object_id; legacy rows keep reading
+straight from the `content` column (dual-read, no backfill).
 """
 
 from datetime import datetime, timezone
@@ -16,14 +20,21 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from lokilinux.cache import RedisCache
 from lokilinux.models.job import Job
 from lokilinux.models.playbook import Playbook
+from lokilinux.object_storage import ObjectStorage
 from lokilinux.services.ansible_role_service import AnsibleRoleService
 from lokilinux.services.job_service import JobService
+from lokilinux.services.storage_service import StorageService
+
+_MAX_PLAYBOOK_BYTES = 1024 * 1024  # 1MiB — matches the agent's own maxPlaybookBytes cap
 
 
 class PlaybookService:
-    def __init__(self, db: AsyncSession, cache: RedisCache, nats=None) -> None:
+    def __init__(
+        self, db: AsyncSession, cache: RedisCache, storage: ObjectStorage, nats=None
+    ) -> None:
         self.db = db
         self.cache = cache
+        self.storage = storage
         self.nats = nats
 
     async def list_playbooks(self, limit: int = 20) -> list[Playbook]:
@@ -41,6 +52,28 @@ class PlaybookService:
     async def get_playbook(self, playbook_id: UUID) -> Playbook:
         return await self._get_or_404(playbook_id)
 
+    async def resolve_content(self, playbook: Playbook) -> str:
+        """The playbook's YAML text, regardless of whether it lives in the
+        legacy `content` column or object storage."""
+        if playbook.content_object_id is not None:
+            _, stream = await StorageService(self.storage, self.db).open_stream(
+                playbook.content_object_id
+            )
+            body = b"".join([chunk async for chunk in stream])
+            return body.decode("utf-8")
+        return playbook.content or ""
+
+    async def _store_content(self, name: str, content: str, created_by: UUID | None) -> UUID:
+        obj = await StorageService(self.storage, self.db).store_bytes(
+            content.encode("utf-8"),
+            category="automation.playbook",
+            original_filename=f"{name}.yml",
+            content_type="application/yaml",
+            max_bytes=_MAX_PLAYBOOK_BYTES,
+            created_by=created_by,
+        )
+        return obj.id
+
     async def create_playbook(
         self,
         name: str,
@@ -51,9 +84,10 @@ class PlaybookService:
         role_ids: list | None = None,
         project_id: UUID | None = None,
     ) -> Playbook:
+        content_object_id = await self._store_content(name, content, created_by)
         playbook = Playbook(
             name=name,
-            content=content,
+            content_object_id=content_object_id,
             description=description,
             default_extra_vars=default_extra_vars,
             generated_by="user",
@@ -82,8 +116,11 @@ class PlaybookService:
             playbook.name = name
         if description is not None:
             playbook.description = description
-        if content is not None and content != playbook.content:
-            playbook.content = content
+        if content is not None and content != await self.resolve_content(playbook):
+            playbook.content_object_id = await self._store_content(
+                name or playbook.name, content, playbook.created_by
+            )
+            playbook.content = None  # new edits always move fully onto object storage
             playbook.version += 1  # same pattern as Policy.version
         if default_extra_vars is not None:
             playbook.default_extra_vars = default_extra_vars
@@ -135,11 +172,14 @@ class PlaybookService:
             raise ValueError("Playbook is disabled")
 
         merged_extra_vars = {**(playbook.default_extra_vars or {}), **(extra_vars or {})}
+        content = await self.resolve_content(playbook)
 
         # Roles referenced by the playbook are snapshotted like the content:
         # the job carries {role_name: {path: content}}, materialized by the
         # agent under <tmpdir>/roles/ next to the playbook.
-        roles = await AnsibleRoleService(self.db).snapshot_roles(playbook.role_ids or [])
+        roles = await AnsibleRoleService(self.db, self.storage).snapshot_roles(
+            playbook.role_ids or []
+        )
 
         job_service = JobService(self.db, self.cache, self.nats)
         job = await job_service.create_job(
@@ -149,7 +189,7 @@ class PlaybookService:
             parameters={
                 "playbook_id": str(playbook.id),
                 "playbook_version": playbook.version,
-                "playbook_content": playbook.content,
+                "playbook_content": content,
                 "extra_vars": merged_extra_vars,
                 "roles": roles,
                 **(extra_job_parameters or {}),

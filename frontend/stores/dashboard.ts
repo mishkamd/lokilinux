@@ -55,6 +55,7 @@ export interface Alert {
   status: 'ACTIVE' | 'ACKNOWLEDGED' | 'RESOLVED' | 'EXPIRED'
   alert_type: string | null
   agent_id: string | null
+  hostname: string | null
   triggered_at: string
   created_at: string
 }

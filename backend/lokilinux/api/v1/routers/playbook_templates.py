@@ -10,10 +10,12 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lokilinux.api.v1.routers.jobs import redact_job_for_user
 from lokilinux.api.v1.routers.playbooks import ANSIBLE_PLUGIN_NAME, require_plugin_enabled
 from lokilinux.auth.dependencies import get_current_user, require_role, safe_user_uuid
 from lokilinux.cache import RedisCache
-from lokilinux.dependencies import get_cache, get_db, get_nats
+from lokilinux.dependencies import get_cache, get_db, get_nats, get_storage
+from lokilinux.object_storage import ObjectStorage
 from lokilinux.schemas.job import JobResponse
 from lokilinux.schemas.playbook_template import (
     PlaybookTemplateCreate,
@@ -29,9 +31,10 @@ router = APIRouter()
 def _svc(
     db: AsyncSession = Depends(get_db),
     cache: RedisCache = Depends(get_cache),
+    storage: ObjectStorage = Depends(get_storage),
     nats=Depends(get_nats),
 ) -> PlaybookTemplateService:
-    return PlaybookTemplateService(db, cache, nats)
+    return PlaybookTemplateService(db, cache, storage, nats)
 
 
 @router.get("", response_model=list[PlaybookTemplateResponse], dependencies=[Depends(require_plugin_enabled(ANSIBLE_PLUGIN_NAME))])
@@ -115,7 +118,7 @@ async def launch_template(
 async def get_template_history(
     template_id: UUID,
     svc: PlaybookTemplateService = Depends(_svc),
-    _: dict = Depends(get_current_user),
+    user: dict = Depends(get_current_user),
 ) -> list[JobResponse]:
     rows = await svc.get_history(template_id)
-    return [JobResponse.model_validate(j) for j in rows]
+    return [redact_job_for_user(JobResponse.model_validate(j), user) for j in rows]

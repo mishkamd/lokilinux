@@ -16,9 +16,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.auth.dependencies import get_current_user, require_role, safe_user_uuid
 from lokilinux.cache import RedisCache
-from lokilinux.dependencies import get_cache, get_db, get_nats
+from lokilinux.dependencies import get_cache, get_db, get_nats, get_storage
 from lokilinux.models.policy import Policy, PolicyAudit
 from lokilinux.nats_topics import POLICY_CHANGED
+from lokilinux.object_storage import ObjectStorage
 from lokilinux.schemas.common import CursorPage, decode_cursor, encode_cursor
 from lokilinux.schemas.policy import (
     PolicyAuditResponse,
@@ -252,6 +253,7 @@ async def run_policy_now(
 async def migrate_policy_to_workflow(
     policy_id: UUID,
     db: AsyncSession = Depends(get_db),
+    storage: ObjectStorage = Depends(get_storage),
     current_user: dict = Depends(require_role("ADMIN", "OPERATOR")),
 ) -> WorkflowResponse:
     row = (await db.execute(select(Policy).where(Policy.id == policy_id))).scalar_one_or_none()
@@ -259,7 +261,9 @@ async def migrate_policy_to_workflow(
         raise HTTPException(status_code=404, detail="Policy not found")
 
     try:
-        workflow = await import_policy_as_workflow(db, row, created_by=safe_user_uuid(current_user))
+        workflow = await import_policy_as_workflow(
+            db, storage, row, created_by=safe_user_uuid(current_user)
+        )
     except PolicyMigrationError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     return WorkflowResponse.model_validate(workflow)

@@ -29,14 +29,7 @@ async function downloadDirect(link: PkgLink) {
       `/agent/download-direct?os=${encodeURIComponent(link.os)}&arch=${link.arch}`,
       { responseType: 'blob' },
     )
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = link.filename
-    document.body.appendChild(a)
-    a.click()
-    a.remove()
-    URL.revokeObjectURL(url)
+    downloadBlob(blob, link.filename)
     toast.add({ title: 'Download started', description: link.filename, color: 'green' })
   } catch {
     toast.add({ title: 'Download error', color: 'red' })
@@ -91,15 +84,30 @@ async function saveConfig() {
 }
 
 const tokenLabel = ref('')
+const tokenGroup = ref('')
+const groups = ref<{ id: string; name: string }[]>([])
 interface EnrollResult { token: string; install_command: string; url_source?: 'db' | 'env' }
 const enrollResult = ref<EnrollResult | null>(null)
 const tokenPending = ref(false)
+
+onMounted(async () => {
+  if (!canEdit.value) return
+  try {
+    const res = await api.get<{ items: { id: string; name: string }[] }>('/agent-policies/groups/list')
+    groups.value = res?.items ?? []
+  } catch {
+    // group list is a convenience — enrollment still works ungrouped if this fails
+  }
+})
 
 async function generateToken() {
   tokenPending.value = true
   enrollResult.value = null
   try {
-    const res = await api.post<EnrollResult>('/agent/enrollment-token', { label: tokenLabel.value })
+    const res = await api.post<EnrollResult>('/agent/enrollment-token', {
+      label: tokenLabel.value,
+      agent_group: tokenGroup.value || undefined,
+    })
     // url_source=db → admin set Server URL explicitly in Configure URLs — trust it.
     // Otherwise the backend only knows its env default (often localhost); the live
     // browser origin is guaranteed reachable from wherever this session works, and
@@ -240,6 +248,9 @@ async function copy(text: string) {
             <FormField label="Label (optional)" name="label" class="flex-1">
               <Input v-model="tokenLabel" placeholder="e.g. prod-web-01" :disabled="tokenPending" />
             </FormField>
+            <FormField v-if="groups.length" label="Group (optional)" name="group" class="w-48">
+              <Select v-model="tokenGroup" :options="[{ label: 'No group', value: '' }, ...groups.map((g) => ({ label: g.name, value: g.id }))]" :disabled="tokenPending" />
+            </FormField>
             <Button :loading="tokenPending" @click="generateToken">
               <Key class="size-4" />
               Generate token
@@ -267,7 +278,7 @@ async function copy(text: string) {
               </div>
             </FormField>
 
-            <Button variant="ghost" size="sm" @click="enrollResult = null; tokenLabel = ''">
+            <Button variant="ghost" size="sm" @click="enrollResult = null; tokenLabel = ''; tokenGroup = ''">
               Generate another token
             </Button>
           </div>

@@ -11,7 +11,7 @@ from httpx import AsyncClient
 from sqlalchemy import select
 
 from lokilinux.models.agent import Agent, AgentStatus
-from lokilinux.models.workflow import WorkflowAudit
+from lokilinux.models.workflow import Workflow, WorkflowAudit, WorkflowVersion
 
 
 async def _make_agent(db_session) -> Agent:
@@ -124,6 +124,65 @@ async def test_get_workflow_includes_first_draft_but_no_current_version(client: 
     resp = await client.get(f"/api/v1/workflows/{workflow_id}")
     assert resp.status_code == 200
     assert resp.json()["current_version"] is None  # DRAFT, not published
+
+
+@pytest.mark.asyncio
+async def test_new_version_yaml_source_round_trips_through_object_storage(client: AsyncClient, db_session):
+    """Object Storage plan: yaml_source is written to S3 (content_object_id
+    set), not the legacy inline column, and resolves back to the exact
+    original text through both the versions list and the single-version
+    endpoints."""
+    yaml_source = _yaml_with_name("storage-roundtrip-test")
+    create_resp = await client.post("/api/v1/workflows", json={"name": "Storage Roundtrip", "yaml": yaml_source})
+    workflow_id = create_resp.json()["id"]
+
+    version_row = (await db_session.execute(
+        select(WorkflowVersion).where(WorkflowVersion.workflow_id == workflow_id)
+    )).scalar_one()
+    await db_session.refresh(version_row)
+    assert version_row.content_object_id is not None
+    assert version_row.yaml_source is None
+
+    list_resp = await client.get(f"/api/v1/workflows/{workflow_id}/versions")
+    assert list_resp.json()["items"][0]["yaml_source"] == yaml_source
+
+    version_id = list_resp.json()["items"][0]["id"]
+    put_resp = await client.put(
+        f"/api/v1/workflows/{workflow_id}/versions/{version_id}",
+        json={"yaml": yaml_source, "base_content_hash": version_row.content_hash},
+    )
+    assert put_resp.json()["yaml_source"] == yaml_source
+
+
+@pytest.mark.asyncio
+async def test_legacy_version_with_only_yaml_source_column_still_resolves(client: AsyncClient, db_session):
+    """Dual-read fallback: a pre-migration row with yaml_source set
+    directly and no content_object_id must keep working end to end,
+    including re-validation at publish time."""
+    legacy_yaml = _yaml_with_name("legacy-yaml-source-test")
+    from lokilinux.services.workflow_compiler import compile_workflow, compute_content_hash
+
+    _doc, graph, result = compile_workflow(legacy_yaml)
+    assert result.valid
+
+    workflow = Workflow(name="Legacy Workflow", slug="legacy-yaml-source-test")
+    db_session.add(workflow)
+    await db_session.flush()
+    version = WorkflowVersion(
+        workflow_id=workflow.id, version=1, yaml_source=legacy_yaml,
+        graph=graph.model_dump(mode="json", by_alias=True),
+        content_hash=compute_content_hash(legacy_yaml), status="DRAFT",
+    )
+    db_session.add(version)
+    await db_session.commit()
+    await db_session.refresh(version)
+
+    versions_resp = await client.get(f"/api/v1/workflows/{workflow.id}/versions")
+    assert versions_resp.json()["items"][0]["yaml_source"] == legacy_yaml
+
+    publish_resp = await client.post(f"/api/v1/workflows/{workflow.id}/versions/{version.id}/publish")
+    assert publish_resp.status_code == 200
+    assert publish_resp.json()["status"] == "PUBLISHED"
 
 
 @pytest.mark.asyncio

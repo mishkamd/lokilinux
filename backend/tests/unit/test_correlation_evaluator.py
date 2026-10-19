@@ -13,6 +13,7 @@ class _FakeZSetCache:
     def __init__(self) -> None:
         self._zsets: dict[str, dict[str, float]] = {}
         self._locks: set[str] = set()
+        self._up = True
 
     async def zadd(self, key: str, member: str, score: float) -> None:
         self._zsets.setdefault(key, {})[member] = score
@@ -28,6 +29,12 @@ class _FakeZSetCache:
             return False
         self._locks.add(key)
         return True
+
+    async def ping(self) -> bool:
+        return self._up
+
+    def set_down(self) -> None:
+        self._up = False
 
 
 def _rule(**overrides) -> SimpleNamespace:
@@ -50,7 +57,7 @@ def _rule(**overrides) -> SimpleNamespace:
 
 
 def _signal(**overrides) -> SimpleNamespace:
-    base = {"type": "cpu.high", "host_id": "host-1"}
+    base = {"type": "cpu.high", "host_id": "host-1", "severity": None}
     base.update(overrides)
     return SimpleNamespace(**base)
 
@@ -96,6 +103,56 @@ async def test_signal_type_not_in_rule_conditions_is_ignored():
     rule = _rule()
     candidates = await evaluator.on_signal([rule], _signal(type="disk.usage.high"))
     assert candidates == []
+
+
+@pytest.mark.asyncio
+async def test_redis_down_high_severity_opens_incident_candidate():
+    """G3-3: without the fail-open check, RedisCache's zrangebyscore/set_nx
+    silently return []/False on an outage and this signal would just
+    vanish — no incident, no error anywhere. High-severity signals must
+    still open a candidate."""
+    cache = _FakeZSetCache()
+    cache.set_down()
+    evaluator = CorrelationEvaluator(cache)
+    rule = _rule()
+
+    candidates = await evaluator.on_signal([rule], _signal(type="cpu.high", severity="CRITICAL"))
+
+    assert len(candidates) == 1
+    assert candidates[0].root_signal_type == "cpu.high"
+    assert candidates[0].member_types == ["cpu.high"]
+    # The windowed path (zadd/zrangebyscore) must never be touched while down.
+    assert cache._zsets == {}
+
+
+@pytest.mark.asyncio
+async def test_redis_down_low_severity_signal_dropped_not_errored():
+    cache = _FakeZSetCache()
+    cache.set_down()
+    evaluator = CorrelationEvaluator(cache)
+    rule = _rule()
+
+    candidates = await evaluator.on_signal([rule], _signal(type="cpu.high", severity="INFO"))
+
+    assert candidates == []
+
+
+@pytest.mark.asyncio
+async def test_redis_up_unaffected_by_fail_open_check():
+    """Regression guard: adding the ping() check must not change the
+    healthy-path scoring behavior at all."""
+    cache = _FakeZSetCache()
+    evaluator = CorrelationEvaluator(cache)
+    rule = _rule()
+
+    await evaluator.on_signal([rule], _signal(type="cpu.high", severity="CRITICAL"))
+    await evaluator.on_signal([rule], _signal(type="load.high", severity="CRITICAL"))
+    candidates = await evaluator.on_signal(
+        [rule], _signal(type="http.latency.high", severity="CRITICAL")
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0].score == 65
 
 
 @pytest.mark.asyncio

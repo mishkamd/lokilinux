@@ -53,6 +53,7 @@ async def publish_domain_snapshots(
     agent_id: UUID,
     domain_full: dict,
     domain_hashes: dict,
+    domain_macs: dict | None = None,
 ) -> None:
     """Publish one lokilinux.compliance.snapshot.{domain} message per
     domain present in domain_full, pairing each with the hash the agent
@@ -66,14 +67,19 @@ async def publish_domain_snapshots(
                 domain,
             )
             continue
+        message = {
+            "agent_id": str(agent_id),
+            "domain": domain,
+            "content_hash": content_hash,
+            "facts": facts,
+        }
+        # The agent's HMAC over (agent, domain, content_hash), if it sent one
+        # (docs/security/SNAPSHOT_HMAC.md). The compliance service verifies it.
+        mac = (domain_macs or {}).get(domain) or {}
+        if mac.get("mac"):
+            message["mac"] = mac["mac"]
+            message["key_id"] = mac.get("key_id", 0)
         await nats.publish(
             f"{COMPLIANCE_SNAPSHOT_DOMAIN}.{domain}",
-            json.dumps(
-                {
-                    "agent_id": str(agent_id),
-                    "domain": domain,
-                    "content_hash": content_hash,
-                    "facts": facts,
-                }
-            ).encode(),
+            json.dumps(message).encode(),
         )

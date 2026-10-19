@@ -96,6 +96,7 @@ class CuratedRulesLoader:
             standard_refs=entry.get("standard_refs") or {},
             source=_SOURCE,
             source_version=_SOURCE_VERSION,
+            status="ACTIVE",
         )
 
         if existing is None:

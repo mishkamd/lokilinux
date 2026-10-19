@@ -18,9 +18,11 @@ class AlertResponse(BaseModel):
     status: str
     alert_type: str | None = None
     agent_id: UUID | None = None
+    hostname: str | None = None
     triggered_at: datetime
     created_at: datetime
     acknowledged_at: datetime | None = None
+    acknowledged_by_actor: str | None = None
     resolved_at: datetime | None = None
 
     model_config = {"from_attributes": True}

@@ -5,7 +5,7 @@ import { cn } from '~/utils/cn'
 defineOptions({ inheritAttrs: false })
 
 const variants = cva(
-  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-[var(--radius-lg)] text-sm font-medium transition-all duration-[var(--duration-normal)] ease-[var(--ease-out-expo)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50 hover:-translate-y-0.5 active:translate-y-0',
+  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-[var(--radius-lg)] text-sm font-medium transition-all duration-[var(--duration-normal)] ease-[var(--ease-out-expo)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50',
   {
     variants: {
       variant: {
@@ -17,9 +17,10 @@ const variants = cva(
         link: 'text-primary underline-offset-4 hover:underline',
       },
       size: {
-        default: 'h-8 px-3 text-[14px]',
-        sm: 'h-7 px-2.5 text-xs',
-        lg: 'h-9 px-6',
+        // Lift only on roomier sizes; dense rows (xs/icon buttons in tables) stay flat.
+        default: 'h-8 px-3 text-[14px] hover:-translate-y-0.5 active:translate-y-0',
+        sm: 'h-7 px-2.5 text-xs hover:-translate-y-0.5 active:translate-y-0',
+        lg: 'h-9 px-6 hover:-translate-y-0.5 active:translate-y-0',
         icon: 'h-8 w-8',
         xs: 'h-6 px-2 text-xs rounded-[var(--radius-sm)]',
       },

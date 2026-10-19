@@ -1,6 +1,7 @@
 # Secrets — never commit
 .env
 .env.*
+.admin-credentials
 !.env.example
 certs/
 .certs/

@@ -29,11 +29,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Go unit tests (agent + compliance)
+      # Go unit tests. The agent stays on its declared 1.24 toolchain.
+      # Compliance needs 1.25 (services/compliance/go.mod), so it gets its own step.
       - uses: actions/setup-go@v5
         with:
           go-version-file: agent/go.mod
-      - run: make agent-test compliance-test
+      - run: make agent-test
+      # Informational: the -bench RSS budget is flaky on shared runners (fails
+      # about a third of runs on unchanged code). TestBudgetGates still gates
+      # through agent-test above, where it passes consistently.
+      - name: agent-bench (informational, flaky RSS budget)
+        continue-on-error: true
+        run: make agent-bench
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: services/compliance/go.mod
+      - run: make compliance-test
 
       # Python backend tests
       - uses: actions/setup-python@v5
@@ -41,10 +52,62 @@ jobs:
           python-version: "3.11"
       - name: Install backend dev deps and run tests
         working-directory: backend
+        # CI has no backend/.env, so Settings needs its required fields here.
+        # database_url is swapped for the test container by conftest.py.
+        env:
+          BETTER_AUTH_URL: http://localhost:3000
         run: |
           python -m venv .venv
           .venv/bin/pip install -e ".[dev]"
           .venv/bin/pytest tests/
+
+  # Secret, SAST and dependency scans (ROADMAP P2, CI security scanning).
+  # Fails on findings: triage the current advisories before merging to main.
+  secrets-and-deps:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # gitleaks scans history, not just the tree
+
+      - name: gitleaks (secrets)
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: semgrep (SAST)
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src semgrep/semgrep \
+            semgrep scan --config p/default --error --severity ERROR
+
+      - uses: actions/setup-python@v5
+        if: always()
+        with:
+          python-version: "3.11"
+      - name: pip-audit (backend dependencies)
+        if: always()
+        working-directory: backend
+        run: |
+          python -m venv .venv
+          # The venv ships pip 24.0 and setuptools 79.x, both with known advisories
+          # (setuptools is the build backend, pulled in by the editable install).
+          .venv/bin/pip install --upgrade pip setuptools
+          .venv/bin/pip install -e ".[dev]"
+          .venv/bin/pip install pip-audit
+          .venv/bin/pip-audit
+
+      - uses: actions/setup-node@v4
+        if: always()
+        with:
+          node-version: "22"
+      - name: npm audit (frontend production dependencies)
+        if: always()
+        working-directory: frontend
+        run: |
+          npm ci --legacy-peer-deps
+          # Gate on critical only. The remaining high advisories sit in the Nuxt
+          # chain and have no non-breaking fix; revisit when Nuxt ships one.
+          npm audit --audit-level=critical --omit=dev
 
   build:
     needs: test
@@ -71,8 +134,11 @@ jobs:
           build-args: VERSION=${{ env.PLATFORM_VERSION }}
 
       - name: Vulnerability gate (fails on HIGH/CRITICAL)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.33.1
         with:
+          # v0.65.0 (the action's default) has no Linux tarball on its release, so
+          # setup-trivy 404s; v0.76.0 is the first release with one.
+          version: v0.76.0
           image-ref: lokilinux/${{ matrix.image.name }}:${{ env.PLATFORM_VERSION }}
           severity: HIGH,CRITICAL
           ignore-unfixed: true
@@ -80,8 +146,9 @@ jobs:
           trivyignores: .trivyignore
 
       - name: Generate SBOM (CycloneDX)
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.33.1
         with:
+          version: v0.76.0
           image-ref: lokilinux/${{ matrix.image.name }}:${{ env.PLATFORM_VERSION }}
           format: cyclonedx
           output: sbom-${{ matrix.image.name }}.cdx.json

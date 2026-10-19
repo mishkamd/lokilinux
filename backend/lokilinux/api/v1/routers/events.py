@@ -25,6 +25,7 @@ from lokilinux.events.repository import EventRepository
 from lokilinux.events.schemas import EventIn
 from lokilinux.nats_topics import EVENT_RAW
 from lokilinux.schemas.common import decode_cursor, encode_cursor
+from lokilinux.utils.local_counter import local_counter
 
 logger = structlog.get_logger()
 
@@ -56,7 +57,9 @@ async def ingest_events(
     principal = current_user.get("id") or "unknown"
     settings = get_settings()
     window = int(datetime.now().timestamp() // 60)
-    count = await cache.incr(f"rate:ev:{principal}:{window}", ttl=90)
+    count = await cache.incr_checked(f"rate:ev:{principal}:{window}", ttl=90)
+    if count is None:  # Redis down: count in this process instead of failing open
+        count = local_counter.increment(f"rate:ev:{principal}", window)
     if count > settings.event_rate_per_agent_per_min:
         raise HTTPException(status_code=429, detail="event rate limit exceeded")
 

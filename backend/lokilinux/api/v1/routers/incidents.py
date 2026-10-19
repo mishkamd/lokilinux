@@ -23,6 +23,7 @@ from lokilinux.incidents.schemas import (
     IncidentTimelineEntry,
 )
 from lokilinux.incidents.service import IncidentService
+from lokilinux.models.agent import Agent
 from lokilinux.schemas.common import decode_cursor, encode_cursor
 from lokilinux.signals.models import Signal
 from lokilinux.signals.schemas import SignalResponse
@@ -70,6 +71,7 @@ async def list_incidents(
     if has_more and items:
         last = items[-1]
         next_cursor = encode_cursor(f"{last.started_at.isoformat()}:{last.id}")
+    await _attach_hostnames(db, items)
     return IncidentListResponse(
         items=[IncidentResponse.model_validate(i) for i in items], next_cursor=next_cursor
     )
@@ -82,6 +84,20 @@ async def _get_or_404(db: AsyncSession, incident_id: UUID) -> Incident:
     return incident
 
 
+async def _attach_hostnames(db: AsyncSession, incidents: list[Incident]) -> None:
+    # ponytail: root-cause signal stands for the incident (group_key is per host, so all member
+    # signals share one host_id = agents.id). Transient attr, like AlertService.list_alerts.
+    sig_ids = [i.root_cause_signal_id for i in incidents if i.root_cause_signal_id]
+    rows = await db.execute(
+        select(Signal.id, Agent.hostname)
+        .join(Agent, Agent.id == Signal.host_id)
+        .where(Signal.id.in_(sig_ids))
+    )
+    names = dict(rows.all())
+    for i in incidents:
+        i.hostname = names.get(i.root_cause_signal_id)
+
+
 @router.get("/{incident_id}", response_model=IncidentDetailResponse)
 async def get_incident(
     incident_id: UUID,
@@ -89,6 +105,7 @@ async def get_incident(
     _: dict[str, Any] = Depends(get_current_user),
 ) -> IncidentDetailResponse:
     incident = await _get_or_404(db, incident_id)
+    await _attach_hostnames(db, [incident])
 
     signal_ids = (
         await db.execute(select(IncidentSignal.signal_id).where(IncidentSignal.incident_id == incident_id))
@@ -147,11 +164,13 @@ async def _transition_or_error(
 ) -> Incident:
     svc = IncidentService(db, nats, cache, ch)
     try:
-        return await getattr(svc, method)(incident_id, actor)
+        incident = await getattr(svc, method)(incident_id, actor)
     except IllegalTransition as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
+    await _attach_hostnames(db, [incident])
+    return incident
 
 
 @router.post("/{incident_id}/ack", response_model=IncidentResponse)

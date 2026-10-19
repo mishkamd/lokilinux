@@ -55,19 +55,6 @@ async def create_category(
     return CategoryResponse.model_validate(category)
 
 
-@router.delete("/categories/{category_id}", status_code=204)
-async def delete_category(
-    category_id: UUID,
-    db: AsyncSession = Depends(get_db),
-    _: dict = Depends(require_role("ADMIN")),
-) -> None:
-    category = (await db.execute(select(Category).where(Category.id == category_id))).scalar_one_or_none()
-    if category is None:
-        raise HTTPException(status_code=404, detail="Category not found")
-    await db.delete(category)
-    await db.commit()
-
-
 @router.get("/projects", response_model=list[ProjectResponse])
 async def list_projects(
     category_id: UUID | None = Query(None),
@@ -94,14 +81,3 @@ async def create_project(
     return ProjectResponse.model_validate(project)
 
 
-@router.delete("/projects/{project_id}", status_code=204)
-async def delete_project(
-    project_id: UUID,
-    db: AsyncSession = Depends(get_db),
-    _: dict = Depends(require_role("ADMIN")),
-) -> None:
-    project = (await db.execute(select(Project).where(Project.id == project_id))).scalar_one_or_none()
-    if project is None:
-        raise HTTPException(status_code=404, detail="Project not found")
-    await db.delete(project)
-    await db.commit()

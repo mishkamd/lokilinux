@@ -2,20 +2,26 @@
 LokiLinux — Plugin service.
 """
 
-import hashlib
 import json
 from datetime import datetime, timezone
+from urllib.parse import urlsplit
 from uuid import UUID
 
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lokilinux.config import get_settings
 from lokilinux.models.agent import Agent, AgentStatus
 from lokilinux.models.plugin import Plugin, PluginInstallation, PluginStatus
-from lokilinux.nats_topics import PLUGIN_INSTALL, PLUGIN_UNINSTALL
+from lokilinux.nats_topics import PLUGIN_INSTALL
 from lokilinux.schemas.common import CursorPage
 from lokilinux.schemas.plugin import PluginInstallationResponse, PluginResponse
 from lokilinux.services.job_service import JobService
+
+
+def _same_origin(url: str, origin: str) -> bool:
+    a, b = urlsplit(url), urlsplit(origin)
+    return a.scheme == b.scheme and a.netloc.lower() == b.netloc.lower()
 
 
 class PluginService:
@@ -67,6 +73,13 @@ class PluginService:
         if not plugin.source_url:
             raise ValueError(
                 f"Plugin {plugin.name} has no source_url — nothing for agents to download"
+            )
+        # ponytail: origin allowlist = the platform's own origin only. Agents fetch this
+        # URL themselves and the platform often sits on a private LAN, so the IP-based
+        # url_guard is deliberately not applied here. Extend the allowlist when needed.
+        if not _same_origin(plugin.source_url, get_settings().platform_url):
+            raise ValueError(
+                f"Plugin {plugin.name} source_url is outside the platform origin — refused"
             )
 
         # Retry path: drop stale installation rows for these agents so a
@@ -129,8 +142,9 @@ class PluginService:
         plugin = await self._get_or_404(plugin_id)
         allowed = {PluginStatus.INSTALLED, PluginStatus.DISABLED}
         if plugin.installation_status not in allowed:
+            allowed_str = " or ".join(s.value for s in allowed)
             raise ValueError(
-                f"Plugin must be INSTALLED or DISABLED to enable, got {plugin.installation_status.value}"
+                f"Plugin must be {allowed_str} to enable, got {plugin.installation_status.value}"
             )
         plugin.is_enabled = True
         plugin.installation_status = PluginStatus.ENABLED
@@ -146,30 +160,3 @@ class PluginService:
         await self.db.commit()
         return PluginResponse.model_validate(plugin)
 
-    async def uninstall_plugin(self, plugin_id: UUID) -> PluginResponse:
-        plugin = await self._get_or_404(plugin_id)
-        await self.db.execute(
-            delete(PluginInstallation).where(PluginInstallation.plugin_id == plugin_id)
-        )
-        plugin.is_installed = False
-        plugin.is_enabled = False
-        plugin.installation_status = PluginStatus.PENDING_INSTALL
-        plugin.installed_at = None
-        await self.db.commit()
-        # ponytail: agent-side binary removal isn't implemented (plugin_installer.go
-        # only handles install) — this clears platform state only. Add a
-        # PLUGIN_UNINSTALL job type + agent handler when agent-side cleanup matters.
-        if self.nats:
-            await self.nats.publish(
-                PLUGIN_UNINSTALL,
-                json.dumps({"plugin_id": str(plugin_id)}).encode(),
-            )
-        return PluginResponse.model_validate(plugin)
-
-    async def validate_manifest(self, manifest: dict) -> bool:
-        required = {"name", "version", "description", "author", "entrypoint", "permissions"}
-        return required.issubset(manifest.keys())
-
-    @staticmethod
-    def compute_checksum(plugin_bytes: bytes) -> str:
-        return hashlib.sha256(plugin_bytes).hexdigest()

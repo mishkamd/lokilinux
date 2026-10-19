@@ -18,10 +18,11 @@ import json
 import os
 import time
 import uuid
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
+from lokilinux import metrics
 from lokilinux.kms import KeyManager, get_provider
 from lokilinux.kms.provider import KeyRef, SigningProvider
 
@@ -98,6 +99,21 @@ class JobSigner:
         )
         return base64.b64encode(raw).decode()
 
+    def public_keys(self) -> Dict[str, str]:
+        """Version -> base64(raw32 pub) for every publicly-servable version
+        (ACTIVE + VERIFY_ONLY; RETIRED never exposed — a retired key must
+        stop being trusted by anyone still holding it, not just by new
+        verifiers). Legacy (unversioned) layout has exactly one entry, "1".
+        Backs GET /agent/signing-keys."""
+        if self._key_manager is None:
+            return {"1": self.public_key_b64()}
+        out: Dict[str, str] = {}
+        for v, state in self._key_manager.versions().items():
+            if state not in ("ACTIVE", "VERIFY_ONLY"):
+                continue
+            out[v] = self.public_key_b64(version=int(v))
+        return out
+
     def verify_allowed_version(self, version: int) -> bool:
         if self._key_manager is None:
             return version == 1
@@ -107,8 +123,23 @@ class JobSigner:
         except Exception:
             return False
 
+    def _provider_sign(self, ref: KeyRef, message: bytes) -> bytes:
+        """Wraps every provider call with the kms_* metrics (plan §19) — the
+        single choke point sign()/sign_message()/sign_approval_claim() share."""
+        t0 = time.monotonic()
+        try:
+            sig = self._provider.sign_message(ref, message)
+        except Exception as exc:
+            reason = getattr(exc, "reason", None) or exc.__class__.__name__
+            metrics.kms_sign_failure_total.labels(reason=reason).inc()
+            raise
+        finally:
+            metrics.kms_provider_latency.observe(time.monotonic() - t0)
+        metrics.kms_sign_success_total.inc()
+        return sig
+
     def sign_message(self, message: bytes) -> bytes:
-        return self._provider.sign_message(self._active_ref(), message)
+        return self._provider_sign(self._active_ref(), message)
 
     # ── envelope signing ──────────────────────────────────────────────────────
     def sign(
@@ -147,7 +178,7 @@ class JobSigner:
             # pointer+omitempty field so canonical bytes stay aligned, and v1
             # envelopes remain byte-identical to pre-KMS releases.
             env["key_version"] = active.version
-        env["signature"] = base64.b64encode(self._provider.sign_message(active, _canonical_unsigned(env))).decode()
+        env["signature"] = base64.b64encode(self._provider_sign(active, _canonical_unsigned(env))).decode()
         return env
 
     def sign_approval_claim(self, *, job_id: str, target_agent_id: str,
@@ -155,13 +186,15 @@ class JobSigner:
                             approver_id: str, ttl_seconds: int = 300):
         from lokilinux.services.approval_claims import create_claim
 
+        ref = self._active_ref()
         return create_claim(
-            lambda msg: self._provider.sign_message(self._active_ref(), msg),
+            lambda msg: self._provider_sign(ref, msg),
             job_id=job_id,
             target_agent_id=target_agent_id,
             payload=payload,
             capabilities=capabilities,
             approver_id=approver_id,
+            key_version=ref.version,
             ttl_seconds=ttl_seconds,
         )
 

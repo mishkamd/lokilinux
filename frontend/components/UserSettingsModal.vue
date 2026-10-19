@@ -52,7 +52,7 @@ function handleSecurity() {
         </FormField>
         <FormField label="Email" help="Email changes require SMTP verification, currently unavailable">
           <Input
-            :model-value="(currentUser as Record<string, unknown>)?.email ?? ''"
+            :model-value="String((currentUser as Record<string, unknown>)?.email ?? '')"
             disabled
             type="email"
             placeholder="your.email@example.com"

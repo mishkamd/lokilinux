@@ -30,6 +30,7 @@ export interface BaselineVersion {
 }
 
 export type CheckSource = 'CEL' | 'OVAL_UNMAPPED' | 'OSCAP_FALLBACK'
+export type RuleStatus = 'ACTIVE' | 'DISABLED' | 'REFERENCE_ONLY' | 'DEPRECATED'
 
 export interface ComplianceRule {
   id: string
@@ -45,6 +46,7 @@ export interface ComplianceRule {
   source: string
   source_version: string | null
   is_enabled: boolean
+  status: RuleStatus
   imported_at: string
 }
 
@@ -65,6 +67,8 @@ export interface RuleDetail extends ComplianceRule {
   framework_mappings: FrameworkMapping[]
   coverage: Record<string, number>
   failing_agents: FailingAgent[]
+  platform_filter: string[]
+  expected_value: unknown
 }
 
 export interface PolicySet {
@@ -81,6 +85,9 @@ export interface PolicySet {
   published_at: string | null
   published_version: number
   parent_policy_set_id: string | null
+  // NULL means ASSISTED (plan U7/KTD8) — the pre-U7 behavior every policy
+  // set defaults to until someone explicitly sets a mode.
+  remediation: { mode: 'MONITOR' | 'ASSISTED' | 'AUTOMATIC'; allowed: string[]; forbidden: string[] } | null
 }
 
 export interface PolicySetCoverage {
@@ -100,7 +107,6 @@ export interface DriftEvent {
   severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
   change_type: string
   summary: string
-  root_cause: Record<string, unknown> | null
   acknowledged_by: string | null
   acknowledged_at: string | null
   status: 'OPEN' | 'ACKNOWLEDGED' | 'IN_REMEDIATION' | 'RESOLVED' | 'SUPPRESSED' | 'EXCEPTION'
@@ -117,6 +123,82 @@ export interface DriftDetail {
   field_path: string
   old_value: unknown
   new_value: unknown
+}
+
+// A finding is a read-model projection over rule_evaluations, not its own
+// table (Enterprise Compliance plan U4/KTD1) — `id` is an opaque server
+// -encoded key, not a real row id.
+export interface Finding {
+  id: string
+  time: string
+  agent_id: string
+  hostname: string | null
+  rule_id: string
+  rule_key: string
+  title: string
+  domain: string
+  severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
+  result: 'PASS' | 'FAIL' | 'ERROR' | 'NOT_APPLICABLE' | 'NOT_EVALUATED' | 'UNKNOWN'
+  exception_id: string | null
+  acknowledged_by: string | null
+  acknowledged_at: string | null
+}
+
+// Standards are a read-only aggregation, not a new content type (Enterprise
+// Compliance plan U8/KTD6) — over the same frameworks/versions/controls/
+// rule_mappings the ComplianceAsCode importer and curated loader already
+// write.
+export interface Standard {
+  key: string
+  name: string
+  version: string
+  publisher: string | null
+  description: string | null
+  status: string | null
+  rules_total: number
+  executable: number
+  reference_only: number
+  coverage_executable_pct: number
+}
+
+export interface StandardControlRule {
+  id: string
+  rule_key: string
+  title: string
+  severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL'
+  check_source: CheckSource
+  is_enabled: boolean
+}
+
+export interface StandardControl {
+  control_id: string
+  title: string
+  description: string | null
+  rules: StandardControlRule[]
+}
+
+export interface StandardDetail {
+  key: string
+  name: string
+  version: string
+  publisher: string | null
+  description: string | null
+  status: string | null
+  controls: StandardControl[]
+}
+
+export interface FindingDetail extends Finding {
+  policy_set_id: string
+  actual_value: unknown
+  expected_value: unknown
+  evidence: Record<string, unknown> | null
+  evidence_hash: string | null
+  error_message: string | null
+  source: string | null
+  snapshot_id: string | null
+  snapshot_taken_at: string | null
+  snapshot_content_hash: string | null
+  open_drift_event_id: string | null
 }
 
 export type RemediationPlanStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'EXECUTING' | 'VERIFYING' | 'COMPLETED' | 'FAILED' | 'ROLLED_BACK'
@@ -223,6 +305,21 @@ export interface FileChangePathDetail {
   related_drift: DriftEvent[]
 }
 
+export interface FIMScope {
+  scope_type: 'GLOBAL' | 'AGENT'
+  agent_id: string | null
+  hostname?: string | null
+  watch_paths: string[]
+  ignore_paths: string[]
+  updated_at: string
+  updated_by: string | null
+}
+
+export interface FIMScopesOverview {
+  global_scope: FIMScope
+  agents: FIMScope[]
+}
+
 export type ReportType = 'FLEET_SUMMARY' | 'POLICY_SET' | 'DATACENTER' | 'CUSTOM' | 'FRAMEWORK' | 'EXCEPTION' | 'EXECUTIVE_SUMMARY'
 export type ReportFormat = 'JSON' | 'CSV' | 'XLSX' | 'PDF'
 export type ReportStatus = 'PENDING' | 'GENERATING' | 'COMPLETED' | 'FAILED'
@@ -234,6 +331,7 @@ export interface ComplianceReport {
   params: Record<string, unknown>
   status: ReportStatus
   artifact_uri: string | null
+  storage_object_id: string | null
   error_message: string | null
   generated_by: string | null
   created_at: string
@@ -420,6 +518,7 @@ export const useComplianceStore = defineStore('compliance', () => {
   const rulesNextCursor = ref<string | null>(null)
   const ruleFilters = ref({
     domain: '', check_source: '', severity: '', search: '', framework: '', platform: '', source: '', status: '',
+    rule_status: '',
   })
   const selectedRule = ref<RuleDetail | null>(null)
 
@@ -444,6 +543,7 @@ export const useComplianceStore = defineStore('compliance', () => {
       if (ruleFilters.value.platform) params.set('platform', ruleFilters.value.platform)
       if (ruleFilters.value.source) params.set('source', ruleFilters.value.source)
       if (ruleFilters.value.status) params.set('status', ruleFilters.value.status)
+      if (ruleFilters.value.rule_status) params.set('rule_status', ruleFilters.value.rule_status)
       const data = await api.get<{ items: ComplianceRule[]; next_cursor: string | null; total: number }>(
         `/compliance/rules?${params}`,
       )
@@ -499,6 +599,14 @@ export const useComplianceStore = defineStore('compliance', () => {
     policySetRules.value = await api.get<ComplianceRule[]>(`/compliance/policy-sets/${id}/rules`)
   }
 
+  async function addPolicySetRule(id: string, ruleId: string) {
+    return await api.post(`/compliance/policy-sets/${id}/rules`, { rule_id: ruleId })
+  }
+
+  async function createPolicyAssignment(body: { policy_set_id: string; scope_type: ScopeType; scope_selector: Record<string, unknown> }) {
+    return await api.post('/compliance/policy-assignments', body)
+  }
+
   async function fetchPolicySetCoverage(id: string) {
     policySetCoverage.value = await api.get<PolicySetCoverage>(`/compliance/policy-sets/${id}/coverage`)
   }
@@ -521,6 +629,15 @@ export const useComplianceStore = defineStore('compliance', () => {
 
   async function newPolicySetVersion(id: string) {
     return await api.post<PolicySet>(`/compliance/policy-sets/${id}/new-version`)
+  }
+
+  async function setPolicySetRemediation(
+    id: string,
+    body: { mode: string; allowed: string[]; forbidden: string[] },
+  ) {
+    const updated = await api.patch<PolicySet>(`/compliance/policy-sets/${id}/remediation`, body)
+    if (selectedPolicySet.value?.id === id) selectedPolicySet.value = updated
+    return updated
   }
 
   // ── Drift ────────────────────────────────────────────────────────────────
@@ -583,6 +700,66 @@ export const useComplianceStore = defineStore('compliance', () => {
     if (selected?.id === id) {
       selectedDriftEvent.value = { ...updated, hostname: updated.hostname ?? selected.hostname }
     }
+  }
+
+  // ── Findings ─────────────────────────────────────────────────────────────
+
+  const findings = ref<Finding[]>([])
+  const findingsTotal = ref(0)
+  const findingsLoading = ref(false)
+  const findingsNextCursor = ref<string | null>(null)
+  const findingFilters = ref({ severity: '', domain: '', agent_id: '', result: 'FAIL' })
+
+  const selectedFinding = ref<FindingDetail | null>(null)
+
+  async function fetchFindings(cursor?: string) {
+    const f = findingFilters.value
+    const params = new URLSearchParams()
+    for (const key of ['severity', 'domain', 'agent_id', 'result'] as const) {
+      if (f[key]) params.set(key, f[key])
+    }
+    try {
+      await fetchCursorPage<Finding>(
+        '/compliance/findings',
+        params,
+        { items: findings, total: findingsTotal, nextCursor: findingsNextCursor, loading: findingsLoading },
+        cursor,
+      )
+    } catch {
+      // swallow — global onResponseError already surfaces a toast; keep last-known-good list
+    }
+  }
+
+  async function fetchFinding(id: string) {
+    selectedFinding.value = await api.get<FindingDetail>(`/compliance/findings/${id}`)
+  }
+
+  async function acknowledgeFinding(id: string) {
+    const updated = await api.post<FindingDetail>(`/compliance/findings/${id}/acknowledge`)
+    const idx = findings.value.findIndex((f) => f.id === id)
+    if (idx !== -1) findings.value[idx] = { ...findings.value[idx], ...updated }
+    if (selectedFinding.value?.id === id) selectedFinding.value = updated
+  }
+
+  // ── Standards ────────────────────────────────────────────────────────────
+
+  const standards = ref<Standard[]>([])
+  const standardsLoading = ref(false)
+  const selectedStandard = ref<StandardDetail | null>(null)
+
+  async function fetchStandards() {
+    standardsLoading.value = true
+    try {
+      standards.value = await api.get<Standard[]>('/compliance/standards')
+    } finally {
+      standardsLoading.value = false
+    }
+  }
+
+  async function fetchStandard(key: string, version: string) {
+    selectedStandard.value = await api.get<StandardDetail>(
+      `/compliance/standards/${key}/${version}`,
+    )
   }
 
   // ── Exceptions ───────────────────────────────────────────────────────────
@@ -801,6 +978,41 @@ export const useComplianceStore = defineStore('compliance', () => {
     }
   }
 
+  // ── File Integrity: watch/ignore scope (global default + per-agent) ─────
+
+  const fimScopes = ref<FIMScopesOverview | null>(null)
+  const fimScopesLoading = ref(false)
+
+  async function fetchFIMScopes() {
+    fimScopesLoading.value = true
+    try {
+      fimScopes.value = await api.get<FIMScopesOverview>('/compliance/fim-scopes')
+    } finally {
+      fimScopesLoading.value = false
+    }
+  }
+
+  async function updateGlobalFIMScope(watchPaths: string[], ignorePaths: string[]) {
+    const scope = await api.put<FIMScope>('/compliance/fim-scopes', {
+      watch_paths: watchPaths, ignore_paths: ignorePaths,
+    })
+    await fetchFIMScopes() // re-fetch rather than patch in place — the PUT response has no hostname join
+    return scope
+  }
+
+  async function updateAgentFIMScope(agentId: string, watchPaths: string[], ignorePaths: string[]) {
+    const scope = await api.put<FIMScope>(`/compliance/fim-scopes/${agentId}`, {
+      watch_paths: watchPaths, ignore_paths: ignorePaths,
+    })
+    await fetchFIMScopes()
+    return scope
+  }
+
+  async function deleteAgentFIMScope(agentId: string) {
+    await api.del(`/compliance/fim-scopes/${agentId}`)
+    await fetchFIMScopes()
+  }
+
   // ── Reporting Engine ─────────────────────────────────────────────────────
 
   const reports = ref<ComplianceReport[]>([])
@@ -900,10 +1112,14 @@ export const useComplianceStore = defineStore('compliance', () => {
     selectedRule, fetchRule,
     policySets, policySetsTotal, policySetsLoading, policySetsNextCursor, selectedPolicySet, policySetRules, policySetCoverage,
     fetchPolicySets, createPolicySet, fetchPolicySet, fetchPolicySetRules, fetchPolicySetCoverage, importPolicySet,
-    publishPolicySet, archivePolicySet, newPolicySetVersion,
+    publishPolicySet, archivePolicySet, newPolicySetVersion, setPolicySetRemediation,
+    addPolicySetRule, createPolicyAssignment,
     driftEvents, driftTotal, driftLoading, driftNextCursor, driftFilters,
     selectedDriftEvent, driftDetails,
     fetchDriftEvents, fetchDriftEvent, fetchDriftDetails, acknowledgeDrift, suppressDrift, resolveDrift,
+    findings, findingsTotal, findingsLoading, findingsNextCursor, findingFilters, selectedFinding,
+    fetchFindings, fetchFinding, acknowledgeFinding,
+    standards, standardsLoading, selectedStandard, fetchStandards, fetchStandard,
     exceptions, exceptionsTotal, exceptionsLoading, exceptionsNextCursor, exceptionFilters,
     fetchExceptions, createException, approveException, revokeException,
     remediationPlans, remediationTotal, remediationLoading, remediationNextCursor, remediationError, remediationFilters,
@@ -915,6 +1131,8 @@ export const useComplianceStore = defineStore('compliance', () => {
     fileHashes, fileHashesLoading, fileHashPathPrefix, fetchFileHashes,
     fileChanges, fileChangesTotal, fileChangesLoading, fileChangesNextCursor, fileChangeFilters, fetchFileChanges,
     fileChangePathDetail, fileChangePathDetailLoading, fetchFileChangesByPath,
+    fimScopes, fimScopesLoading, fetchFIMScopes,
+    updateGlobalFIMScope, updateAgentFIMScope, deleteAgentFIMScope,
     reports, reportsTotal, reportsLoading, reportsNextCursor, fetchReports, createReport,
     topViolations, topViolationsLoading, topChangedFiles, topChangedFilesLoading,
     fetchTopViolations, fetchTopChangedFiles,

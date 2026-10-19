@@ -99,52 +99,91 @@ if [ -n "$AGENT_KEY" ] && [ "$AGENT_KEY" != "null" ]; then
 fi
 chmod 644 /etc/lokilinux/certs/agent.crt /etc/lokilinux/certs/ca.crt
 
-# ── Write agent configuration ─────────────────────────────────────────────────
-echo "[*] Writing /etc/lokilinux/agent.yaml..."
-GRPC_HOST="$(echo "$PLATFORM_URL" | sed 's|https://||; s|http://||')"
-
-cat > /etc/lokilinux/agent.yaml <<EOF
-platform_url: $PLATFORM_URL
-grpc:
-  host: $GRPC_HOST
-  port: 50051
-  cert_path: /etc/lokilinux/certs/agent.crt
-  key_path: /etc/lokilinux/certs/agent.key
-  ca_path: /etc/lokilinux/certs/ca.crt
-
-agent:
-  id: $AGENT_ID
-  hostname: $(hostname -f)
-
-heartbeat:
-  interval_seconds: 60
-  timeout_seconds: 30
-
-cache:
-  path: /var/lib/lokilinux
-
-plugins:
-  enabled: true
-  dir: /opt/lokilinux/plugins
-
-logging:
-  level: info
-  path: /var/log/lokilinux/agent.log
-EOF
-chmod 640 /etc/lokilinux/agent.yaml
-
-# ── Platform job-signing public key (public by design) ────────────────────────
+# ── Platform job-signing public key(s) (public by design) ─────────────────────
+# Fetched BEFORE agent.yaml so the versioned map can be embedded directly —
+# a rotation via the admin KMS endpoints then reaches agents enrolling AFTER
+# it, not just the ones already enrolled.
 # NOTE: this offline installer's agent.yaml schema has drifted from
-# backend/lokilinux/install_agent.sh.tmpl (the served one matches
-# config.go). The security block below matches config.SecurityConfig.
-echo "[*] Fetching platform job-signing public key..."
-if curl -fsSL "$PLATFORM_URL/api/v1/agent/signing-key" -o /etc/lokilinux/signing_pub.b64 \
-   && [ -s /etc/lokilinux/signing_pub.b64 ]; then
+# backend/lokilinux/install_agent.sh.tmpl (the served one matches config.go).
+# The security: block below matches config.SecurityConfig even though the
+# rest of this file's schema does not — that broader drift is pre-existing
+# and out of scope here.
+echo "[*] Fetching platform job-signing public key(s)..."
+SIGNING_KEYS_JSON="$(curl -fsSL "$PLATFORM_URL/api/v1/agent/signing-keys" 2>/dev/null || true)"
+SIGNING_PUB_KEYS_YAML=""
+SIGNING_KEY_B64=""
+if [ -n "$SIGNING_KEYS_JSON" ]; then
+  while IFS= read -r pair; do
+    [ -n "$pair" ] || continue
+    ver="$(printf '%s' "$pair" | sed -E 's/^"([0-9]+)".*/\1/')"
+    b64="$(printf '%s' "$pair" | sed -E 's/.*:[[:space:]]*"([^"]*)"$/\1/')"
+    SIGNING_PUB_KEYS_YAML="${SIGNING_PUB_KEYS_YAML}    ${ver}: \"${b64}\"
+"
+    [ "$ver" = "1" ] && SIGNING_KEY_B64="$b64"
+  done < <(printf '%s' "$SIGNING_KEYS_JSON" | grep -oE '"[0-9]+"[[:space:]]*:[[:space:]]*"[^"]*"')
+fi
+if [ -z "$SIGNING_PUB_KEYS_YAML" ]; then
+  # /signing-keys unreachable/empty (older platform) — fall back to the
+  # single-key endpoint every prior installer version already used.
+  SIGNING_KEY_B64="$(curl -fsSL "$PLATFORM_URL/api/v1/agent/signing-key" 2>/dev/null || true)"
+  [ -n "$SIGNING_KEY_B64" ] && SIGNING_PUB_KEYS_YAML="    1: \"${SIGNING_KEY_B64}\"
+"
+fi
+if [ -n "$SIGNING_KEY_B64" ]; then
+  printf '%s' "$SIGNING_KEY_B64" > /etc/lokilinux/signing_pub.b64
   chmod 644 /etc/lokilinux/signing_pub.b64
 else
   echo "[!] WARNING: could not fetch signing key — signed-job enforcement will stay disabled"
-  rm -f /etc/lokilinux/signing_pub.b64
 fi
+
+SECURITY_YAML="security:
+  enforce_signed_jobs: false
+  signing_pub_key_path: /etc/lokilinux/signing_pub.b64"
+if [ -n "$SIGNING_PUB_KEYS_YAML" ]; then
+  SECURITY_YAML="${SECURITY_YAML}
+  signing_pub_keys:
+${SIGNING_PUB_KEYS_YAML}"
+fi
+
+# ── Write agent configuration ─────────────────────────────────────────────────
+# Schema MUST match agent/internal/config/config.go (kept in lockstep with
+# backend/lokilinux/install_agent.sh.tmpl — this script used to write an
+# older, unrelated shape that yaml.Unmarshal silently accepted and zero-valued,
+# so the agent booted with an empty agent_id/grpc_endpoint and only failed
+# later, confusingly, at the gRPC TLS dial).
+echo "[*] Writing /etc/lokilinux/agent.yaml..."
+GRPC_HOST="$(echo "$PLATFORM_URL" | sed -E 's#^https?://##; s#[:/].*$##')"
+POLICY_DIR="/var/lib/lokilinux/policy"
+install -d -m 700 "$POLICY_DIR"
+
+cat > /etc/lokilinux/agent.yaml <<EOF
+platform:
+  url: $PLATFORM_URL
+  grpc_endpoint: $GRPC_HOST:50051
+identity:
+  agent_id: $AGENT_ID
+  cert_path: /etc/lokilinux/certs/agent.crt
+  key_path: /etc/lokilinux/certs/agent.key
+  ca_path: /etc/lokilinux/certs/ca.crt
+heartbeat:
+  interval_sec: 60
+cache:
+  sqlite_db: /var/lib/lokilinux/agent.db
+job_execution:
+  timeout_seconds: 3600
+$SECURITY_YAML
+logging:
+  level: info
+file_integrity:
+  watch_paths: []
+  ignore_paths: []
+policy:
+  enabled: true
+  state_dir: $POLICY_DIR
+  trusted_keys:
+    policy-signing-v1: "$(curl -fsSL "$PLATFORM_URL/api/v1/agent/policy-signing-key" 2>/dev/null || echo '')"
+EOF
+chmod 640 /etc/lokilinux/agent.yaml
 
 # ── Install binary ────────────────────────────────────────────────────────────
 echo "[*] Installing agent binary..."
@@ -207,6 +246,8 @@ RestrictSUIDSGID=true
 LockPersonality=true
 RestrictNamespaces=true
 SystemCallArchitectures=native
+PrivateDevices=true
+MemoryDenyWriteExecute=true
 
 [Install]
 WantedBy=multi-user.target
@@ -235,6 +276,8 @@ ProtectSystem=strict
 ReadWritePaths=/run/lokilinux /var/lib/lokilinux
 ProtectHome=true
 PrivateTmp=true
+PrivateDevices=true
+MemoryDenyWriteExecute=true
 UMask=0027
 TasksMax=64
 
@@ -276,6 +319,8 @@ ProtectSystem=strict
 ReadWritePaths=/run/lokilinux /var/lib/lokilinux
 ProtectHome=true
 PrivateTmp=true
+PrivateDevices=true
+MemoryDenyWriteExecute=true
 UMask=0027
 TasksMax=64
 

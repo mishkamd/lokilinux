@@ -3,69 +3,72 @@
 Regression guard for the rpm filename mismatch: nfpm names rpm packages
 name-version-release.arch.rpm (release defaults to "1"), so the map here
 must include the "-1" segment or every rpm build looks "unavailable" to
-the dashboard even though the file exists on disk.
+the dashboard even though the object exists in storage.
+
+Packages live in object storage (Object Storage plan) under deterministic
+keys (system/agent-packages/<version>/<filename>), not a local directory —
+these tests exercise _package_available/_resolve_package against
+FakeObjectStorage (conftest.py) instead of a tmp_path + monkeypatched
+agent_package_dir.
 """
 
 import asyncio
-import os
+import io
 from types import SimpleNamespace
 
 import pytest
 from cryptography.hazmat.primitives import serialization
 from fastapi import HTTPException
 
-from lokilinux.api.v1.routers.agent_install import _generate_agent_cert, _package_available, _resolve_package
+from lokilinux.api.v1.routers.agent_install import (
+    _generate_agent_cert,
+    _package_available,
+    _resolve_package,
+)
 from lokilinux.services import ca_signer_client
 
 _SETTINGS_PATH = "lokilinux.api.v1.routers.agent_install.get_settings"
 
 
-def _patch_settings(monkeypatch, pkg_dir):
-    monkeypatch.setattr(_SETTINGS_PATH, lambda: SimpleNamespace(agent_package_dir=str(pkg_dir)))
+def _put(fake_storage, key: str) -> None:
+    asyncio.run(fake_storage.put_stream(key, io.BytesIO(b"x")))
 
 
-def test_package_available_true_when_file_exists(tmp_path, monkeypatch):
-    (tmp_path / "lokilinux-agent_1.2.3_linux_amd64.tar.gz").write_bytes(b"x")
-    _patch_settings(monkeypatch, tmp_path)
-    assert _package_available("tar.gz", "amd64", "1.2.3") is True
+def test_package_available_true_when_file_exists(fake_storage):
+    _put(fake_storage, "system/agent-packages/1.2.3/lokilinux-agent_1.2.3_linux_amd64.tar.gz")
+    assert asyncio.run(_package_available(fake_storage, "tar.gz", "amd64", "1.2.3")) is True
 
 
-def test_package_available_false_when_file_missing(tmp_path, monkeypatch):
-    _patch_settings(monkeypatch, tmp_path)
-    assert _package_available("rpm", "amd64", "1.2.3") is False
+def test_package_available_false_when_file_missing(fake_storage):
+    assert asyncio.run(_package_available(fake_storage, "rpm", "amd64", "1.2.3")) is False
 
 
-def test_package_available_false_for_unknown_os(tmp_path, monkeypatch):
-    _patch_settings(monkeypatch, tmp_path)
-    assert _package_available("msi", "amd64", "1.2.3") is False
+def test_package_available_false_for_unknown_os(fake_storage):
+    assert asyncio.run(_package_available(fake_storage, "msi", "amd64", "1.2.3")) is False
 
 
-def test_rpm_filename_includes_nfpm_release_suffix(tmp_path, monkeypatch):
-    (tmp_path / "lokilinux-agent-1.2.3-1.x86_64.rpm").write_bytes(b"x")
-    _patch_settings(monkeypatch, tmp_path)
-    assert _package_available("rpm", "amd64", "1.2.3") is True
+def test_rpm_filename_includes_nfpm_release_suffix(fake_storage):
+    _put(fake_storage, "system/agent-packages/1.2.3/lokilinux-agent-1.2.3-1.x86_64.rpm")
+    assert asyncio.run(_package_available(fake_storage, "rpm", "amd64", "1.2.3")) is True
 
 
-def test_resolve_package_returns_path_when_exists(tmp_path, monkeypatch):
+def test_resolve_package_returns_key_when_exists(fake_storage):
     filename = "lokilinux-agent-1.2.3-1.x86_64.rpm"
-    (tmp_path / filename).write_bytes(b"x")
-    _patch_settings(monkeypatch, tmp_path)
-    filepath, resolved_name = _resolve_package("rpm", "amd64", "1.2.3")
+    _put(fake_storage, f"system/agent-packages/1.2.3/{filename}")
+    key, resolved_name = asyncio.run(_resolve_package(fake_storage, "rpm", "amd64", "1.2.3"))
     assert resolved_name == filename
-    assert os.path.exists(filepath)
+    assert asyncio.run(fake_storage.exists(key)) is True
 
 
-def test_resolve_package_raises_503_when_missing(tmp_path, monkeypatch):
-    _patch_settings(monkeypatch, tmp_path)
+def test_resolve_package_raises_503_when_missing(fake_storage):
     with pytest.raises(HTTPException) as exc_info:
-        _resolve_package("deb", "amd64", "1.2.3")
+        asyncio.run(_resolve_package(fake_storage, "deb", "amd64", "1.2.3"))
     assert exc_info.value.status_code == 503
 
 
-def test_resolve_package_raises_400_for_unsupported_combo(tmp_path, monkeypatch):
-    _patch_settings(monkeypatch, tmp_path)
+def test_resolve_package_raises_400_for_unsupported_combo(fake_storage):
     with pytest.raises(HTTPException) as exc_info:
-        _resolve_package("msi", "amd64", "1.2.3")
+        asyncio.run(_resolve_package(fake_storage, "msi", "amd64", "1.2.3"))
     assert exc_info.value.status_code == 400
 
 

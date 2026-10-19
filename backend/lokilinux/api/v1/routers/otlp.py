@@ -34,6 +34,7 @@ from lokilinux.dependencies import get_cache, get_nats
 from lokilinux.events.schemas import EventIn
 from lokilinux.nats_topics import EVENT_RAW
 from lokilinux.otlp.translate import _attrs_to_dict, log_record_to_event_in, span_to_event_in
+from lokilinux.utils.local_counter import local_counter
 
 logger = structlog.get_logger()
 
@@ -47,7 +48,9 @@ async def _enforce_rate_limit(cache: Any, current_user: dict[str, Any]) -> None:
     principal = current_user.get("id") or "unknown"
     settings = get_settings()
     window = int(datetime.now().timestamp() // 60)
-    count = await cache.incr(f"rate:ev:{principal}:{window}", ttl=90)
+    count = await cache.incr_checked(f"rate:ev:{principal}:{window}", ttl=90)
+    if count is None:  # Redis down: count in this process instead of failing open
+        count = local_counter.increment(f"rate:ev:{principal}", window)
     if count > settings.event_rate_per_agent_per_min:
         raise HTTPException(status_code=429, detail="event rate limit exceeded")
 

@@ -197,7 +197,14 @@ const actionColumns = [
 
       <!-- Actions table -->
       <h3 class="text-sm font-semibold mb-2">Actions</h3>
-      <DataTable :rows="remediationActions" :columns="actionColumns">
+      <DataTable
+        :rows="remediationActions"
+        :columns="actionColumns"
+        row-key="id"
+        sortable
+        :page-size="25"
+        empty-title="No actions in this plan"
+      >
         <template #sequence-data="{ row }">
           <span class="font-mono text-xs tabular-nums">{{ row.sequence }}</span>
         </template>
