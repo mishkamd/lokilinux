@@ -126,10 +126,11 @@ func TestNewFileIntegrityCollectorWithConfig_CustomWatchPathsOverrideDefault(t *
 	}
 }
 
-func TestBuildRegistry_ReplacesOnlyFileIntegrityCollector(t *testing.T) {
-	registry := BuildRegistry([]string{"/custom/path"}, []string{"/ignore/me"})
+func TestBuildRegistryWithFIM_ReplacesOnlyFileIntegrityCollector(t *testing.T) {
+	fim := NewFileIntegrityCollectorWithConfig([]string{"/custom/path"}, []string{"/ignore/me"})
+	registry := BuildRegistryWithFIM(fim)
 	if len(registry) != len(Registry) {
-		t.Fatalf("BuildRegistry length = %d, want %d (same collector count as Registry)", len(registry), len(Registry))
+		t.Fatalf("BuildRegistryWithFIM length = %d, want %d (same collector count as Registry)", len(registry), len(Registry))
 	}
 
 	var found bool
@@ -145,7 +146,7 @@ func TestBuildRegistry_ReplacesOnlyFileIntegrityCollector(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatal("BuildRegistry dropped the FileIntegrityCollector entirely")
+		t.Fatal("BuildRegistryWithFIM dropped the FileIntegrityCollector entirely")
 	}
 }
 

@@ -7,7 +7,6 @@ package agent
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/lokilinux/agent/internal/compliance"
@@ -27,11 +26,7 @@ type DesiredPolicyManager struct {
 	// list (never from an already-narrowed one).
 	runner       *compliance.Runner
 	baseRegistry []compliance.Collector
-
-	mu     sync.Mutex // guards pendingReport
-	report map[string]interface{}
 }
-
 func newDesiredPolicyManager(
 	cfg *config.Config,
 	complianceRunner *compliance.Runner,
@@ -145,44 +140,26 @@ func (d *DesiredPolicyManager) failed(env policy.Envelope, deploymentID, code, m
 	if d == nil {
 		return nil
 	}
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.report = map[string]interface{}{
+	return map[string]interface{}{
 		"policy_id":     env.PolicyID,
 		"version":       env.Version,
 		"result":        "failed",
 		"error":         fmt.Sprintf("[%s] %s", code, msg),
 		"deployment_id": deploymentID,
 	}
-	return d.report
 }
 
 func (d *DesiredPolicyManager) ok(envelope map[string]interface{}, deploymentID string, version int, durationMs int64) map[string]interface{} {
 	if d == nil {
 		return nil
 	}
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.report = map[string]interface{}{
+	return map[string]interface{}{
 		"policy_id":     asString(envelope["policy_id"]),
 		"version":       version,
 		"result":        "applied",
 		"duration_ms":   durationMs,
 		"deployment_id": deploymentID,
 	}
-	return d.report
-}
-
-// TakeReport returns and clears the queued apply report.
-func (d *DesiredPolicyManager) TakeReport() map[string]interface{} {
-	if d == nil {
-		return nil
-	}
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	r := d.report
-	d.report = nil
-	return r
 }
 
 // filterRegistry keeps only collectors whose domain the policy enables.

@@ -18,10 +18,9 @@ var inFlight int64 // global concurrency guard
 
 const maxConcurrent = 2
 
-// metricsDenied is a stub hook wired to prometheus by main.go via SetMetricsHook.
+// metricsDenied counts broker denials. It stays a no-op stub: no caller
+// wires it to the metrics exporter yet.
 var metricsDenied = func(string) {}
-
-func SetDeniedHook(fn func(string)) { metricsDenied = fn }
 
 // Execute dispatches an allowlisted operation to the existing executor
 // modules — the broker adds NO new execution semantics, only authorization,
