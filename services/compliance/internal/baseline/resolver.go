@@ -37,7 +37,7 @@ type Effective struct {
 }
 
 // Resolver computes effective baselines. It is stateless apart from the
-// store: Resolve is a pure function of (agent attributes, published
+// store: effectiveFor is a pure function of (agent attributes, published
 // baseline versions), so baseline_effective is a materialized cache, not a
 // source of truth (06-BASELINE.md §2) — safe to recompute at any time.
 type Resolver struct {
@@ -48,28 +48,10 @@ func NewResolver(store *storage.Store) *Resolver {
 	return &Resolver{store: store}
 }
 
-// Resolve merges every published baseline whose selector matches the agent
-// and returns the effective state — without writing anything. MergedState
-// is never nil: an agent with no matching baseline gets an empty state so
-// callers have a deterministic answer instead of a nil-map special case.
-func (r *Resolver) Resolve(ctx context.Context, agentID uuid.UUID) (Effective, error) {
-	attrs, err := r.store.LoadAgentAttributes(ctx, agentID)
-	if err != nil {
-		return Effective{}, err
-	}
-
-	published, err := r.store.LoadPublishedBaselines(ctx)
-	if err != nil {
-		return Effective{}, err
-	}
-
-	return r.effectiveFor(agentID, attrs, published)
-}
-
 // effectiveFor merges and hashes one agent's state against a pre-loaded
-// baseline list — split from Resolve so fleet-wide passes can load the
-// published baselines ONCE instead of once per agent (the old
-// Resolve-per-agent loop was O(agents × full-table-scan)).
+// baseline list — the published baselines are loaded ONCE per fleet-wide
+// pass instead of once per agent (a per-agent load is O(agents ×
+// full-table-scan)).
 func (r *Resolver) effectiveFor(
 	agentID uuid.UUID,
 	attrs storage.AgentAttributes,
@@ -84,7 +66,7 @@ func (r *Resolver) effectiveFor(
 	return eff, nil
 }
 
-// mergeForAgent is the pure half of Resolve — selector matching, specificity
+// mergeForAgent is the pure half of effectiveFor — selector matching, specificity
 // sorting, and deep merge — split out so the merge algorithm is unit-testable
 // without a database. mergeForAgent never returns a nil MergedState.
 func mergeForAgent(agentID uuid.UUID, attrs storage.AgentAttributes, published []storage.PublishedBaseline) Effective {
