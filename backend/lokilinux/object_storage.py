@@ -212,17 +212,3 @@ class ObjectStorage:
             Params={"Bucket": self.bucket, "Key": key},
             ExpiresIn=expires_in,
         )
-
-    async def presign_put(
-        self, key: str, *, expires_in: int, content_type: str | None = None
-    ) -> str:
-        validate_key(key)
-        params: dict[str, Any] = {"Bucket": self.bucket, "Key": key}
-        if content_type:
-            params["ContentType"] = content_type
-        return await asyncio.to_thread(
-            self._presign_client.generate_presigned_url,
-            "put_object",
-            Params=params,
-            ExpiresIn=expires_in,
-        )

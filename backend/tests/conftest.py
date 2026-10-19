@@ -198,11 +198,6 @@ class FakeObjectStorage:
     async def presign_get(self, key: str, *, expires_in: int) -> str:
         return f"https://fake-presigned.test/{key}?expires_in={expires_in}"
 
-    async def presign_put(
-        self, key: str, *, expires_in: int, content_type: str | None = None
-    ) -> str:
-        return f"https://fake-presigned.test/{key}?expires_in={expires_in}&put=1"
-
 
 @pytest_asyncio.fixture
 async def db_session(engine) -> AsyncIterator[AsyncSession]:
