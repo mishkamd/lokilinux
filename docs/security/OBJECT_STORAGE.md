@@ -57,8 +57,8 @@ setează `S3_PUBLIC_ENDPOINT_URL` la acel host public.
   nu doar la upload.
 - `s3_max_upload_bytes` (implicit 500MB) — impus în `StorageService.store_stream` în timp ce se
   streamează, nu după ce fișierul e deja complet încărcat.
-- Fișierele mari (>8MB, `s3_multipart_threshold_bytes`) folosesc multipart automat prin
-  `boto3.s3.transfer.TransferConfig` — nicio implementare manuală de multipart.
+- Fișierele mari (peste pragul implicit al lui `boto3.s3.transfer.TransferConfig`) folosesc multipart
+  automat — nicio implementare manuală de multipart, niciun prag configurabil în LokiLinux.
 
 ## Audit
 

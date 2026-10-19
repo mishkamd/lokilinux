@@ -43,7 +43,6 @@ class Settings(BaseSettings):
     event_max_payload_bytes: int = 65536
     event_rate_per_agent_per_min: int = 600
     event_max_clock_skew_sec: int = 300
-    correlation_state_backend: str = "redis"
 
     # ── Better Auth (Nuxt 4 instance) ─────────────────────────
     # FastAPI validates opaque session tokens via
@@ -55,7 +54,6 @@ class Settings(BaseSettings):
     # ── Agent certificates ────────────────────────────────────
     agent_cert_dir: str = "/etc/lokilinux/certs"
     agent_cert_ttl_days: int = 30
-    ca_signer_socket_path: str = "/run/lokilinux/ca-signer/sign.sock"
 
     # ── Observability ─────────────────────────────────────────
     # (grpc port comes from the GRPC_PORT env read in grpc_server.py;
@@ -93,7 +91,6 @@ class Settings(BaseSettings):
     # ── Metrics / KMS (plan 2026-08-25) ───────────────────────
     metrics_enabled: bool = True
     metrics_port: int = 9090
-    job_signing_required: bool = False   # fail-closed dispatch when True
     security_profile: str = "development"  # production adds startup validations
 
     # ── Object storage (RustFS / S3-compatible) ───────────────
@@ -113,7 +110,6 @@ class Settings(BaseSettings):
     s3_addressing_style: str = "path"
     s3_presigned_url_expiration: int = 3600
     s3_max_upload_bytes: int = 500 * 1024 * 1024
-    s3_multipart_threshold_bytes: int = 8 * 1024 * 1024
 
     @property
     def debug(self) -> bool:
