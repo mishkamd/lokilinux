@@ -37,7 +37,6 @@ from lokilinux.schemas.cve import (
     TopVulnerableResource,
     VulnerabilityResourceDetail,
     VulnerabilityResponse,
-    VulnerabilityStatus,
     VulnerabilitySummaryResponse,
     VulnerabilityTrendPoint,
 )

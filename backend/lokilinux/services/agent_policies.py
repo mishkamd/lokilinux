@@ -15,7 +15,7 @@ import json
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Optional
 
 from fastapi import HTTPException
 from pydantic import BaseModel, Field
@@ -391,7 +391,6 @@ class AgentPolicyService:
                    explicit mapping ships; keeping the branch honest here.)
           TENANT → every ACTIVE agent in the tenant.
         """
-        from sqlalchemy.dialects.postgresql import insert as pg_insert
 
         policy = await self.get_policy(policy_id)
         assignment = AgentPolicyAssignment(

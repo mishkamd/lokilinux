@@ -11,7 +11,6 @@ carry key_id/version/reason exclusively (plan §15).
 """
 
 import os
-from functools import lru_cache
 from typing import Dict, Optional
 
 from cryptography.hazmat.primitives import serialization

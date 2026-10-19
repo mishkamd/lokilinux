@@ -212,7 +212,6 @@ def sign_payload(payload: dict) -> str:
 def verify_signature(payload: dict, signature_b64: str, public_key_b64_str: str) -> bool:
     """Mirror of the agent-side check — used by tests and by the admin UI's
     verify button."""
-    from cryptography.hazmat.primitives import serialization
     from cryptography.exceptions import InvalidSignature
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 

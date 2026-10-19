@@ -8,7 +8,6 @@ background job (services/compliance/internal/scheduler.Expirer), not an
 endpoint — there's nothing for a client to call to make time pass.
 """
 
-from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
