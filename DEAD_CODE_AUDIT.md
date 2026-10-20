@@ -267,3 +267,59 @@ ff25075 refactor(config): remove 4 unused Settings fields
 - **MIS-159** — audit continuare: dead endpoints, artefacte DB, exporturi TS, `staticcheck`.
 - **P3** `BaselineApprovalResponse` — confirmă lipsa consumatorilor externi.
 - **Teste preexistente broken** (`test_security_p0.py`, `agent_cert_ttl_days`) — raportat, neatins.
+
+## 12. Audit continuare (MIS-159)
+
+A doua trecere, pe zonele rămase neacoperite în §5. Metode: `app.openapi()` pentru
+inventarul de endpointuri (FastAPI 0.138 ține router-urile încorporate ca obiect
+`_IncludedRouter`, deci `app.routes` nu e complet — `openapi()` este), cross-referință cu
+apelurile din frontend, `information_schema` pe DB-ul live, `knip` pentru frontend,
+`staticcheck` pentru Go.
+
+### 12.1 Dead API endpoints — **0 dead**
+
+251 endpointuri REST. 244 sunt apelate din frontend. Cele 7 rămase:
+
+| Endpoint | Verdict |
+|---|---|
+| `GET /health`, `GET /ready` | Sonde de infrastructură (docker healthcheck) — keep |
+| `POST /otlp/v1/logs`, `POST /otlp/v1/traces` | Ingestie OTLP, consumată de agenți/telemetrie externă — keep |
+| `GET /configuration/baselines`, `GET /configuration/drift` | Router alias deliberat (Enterprise Compliance plan U2 Task 2) — delegă către handlerele `/compliance/*`. **Nu există `pages/configuration/`** → suprafața „Configuration" nu e încă în UI. PROBABLY_DEAD (planificat) |
+| `GET /observability/pipeline` | Snapshot de metrici pentru ops, fără consumator în UI. UNKNOWN (utilizabil prin curl, autentificat) |
+
+### 12.2 Dead DB artifacts — **7 tabele**
+
+| Tabel | Origine | Verdict |
+|---|---|---|
+| `update_jobs`, `update_job_results`, `update_policies` | `alembic/versions/002_update_management.py` (feature „update management" abandonată) | DEAD — create în upgrade, niciun model ORM, nicio referință în cod. Downgrade-ul le șterge, deci nici măcar o revine |
+| `dsc_provider_status`, `dsc_resource_blobs`, `dsc_resource_states`, `dsc_verifications` | **Nicio migrare din repo nu le creează** | DEAD/drift — există în DB-ul live, invizibile pentru Alembic și ORM. Provabile dintr-o ramură ne-mergită (worktree-urile șterse) sau din DBA manual |
+| — | DB live la `alembic_version = 060`; head-ul din repo este `061_job_result_held_until` | Migration 061 neaplicată în stack-ul curent |
+
+### 12.3 Frontend (`knip` 6.41.0)
+
+| Categorie | Nr | Verdict |
+|---|---|---|
+| Unused files | 2 | `scripts/migrate-db.ts` e **fals pozitiv** — apelat din `scripts/docker-init.sh:112`. `server/utils/migrate.ts` e **mort** (0 invocări; duplică `scripts/migrate-db.ts`) |
+| Unlisted dependencies | 3 | `h3` (server/utils/session.ts), `ofetch` (utils/api.ts), `vitest-environment-nuxt` (vitest.config.ts) — dependințe implicite, nesigur la upgrade |
+| Unused exported types | 34 | Interfețe exportate din `stores/*` și `components/ui/*` pe care nimeni nu le importă. Fix = scoaterea keyword-ului `export`, nu ștergerea tipului |
+| Unused devDependencies | 1 | `vue-tsc` — e tool de CLI (`npx vue-tsc --noEmit`), fals pozitiv |
+| Unused dependencies | 0 | toate cele 29 de dependențe de producție sunt folosite |
+
+### 12.4 Go — `staticcheck` 0.6.1
+
+`services/compliance`: **curat, 0 findings**.
+`agent`: 20 findings — 3 reale, restul noise de teste:
+
+| Regula | Locație | Ce | Severitate |
+|---|---|---|---|
+| SA4014 | `internal/agent/job_validation.go:181` | condiție repetată într-un lanț if/else-if → ramură inaccesibilă | **reală** (ramură moartă în calea de validare a joburilor) |
+| SA4006 | `internal/security/policy.go:52` | `ok` reatribuit, valoarea nu e folosită → verificarea "policy has no capabilities object" poate fi scăpată | **reală** (cale de securitate) |
+| SA1006 ×8 | `internal/security/approval_claim.go:82-116` | `fmt.Errorf(string(ClaimX))` — format string dinamic fără argumente | **reală** (claim-uri de aprobare) |
+| SA1019 | `internal/communication/grpc_client.go:95` | `grpc.Dial` deprecated (grpc-go 1.79) | migrare de API |
+| SA1012 ×9 | fișiere `_test.go` | `nil` Context pasat colecționatorului | stil, doar teste |
+
+### 12.5 `BaselineApprovalResponse` (P3)
+
+`backend/lokilinux/schemas/baseline.py:91` — în continuare 0 referințe (nici în cod, nici în
+teste, nici în frontend). Rămâne PROBABLY_DEAD: e în `schemas/`, deci ar putea apărea în
+OpenAPI pentru clienți externi.
