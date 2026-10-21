@@ -85,7 +85,7 @@ onClickOutside(containerRef, () => {
         <button
           type="button"
           @click="removeValue(item.value)"
-          class="ml-0.5 text-muted-foreground hover:text-foreground"
+          class="focus-ring ml-0.5 rounded text-muted-foreground hover:text-foreground"
         >
           <X class="size-3" />
         </button>
@@ -97,7 +97,7 @@ onClickOutside(containerRef, () => {
         :placeholder="selected.length === 0 ? placeholder : ''"
         @focus="isOpen = true"
         @keydown.escape="isOpen = false"
-        class="flex-1 min-w-24 bg-transparent outline-none placeholder:text-muted-foreground"
+        class="focus-ring flex-1 min-w-24 rounded bg-transparent outline-none placeholder:text-muted-foreground"
       />
     </div>
 

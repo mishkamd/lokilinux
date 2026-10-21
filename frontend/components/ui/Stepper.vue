@@ -16,7 +16,7 @@ defineExpose({ stepper })
       <li v-for="(s, i) in props.steps" :key="s" class="flex flex-1 items-center last:flex-none">
         <button
           type="button"
-          class="flex shrink-0 items-center gap-2 disabled:cursor-not-allowed"
+          class="focus-ring flex shrink-0 items-center gap-2 disabled:cursor-not-allowed"
           :disabled="i > stepper.index.value"
           @click="i < stepper.index.value && stepper.goTo(s)"
         >

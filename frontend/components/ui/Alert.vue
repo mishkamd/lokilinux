@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { cn } from '~/utils/cn'
 
+// Semantic tokens only — the old Tailwind palette (red-50/red-800) sat outside
+// the app's color system and broke in dark mode. A 14% tint of the status
+// color as surface, full strength as text: the same treatment Badge uses.
 const COLOR: Record<string, string> = {
-  red: 'border-red-200 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300',
-  green: 'border-green-200 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-950/30 dark:text-green-300',
-  yellow: 'border-yellow-200 bg-yellow-50 text-yellow-800 dark:border-yellow-800 dark:bg-yellow-950/30 dark:text-yellow-300',
-  blue: 'border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-800 dark:bg-blue-950/30 dark:text-blue-300',
+  red: 'border-destructive/30 bg-destructive/10 text-destructive',
+  green: 'border-success/30 bg-success/10 text-success',
+  yellow: 'border-warning/30 bg-warning/10 text-warning',
+  blue: 'border-info/30 bg-info/10 text-info',
   gray: 'border-border bg-muted text-foreground',
 }
 

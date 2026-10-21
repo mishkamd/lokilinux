@@ -39,6 +39,8 @@ const STATUS_COLORS: Record<RemediationPlanStatus, string> = {
 }
 
 const busy = ref(false)
+// Destructive actions go through the app's confirm dialog, never window.confirm().
+const showRollbackConfirm = ref(false)
 const dryRunning = ref(false)
 
 async function dryRun() {
@@ -89,7 +91,12 @@ const canRollback = computed(() =>
 )
 
 async function rollback() {
-  if (!confirm('Roll back this remediation plan? This will dispatch a new Job that reverses the completed actions.')) return
+  // Destructive actions go through the app's confirm dialog, never window.confirm().
+  showRollbackConfirm.value = true
+}
+
+async function doRollback() {
+  showRollbackConfirm.value = false
   busy.value = true
   try {
     await store.rollbackRemediationPlan(String(route.params.id))
@@ -221,5 +228,17 @@ const actionColumns = [
         </template>
       </DataTable>
     </div>
+
+    <ConfirmDeleteDialog
+      :model-value="showRollbackConfirm"
+      title="Roll back remediation plan"
+      confirm-label="Roll back"
+      @update:model-value="showRollbackConfirm = false"
+      @confirm="doRollback"
+    >
+      <p class="text-sm text-muted-foreground">
+        Roll back this remediation plan? This dispatches a new Job that reverses the completed actions.
+      </p>
+    </ConfirmDeleteDialog>
   </div>
 </template>

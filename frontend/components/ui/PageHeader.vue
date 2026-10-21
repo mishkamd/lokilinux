@@ -15,7 +15,7 @@ defineProps<{
         <NuxtLink
           v-if="back"
           :to="back.to"
-          class="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground shrink-0"
+          class="focus-ring inline-flex items-center gap-1 rounded-sm text-sm text-muted-foreground hover:text-foreground shrink-0"
         >
           <ArrowLeft class="size-3.5" />
           {{ back.label }}
@@ -23,7 +23,7 @@ defineProps<{
         <div v-if="$slots.badges" class="flex items-center gap-2 shrink-0">
           <slot name="badges" />
         </div>
-        <h1 class="text-lg font-semibold tracking-tight truncate">{{ title }}</h1>
+        <h2 class="text-lg font-semibold tracking-tight truncate">{{ title }}</h2>
       </div>
       <div v-if="$slots.actions" class="flex items-center gap-1.5 shrink-0">
         <slot name="actions" />

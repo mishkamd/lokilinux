@@ -388,7 +388,7 @@ const VULN_FILTER_OPTIONS = [
       <template #overview>
         <Card class="mt-4">
           <dl class="grid grid-cols-2 gap-x-8 gap-y-4">
-            <div class="col-span-2 grid grid-cols-4 gap-x-8 gap-y-4 pb-4 mb-1 border-b border-border">
+            <div class="col-span-2 grid grid-cols-2 sm:grid-cols-4 gap-x-8 gap-y-4 pb-4 mb-1 border-b border-border">
               <ServerMetricsCards :metrics="store.metrics" :loading="store.metricsLoading" />
             </div>
             <div>

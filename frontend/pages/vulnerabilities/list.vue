@@ -61,7 +61,7 @@ function filterBySeverity(sev: string) {
 
 <template>
   <div>
-    <div class="grid grid-cols-4 gap-3 mb-4">
+    <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 mb-4">
       <Card
         v-for="card in summaryCards" :key="card.label"
         class="cursor-pointer hover:shadow-md transition-shadow"

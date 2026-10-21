@@ -27,7 +27,7 @@
         </NuxtLink>
         <button
           type="button"
-          class="shrink-0 inline-flex items-center justify-center size-8 rounded-lg hover:bg-sidebar-accent text-sidebar-foreground/70 lg:hidden"
+          class="focus-ring shrink-0 inline-flex items-center justify-center size-8 rounded-lg hover:bg-sidebar-accent text-sidebar-foreground/70 lg:hidden"
           aria-label="Close menu"
           @click="sidebarOpen = false"
         >
@@ -56,7 +56,7 @@
                     <NuxtLink
                       :to="child.to"
                       :aria-current="isActive(child.to) ? 'page' : undefined"
-                      class="group relative flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[14px] font-medium transition-colors duration-200"
+                      class="focus-ring group relative flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[14px] font-medium transition-colors duration-200"
                       :class="isActive(child.to)
                         ? 'bg-[color-mix(in_oklch,var(--primary-active)_15%,transparent)] text-primary-active'
                         : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground'"
@@ -76,7 +76,7 @@
                 v-else
                 :to="link.to"
                 :aria-current="isActive(link.to) ? 'page' : undefined"
-                class="group relative flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[14px] font-medium transition-colors duration-200"
+                class="focus-ring group relative flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[14px] font-medium transition-colors duration-200"
                 :class="isActive(link.to)
                   ? 'bg-[color-mix(in_oklch,var(--primary-active)_15%,transparent)] text-primary-active'
                   : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground'"
@@ -99,7 +99,7 @@
       <div class="p-2 border-t border-sidebar-border">
         <button
           type="button"
-          class="flex items-center gap-2 w-full rounded-lg hover:bg-sidebar-accent transition-colors text-left p-1.5"
+          class="focus-ring flex items-center gap-2 w-full rounded-lg hover:bg-sidebar-accent transition-colors text-left p-1.5"
           @click="showUserModal = true"
           :aria-label="`Settings for ${currentUser?.name ?? (currentUser as Record<string, unknown>)?.username ?? 'User'}`"
         >
@@ -138,7 +138,7 @@
         <header class="h-16 flex items-center gap-2 sm:gap-3 px-3 sm:px-4">
           <button
             type="button"
-            class="inline-flex items-center justify-center size-9 rounded-xl hover:bg-accent transition-colors shrink-0 lg:hidden"
+            class="focus-ring inline-flex items-center justify-center size-9 rounded-xl hover:bg-accent transition-colors shrink-0 lg:hidden"
             aria-label="Open menu"
             @click="sidebarOpen = true"
           >
@@ -146,7 +146,7 @@
           </button>
           <button
             type="button"
-            class="hidden lg:inline-flex items-center justify-center size-9 rounded-xl hover:bg-accent transition-colors shrink-0"
+            class="focus-ring hidden lg:inline-flex items-center justify-center size-9 rounded-xl hover:bg-accent transition-colors shrink-0"
             :aria-label="sidebarCollapsed ? 'Show menu' : 'Hide menu'"
             @click="sidebarCollapsed = !sidebarCollapsed"
           >
@@ -160,7 +160,7 @@
             <NuxtLink
               v-if="criticalAlerts > 0"
               to="/alerts"
-              class="inline-flex items-center rounded-full px-2.5 py-1 text-[12px] font-medium bg-[color-mix(in_oklch,var(--destructive)_15%,transparent)] text-destructive"
+              class="focus-ring inline-flex items-center rounded-full px-2.5 py-1 text-[12px] font-medium bg-[color-mix(in_oklch,var(--destructive)_15%,transparent)] text-destructive"
             >
               {{ criticalAlerts }} Critical
             </NuxtLink>
@@ -169,7 +169,7 @@
           <div class="flex-1 hidden md:flex justify-center">
             <button
               type="button"
-              class="relative flex w-full max-w-md items-center gap-2.5 h-8 rounded-lg bg-card border border-border pl-3 pr-12 text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+              class="focus-ring relative flex w-full max-w-md items-center gap-2.5 h-8 rounded-lg bg-card border border-border pl-3 pr-12 text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
               aria-label="Open command palette"
               @click="palette.show()"
             >
@@ -184,7 +184,7 @@
             <slot name="topbar-actions" />
             <button
               type="button"
-              class="inline-flex items-center justify-center size-9 rounded-xl hover:bg-accent transition-colors md:hidden"
+              class="focus-ring inline-flex items-center justify-center size-9 rounded-xl hover:bg-accent transition-colors md:hidden"
               aria-label="Open command palette"
               @click="palette.show()"
             >
@@ -192,7 +192,7 @@
             </button>
             <NuxtLink
               to="/alerts"
-              class="relative inline-flex items-center justify-center size-9 rounded-xl text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+              class="focus-ring relative inline-flex items-center justify-center size-9 rounded-xl text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
               aria-label="Alerts"
             >
               <Bell class="size-4.5" />
@@ -205,7 +205,7 @@
             </NuxtLink>
             <button
               type="button"
-              class="inline-flex items-center justify-center size-9 rounded-xl text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+              class="focus-ring inline-flex items-center justify-center size-9 rounded-xl text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
               aria-label="Help"
               @click="showHelp = true"
             >
@@ -214,7 +214,7 @@
             <ColorModeButton />
             <button
               type="button"
-              class="inline-flex items-center justify-center size-9 rounded-xl text-muted-foreground hover:bg-accent hover:text-foreground transition-colors ml-1"
+              class="focus-ring inline-flex items-center justify-center size-9 rounded-xl text-muted-foreground hover:bg-accent hover:text-foreground transition-colors ml-1"
               aria-label="User menu"
               @click="showUserModal = true"
             >

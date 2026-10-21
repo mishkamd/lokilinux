@@ -152,7 +152,7 @@ onMounted(() => store.fetchRules())
         <Input v-model="searchQuery" placeholder="Search rules..." class="w-full sm:w-64" />
       </template>
       <template #name-data="{ row }">
-        <button class="font-medium hover:underline" @click="openEdit(row as CorrelationRule)">{{ row.name }}</button>
+        <button class="focus-ring font-medium hover:underline" @click="openEdit(row as CorrelationRule)">{{ row.name }}</button>
       </template>
       <template #incident_severity-data="{ row }">
         <Badge :color="severityColor(String(row.incident_severity))" size="xs">{{ row.incident_severity }}</Badge>

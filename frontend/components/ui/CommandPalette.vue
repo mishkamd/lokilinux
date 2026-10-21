@@ -37,12 +37,20 @@ const inputEl = ref<HTMLInputElement | null>(null)
 const listEl = ref<HTMLElement | null>(null)
 const entitiesLoaded = ref(false)
 
+let restoreFocusTo: HTMLElement | null = null
+
 watch(open, async (v) => {
-  if (!v) return
-  query.value = ''
-  selected.value = 0
-  await nextTick()
-  inputEl.value?.focus()
+  if (v) {
+    restoreFocusTo = (document.activeElement as HTMLElement) ?? null
+    query.value = ''
+    selected.value = 0
+    await nextTick()
+    inputEl.value?.focus()
+  } else {
+    // Hand focus back to whatever opened the palette.
+    restoreFocusTo?.focus()
+    restoreFocusTo = null
+  }
 })
 
 // ── sources ────────────────────────────────────────────────────────────────
@@ -213,6 +221,10 @@ function onKeydown(e: KeyboardEvent) {
     e.preventDefault()
     const item = flat.value[selected.value]
     if (item) run(item)
+  } else if (e.key === 'Tab') {
+    // The palette is driven with ↑↓/↵; Tab would escape into the page
+    // behind it, which is not inert.
+    e.preventDefault()
   } else if (e.key === 'Escape') {
     e.preventDefault()
     hide()
@@ -242,7 +254,7 @@ function onKeydown(e: KeyboardEvent) {
             v-model="query"
             type="text"
             placeholder="Search hosts, CVEs, jobs, incidents — or jump to a page"
-            class="h-12 w-full bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            class="focus-ring h-12 w-full rounded-md bg-transparent text-sm outline-none placeholder:text-muted-foreground"
             role="combobox"
             aria-expanded="true"
             aria-controls="command-palette-list"
@@ -265,7 +277,7 @@ function onKeydown(e: KeyboardEvent) {
               role="option"
               :aria-selected="flat[selected]?.key === item.key"
               :data-selected="flat[selected]?.key === item.key"
-              class="flex w-full items-center gap-3 px-4 py-2 text-left text-sm transition-colors"
+              class="focus-ring flex w-full items-center gap-3 px-4 py-2 text-left text-sm transition-colors"
               :class="flat[selected]?.key === item.key ? 'bg-accent text-foreground' : 'text-muted-foreground hover:bg-accent/60'"
               @mouseenter="selected = flat.findIndex((x) => x.key === item.key)"
               @click="run(item)"

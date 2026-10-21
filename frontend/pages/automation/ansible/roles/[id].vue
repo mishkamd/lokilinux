@@ -113,7 +113,7 @@ async function save() {
           v-for="p in paths"
           :key="p"
           type="button"
-          class="w-full flex items-center gap-2 px-2 py-1.5 rounded text-left text-sm transition-colors"
+          class="focus-ring w-full flex items-center gap-2 px-2 py-1.5 rounded text-left text-sm transition-colors"
           :class="p === activePath ? 'bg-muted text-foreground' : 'text-muted-foreground hover:bg-muted/50'"
           @click="activePath = p"
         >

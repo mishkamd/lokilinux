@@ -76,7 +76,7 @@ const topVulnerabilities = computed(() => [...cves.value].slice(0, 10))
       <Card>
         <p class="label-caps">High</p>
         <div class="flex items-baseline gap-2">
-          <p class="data-value" style="color: #f97316">{{ summaryLoading ? '…' : (summary?.high ?? 0) }}</p>
+          <p class="data-value" style="color: var(--severity-high)">{{ summaryLoading ? '…' : (summary?.high ?? 0) }}</p>
           <Badge v-if="deltaLabel(summary?.high_delta_pct ?? null)" :color="deltaColor(summary?.high_delta_pct ?? null)" size="xs">
             {{ deltaLabel(summary?.high_delta_pct ?? null) }}
           </Badge>

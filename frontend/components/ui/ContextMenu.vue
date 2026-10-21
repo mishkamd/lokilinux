@@ -62,7 +62,7 @@ defineExpose({ show, hide })
         <div v-if="'separator' in entry" class="my-1 h-px bg-border" />
         <button
           v-else type="button" role="menuitem"
-          class="flex w-full cursor-pointer items-center gap-2 rounded-[var(--radius-sm)] px-2 py-1.5 text-left text-xs outline-none transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
+          class="focus-ring flex w-full cursor-pointer items-center gap-2 rounded-[var(--radius-sm)] px-2 py-1.5 text-left text-xs transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-50"
           :class="entry.danger ? 'text-destructive hover:bg-destructive/10' : ''"
           :disabled="entry.disabled"
           @click="select(entry)"

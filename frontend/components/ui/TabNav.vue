@@ -23,7 +23,7 @@ const active = computed(() => props.tabs.find((t) => t.to === route.path)?.to)
       role="tab"
       :aria-selected="active === tab.to"
       :class="[
-        'relative shrink-0 px-4 py-2.5 text-sm font-medium transition-colors duration-[var(--duration-fast)]',
+        'focus-ring relative shrink-0 px-4 py-2.5 text-sm font-medium transition-colors duration-[var(--duration-fast)]',
         active === tab.to
           ? 'text-foreground'
           : 'text-muted-foreground hover:text-foreground',

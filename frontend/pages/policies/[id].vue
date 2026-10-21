@@ -163,7 +163,7 @@ function fmtDate(v: string | null | undefined): string {
               v-for="job in executions"
               :key="job.id"
               type="button"
-              class="w-full flex items-center gap-3 rounded-lg border border-border p-2.5 text-left text-sm hover:border-primary-active/40"
+              class="focus-ring w-full flex items-center gap-3 rounded-lg border border-border p-2.5 text-left text-sm hover:border-primary-active/40"
               @click="selectedJob = job"
             >
               <Badge :color="statusColor(String(job.status))" size="xs">{{ job.status }}</Badge>

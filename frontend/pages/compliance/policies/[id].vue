@@ -18,6 +18,8 @@ const STATUS_COLORS: Record<string, string> = {
 }
 
 const busy = ref(false)
+// Destructive actions go through the app's confirm dialog, never window.confirm().
+const showArchiveConfirm = ref(false)
 
 async function publish() {
   busy.value = true
@@ -32,7 +34,12 @@ async function publish() {
 }
 
 async function archive() {
-  if (!confirm('Archive this policy set? It will stop applying to any assigned scope.')) return
+  // Destructive actions go through the app's confirm dialog, never window.confirm().
+  showArchiveConfirm.value = true
+}
+
+async function doArchive() {
+  showArchiveConfirm.value = false
   busy.value = true
   try {
     await store.archivePolicySet(policySetId)
@@ -162,7 +169,7 @@ const columns = [
       </template>
 
       <template #coverage>
-        <div v-if="policySetCoverage" class="grid grid-cols-3 gap-4">
+        <div v-if="policySetCoverage" class="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Card>
             <p class="label-caps mb-1">CEL-mapped (evaluable)</p>
             <p class="text-2xl font-mono font-semibold tabular-nums">{{ policySetCoverage.mapped }}</p>
@@ -221,6 +228,18 @@ const columns = [
         </Card>
       </template>
     </AppTabs>
+
+    <ConfirmDeleteDialog
+      :model-value="showArchiveConfirm"
+      title="Archive policy set"
+      confirm-label="Archive"
+      @update:model-value="showArchiveConfirm = false"
+      @confirm="doArchive"
+    >
+      <p class="text-sm text-muted-foreground">
+        Archive this policy set? It will stop applying to any assigned scope.
+      </p>
+    </ConfirmDeleteDialog>
   </div>
   <Skeleton v-else class="h-64 w-full" />
 </template>

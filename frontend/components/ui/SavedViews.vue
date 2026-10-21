@@ -48,14 +48,14 @@ async function apply(viewName: string) {
       v-for="view in views"
       :key="view.name"
       type="button"
-      class="group inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-0.5 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+      class="focus-ring group inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-0.5 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
       @click="apply(view.name)"
     >
       {{ view.name }}
       <span
         role="button"
         tabindex="0"
-        class="opacity-0 transition-opacity group-hover:opacity-60 hover:!opacity-100"
+        class="focus-ring rounded-full opacity-0 transition-opacity group-hover:opacity-60 hover:!opacity-100"
         aria-label="Delete view"
         @click.stop="remove(view.name)"
         @keyup.enter.stop="remove(view.name)"
@@ -77,7 +77,7 @@ async function apply(viewName: string) {
     <button
       v-else
       type="button"
-      class="rounded-full border border-dashed border-border px-2.5 py-0.5 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+      class="focus-ring rounded-full border border-dashed border-border px-2.5 py-0.5 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
       @click="naming = true"
     >
       + Save view

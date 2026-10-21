@@ -114,6 +114,8 @@ const agentEditIsNew = ref(false)
 const agentEditWatchText = ref('')
 const agentEditIgnoreText = ref('')
 const savingAgentScope = ref(false)
+// Destructive actions go through the app's confirm dialog, never window.confirm().
+const pendingScopeReset = ref<string | null>(null)
 
 function openAgentCreate() {
   agentEditTarget.value = ''
@@ -147,7 +149,11 @@ async function onSaveAgentScope() {
 }
 
 async function onResetAgentScope(agentId: string) {
-  if (!confirm('Reset this server to the global default?')) return
+  pendingScopeReset.value = agentId
+}
+
+async function doResetAgentScope(agentId: string) {
+  pendingScopeReset.value = null
   try {
     await store.deleteAgentFIMScope(agentId)
     toast.add({ title: 'Reverted to global default' })
@@ -244,7 +250,7 @@ const changeColumns = [
             <span class="font-mono text-xs">{{ row.hostname || row.agent_id }}</span>
           </template>
           <template #path-data="{ row }">
-            <button class="font-mono text-xs text-primary hover:underline text-left" @click="openPathDetail(String(row.path))">
+            <button class="focus-ring font-mono text-xs text-primary hover:underline text-left" @click="openPathDetail(String(row.path))">
               {{ row.path }}
             </button>
           </template>
@@ -408,5 +414,17 @@ const changeColumns = [
         <Button variant="ghost" @click="showPathDetail = false">Close</Button>
       </template>
     </Dialog>
+
+    <ConfirmDeleteDialog
+      :model-value="!!pendingScopeReset"
+      title="Reset to global default"
+      confirm-label="Reset"
+      @update:model-value="pendingScopeReset = null"
+      @confirm="doResetAgentScope(pendingScopeReset!)"
+    >
+      <p class="text-sm text-muted-foreground">
+        Reset this server's file-integrity scope to the global default? Its per-server overrides are removed.
+      </p>
+    </ConfirmDeleteDialog>
   </div>
 </template>

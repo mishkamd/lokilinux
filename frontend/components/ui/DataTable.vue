@@ -143,11 +143,15 @@ function fmt(v: unknown): string {
             <TableHead v-if="selectable" class="w-10">
               <Checkbox :model-value="allSelected" @update:model-value="toggleAll" />
             </TableHead>
-            <TableHead v-for="col in columns" :key="col.key">
+            <TableHead
+              v-for="col in columns"
+              :key="col.key"
+              :aria-sort="sortKey === col.key ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'"
+            >
               <button
                 v-if="isSortable(col)"
                 type="button"
-                class="group inline-flex items-center gap-1 uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground"
+                class="focus-ring group inline-flex items-center gap-1 rounded-sm uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground"
                 :aria-label="`Sort by ${col.label}`"
                 @click="toggleSort(col)"
               >
@@ -177,7 +181,7 @@ function fmt(v: unknown): string {
             <TableRow
               v-for="(row, i) in displayedRows"
               :key="keyFor(row, i)"
-              :class="rowsClickable ? 'cursor-pointer' : ''"
+              :class="rowsClickable ? 'focus-ring cursor-pointer' : ''"
               :tabindex="rowsClickable ? 0 : undefined"
               @click="rowsClickable && emit('row-click', row)"
               @keydown.enter.prevent="rowsClickable && emit('row-click', row)"

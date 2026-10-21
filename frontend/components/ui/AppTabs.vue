@@ -28,7 +28,7 @@ function select(i: number) {
         :aria-controls="`tabpanel-${item.slot}`"
         :tabindex="active === i ? 0 : -1"
         :class="[
-          'relative shrink-0 px-4 py-2.5 text-sm font-medium transition-colors duration-[var(--duration-fast)]',
+          'focus-ring relative shrink-0 px-4 py-2.5 text-sm font-medium transition-colors duration-[var(--duration-fast)]',
           active === i
             ? 'text-foreground'
             : 'text-muted-foreground hover:text-foreground',

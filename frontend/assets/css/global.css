@@ -218,7 +218,7 @@ body {
   }
 }
 
-/* Page titles — Exo 2 for distinctive character */
+/* Page titles — Iceberg (display face, 300 weight) */
 .page-title {
   font-family: var(--font-display);
   font-size: 1.25rem;
@@ -239,10 +239,6 @@ body {
 .data-value {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
-}
-
-.text-muted {
-  color: var(--muted-foreground);
 }
 
 .label-caps {
@@ -454,4 +450,13 @@ body {
   .group:hover .group-hover\:translate-x-0\.5 {
     transform: none !important;
   }
+}
+
+/* Focus ring — one definition for every element that can take keyboard focus.
+ * Matches the Input/Button treatment (2px accent ring, no outline). Applied
+ * as `focus-ring` on the element itself; use it on anything interactive that
+ * isn't a <Button>/<Input>, which carry their own ring. */
+.focus-ring:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--ring);
 }

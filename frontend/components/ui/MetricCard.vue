@@ -60,7 +60,7 @@ const hasChart = computed(() => !!props.chartData?.length)
 <template>
   <NuxtLink
     :to="props.to"
-    class="surface-card group relative flex min-h-[104px] flex-col gap-2 overflow-hidden rounded-[var(--radius-md)] p-3"
+    class="surface-card focus-ring group relative flex min-h-[104px] flex-col gap-2 overflow-hidden rounded-[var(--radius-md)] p-3"
   >
     <div class="relative flex items-center justify-between gap-2">
       <div class="flex min-w-0 items-center gap-2.5 text-muted-foreground">

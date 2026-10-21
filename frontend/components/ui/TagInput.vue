@@ -52,7 +52,7 @@ function removeAt(index: number) {
       class="inline-flex items-center gap-1 rounded bg-muted px-2 py-0.5 text-xs"
     >
       <span>{{ item }}</span>
-      <button type="button" class="ml-0.5 text-muted-foreground hover:text-foreground" @click="removeAt(index)">
+      <button type="button" class="focus-ring ml-0.5 rounded text-muted-foreground hover:text-foreground" @click="removeAt(index)">
         <X class="size-3" />
       </button>
     </span>

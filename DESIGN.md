@@ -317,6 +317,37 @@ Canvas interaction specifics (Partea II): nodes expose all **four sides** as con
 - **User profile card** (sidebar footer): two lines, not one — display name on top, role label beneath in a smaller muted line. Avatar shows the user's first-initial (`Avatar`'s `fallback` prop), not a generic person icon.
 - **Mobile:** the sidebar becomes a `-translate-x-full` drawer sliding in over a `bg-black/60` backdrop, same visual treatment as desktop otherwise — density and hairline styling do not relax for touch.
 
+## Interaction & Accessibility
+
+These are the rules that make the app feel like one product instead of 50
+pages that happen to share a stylesheet. They are not optional polish — they
+are the contract between design and code.
+
+### Focus
+- **Every focusable element shows a 2px accent ring** on `:focus-visible` — nothing else. `<Button>` and `<Input>`/`<Select>` carry it already; everything else takes the `.focus-ring` utility class from `assets/css/global.css`.
+- **Never remove the outline without replacing it.** `outline-none` with no ring is a keyboard trap.
+
+### Headings
+- **One `<h1>` per page.** The app chrome (top bar) owns the `<h1>` and shows the current area; anything a page titles inside its own body is an `<h2>` (that is what `PageHeader` renders).
+
+### Forms
+- **A field's label is its accessible name.** `FormField` wraps the control in the `<label>`, so the association is implicit — no `id`/`for` plumbing at the call site. Help text sits *outside* the label so it does not leak into the field's name.
+- **Required** is a red `*` after the label text, never a placeholder-only signal.
+
+### Destructive actions
+- **Confirmation goes through `ConfirmDeleteDialog`** (or `Dialog` with a destructive button), never `window.confirm()` — a native prompt breaks the material language and the focus management.
+- **Icon-only buttons carry an `aria-label`.** No exceptions, in the chrome or in a table row.
+
+### Color
+- **Semantic tokens only** (`--color-success`, `--color-warning`, `--color-destructive`, `--color-info`, `--severity-high`, …). Raw hex and Tailwind's palette scale (`red-50`, `green-800`) are off-system: they do not follow the theme and they are the one thing that can never be audited centrally.
+
+### Responsive
+- **Every grid declares a mobile-first base** (`grid-cols-1 sm:grid-cols-…`). A fixed `grid-cols-4` with no base is a 375px-wide bug waiting to happen.
+- **Tables scroll horizontally** (`overflow-x-auto`) rather than squeezing columns.
+
+### Type scale
+- **Prefer the Tailwind steps that match the scale**: `text-xs` = 12px, `text-sm` = 14px, `text-lg` = 18px. The 11px (`.label-caps`) and 13px (`.data-value`) steps are the only arbitrary sizes in use; anything else is a new step that needs a token first.
+
 ## Do's and Don'ts
 
 ### Do:
@@ -325,6 +356,7 @@ Canvas interaction specifics (Partea II): nodes expose all **four sides** as con
 - **Do** derive every corner radius from `calc(var(--radius) ± Npx)` — never invent a one-off radius value.
 - **Do** treat elevation as a state response (hover, open, floating) — a resting surface stays at the barely-there Surface shadow.
 - **Do** use the soft-tint badge style (14–16% status color background) as the default way to show severity/status in a table row; reserve solid badges for real emphasis.
+- **Do** put `.focus-ring` on any new interactive element that isn't a `<Button>`/`<Input>`.
 
 ### Don't:
 - **Don't** add glass, blur, or gradient fills to any surface — the system's own code comments state this explicitly as a rejected direction.
