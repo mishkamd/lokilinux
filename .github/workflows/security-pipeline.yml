@@ -83,6 +83,9 @@ jobs:
       - name: Object storage E2E (multipart against RustFS)
         working-directory: backend
         env:
+          # conftest.py runs the migrations at import time, and alembic/env.py
+          # builds Settings — better_auth_url is required.
+          BETTER_AUTH_URL: http://localhost:3000
           S3_E2E_ENDPOINT: http://127.0.0.1:9000
           S3_E2E_ACCESS_KEY: e2eaccesskey
           S3_E2E_SECRET_KEY: e2esecretkey
