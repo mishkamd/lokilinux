@@ -4,8 +4,8 @@
 >
 > **Publicat ca document de echipă în Linear** (Documents → LokiLinux, vizibil în afara
 > proiectului): https://linear.app/mishkamd/document/11-sistem-de-plugin-uri-ed4240f2bb69
-> Celelalte documente de modul sunt atașate la proiectul LokiLinux (P-MIS-1); indexul e
-> [00 — Index documentație module](00-index.md).
+> Celelalte documente de modul sunt tot la nivel de echipă (Documents → LokiLinux);
+> indexul e [00 — Index documentație module](00-index.md).
 
 ## Rol
 
