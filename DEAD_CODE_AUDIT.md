@@ -323,3 +323,38 @@ apelurile din frontend, `information_schema` pe DB-ul live, `knip` pentru fronte
 `backend/lokilinux/schemas/baseline.py:91` — în continuare 0 referințe (nici în cod, nici în
 teste, nici în frontend). Rămâne PROBABLY_DEAD: e în `schemas/`, deci ar putea apărea în
 OpenAPI pentru clienți externi.
+
+## 13. Remediere executată (2026-10-17, continuare)
+
+| Ticket | Ce | Commit | Verificare |
+|---|---|---|---|
+| MIS-170 | SA4014 (ramură inaccesibilă), SA4006 (**bug real** — `ParseLocalPolicy` respingea forma `policies.capabilities` documentată, prin shadowing), SA1006 ×8, SA1012 ×9 | `4026ad4` | `go vet` curat, `go test ./... -race` verde, staticcheck 20 → 1 (doar `grpc.Dial`, cu `//nolint` motivat) |
+| MIS-168 | `server/utils/migrate.ts` șters, 34 `export` nefolosite eliminate, `h3`/`ofetch` declarate | `46bc096` | `vue-tsc --noEmit` curat, `npm test` 111 passed |
+| MIS-169 (parțial) | migration `062` șterge `update_policies` / `update_jobs` / `update_job_results` (0 rânduri, fără consumator) | `d46a686` | up/down/up pe bază de test (0 → 3 → 0 tabele), pytest 1001 passed |
+
+### 13.1 Bug real găsit de staticcheck (nu era dead code)
+
+`agent/internal/security/policy.go` — `ParseLocalPolicy` acceptă, conform docstring-ului, forma
+`{"policies": {"capabilities": {...}}}` (wrapper-ul `PolicyConfig` produs de clientul gRPC).
+Implementarea umbrea `ok` cu aserția interioară, deci verificarea externă eșua **întotdeauna** →
+agentul respingea politica pe care serverul o livrase. Lipsa unui test pentru funcție a permis
+supraviețuirea bug-ului; fixul vine cu `internal/security/policy_test.go` (3 cazuri, inclusiv
+regresia care eșuează exact ca bug-ul fără fix).
+
+### 13.2 `dsc_*` — nu e dead code, e **date arhivate fără consumator**
+
+| Tabel | Rânduri | Ultima scriere |
+|---|---|---|
+| `dsc_resource_states` | 8.227.725 | 2026-08-06 |
+| `dsc_resource_blobs` | 25.528 | 2026-08-06 |
+| `dsc_provider_status` | 64 | 2026-08-06 |
+| `dsc_verifications` | 0 | — |
+
+Nu există migrare, model ORM sau cod care le citească — feature-ul (colectare de stări de
+resurse de la agenți) a fost scos din stack, dar datele au rămas. **Codul e recuperabil**:
+`recovery/dsc-2026-08-24` (la `98dfb41`, pushat pe origin) conține
+`backend/lokilinux/services/dsc_ingest_service.py` + `services/dsc/internal/ingest/`, iar
+stash-ul `e33b357` e în object DB. Branch-ul a fost creat explicit ca să nu piardă obiectele la
+`git gc`. Decizia (reîmvie / arhivează+drop / păstrează) e în **MIS-173**; migration 062 nu le
+atinge.
+
