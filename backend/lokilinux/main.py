@@ -107,23 +107,31 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("cache.ready")
 
     # ClickHouse — event store (observability pipeline, raw events/signal
-    # occurrences/incident evidence; PostgreSQL never stores these)
+    # occurrences/incident evidence; PostgreSQL never stores these).
+    # MIS-138: a ClickHouse outage must NOT take the API/GRPC down. The store
+    # is always attached; it reconnects lazily on the next call.
     ch = ClickHouseStore(
         url=settings.clickhouse_url,
         user=settings.clickhouse_user,
         password=settings.clickhouse_password,
         database=settings.clickhouse_database,
     )
-    await ch.connect()
-    await ch.ensure_tables(
-        event_retention_days=settings.event_retention_days,
-        signal_occurrence_retention_days=settings.signal_occurrence_retention_days,
-        incident_evidence_retention_days=settings.incident_evidence_retention_days,
-    )
     app.state.ch = ch
-    logger.info("clickhouse.ready")
+    try:
+        await ch.connect()
+        await ch.ensure_tables(
+            event_retention_days=settings.event_retention_days,
+            signal_occurrence_retention_days=settings.signal_occurrence_retention_days,
+            incident_evidence_retention_days=settings.incident_evidence_retention_days,
+        )
+    except Exception:
+        logger.error("clickhouse.unavailable", exc_info=True)
+    else:
+        logger.info("clickhouse.ready")
 
-    # Object storage — RustFS/S3-compatible (Centralized S3 Object Storage plan)
+    # Object storage — RustFS/S3-compatible (Centralized S3 Object Storage plan).
+    # MIS-148: same policy as ClickHouse — degraded, not dead. The bucket is
+    # (re)created on the next write attempt; /ready reports it meanwhile.
     storage = ObjectStorage(
         endpoint_url=settings.s3_endpoint_url,
         region=settings.s3_region,
@@ -133,10 +141,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         addressing_style=settings.s3_addressing_style,
         public_endpoint_url=settings.s3_public_endpoint_url,
     )
-    if settings.s3_enabled:
-        await storage.ensure_bucket()
     app.state.storage = storage
-    logger.info("storage.ready", bucket=settings.s3_bucket)
+    if settings.s3_enabled:
+        try:
+            await storage.ensure_bucket()
+        except Exception:
+            logger.error("storage.unavailable", bucket=settings.s3_bucket, exc_info=True)
+        else:
+            logger.info("storage.ready", bucket=settings.s3_bucket)
 
     # NATS — all topics prefixed lokilinux. (O1)
     nc = await nats.connect(settings.nats_url)
@@ -216,13 +228,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from lokilinux.workers.incident_worker import IncidentWorker
     incident_worker = IncidentWorker(nc, session_factory, cache, ch, storage)
     await incident_worker.start()
+    from lokilinux.workers.storage_gc import StorageGCWorker
+    storage_gc_worker = StorageGCWorker(session_factory, storage)
+    await storage_gc_worker.start()
 
     app.state.workers = [
         job_worker, cve_worker, alert_worker, policy_worker, policy_scheduler_worker, plugin_worker,
         heartbeat_worker, job_timeout_worker, remediation_scheduler_worker, remediation_verification_worker,
         retention_worker, notification_worker, cve_enrichment_worker, workflow_runner_worker,
         workflow_scheduler_worker, event_processor_worker, signal_processor_worker, correlation_worker,
-        incident_worker,
+        incident_worker, storage_gc_worker,
     ]
     osv_worker = None
     if settings.osv_enabled:
@@ -239,6 +254,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if osv_worker is not None:
         await osv_worker.stop()
     await incident_worker.stop()
+    await storage_gc_worker.stop()
     await heartbeat_worker.stop()
     await remediation_verification_worker.stop()
     await remediation_scheduler_worker.stop()
