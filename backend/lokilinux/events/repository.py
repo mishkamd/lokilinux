@@ -57,6 +57,12 @@ class EventRepository:
         self._oldest_buffered_at: float | None = None
         self._lock = asyncio.Lock()
 
+    @property
+    def pending_count(self) -> int:
+        """Rows buffered but not yet written to ClickHouse. The event
+        processor uses it to decide when it may ack (MIS-139)."""
+        return len(self._buffer)
+
     async def add(self, event: NormalizedEvent) -> None:
         async with self._lock:
             self._buffer.append(_row(event))
