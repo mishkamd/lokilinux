@@ -28,14 +28,14 @@ down_revision = "062"
 branch_labels = None
 depends_on = None
 
-# Child first: dsc_resource_blobs holds the content-addressed bodies the
-# state rows point at.
-_TABLES = ("dsc_verifications", "dsc_resource_states", "dsc_resource_blobs", "dsc_provider_status")
-
-
 def upgrade() -> None:
-    for table in _TABLES:
-        op.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
+    # Child first: dsc_resource_blobs holds the content-addressed bodies the
+    # state rows point at. Literal names, no interpolation.
+    # if_exists: a fresh database never had these tables.
+    op.drop_table("dsc_verifications", if_exists=True)
+    op.drop_table("dsc_resource_states", if_exists=True)
+    op.drop_table("dsc_resource_blobs", if_exists=True)
+    op.drop_table("dsc_provider_status", if_exists=True)
 
 
 def downgrade() -> None:
