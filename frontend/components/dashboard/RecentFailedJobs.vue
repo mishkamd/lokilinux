@@ -23,7 +23,7 @@ function relativeTime(iso: string | null): string {
         </span>
         <h2 class="label-caps">Recent Failed Jobs</h2>
       </div>
-      <NuxtLink to="/jobs" class="focus-ring flex items-center gap-1 text-[12px] font-medium text-primary-text dark:text-primary-active shrink-0">
+      <NuxtLink to="/jobs" class="focus-ring flex items-center gap-1 text-xs font-medium text-primary-text dark:text-primary-active shrink-0">
         View all
         <ArrowRight class="size-3" />
       </NuxtLink>
@@ -51,7 +51,7 @@ function relativeTime(iso: string | null): string {
         <div class="min-w-0 flex-1 flex items-center justify-between gap-2">
           <div class="min-w-0">
             <p class="min-w-0 truncate font-medium group-hover:text-primary-text dark:group-hover:text-primary-active transition-colors">{{ job.name }}</p>
-            <p class="text-[11px] text-muted-foreground">{{ job.job_type }}</p>
+            <p class="text-label text-muted-foreground">{{ job.job_type }}</p>
           </div>
           <span class="shrink-0 text-muted-foreground">{{ relativeTime(job.completed_at) }}</span>
         </div>

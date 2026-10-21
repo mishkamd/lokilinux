@@ -21,7 +21,7 @@ defineExpose({ stepper })
           @click="i < stepper.index.value && stepper.goTo(s)"
         >
           <span
-            class="flex size-6 shrink-0 items-center justify-center rounded-full text-[12px] font-medium transition-colors"
+            class="flex size-6 shrink-0 items-center justify-center rounded-full text-xs font-medium transition-colors"
             :class="i < stepper.index.value
               ? 'bg-primary-active text-primary-foreground'
               : i === stepper.index.value
@@ -29,7 +29,7 @@ defineExpose({ stepper })
                 : 'border border-border text-muted-foreground'"
           >{{ i + 1 }}</span>
           <span
-            class="whitespace-nowrap text-[13px]"
+            class="whitespace-nowrap text-field"
             :class="i === stepper.index.value ? 'font-medium' : 'text-muted-foreground'"
           >{{ s }}</span>
         </button>

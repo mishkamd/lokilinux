@@ -41,7 +41,7 @@ function duration(triggeredAt: string): string {
         </span>
         <h2 class="label-caps">Active Incidents</h2>
       </div>
-      <NuxtLink to="/alerts" class="focus-ring flex items-center gap-1 text-[12px] font-medium text-primary-text dark:text-primary-active shrink-0">
+      <NuxtLink to="/alerts" class="focus-ring flex items-center gap-1 text-xs font-medium text-primary-text dark:text-primary-active shrink-0">
         View all
         <ArrowRight class="size-3" />
       </NuxtLink>

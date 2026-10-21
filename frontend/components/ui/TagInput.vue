@@ -43,7 +43,7 @@ function removeAt(index: number) {
 <template>
   <div
     :class="cn(
-      'flex min-h-8 w-full flex-wrap items-center gap-1 rounded-[var(--radius-sm)] border border-input bg-card px-2.5 py-1 text-[14px] ring-offset-background transition-all duration-[var(--duration-fast)] focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:border-primary focus-within:shadow-[0_0_0_3px_color-mix(in_oklch,var(--ring)_15%,transparent)]',
+      'flex min-h-8 w-full flex-wrap items-center gap-1 rounded-[var(--radius-sm)] border border-input bg-card px-2.5 py-1 text-sm ring-offset-background transition-all duration-[var(--duration-fast)] focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:border-primary focus-within:shadow-[0_0_0_3px_color-mix(in_oklch,var(--ring)_15%,transparent)]',
       props.class,
     )"
   >

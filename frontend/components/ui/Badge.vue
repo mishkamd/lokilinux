@@ -28,7 +28,7 @@ const props = withDefaults(defineProps<{
 const cls = computed(() => {
   const cv = COLOR[props.color] ?? COLOR.gray!
   const colorCls = cv[props.variant!] ?? cv.soft ?? ''
-  const sizeCls = props.size === 'md' ? 'px-2.5 py-1 text-sm' : props.size === 'xs' ? 'px-1.5 py-px text-[10px]' : 'px-2 py-0.5 text-xs'
+  const sizeCls = props.size === 'md' ? 'px-2.5 py-1 text-sm' : props.size === 'xs' ? 'px-1.5 py-px text-micro' : 'px-2 py-0.5 text-xs'
   const shapeCls = props.variant === 'plain' ? 'font-semibold' : 'rounded-full'
   return cn('inline-flex items-center font-mono font-medium tracking-tight', shapeCls, colorCls, sizeCls, props.class)
 })

@@ -30,7 +30,7 @@ const color = (d: Segment) => d.name === 'Compliant' ? 'var(--success)' : 'var(-
         </span>
         <h2 class="label-caps">Compliance</h2>
       </div>
-      <NuxtLink to="/compliance" class="focus-ring text-[12px] font-medium text-primary-text dark:text-primary-active shrink-0">View full report →</NuxtLink>
+      <NuxtLink to="/compliance" class="focus-ring text-xs font-medium text-primary-text dark:text-primary-active shrink-0">View full report →</NuxtLink>
     </div>
 
     <div v-if="!overview" class="flex flex-col sm:flex-row items-center gap-3">

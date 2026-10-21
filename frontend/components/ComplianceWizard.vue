@@ -265,7 +265,7 @@ async function submit() {
           <div v-else-if="stepper.current.value === 'Publish'" class="space-y-4">
             <div class="flex items-center gap-2">
               <Switch v-model="form.publishNow" />
-              <span class="text-[13px]">Publish immediately (otherwise stays DRAFT)</span>
+              <span class="text-field">Publish immediately (otherwise stays DRAFT)</span>
             </div>
           </div>
 

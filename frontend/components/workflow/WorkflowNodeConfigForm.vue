@@ -92,7 +92,7 @@ function onListUpdate(key: string, value: string[]) {
       <Textarea v-else-if="field.type === 'textarea'" v-model="local[field.key]" :rows="4" :placeholder="field.placeholder" class="text-xs" />
       <template v-else-if="field.type === 'json'">
         <Textarea v-model="local[field.key]" :rows="5" placeholder="{}" class="font-mono text-xs" />
-        <p v-if="jsonErrors[field.key]" class="mt-1 text-[11px] text-destructive">Invalid JSON — not saved until this is fixed.</p>
+        <p v-if="jsonErrors[field.key]" class="mt-1 text-label text-destructive">Invalid JSON — not saved until this is fixed.</p>
       </template>
       <Select
         v-else-if="field.type === 'select'"

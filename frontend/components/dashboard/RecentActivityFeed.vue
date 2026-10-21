@@ -46,7 +46,7 @@ function relativeTime(iso: string): string {
         </span>
         <h2 class="label-caps">Recent Activity</h2>
       </div>
-      <NuxtLink to="/admin/audit" class="focus-ring flex items-center gap-1 text-[12px] font-medium text-primary-text dark:text-primary-active shrink-0">
+      <NuxtLink to="/admin/audit" class="focus-ring flex items-center gap-1 text-xs font-medium text-primary-text dark:text-primary-active shrink-0">
         View all
         <ArrowRight class="size-3" />
       </NuxtLink>
@@ -73,7 +73,7 @@ function relativeTime(iso: string): string {
             <span class="min-w-0 truncate text-xs font-medium">{{ log.action }}</span>
             <Badge v-if="log.resource_type" size="xs" color="gray" class="shrink-0">{{ log.resource_type }}</Badge>
           </div>
-          <span class="text-[11px] text-muted-foreground">{{ log.actor_name ?? 'system' }} · {{ relativeTime(log.timestamp) }}</span>
+          <span class="text-label text-muted-foreground">{{ log.actor_name ?? 'system' }} · {{ relativeTime(log.timestamp) }}</span>
         </div>
       </div>
     </div>

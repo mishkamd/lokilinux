@@ -134,14 +134,14 @@ async function submitCreate() {
             <textarea
               v-model="form.scope_selector"
               rows="3"
-              class="flex w-full rounded-lg border border-input bg-card px-2.5 py-1.5 text-[13px] font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-primary"
+              class="flex w-full rounded-lg border border-input bg-card px-2.5 py-1.5 text-field font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-primary"
             />
           </FormField>
           <FormField label="Expected state (version 1)" help="JSON, keyed by domain — e.g. sshd, sysctl">
             <textarea
               v-model="form.expected_state"
               rows="6"
-              class="flex w-full rounded-lg border border-input bg-card px-2.5 py-1.5 text-[13px] font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-primary"
+              class="flex w-full rounded-lg border border-input bg-card px-2.5 py-1.5 text-field font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-primary"
             />
           </FormField>
           <Alert v-if="formError" color="red">{{ formError }}</Alert>

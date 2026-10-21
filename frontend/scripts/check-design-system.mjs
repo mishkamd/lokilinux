@@ -56,6 +56,7 @@ const PALETTE = /\b(?:text|bg|border|ring|from|to|via|fill|stroke|shadow|outline
 const HEX = /#[0-9a-fA-F]{3,8}\b/
 const RADIUS = /rounded-\[\d+px\]/
 const SPACING = /\b(?:gap|p|px|py|pt|pb|pl|pr|mt|mb|ml|mr|space-[xy])-\[\d+px\]/
+const FONT_SIZE = /\btext-\[\d+px\]/
 const CONFIRM = /(?<!function\s)(?<!const\s)(?<!let\s)(?<!var\s)(?<!=>\s)(?:window\.)?(?:confirm|alert|prompt)\s*\(/
 // Elements that already carry their own ring.
 const RING_CARRIERS = ['Button', 'Input', 'Select', 'Textarea', 'Checkbox', 'Switch', 'Stepper', 'AppTabs', 'TabNav', 'DataTable', 'FileInput', 'ColorModeButton']
@@ -72,6 +73,7 @@ for (const file of files) {
     if (PALETTE.test(line)) report(file, i + 1, 'palette', `Tailwind palette color — use a token (${line.trim().slice(0, 60)})`)
     if (RADIUS.test(line)) report(file, i + 1, 'radius', `arbitrary radius — use --radius-* (${line.trim().slice(0, 60)})`)
     if (SPACING.test(line)) report(file, i + 1, 'spacing', `arbitrary spacing — use the 4/8/12/16/24 scale (${line.trim().slice(0, 60)})`)
+    if (FONT_SIZE.test(line)) report(file, i + 1, 'font-size', `arbitrary font size — use the scale (text-xs/sm/label/field/micro) (${line.trim().slice(0, 60)})`)
     if (CONFIRM.test(line) && !file.endsWith('.test.ts')) {
       report(file, i + 1, 'confirm', `window.confirm/alert/prompt — use ConfirmDeleteDialog (${line.trim().slice(0, 60)})`)
     }

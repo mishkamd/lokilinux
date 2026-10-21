@@ -74,6 +74,13 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
+  /* Type scale — the three steps Tailwind doesn't have. Tailwind's own
+   * text-xs (12px) and text-sm (14px) cover the rest; 11px is the label
+   * step, 13px the field-value step, 10px the badge-micro step. */
+  --text-label: 11px;
+  --text-field: 13px;
+  --text-micro: 10px;
+
   /* Typography — three-face system */
   --font-sans: "Rubik", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: "Rubik", ui-sans-serif, system-ui, -apple-system, sans-serif;

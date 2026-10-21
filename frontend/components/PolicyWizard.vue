@@ -201,7 +201,7 @@ async function submit() {
             </div>
             <div class="flex items-center gap-2">
               <Switch v-model="form.is_enabled" />
-              <span class="text-[13px]">Active</span>
+              <span class="text-field">Active</span>
             </div>
           </div>
 
@@ -261,7 +261,7 @@ async function submit() {
               </FormField>
               <div class="flex items-center gap-2">
                 <Switch v-model="form.security_only" />
-                <span class="text-[13px]">Security updates only</span>
+                <span class="text-field">Security updates only</span>
               </div>
             </template>
             <FormField v-else label="Shell command" required help="runs as root on each target server">
@@ -269,7 +269,7 @@ async function submit() {
             </FormField>
             <div class="flex items-center gap-2">
               <Switch v-model="form.requires_approval" />
-              <span class="text-[13px]">Requires approval before execution</span>
+              <span class="text-field">Requires approval before execution</span>
             </div>
           </div>
 

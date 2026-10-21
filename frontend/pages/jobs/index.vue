@@ -27,6 +27,12 @@ const columns = [
 ]
 
 const showNewJob = ref(false)
+
+// Deep link from the command palette: /jobs?action=new
+const route = useRoute()
+onMounted(() => {
+  if (route.query.action === 'new') showNewJob.value = true
+})
 const newJobForm = ref({ name: '', job_type: 'PACKAGE_UPDATE', agent_ids: [] as string[] })
 const agentOptions = ref<Array<{ label: string; value: string }>>([])
 const submitting = ref(false)

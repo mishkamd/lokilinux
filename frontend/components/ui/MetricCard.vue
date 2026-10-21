@@ -72,7 +72,7 @@ const hasChart = computed(() => !!props.chartData?.length)
         </span>
         <span class="label-caps truncate">{{ props.label }}</span>
       </div>
-      <span class="flex shrink-0 items-center gap-1 text-[12px] font-medium text-primary-text dark:text-primary-active">
+      <span class="flex shrink-0 items-center gap-1 text-xs font-medium text-primary-text dark:text-primary-active">
         {{ props.viewAllLabel }}
         <ArrowRight class="size-3 transition-transform duration-200 ease-out group-hover:translate-x-0.5" />
       </span>
@@ -93,12 +93,12 @@ const hasChart = computed(() => !!props.chartData?.length)
             :key="badge.label"
             size="sm"
             :color="badge.color ?? 'gray'"
-            class="px-1.5 py-px text-[10px] leading-[1.4] whitespace-nowrap"
+            class="px-1.5 py-px text-micro leading-[1.4] whitespace-nowrap"
           >
             {{ badge.label }}
           </Badge>
         </div>
-        <span v-else-if="props.subtitle" class="flex shrink-0 items-center gap-1.5 text-[12px] text-muted-foreground">
+        <span v-else-if="props.subtitle" class="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
           <span
             v-if="props.subtitleDot"
             class="size-1.5 shrink-0 rounded-full"
@@ -106,12 +106,12 @@ const hasChart = computed(() => !!props.chartData?.length)
           />
           {{ props.subtitle }}
         </span>
-        <span v-else-if="props.emptyBadgesText" class="shrink-0 text-[12px] text-muted-foreground">
+        <span v-else-if="props.emptyBadgesText" class="shrink-0 text-xs text-muted-foreground">
           {{ props.emptyBadgesText }}
         </span>
       </div>
 
-      <span v-if="hasTrend" class="relative flex items-center gap-1 text-[12px]" :class="props.trendUp === false ? 'text-destructive' : 'text-success'">
+      <span v-if="hasTrend" class="relative flex items-center gap-1 text-xs" :class="props.trendUp === false ? 'text-destructive' : 'text-success'">
         <ArrowDown v-if="props.trendUp === false" class="size-3" />
         <ArrowUp v-else class="size-3" />
         <span class="font-medium">{{ props.trend }}</span>

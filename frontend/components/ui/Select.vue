@@ -62,7 +62,7 @@ const attrs = useAttrs()
     <SelectTrigger
       :aria-invalid="props.invalid ? 'true' : undefined"
       :class="cn(
-        'group flex h-8 w-full items-center justify-between gap-2 rounded-[var(--radius-sm)] border border-input bg-card px-2.5 py-1 text-[14px] ring-offset-background transition-all duration-[var(--duration-fast)] hover:border-ring/50 focus:outline-none focus:ring-2 focus:ring-ring focus:border-primary focus:shadow-[0_0_0_3px_color-mix(in_oklch,var(--ring)_15%,transparent)] disabled:cursor-not-allowed disabled:opacity-50 data-[placeholder]:text-muted-foreground',
+        'group flex h-8 w-full items-center justify-between gap-2 rounded-[var(--radius-sm)] border border-input bg-card px-2.5 py-1 text-sm ring-offset-background transition-all duration-[var(--duration-fast)] hover:border-ring/50 focus:outline-none focus:ring-2 focus:ring-ring focus:border-primary focus:shadow-[0_0_0_3px_color-mix(in_oklch,var(--ring)_15%,transparent)] disabled:cursor-not-allowed disabled:opacity-50 data-[placeholder]:text-muted-foreground',
         props.invalid && 'border-destructive focus:border-destructive focus:ring-destructive',
         props.class,
       )"
@@ -91,7 +91,7 @@ const attrs = useAttrs()
             v-for="opt in normalized"
             :key="opt.value"
             :value="opt.value"
-            class="relative flex h-8 cursor-pointer select-none items-center rounded-md pl-7 pr-2 text-[13px] outline-none transition-colors data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[state=checked]:text-primary-active data-[disabled]:pointer-events-none data-[disabled]:opacity-40"
+            class="relative flex h-8 cursor-pointer select-none items-center rounded-md pl-7 pr-2 text-field outline-none transition-colors data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[state=checked]:text-primary-active data-[disabled]:pointer-events-none data-[disabled]:opacity-40"
           >
             <SelectItemIndicator class="absolute left-2 inline-flex items-center">
               <Check class="size-3.5" />

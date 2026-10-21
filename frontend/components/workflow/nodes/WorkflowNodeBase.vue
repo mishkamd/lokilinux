@@ -79,10 +79,10 @@ const SIDES = [
 
     <div class="min-w-0 flex-1">
       <div class="flex items-center gap-1.5">
-        <span class="truncate text-[13px] font-medium">{{ data.step.name }}</span>
+        <span class="truncate text-field font-medium">{{ data.step.name }}</span>
         <AlertTriangle v-if="!def.executable" class="size-3 shrink-0 text-warning" :aria-label="`${def.label} is not executable yet`" />
       </div>
-      <span class="label-caps text-[10px] text-muted-foreground">{{ def.label }}</span>
+      <span class="label-caps text-micro text-muted-foreground">{{ def.label }}</span>
     </div>
   </div>
 </template>

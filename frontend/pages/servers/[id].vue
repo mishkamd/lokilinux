@@ -7,6 +7,7 @@ const route = useRoute()
 const store = useServersStore()
 const { statusColor } = useServers()
 const { format: fmtDateTime } = useDateTime()
+const { severityColor } = useSeverity()
 
 await store.fetchServer(route.params.id as string)
 
@@ -56,6 +57,7 @@ const tabs = [
   { label: 'Drift', slot: 'drift' },
   { label: 'Findings', slot: 'findings' },
   { label: 'File Integrity', slot: 'integrity' },
+  { label: 'Events', slot: 'events' },
   { label: 'Jobs', slot: 'jobs' },
   { label: 'Policy', slot: 'policy' },
   { label: 'Users', slot: 'users' },
@@ -71,6 +73,7 @@ const tabs = [
 const api = useApi()
 const agentId = computed(() => String(route.params.id))
 const driftRows = ref<DriftEvent[]>([])
+const eventRows = ref<{ event_id: string; timestamp: string; type: string; source: string; severity: string; service: string | null }[]>([])
 const findingRows = ref<Finding[]>([])
 const hashRows = ref<FileHash[]>([])
 const complianceLoading = ref(false)
@@ -88,6 +91,13 @@ const FINDING_COLUMNS = [
   { key: 'domain', label: 'Domain' },
   { key: 'severity', label: 'Severity' },
   { key: 'result', label: 'Result' },
+]
+const EVENT_COLUMNS = [
+  { key: 'timestamp', label: 'Time' },
+  { key: 'type', label: 'Type' },
+  { key: 'source', label: 'Source' },
+  { key: 'severity', label: 'Severity' },
+  { key: 'service', label: 'Service' },
 ]
 const HASH_COLUMNS = [
   { key: 'path', label: 'Path' },
@@ -113,6 +123,13 @@ async function loadComplianceState(slot: string) {
     } else if (slot === 'integrity') {
       const res = await api.get<FileHash[]>(`/compliance/agents/${agentId.value}/file-hashes`)
       hashRows.value = res ?? []
+    } else if (slot === 'events') {
+      // The event stream is keyed by the agent's id (host_id), so no new
+      // backend endpoint is needed for the per-host timeline.
+      const res = await api.get<{ items: typeof eventRows.value }>(
+        `/events?host_id=${agentId.value}&limit=50`,
+      )
+      eventRows.value = res.items ?? []
     }
   } catch {
     // A failed drill-down must not break the hub — the other tabs still work.
@@ -176,7 +193,7 @@ function onTabChange(index: number) {
     store.fetchVulnerabilities(route.params.id as string, vulnFilter.value === 'all')
     vulnerabilitiesLoaded.value = true
   }
-  if (slot === 'drift' || slot === 'findings' || slot === 'integrity') {
+  if (slot === 'drift' || slot === 'findings' || slot === 'integrity' || slot === 'events') {
     loadComplianceState(slot)
   }
   if (slot === 'jobs') {
@@ -393,27 +410,27 @@ const VULN_FILTER_OPTIONS = [
             </div>
             <div>
               <dt class="text-xs text-muted-foreground">OS</dt>
-              <dd class="font-medium text-[13px] mt-0.5">{{ [server.os_name, server.os_version].filter(Boolean).join(' ') || '—' }}</dd>
+              <dd class="font-medium text-field mt-0.5">{{ [server.os_name, server.os_version].filter(Boolean).join(' ') || '—' }}</dd>
             </div>
             <div>
               <dt class="text-xs text-muted-foreground">Kernel</dt>
-              <dd class="font-medium text-[13px] mt-0.5">{{ server.kernel_version || '—' }}</dd>
+              <dd class="font-medium text-field mt-0.5">{{ server.kernel_version || '—' }}</dd>
             </div>
             <div>
               <dt class="text-xs text-muted-foreground">IP Address</dt>
-              <dd class="font-medium text-[13px] mt-0.5">{{ server.ip_address || '—' }}</dd>
+              <dd class="font-medium text-field mt-0.5">{{ server.ip_address || '—' }}</dd>
             </div>
             <div>
               <dt class="text-xs text-muted-foreground">FQDN</dt>
-              <dd class="font-medium text-[13px] mt-0.5">{{ server.fqdn || '—' }}</dd>
+              <dd class="font-medium text-field mt-0.5">{{ server.fqdn || '—' }}</dd>
             </div>
             <div>
               <dt class="text-xs text-muted-foreground">Agent Version</dt>
-              <dd class="font-medium text-[13px] mt-0.5">{{ server.agent_version || '—' }}</dd>
+              <dd class="font-medium text-field mt-0.5">{{ server.agent_version || '—' }}</dd>
             </div>
             <div>
               <dt class="text-xs text-muted-foreground">Last Seen</dt>
-              <dd class="font-medium text-[13px] mt-0.5">{{ server.last_seen_at ? fmtDateTime(String(server.last_seen_at)) : 'Never' }}</dd>
+              <dd class="font-medium text-field mt-0.5">{{ server.last_seen_at ? fmtDateTime(String(server.last_seen_at)) : 'Never' }}</dd>
             </div>
             <div v-if="Object.keys(server.tags as object).length">
               <dt class="text-xs text-muted-foreground">Tags</dt>
@@ -505,8 +522,8 @@ const VULN_FILTER_OPTIONS = [
             v-model:selected="selectedPackageIds"
            caption="Server packages">
             <template #latest_version-data="{ row }">
-              <span v-if="row.latest_version" class="text-[13px] font-medium">{{ row.latest_version }}</span>
-              <span v-else class="text-[13px] text-muted-foreground">{{ row.version }}</span>
+              <span v-if="row.latest_version" class="text-field font-medium">{{ row.latest_version }}</span>
+              <span v-else class="text-field text-muted-foreground">{{ row.version }}</span>
             </template>
             <template #update_status-data="{ row }">
               <Badge v-if="row.is_security_update_available" color="red" size="xs">security update</Badge>
@@ -611,6 +628,26 @@ const VULN_FILTER_OPTIONS = [
             <template #mode-data="{ row }">{{ row.mode !== null ? `0${(row.mode & 0o777).toString(8)}` : '—' }}</template>
             <template #size_bytes-data="{ row }">{{ row.size_bytes !== null ? formatBytes(row.size_bytes) : '—' }}</template>
             <template #updated_at-data="{ row }">{{ fmtDateTime(row.updated_at) }}</template>
+          </DataTable>
+        </div>
+      </template>
+
+      <template #events>
+        <div class="mt-4">
+          <DataTable
+            :rows="eventRows"
+            :columns="EVENT_COLUMNS"
+            :loading="complianceLoading"
+            sortable
+            :page-size="25"
+            caption="Host events"
+            empty-title="No events reported"
+            empty-description="Nothing has been reported by this host yet."
+          >
+            <template #timestamp-data="{ row }">{{ fmtDateTime(row.timestamp) }}</template>
+            <template #severity-data="{ row }">
+              <Badge :color="severityColor(row.severity)" size="xs">{{ row.severity }}</Badge>
+            </template>
           </DataTable>
         </div>
       </template>
@@ -742,7 +779,7 @@ const VULN_FILTER_OPTIONS = [
         <Card class="mt-4">
           <template #header>System Users</template>
           <ul v-if="server.system_users?.length" class="space-y-1">
-            <li v-for="u in server.system_users" :key="u" class="text-[13px] font-mono">{{ u }}</li>
+            <li v-for="u in server.system_users" :key="u" class="text-field font-mono">{{ u }}</li>
           </ul>
           <p v-else class="text-xs text-muted-foreground">
             No users reported yet. This appears after the first heartbeat from the agent.
@@ -784,7 +821,7 @@ const VULN_FILTER_OPTIONS = [
           <template #header>Maintenance Mode</template>
           <div class="flex items-center justify-between">
             <div>
-              <p class="text-[13px] font-medium">
+              <p class="text-field font-medium">
                 Current status: <Badge :color="statusColor(String(server.status))">{{ server.status }}</Badge>
               </p>
               <p class="text-xs text-muted-foreground mt-1">

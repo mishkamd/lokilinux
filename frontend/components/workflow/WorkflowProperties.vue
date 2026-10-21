@@ -80,8 +80,8 @@ function onFailureChange(v: string) {
         <component :is="def.icon" class="size-3.5" />
       </span>
       <div class="min-w-0 flex-1">
-        <p class="truncate text-[13px] font-medium">{{ def.label }}</p>
-        <p class="label-caps text-[10px] text-muted-foreground">{{ node.id }}</p>
+        <p class="truncate text-field font-medium">{{ def.label }}</p>
+        <p class="label-caps text-micro text-muted-foreground">{{ node.id }}</p>
       </div>
       <button type="button" class="focus-ring rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="Close" @click="emit('close')">
         <X class="size-4" />
@@ -94,7 +94,7 @@ function onFailureChange(v: string) {
       <div class="space-y-3 border-b border-border pb-4">
         <FormField label="ID">
           <Input v-model="idLocal" class="font-mono text-xs" @blur="onIdBlur" @keyup.enter="($event.target as HTMLElement).blur()" />
-          <p v-if="idError" class="mt-1 text-[11px] text-destructive">{{ idError }}</p>
+          <p v-if="idError" class="mt-1 text-label text-destructive">{{ idError }}</p>
         </FormField>
         <FormField label="Name">
           <Input v-model="nameLocal" />

@@ -39,8 +39,8 @@ function onOnChange(v: string) {
   <div class="flex h-full w-80 shrink-0 flex-col border-l border-border bg-card">
     <div class="flex items-center gap-2.5 border-b border-border px-3 py-2.5">
       <div class="min-w-0 flex-1">
-        <p class="truncate text-[13px] font-medium">Edge</p>
-        <p class="label-caps truncate text-[10px] text-muted-foreground">{{ edge.from }} → {{ edge.to }}</p>
+        <p class="truncate text-field font-medium">Edge</p>
+        <p class="label-caps truncate text-micro text-muted-foreground">{{ edge.from }} → {{ edge.to }}</p>
       </div>
       <button type="button" class="focus-ring rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="Close" @click="emit('close')">
         <X class="size-4" />

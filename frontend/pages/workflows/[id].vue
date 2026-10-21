@@ -218,8 +218,8 @@ async function onSaveSchedule() {
         <ArrowLeft class="size-4" />
       </NuxtLink>
       <div class="min-w-0 flex-1">
-        <p class="truncate text-[14px] font-medium">{{ workflow?.name ?? '…' }}</p>
-        <p v-if="workflow" class="truncate text-[11px] text-muted-foreground">{{ workflow.slug }}</p>
+        <p class="truncate text-sm font-medium">{{ workflow?.name ?? '…' }}</p>
+        <p v-if="workflow" class="truncate text-label text-muted-foreground">{{ workflow.slug }}</p>
       </div>
       <Badge v-if="!yamlValid" size="xs" color="red">Invalid YAML</Badge>
       <Badge v-else-if="isDirty" size="xs" color="amber">Unsaved</Badge>

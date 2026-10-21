@@ -54,6 +54,12 @@ const columns = [
 ]
 
 const showCreate = ref(false)
+
+// Deep link from the command palette: /compliance/reports?action=new
+const route = useRoute()
+onMounted(() => {
+  if (route.query.action === 'new') showCreate.value = true
+})
 const form = ref({ report_type: 'FLEET_SUMMARY' as ReportType, format: 'JSON' as ReportFormat, framework: '', policy_set_id: '' })
 const creating = ref(false)
 const createError = ref<string | null>(null)

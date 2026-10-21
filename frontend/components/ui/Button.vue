@@ -18,7 +18,7 @@ const variants = cva(
       },
       size: {
         // Lift only on roomier sizes; dense rows (xs/icon buttons in tables) stay flat.
-        default: 'h-8 px-3 text-[14px] hover:-translate-y-0.5 active:translate-y-0',
+        default: 'h-8 px-3 text-sm hover:-translate-y-0.5 active:translate-y-0',
         sm: 'h-7 px-2.5 text-xs hover:-translate-y-0.5 active:translate-y-0',
         lg: 'h-9 px-6 hover:-translate-y-0.5 active:translate-y-0',
         icon: 'h-8 w-8',

@@ -149,7 +149,7 @@ async function submitRunAssessment() {
         <div class="flex items-center justify-between">
           <p class="label-caps">Fleet compliance (weighted)</p>
           <div class="flex items-center gap-2">
-            <span v-if="agg?.cached" class="text-[10px] text-muted-foreground">cached 60s</span>
+            <span v-if="agg?.cached" class="text-micro text-muted-foreground">cached 60s</span>
             <Button variant="ghost" size="xs" :loading="aggPending" @click="aggRefresh()">Refresh</Button>
           </div>
         </div>
@@ -196,7 +196,7 @@ async function submitRunAssessment() {
             <p class="text-2xl font-mono font-semibold tabular-nums" :class="aggUnscored > 0 ? 'text-warning' : ''">
               {{ agg?.fleet.unscored_agents ?? '—' }}
             </p>
-            <p class="text-[11px] text-muted-foreground">
+            <p class="text-label text-muted-foreground">
               {{ aggUnscored > 0 ? 'agents unreported — NOT counted as compliant' : 'full fleet reported' }}
             </p>
           </div>
@@ -209,7 +209,7 @@ async function submitRunAssessment() {
             <div class="h-1 w-full rounded-full bg-muted overflow-hidden mt-1.5">
               <div class="h-full bg-primary transition-all" :style="{ width: `${Number(c.weighted_score)}%` }" />
             </div>
-            <p class="text-[11px] text-muted-foreground mt-1">{{ c.agents_scored }} agents</p>
+            <p class="text-label text-muted-foreground mt-1">{{ c.agents_scored }} agents</p>
           </div>
         </div>
 
@@ -224,7 +224,7 @@ async function submitRunAssessment() {
               <div class="h-1 w-full rounded-full bg-muted overflow-hidden mt-1.5">
                 <div class="h-full bg-primary transition-all" :style="{ width: `${s.coverage_pct}%` }" />
               </div>
-              <p class="text-[11px] text-muted-foreground mt-1">{{ s.executable_rules }}/{{ s.total_rules }} rules executable</p>
+              <p class="text-label text-muted-foreground mt-1">{{ s.executable_rules }}/{{ s.total_rules }} rules executable</p>
             </div>
           </div>
         </div>
@@ -422,7 +422,7 @@ async function submitRunAssessment() {
                   :style="{ width: `${a.servers_total > 0 ? Math.round((a.servers_done / a.servers_total) * 100) : 0}%` }"
                 />
               </div>
-              <p class="text-[11px] text-muted-foreground font-mono">
+              <p class="text-label text-muted-foreground font-mono">
                 {{ a.servers_done }}/{{ a.servers_total }} servers · {{ a.rules_done }}/{{ a.rules_total }} rules
               </p>
             </div>
@@ -441,7 +441,7 @@ async function submitRunAssessment() {
             <textarea
               v-model="assessmentForm.scope_selector"
               rows="3"
-              class="flex w-full rounded-lg border border-input bg-card px-2.5 py-1.5 text-[13px] font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-primary"
+              class="flex w-full rounded-lg border border-input bg-card px-2.5 py-1.5 text-field font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-primary"
             />
           </FormField>
           <Alert v-if="assessmentFormError" color="red">{{ assessmentFormError }}</Alert>

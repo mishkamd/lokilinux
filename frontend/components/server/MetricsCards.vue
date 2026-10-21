@@ -50,7 +50,7 @@ function colorFor(v: number | null, threshold: number): string {
   <template v-if="loading">
     <div v-for="label in ['CPU Usage', 'RAM Usage', 'Disk Usage', 'Swap Usage']" :key="label">
       <dt class="text-xs text-muted-foreground">{{ label }}</dt>
-      <dd class="font-medium text-[13px] mt-0.5">
+      <dd class="font-medium text-field mt-0.5">
         <Skeleton class="h-4 w-10" />
       </dd>
     </div>
@@ -59,31 +59,31 @@ function colorFor(v: number | null, threshold: number): string {
   <template v-else>
     <div>
       <dt class="text-xs text-muted-foreground">CPU Usage</dt>
-      <dd class="font-medium text-[13px] mt-0.5" :style="{ color: colorFor(cpuPercent, 80) }">
+      <dd class="font-medium text-field mt-0.5" :style="{ color: colorFor(cpuPercent, 80) }">
         {{ cpuPercent ?? '—' }}{{ cpuPercent !== null ? '%' : '' }}
       </dd>
-      <dd v-if="cpuDetail" class="text-[11px] text-muted-foreground mt-0.5">{{ cpuDetail }}</dd>
+      <dd v-if="cpuDetail" class="text-label text-muted-foreground mt-0.5">{{ cpuDetail }}</dd>
     </div>
     <div>
       <dt class="text-xs text-muted-foreground">RAM Usage</dt>
-      <dd class="font-medium text-[13px] mt-0.5" :style="{ color: colorFor(ramPercent, 85) }">
+      <dd class="font-medium text-field mt-0.5" :style="{ color: colorFor(ramPercent, 85) }">
         {{ ramPercent ?? '—' }}{{ ramPercent !== null ? '%' : '' }}
       </dd>
-      <dd v-if="ramDetail" class="text-[11px] text-muted-foreground mt-0.5">{{ ramDetail }}</dd>
+      <dd v-if="ramDetail" class="text-label text-muted-foreground mt-0.5">{{ ramDetail }}</dd>
     </div>
     <div>
       <dt class="text-xs text-muted-foreground">Disk Usage</dt>
-      <dd class="font-medium text-[13px] mt-0.5" :style="{ color: colorFor(diskPercent, 90) }">
+      <dd class="font-medium text-field mt-0.5" :style="{ color: colorFor(diskPercent, 90) }">
         {{ diskPercent ?? '—' }}{{ diskPercent !== null ? '%' : '' }}
       </dd>
-      <dd v-if="diskDetail" class="text-[11px] text-muted-foreground mt-0.5">{{ diskDetail }}</dd>
+      <dd v-if="diskDetail" class="text-label text-muted-foreground mt-0.5">{{ diskDetail }}</dd>
     </div>
     <div v-if="hasSwap">
       <dt class="text-xs text-muted-foreground">Swap Usage</dt>
-      <dd class="font-medium text-[13px] mt-0.5" :style="{ color: colorFor(swapPercent, 50) }">
+      <dd class="font-medium text-field mt-0.5" :style="{ color: colorFor(swapPercent, 50) }">
         {{ swapPercent ?? '—' }}{{ swapPercent !== null ? '%' : '' }}
       </dd>
-      <dd v-if="swapDetail" class="text-[11px] text-muted-foreground mt-0.5">{{ swapDetail }}</dd>
+      <dd v-if="swapDetail" class="text-label text-muted-foreground mt-0.5">{{ swapDetail }}</dd>
     </div>
   </template>
 </template>

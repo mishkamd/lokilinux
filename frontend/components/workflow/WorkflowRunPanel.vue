@@ -78,7 +78,7 @@ const ACTIVE = ['PENDING', 'RUNNING', 'WAITING_APPROVAL']
           <component :is="STEP_STATUS_ICON[sr.status].icon" class="size-4 shrink-0" :class="[STEP_STATUS_ICON[sr.status].class, STEP_STATUS_ICON[sr.status].spin ? 'animate-spin' : '']" />
           <component :is="nodeIcon(sr.step_id)" class="size-3.5 shrink-0 text-muted-foreground" />
           <span class="min-w-0 flex-1 truncate text-xs font-medium">{{ nodeName(sr.step_id) }}</span>
-          <span v-if="sr.error" class="min-w-0 max-w-[40%] truncate text-[11px] text-destructive" :title="sr.error">{{ sr.error }}</span>
+          <span v-if="sr.error" class="min-w-0 max-w-[40%] truncate text-label text-destructive" :title="sr.error">{{ sr.error }}</span>
 
           <template v-if="sr.status === 'WAITING_APPROVAL'">
             <Button size="xs" variant="outline" :loading="actionPending" @click="emit('reject', sr.step_id)">

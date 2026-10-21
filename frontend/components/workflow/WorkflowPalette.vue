@@ -53,7 +53,7 @@ function onActivate(def: NodeDefinition) {
     <div class="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
       <div v-if="!groups.length" class="pt-6 text-center text-xs text-muted-foreground">No steps match “{{ search }}”.</div>
       <div v-for="group in groups" :key="group.category" class="mb-4">
-        <p class="mb-1.5 text-[11px] font-medium text-muted-foreground">{{ CATEGORY_LABEL[group.category] }}</p>
+        <p class="mb-1.5 text-label font-medium text-muted-foreground">{{ CATEGORY_LABEL[group.category] }}</p>
         <div class="space-y-1">
           <button
             v-for="def in group.items" :key="def.type"
@@ -68,12 +68,12 @@ function onActivate(def: NodeDefinition) {
               <component :is="def.icon" class="size-3" />
             </span>
             <span class="min-w-0 flex-1 truncate">{{ def.label }}</span>
-            <span v-if="!def.executable" class="shrink-0 rounded-full border border-border/60 px-1.5 py-0.5 text-[9px] font-medium tracking-wide text-muted-foreground">soon</span>
+            <span v-if="!def.executable" class="shrink-0 rounded-full border border-border/60 px-1.5 py-0.5 text-micro font-medium tracking-wide text-muted-foreground">soon</span>
           </button>
         </div>
       </div>
     </div>
 
-    <p class="shrink-0 border-t border-border px-3 py-2 text-[11px] text-muted-foreground">Drag onto the canvas, or click to add.</p>
+    <p class="shrink-0 border-t border-border px-3 py-2 text-label text-muted-foreground">Drag onto the canvas, or click to add.</p>
   </div>
 </template>

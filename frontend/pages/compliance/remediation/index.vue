@@ -230,11 +230,11 @@ async function submitWindow() {
               </FormField>
               <FormField label="Script body" required>
                 <textarea v-model="action.rendered_body" rows="4" placeholder="#!/bin/bash&#10;systemctl restart sshd"
-                          class="flex w-full rounded-lg border border-input bg-card px-2.5 py-1.5 text-[13px] font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-primary" />
+                          class="flex w-full rounded-lg border border-input bg-card px-2.5 py-1.5 text-field font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-primary" />
               </FormField>
               <FormField label="Rollback body (optional)">
                 <textarea v-model="action.rollback_body" rows="2" placeholder="#!/bin/bash&#10;systemctl start sshd"
-                          class="flex w-full rounded-lg border border-input bg-card px-2.5 py-1.5 text-[13px] font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-primary" />
+                          class="flex w-full rounded-lg border border-input bg-card px-2.5 py-1.5 text-field font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-primary" />
               </FormField>
             </div>
             <p v-if="createForm.actions.length === 0" class="text-sm text-muted-foreground">No actions yet. Click "Add action" to define what this plan will execute.</p>
@@ -266,7 +266,7 @@ async function submitWindow() {
           </div>
           <FormField label="Scope selector (JSON)">
             <textarea v-model="windowForm.scope_selector" rows="2"
-                      class="flex w-full rounded-lg border border-input bg-card px-2.5 py-1.5 text-[13px] font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-primary" />
+                      class="flex w-full rounded-lg border border-input bg-card px-2.5 py-1.5 text-field font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-primary" />
           </FormField>
           <div class="grid grid-cols-2 gap-3">
             <FormField label="Cron expression">

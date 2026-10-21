@@ -22,7 +22,7 @@ function elapsed(startedAt: string | null): string {
         </span>
         <h2 class="label-caps">Running Jobs</h2>
       </div>
-      <NuxtLink to="/jobs" class="focus-ring flex items-center gap-1 text-[12px] font-medium text-primary-text dark:text-primary-active shrink-0">
+      <NuxtLink to="/jobs" class="focus-ring flex items-center gap-1 text-xs font-medium text-primary-text dark:text-primary-active shrink-0">
         View all
         <ArrowRight class="size-3" />
       </NuxtLink>
@@ -47,7 +47,7 @@ function elapsed(startedAt: string | null): string {
           </span>
         </div>
         <Progress v-if="job.progress !== null" :model-value="job.progress" class="h-1.5" />
-        <p v-else class="text-[11px] text-muted-foreground">Progress unavailable</p>
+        <p v-else class="text-label text-muted-foreground">Progress unavailable</p>
       </div>
     </div>
   </div>

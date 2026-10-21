@@ -58,7 +58,7 @@
               <!-- Collapsible parent (e.g. "Ansible" under Automation Engine) -->
               <details v-if="link.children" :open="link.children.some((c) => isActive(c.to))">
                 <summary
-                  class="focus-ring group relative flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[14px] font-medium transition-colors duration-200 cursor-pointer list-none text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                  class="focus-ring group relative flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-sm font-medium transition-colors duration-200 cursor-pointer list-none text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
                 >
                   <span class="flex items-center justify-center size-5 rounded-md shrink-0 text-sidebar-foreground/60 group-hover:text-sidebar-foreground">
                     <component :is="link.icon" class="size-3.5" />
@@ -70,7 +70,7 @@
                     <NuxtLink
                       :to="child.to"
                       :aria-current="isActive(child.to) ? 'page' : undefined"
-                      class="focus-ring group relative flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[14px] font-medium transition-colors duration-200"
+                      class="focus-ring group relative flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-sm font-medium transition-colors duration-200"
                       :class="isActive(child.to)
                         ? 'bg-[color-mix(in_oklch,var(--primary-active)_15%,transparent)] text-primary-active'
                         : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground'"
@@ -90,7 +90,7 @@
                 v-else
                 :to="link.to"
                 :aria-current="isActive(link.to) ? 'page' : undefined"
-                class="focus-ring group relative flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[14px] font-medium transition-colors duration-200"
+                class="focus-ring group relative flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-sm font-medium transition-colors duration-200"
                 :class="isActive(link.to)
                   ? 'bg-[color-mix(in_oklch,var(--primary-active)_15%,transparent)] text-primary-active'
                   : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground'"
@@ -119,10 +119,10 @@
         >
           <Avatar size="sm" :fallback="userInitial" />
           <span class="flex-1 min-w-0">
-            <span class="block text-[14px] text-sidebar-foreground truncate">
+            <span class="block text-sm text-sidebar-foreground truncate">
               {{ currentUser?.name ?? (currentUser as Record<string, unknown>)?.username ?? 'User' }}
             </span>
-            <span v-if="userRoleLabel" class="block text-[11px] text-sidebar-foreground/60 truncate">{{ userRoleLabel }}</span>
+            <span v-if="userRoleLabel" class="block text-label text-sidebar-foreground/60 truncate">{{ userRoleLabel }}</span>
           </span>
           <LogOut class="size-4 text-sidebar-foreground/50 hover:text-sidebar-foreground shrink-0" @click.stop="handleLogout" />
         </button>
@@ -137,7 +137,7 @@
       <div class="space-y-3 text-sm">
         <div class="flex items-center justify-between">
           <span class="text-muted-foreground">Focus search</span>
-          <kbd class="text-[11px] font-medium text-muted-foreground border border-border rounded-md px-1.5 py-0.5">⌘K</kbd>
+          <kbd class="text-label font-medium text-muted-foreground border border-border rounded-md px-1.5 py-0.5">⌘K</kbd>
         </div>
         <div class="flex items-center justify-between">
           <span class="text-muted-foreground">Toggle theme</span>
@@ -174,7 +174,7 @@
             <NuxtLink
               v-if="criticalAlerts > 0"
               to="/alerts"
-              class="focus-ring inline-flex items-center rounded-full px-2.5 py-1 text-[12px] font-medium bg-[color-mix(in_oklch,var(--destructive)_15%,transparent)] text-destructive"
+              class="focus-ring inline-flex items-center rounded-full px-2.5 py-1 text-xs font-medium bg-[color-mix(in_oklch,var(--destructive)_15%,transparent)] text-destructive"
             >
               {{ criticalAlerts }} Critical
             </NuxtLink>
@@ -189,7 +189,7 @@
             >
               <Search class="size-4 shrink-0" />
               <span class="truncate">Search hosts, CVEs, jobs — or jump to a page</span>
-              <kbd class="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-medium text-muted-foreground border border-border rounded-md px-1.5 py-0.5">⌘K</kbd>
+              <kbd class="absolute right-3 top-1/2 -translate-y-1/2 text-label font-medium text-muted-foreground border border-border rounded-md px-1.5 py-0.5">⌘K</kbd>
             </button>
           </div>
           <div class="flex-1 md:hidden" />
@@ -212,7 +212,7 @@
               <Bell class="size-4.5" />
               <span
                 v-if="activeAlerts > 0"
-                class="absolute top-1.5 right-1.5 flex size-4 items-center justify-center rounded-full bg-destructive text-[9px] font-medium text-destructive-foreground"
+                class="absolute top-1.5 right-1.5 flex size-4 items-center justify-center rounded-full bg-destructive text-micro font-medium text-destructive-foreground"
               >
                 {{ activeAlerts > 9 ? '9+' : activeAlerts }}
               </span>

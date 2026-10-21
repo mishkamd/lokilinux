@@ -68,7 +68,7 @@ const segments = computed<Segment[]>(() => {
           </div>
           <div class="flex items-center gap-2 text-muted-foreground shrink-0">
             <span>{{ seg.count }}</span>
-            <span class="text-[11px] w-8 text-right">{{ Math.round(seg.pct * 100) }}%</span>
+            <span class="text-label w-8 text-right">{{ Math.round(seg.pct * 100) }}%</span>
           </div>
         </div>
       </div>

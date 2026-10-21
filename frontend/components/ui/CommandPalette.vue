@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {
   Search, CornerDownLeft, Server as ServerIcon, ShieldAlert, ClipboardList, Siren,
-  Moon, Sun, RefreshCw, Zap, LayoutDashboard, type LucideIcon,
+  Moon, Sun, RefreshCw, Zap, FileText, Workflow, PlayCircle, History,
 } from 'lucide-vue-next'
 import { buildNavSections, navDestinations } from '~/utils/nav'
 import { fuzzyScore } from '~/utils/fuzzy'
@@ -23,6 +23,10 @@ const serversStore = useServersStore()
 const vulnsStore = useVulnerabilitiesStore()
 const jobsStore = useJobsStore()
 const incidentsStore = useIncidentsStore()
+const policiesStore = usePoliciesStore()
+const workflowsStore = useWorkflowsStore()
+const playbooksStore = usePlaybooksStore()
+const runbooksStore = useRunbooksStore()
 
 const colorMode = useColorMode({
   attribute: 'class',
@@ -61,6 +65,24 @@ const navSections = computed(() =>
   }),
 )
 
+const { recent } = useRecentRoutes()
+
+/** The last visited routes, labelled from the nav (or humanized). */
+const recentItems = computed<Item[]>(() =>
+  recent.value
+    .map((path) => {
+      const match = navDestinations(navSections.value).find((l) => l.to === path)
+      const segment = path.split('/').filter(Boolean).at(-1) ?? path
+      return {
+        key: `recent:${path}`,
+        label: match?.label ?? segment.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase()),
+        group: 'Recent',
+        icon: History,
+        to: path,
+      }
+    }),
+)
+
 const navItems = computed<Item[]>(() =>
   navDestinations(navSections.value).map((l) => ({
     key: `nav:${l.to}`,
@@ -89,6 +111,30 @@ const actionItems = computed<Item[]>(() => [
     to: '/compliance/policies?action=new',
   },
   {
+    key: 'action:new-job',
+    label: 'New job',
+    hint: 'Jobs',
+    group: 'Actions',
+    icon: ClipboardList,
+    to: '/jobs?action=new',
+  },
+  {
+    key: 'action:new-report',
+    label: 'Generate compliance report',
+    hint: 'Compliance',
+    group: 'Actions',
+    icon: FileText,
+    to: '/compliance/reports?action=new',
+  },
+  {
+    key: 'action:audit',
+    label: 'Open audit log',
+    hint: 'Admin',
+    group: 'Actions',
+    icon: ClipboardList,
+    to: '/admin/audit',
+  },
+  {
     key: 'action:refresh',
     label: 'Refresh data',
     hint: 'current view',
@@ -108,6 +154,38 @@ const actionItems = computed<Item[]>(() => [
 ])
 
 const entityItems = computed<Item[]>(() => [
+  ...policiesStore.policies.map((p) => ({
+    key: `policy:${p.id}`,
+    label: p.name,
+    hint: p.policy_type ? p.policy_type.toLowerCase() : 'policy',
+    group: 'Policies',
+    icon: FileText,
+    to: '/policies',
+  })),
+  ...playbooksStore.playbooks.map((p) => ({
+    key: `playbook:${p.id}`,
+    label: p.name,
+    hint: 'playbook',
+    group: 'Playbooks',
+    icon: FileText,
+    to: '/automation/ansible/playbooks',
+  })),
+  ...workflowsStore.workflows.map((w) => ({
+    key: `workflow:${w.id}`,
+    label: w.name,
+    hint: 'workflow',
+    group: 'Workflows',
+    icon: Workflow,
+    to: '/workflows',
+  })),
+  ...runbooksStore.runbooks.map((r) => ({
+    key: `runbook:${r.id}`,
+    label: r.name,
+    hint: r.incident_type || 'runbook',
+    group: 'Runbooks',
+    icon: PlayCircle,
+    to: '/workflows/runbooks',
+  })),
   ...serversStore.servers.map((s) => ({
     key: `server:${s.id}`,
     label: s.hostname || s.id,
@@ -151,14 +229,18 @@ async function ensureEntities() {
     vulnsStore.fetchCves(),
     jobsStore.fetchJobs(),
     incidentsStore.fetchIncidents(),
+    policiesStore.fetchPolicies(),
+    workflowsStore.fetchWorkflows(),
+    playbooksStore.fetchPlaybooks(),
+    runbooksStore.fetchRunbooks(),
   ])
 }
 
 const results = computed<Item[]>(() => {
   const q = query.value.trim()
   if (!q) {
-    // Empty query: navigation + actions, no entity fetch.
-    return [...actionItems.value, ...navItems.value]
+    // Empty query: recent + actions + navigation, no entity fetch.
+    return [...recentItems.value, ...actionItems.value, ...navItems.value]
   }
   const all = [...actionItems.value, ...navItems.value, ...entityItems.value]
   return all
@@ -261,7 +343,7 @@ function onKeydown(e: KeyboardEvent) {
             autocomplete="off"
             spellcheck="false"
           >
-          <kbd class="hidden shrink-0 rounded-md border border-border px-1.5 py-0.5 text-[11px] text-muted-foreground sm:block">esc</kbd>
+          <kbd class="hidden shrink-0 rounded-md border border-border px-1.5 py-0.5 text-label text-muted-foreground sm:block">esc</kbd>
         </div>
 
         <div ref="listEl" id="command-palette-list" class="min-h-0 flex-1 overflow-y-auto py-1" role="listbox">
@@ -290,7 +372,7 @@ function onKeydown(e: KeyboardEvent) {
           </div>
         </div>
 
-        <div class="flex items-center gap-4 border-t border-border px-4 py-2 text-[11px] text-muted-foreground">
+        <div class="flex items-center gap-4 border-t border-border px-4 py-2 text-label text-muted-foreground">
           <span>↑↓ navigate</span>
           <span>↵ select</span>
           <span>esc close</span>
