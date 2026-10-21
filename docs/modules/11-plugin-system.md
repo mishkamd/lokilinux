@@ -1,6 +1,11 @@
 # 11 — Sistemul de plugin-uri
 
 > Documentație generată din cod la commit `7415631` (v0.5.0), octombrie 2026. Cifrele de mai jos sunt verificate pe cod la acest commit.
+>
+> **Publicat ca document de echipă în Linear** (Documents → LokiLinux, vizibil în afara
+> proiectului): https://linear.app/mishkamd/document/11-sistem-de-plugin-uri-ed4240f2bb69
+> Celelalte documente de modul sunt atașate la proiectul LokiLinux (P-MIS-1); indexul e
+> [00 — Index documentație module](00-index.md).
 
 ## Rol
 
