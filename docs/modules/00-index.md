@@ -18,6 +18,7 @@ LokiLinux este o platformă enterprise de operațiuni pentru infrastructură Lin
 | [08-api-public-mcp.md](08-api-public-mcp.md) | API deschis & MCP (design) | FastAPI auth + PAT + MCP | Cum funcționează API-ul azi; design PAT-uri scoped + server MCP pentru clienți AI |
 | [09-recomandari.md](09-recomandari.md) | Recomandări | Transversal | Remedieri prioritare (cu dovezi în cod) + implementări noi, matrice impact×efort |
 | [10-compliance-autopilot.md](10-compliance-autopilot.md) | Compliance Autopilot (design) | Backend workers + settings | Baseline adopt 1-apel, assessment programat, auto-remediere gated, stări incident conectate |
+| [11-plugin-system.md](11-plugin-system.md) | Sistem de plugin-uri | Backend + agent + SDK | Model, lifecycle, RBAC, gating; cum scrii și instalezi un plugin propriu |
 
 ## Harta generală
 
@@ -54,6 +55,7 @@ Browser ──► Frontend (:3000, Better Auth)
 - Vreau să construiesc automatizări → 05.
 - Vreau să instalez/operez platforma → 06 (+ README.md).
 - Vreau să înțeleg pipeline-ul de observabilitate (events → signals → correlation → incidents) → 02 (workeri + subiecte NATS), apoi paginile `/events`, `/signals`, `/correlation`, `/incidents` din 01.
+- Vreau să scriu un plugin propriu și să-l instalez → 11 (ciclul de viață, RBAC, gating; plus SDK-ul din `docs/arhitecture/plugin-sdk/`).
 
 ## Module adăugate după snapshot-ul inițial
 

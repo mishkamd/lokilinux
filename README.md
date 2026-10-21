@@ -141,6 +141,7 @@ Detailed per-module documentation (Romanian, generated from code at v0.4.0) live
 | [`08-api-public-mcp.md`](docs/modules/08-api-public-mcp.md) | Public API / MCP | External integration surface |
 | [`09-recomandari.md`](docs/modules/09-recomandari.md) | Recommendations | Prioritized improvement backlog derived from code review |
 | [`10-compliance-autopilot.md`](docs/modules/10-compliance-autopilot.md) | Compliance Autopilot | End-to-end compliance automation concept and current coverage |
+| [`11-plugin-system.md`](docs/modules/11-plugin-system.md) | Plugin System | Plugin model, lifecycle, RBAC, gating — and how to write and install your own plugin |
 
 English deep-dive on the compliance subsystem only: [`docs/compliance/00-OVERVIEW.md`](docs/compliance/00-OVERVIEW.md) … `13-OPS.md`. Full-stack snapshot (as of an earlier commit): [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
