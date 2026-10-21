@@ -145,7 +145,7 @@ async def download_object(
                 409, "presigned URLs are disabled — S3_PUBLIC_ENDPOINT_URL is not configured"
             )
         url = await service.presign(
-            object_id, method="GET", expires_in=settings.s3_presigned_url_expiration
+            object_id, expires_in=settings.s3_presigned_url_expiration
         )
         return PresignResponse(url=url, expires_in=settings.s3_presigned_url_expiration)
 

@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 )
 
@@ -79,19 +80,19 @@ func (v *Verifier) VerifyApprovalClaim(
 	}
 	pub, known := v.byVersion[version]
 	if !known || v.retired[version] {
-		return fmt.Errorf(string(ClaimUnknownSigner))
+		return errors.New(string(ClaimUnknownSigner))
 	}
 	if now.Unix() > c.ExpiresAt {
-		return fmt.Errorf(string(ClaimExpired))
+		return errors.New(string(ClaimExpired))
 	}
 	if c.JobID != expectedJobID {
-		return fmt.Errorf(string(ClaimWrongJob))
+		return errors.New(string(ClaimWrongJob))
 	}
 	if c.JobHash != expectedJobHash {
-		return fmt.Errorf(string(ClaimModified))
+		return errors.New(string(ClaimModified))
 	}
 	if expectedTarget != "" && c.TargetAgentID != expectedTarget {
-		return fmt.Errorf(string(ClaimWrongTarget))
+		return errors.New(string(ClaimWrongTarget))
 	}
 	have := map[string]bool{}
 	for _, cp := range c.Capabilities {
@@ -105,15 +106,15 @@ func (v *Verifier) VerifyApprovalClaim(
 	if ok, err := replay.MarkSeen("claim:"+c.Nonce, c.JobID); err != nil {
 		return fmt.Errorf("replay_store_error")
 	} else if !ok {
-		return fmt.Errorf(string(ClaimReplayed))
+		return errors.New(string(ClaimReplayed))
 	}
 	unsigned, err := unsignedClaimBytes(c)
 	if err != nil {
-		return fmt.Errorf(string(ClaimMalformed))
+		return errors.New(string(ClaimMalformed))
 	}
 	sig, err := base64.StdEncoding.DecodeString(c.Signature)
 	if err != nil || len(sig) != ed25519.SignatureSize || !ed25519.Verify(pub, unsigned, sig) {
-		return fmt.Errorf(string(ClaimBadSignature))
+		return errors.New(string(ClaimBadSignature))
 	}
 	return nil
 }

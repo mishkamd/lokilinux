@@ -15,7 +15,7 @@ import json
 import logging
 import uuid
 from datetime import datetime, timedelta, timezone
-from typing import Any, Optional
+from typing import Optional
 
 from fastapi import HTTPException
 from pydantic import BaseModel, Field
@@ -50,42 +50,6 @@ class PolicyCreate(BaseModel):
 class PolicyUpdate(BaseModel):
     description: str | None = None
     yaml_text: str | None = None  # draft-only edit; published ⇒ new version instead
-
-
-class PolicyOut(BaseModel):
-    id: str
-    name: str
-    description: str
-    status: str
-    current_version: int | None
-    created_at: datetime
-    updated_at: datetime
-
-    @classmethod
-    def of(cls, p: AgentPolicy) -> "PolicyOut":
-        return cls(
-            id=str(p.id), name=p.name, description=p.description, status=p.status,
-            current_version=p.current_version,
-            created_at=p.created_at, updated_at=p.updated_at,
-        )
-
-
-class VersionOut(BaseModel):
-    id: str
-    version: int
-    payload_hash: str
-    signature: str
-    signing_key_id: str
-    status: str
-    created_at: datetime
-
-    @classmethod
-    def of(cls, v: AgentPolicyVersion) -> "VersionOut":
-        return cls(
-            id=str(v.id), version=v.version, payload_hash=v.payload_hash[:16],
-            signature=v.signature[:16], signing_key_id=v.signing_key_id,
-            status=v.status, created_at=v.created_at,
-        )
 
 
 class VersionCreate(BaseModel):
@@ -391,7 +355,6 @@ class AgentPolicyService:
                    explicit mapping ships; keeping the branch honest here.)
           TENANT → every ACTIVE agent in the tenant.
         """
-        from sqlalchemy.dialects.postgresql import insert as pg_insert
 
         policy = await self.get_policy(policy_id)
         assignment = AgentPolicyAssignment(

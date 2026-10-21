@@ -95,7 +95,7 @@ type LoggingConfig struct {
 // list (agent/internal/compliance/file_integrity_collector.go's
 // fileIntegrityWatchPaths) without a rebuild — docs/compliance §11's
 // "monitor"/"ignore" lists, applied agent-side. Both empty means "use the
-// built-in default watch list, no ignores" (compliance.BuildRegistry).
+// built-in default watch list, no ignores" (compliance.NewFileIntegrityCollectorWithConfig).
 type FileIntegrityConfig struct {
 	WatchPaths []string `yaml:"watch_paths"`
 	Ignores    []string `yaml:"ignore_paths"`

@@ -24,7 +24,7 @@ export const CATEGORY_LABEL: Record<NodeCategory, string> = {
   integration: 'Integration',
 }
 
-export type FieldType = 'text' | 'textarea' | 'number' | 'select' | 'json' | 'playbook' | 'list'
+type FieldType = 'text' | 'textarea' | 'number' | 'select' | 'json' | 'playbook' | 'list'
 
 export interface FieldSpec {
   /** Dot path under the step's `config` — WorkflowNodeConfigForm.vue reads

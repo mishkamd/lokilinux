@@ -111,8 +111,12 @@ class ObjectStorage:
             max_concurrency=4,
             multipart_chunksize=8 * 1024 * 1024,
         )
+        # MIS-148: the bucket is created lazily on the first write if the
+        # boot-time ensure_bucket() failed (S3 was down when the API started).
+        self._bucket_ready = False
 
     async def ensure_bucket(self) -> None:
+        """Create the bucket if missing. Idempotent — safe on every boot."""
         try:
             await asyncio.to_thread(self._client.head_bucket, Bucket=self.bucket)
         except ClientError as exc:
@@ -121,6 +125,7 @@ class ObjectStorage:
                 raise
             await asyncio.to_thread(self._client.create_bucket, Bucket=self.bucket)
             logger.info("storage.bucket_created", bucket=self.bucket)
+        self._bucket_ready = True
 
     async def put_stream(
         self,
@@ -131,6 +136,8 @@ class ObjectStorage:
         metadata: dict[str, str] | None = None,
     ) -> None:
         validate_key(key)
+        if not self._bucket_ready:
+            await self.ensure_bucket()
         extra_args: dict[str, Any] = {}
         if content_type:
             extra_args["ContentType"] = content_type
@@ -189,20 +196,33 @@ class ObjectStorage:
         )
 
     async def list(self, prefix: str, *, max_keys: int = 1000) -> list[ObjectMeta]:
-        resp = await asyncio.to_thread(
-            self._client.list_objects_v2, Bucket=self.bucket, Prefix=prefix, MaxKeys=max_keys
-        )
-        return [
-            ObjectMeta(
-                key=item["Key"],
-                size_bytes=item["Size"],
-                content_type=None,
-                etag=item.get("ETag"),
-                last_modified=item.get("LastModified"),
-                metadata={},
-            )
-            for item in resp.get("Contents", [])
-        ]
+        """List objects under a prefix, following pagination up to max_keys."""
+        out: list[ObjectMeta] = []
+        token: str | None = None
+        while len(out) < max_keys:
+            kwargs: dict[str, Any] = {
+                "Bucket": self.bucket,
+                "Prefix": prefix,
+                "MaxKeys": min(1000, max_keys - len(out)),
+            }
+            if token:
+                kwargs["ContinuationToken"] = token
+            resp = await asyncio.to_thread(self._client.list_objects_v2, **kwargs)
+            for item in resp.get("Contents", []):
+                out.append(
+                    ObjectMeta(
+                        key=item["Key"],
+                        size_bytes=item["Size"],
+                        content_type=None,
+                        etag=item.get("ETag"),
+                        last_modified=item.get("LastModified"),
+                        metadata={},
+                    )
+                )
+            token = resp.get("NextContinuationToken")
+            if not token or not resp.get("IsTruncated"):
+                break
+        return out
 
     async def presign_get(self, key: str, *, expires_in: int) -> str:
         validate_key(key)
@@ -210,19 +230,5 @@ class ObjectStorage:
             self._presign_client.generate_presigned_url,
             "get_object",
             Params={"Bucket": self.bucket, "Key": key},
-            ExpiresIn=expires_in,
-        )
-
-    async def presign_put(
-        self, key: str, *, expires_in: int, content_type: str | None = None
-    ) -> str:
-        validate_key(key)
-        params: dict[str, Any] = {"Bucket": self.bucket, "Key": key}
-        if content_type:
-            params["ContentType"] = content_type
-        return await asyncio.to_thread(
-            self._presign_client.generate_presigned_url,
-            "put_object",
-            Params=params,
             ExpiresIn=expires_in,
         )

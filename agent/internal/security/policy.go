@@ -48,7 +48,10 @@ func ParseLocalPolicy(raw interface{}, now time.Time) (*LocalPolicy, error) {
 	}
 	capsRaw, ok := m["capabilities"].(map[string]interface{})
 	if !ok {
-		if inner, ok := m["policies"].(map[string]interface{}); ok {
+		// The inner assertion must not shadow `ok` — otherwise the outer check
+		// below would always fail and the documented "policies.capabilities"
+		// shape would be rejected (staticcheck SA4006).
+		if inner, innerOK := m["policies"].(map[string]interface{}); innerOK {
 			capsRaw, ok = inner["capabilities"].(map[string]interface{})
 			if v, okv := inner["version"].(string); okv && lp.Version == "" {
 				lp.Version = v

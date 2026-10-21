@@ -50,7 +50,7 @@ export interface ComplianceRule {
   imported_at: string
 }
 
-export interface FrameworkMapping {
+interface FrameworkMapping {
   framework_key: string
   framework_name: string
   framework_version: string
@@ -58,7 +58,7 @@ export interface FrameworkMapping {
   control_title: string
 }
 
-export interface FailingAgent {
+interface FailingAgent {
   agent_id: string
   hostname: string | null
 }
@@ -161,7 +161,7 @@ export interface Standard {
   coverage_executable_pct: number
 }
 
-export interface StandardControlRule {
+interface StandardControlRule {
   id: string
   rule_key: string
   title: string
@@ -170,7 +170,7 @@ export interface StandardControlRule {
   is_enabled: boolean
 }
 
-export interface StandardControl {
+interface StandardControl {
   control_id: string
   title: string
   description: string | null
@@ -241,7 +241,7 @@ export interface MaintenanceWindow {
   created_at: string
 }
 
-export interface RemediationExecutionResult {
+interface RemediationExecutionResult {
   agent_id: string
   hostname: string | null
   status: string
@@ -290,7 +290,7 @@ export interface FileChange {
   new_gid: number | null
 }
 
-export interface RelatedRule {
+interface RelatedRule {
   rule_id: string
   rule_key: string
   title: string
@@ -338,7 +338,7 @@ export interface ComplianceReport {
   completed_at: string | null
 }
 
-export interface TopViolatingRule {
+interface TopViolatingRule {
   rule_id: string
   rule_key: string
   title: string

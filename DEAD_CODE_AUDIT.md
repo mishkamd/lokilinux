@@ -1,0 +1,415 @@
+# Dead Code Audit — LokiLinux
+
+> **Status: AUDIT ONLY.** Nu s-a șters și nu s-a modificat nimic. Toate constatările de mai jos
+> sunt rezultatul unor verificări statice read-only. Ștergerile se fac doar după aprobare, în
+> commit-uri separate (vezi §8).
+
+Data: 2026-10-17 · Branch: `platform-observability-hardening` · HEAD: `333e4d9`
+
+## 1. Rezumat
+
+Repository curat în linii mari. Majoritatea finder-urilor automate ies curate:
+
+- **Python**: `ruff` F-rules → 15 importuri neutilizate (7 dintre ele re-exporturi intenționate).
+- **Go agent**: `go vet` curat; `deadcode` (analiză whole-program) → 12 funcții inaccesibile din `main`.
+- **Go compliance**: `go vet` curat; `deadcode` → 1 funcție inaccesibilă.
+- **Frontend**: 0 componente/composable/store orfane; 2 dependențe candidate.
+- **Infra/artefacte**: 3 worktree-uri stale (565 MB) + worktree `.aislop` pe disc (ignorate de git).
+
+Niciun constat nu e o problemă de corectitudine — sunt cod/fișiere fără consumatori, plus câteva
+configurații documentate dar neconectate. Riscul de eliminare este mic pentru majoritatea, dar
+câteva sunt deliberat păstrate (deferrale `ponytail:`) și NU trebuie șterse fără context.
+
+## 2. Scope & metodă
+
+- **Analizate**: 846 fișiere tracked (py 363, go 172, vue 125, ts 58, sh 12, yml/yaml 13) + directoare
+  ignorate relevante (`.claude/worktrees`, `.aislop`, `graphify-out`, `sbom`, `banks`, `logs`).
+- **Unelte rulate** (read-only):
+  - `ruff 0.15.20` — `F401,F811,F841,F822,F823` (importuri/variabile/funcții neutilizate, redefiniri).
+  - `vulture 2.16` — hint de simboluri neutilizate (zgomotos pe FastAPI; folosit doar ca indiciu).
+  - `golang.org/x/tools/cmd/deadcode` (`v0.30.0` @ go1.24, `v0.35.0` @ go1.25) — funcții inaccesibile.
+  - `go vet ./...` (agent: go1.24; compliance: go1.25) — rulat în containere oficiale `golang`.
+  - Cross-referință manuală `file:line` pentru fiecare candidat (apelanți reali, decoratori,
+    registry-uri, DI, rute, teste, migrations, docs, compose).
+- **Regulă**: un simbol nu e „mort" doar pentru că nu are import direct — s-au verificat
+  entry-points (`main.py`, `main.go`, rute FastAPI, registry-uri NATS, plugin hooks, DI).
+
+Toate verificările sunt reproduse în §7.
+
+## 3. Constatări
+
+Legendă clasificare: `SAFE_TO_DELETE`, `PROBABLY_DEAD`, `LEGACY`, `DUPLICATE`, `UNUSED_SYMBOL`,
+`UNUSED_DEPENDENCY`, `DEAD_CONFIGURATION`, `UNKNOWN`.
+
+### 3.1 Python — simboluri/importuri neutilizate
+
+| ID | Fișier:linie | Simbol | Clasificare | Dovadă | Risc | Acțiune |
+|---|---|---|---|---|---|---|
+| P1 | `backend/lokilinux/services/agent_policies.py:55` | `PolicyOut` | UNUSED_SYMBOL / SAFE_TO_DELETE | Doar definiție + `.of()` intern; 0 apelanți (nici teste) | Mic | Șterge clasa |
+| P2 | `backend/lokilinux/services/agent_policies.py:73` | `VersionOut` | UNUSED_SYMBOL / SAFE_TO_DELETE | Idem P1 | Mic | Șterge clasa |
+| P3 | `backend/lokilinux/schemas/baseline.py:91` | `BaselineApprovalResponse` | PROBABLY_DEAD | Doar definiție; 0 referințe încod | Mic–Mediu | Verifică dacă nu e consumat extern (OpenAPI/SDK) înainte |
+| P4 | `services/agent_policies.py:18,394`; `services/agent_policy_compiler.py:215`; `services/job_service.py:367,368`; `kms/file_provider.py:14`; `api/v1/routers/cves.py:38`; `api/v1/routers/compliance/exceptions.py:11` | 8 importuri | UNUSED_SYMBOL / SAFE_TO_DELETE | `ruff F401` | Mic | Șterge importurile (auto-fix `ruff --fix` posibil) |
+| P5 | `services/agent_policy_compiler.py:134` | `if "interval_seconds" in heartbeat or True:` | LEGACY (bug de calitate) | `vulture` 100% — condiția e mereu adevărată; ramura `in` moartă | Mic | Curăță condiția (`or True` = cod mort logic) |
+
+Importurile P4 exacte (ruff F401, excluzând re-exporturile intenționate din `models/__init__.py:36-42`):
+`datetime` (exceptions.py), `VulnerabilityStatus` (cves.py), `lru_cache` (file_provider.py),
+`Any` + `postgresql.insert` (agent_policies.py), `serialization` (agent_policy_compiler.py),
+`create_claim` + `JobSigner` (job_service.py).
+
+> `models/__init__.py:36-42` — F401 dar **INTENȚIONAT**: re-exporturi pentru înregistrarea
+> modelelor SQLAlchemy. `UNKNOWN`/keep — nu se șterge (ar rupe `Base.metadata`).
+
+### 3.2 S3 / Object Storage — feature jumătate-construit
+
+| ID | Fișier:linie | Simbol | Clasificare | Dovadă | Risc | Acțiune |
+|---|---|---|---|---|---|---|
+| P6 | `object_storage.py:216` + `services/storage_service.py:189` | `ObjectStorage.presign_put` + ramura `PUT` din `StorageService.presign` | UNUSED_SYMBOL / SAFE_TO_DELETE | Singurul apel real (`routers/storage.py:141`) trimite mereu `method="GET"`; `presign_put` are 0 apelanți (doar fake în `conftest.py:179`) | Mic | Șterge metoda + ramura `else` |
+| P7 | `services/storage_service.py:70-72` | `_build_key(..., version)` → segment `v{version}` | LEGACY | `version` e hardcodat `1` la ambele apeluri (`:109`, `:127`); nu crește niciodată | Mic | Elimină parametrul + segmentul, sau implementează versionarea reală |
+
+Legat de ticketele existente **MIS-146** (presign_put mort) și **MIS-147** (scaffolding versionare).
+
+### 3.3 Go agent — funcții inaccesibile (deadcode)
+
+| ID | Fișier:linie | Simbol | Clasificare | Dovadă | Risc | Acțiune |
+|---|---|---|---|---|---|---|
+| G1 | `internal/agent/desired_policy.go:177` | `DesiredPolicyManager.TakeReport` | UNUSED_SYMBOL | deadcode unreachable; 0 apelanți prod/test | Mic | Șterge |
+| G2 | `internal/agent/policy_sync.go:31` | `Manager.currentCollectorPolicies` | PROBABLY_DEAD | deadcode; doar în teste | Mic | Șterge (sau mută în test) |
+| G3 | `internal/broker/operations.go:24` | `SetDeniedHook` | UNUSED_SYMBOL | deadcode; 0 apelanți prod/test | Mic | Șterge (hook de metrici neconectat) |
+| G4 | `internal/communication/heartbeat_manager.go:26,31,45` | `HeartbeatManager` (ctor + `Run` + `beat`) | LEGACY — **NU ȘTERGE fără context** | deadcode; comentariu propriu: `ponytail: wired into AgentManager in Val 3; standalone for now.` | — | Păstrează; e deferral deliberat pentru Val 3 |
+| G5 | `internal/compliance/collector.go:74` | `BuildRegistry` | PROBABLY_DEAD | deadcode unreachable; dar referit în comentarii (`manager.go:164`, `config.go:97`) | Mediu | Verifică dacă nu e apelat prin `Apply` hooks înainte |
+| G6 | `internal/eq/queue.go:165` | `Queue.DroppedCount` | UNUSED_SYMBOL | deadcode; doar def + comentariu | Mic | Șterge sau expune în metrici |
+| G7 | `internal/policy/canonical.go:14` | `CanonicalJSON` (pachet `policy`) | UNUSED_SYMBOL | deadcode; versiunea folosită e cea din `compliance/canonical.go` | Mic | Vezi D1 |
+| G8 | `internal/policy/canonical.go:23` | `HashHex` | UNUSED_SYMBOL | deadcode; 0 apelanți | Mic | Șterge |
+| G9 | `internal/security/envelope.go:124` | `MustCanonical` | LEGACY (test-only) | deadcode; comentariu: „for tests/fixed inputs"; 0 apelanți prod | Mic | Șterge dacă nu-l folosesc și testele (acum 1 ref de test) |
+| G10 | `internal/security/envelope.go:140` | `NewVerifier` (v1 legacy) | PROBABLY_DEAD | deadcode; prod folosește `NewVerifierSet` (`job_validation.go:38`); doar teste îl cheamă | Mediu | Verifică compatibilitatea cu agenți vechi; probabil keep |
+
+### 3.4 Go compliance
+
+| ID | Fișier:linie | Simbol | Clasificare | Dovadă | Risc | Acțiune |
+|---|---|---|---|---|---|---|
+| GC1 | `internal/baseline/resolver.go:55` | `Resolver.Resolve` | UNUSED_SYMBOL | deadcode unreachable; comentariul propriu spune că `effectiveFor` a înlocuit vechiul „Resolve-per-agent loop (O(agents × full-table-scan))" | Mic | Șterge `Resolve` |
+
+### 3.5 Frontend
+
+| ID | Fișier | Simbol | Clasificare | Dovadă | Risc | Acțiune |
+|---|---|---|---|---|---|---|
+| F1 | `frontend/package.json` | `happy-dom` | **KEEP — false positive** | `vitest.config.ts` folosește `environment: 'nuxt'`; environment-ul din `@nuxt/test-utils/dist/vitest-environment.mjs:194` face `await import('happy-dom')` — peer dependency obligatorie | — | Nu elimina |
+| F2 | `frontend/package.json` | `@vue/test-utils` | **KEEP — false positive** | `mountSuspended` (folosit în teste) trece prin `@nuxt/test-utils/dist/runtime/shared/vue-wrapper-plugin.mjs`, care importă `@vue/test-utils` — peer dependency obligatorie | — | Nu elimina |
+
+**Rezolvat la implementare (2026-10-17):** F1 și F2 au fost verificate în `node_modules` înainte de
+eliminare și **ambele sunt necesare** — `@nuxt/test-utils` le are ca peer dependencies opționale pe
+harta lui, dar environment-ul `nuxt` le importă la runtime. Nicio dependență frontend nu se elimină.
+
+
+**Fără componente orfane.** Scaneul pe nume a semnalat `TrendChart.vue` și `MetricsCards.vue`, dar
+sunt folosite cu prefix de director (auto-import `pathPrefix:false`): `<ComplianceTrendChart>`,
+`<VulnerabilityTrendChart>`, `<JobsTrendChart>`, `<ServerMetricsCards>`. **False positive — keep.**
+
+### 3.6 Configurare moartă (Python Settings)
+
+| ID | Fișier:linie | Câmp | Clasificare | Dovadă | Risc | Acțiune |
+|---|---|---|---|---|---|---|
+| C1 | `config.py:46` | `correlation_state_backend` | DEAD_CONFIGURATION | 0 referințe în tot repo (cod/compose/docs) | Mic | Șterge câmpul |
+| C2 | `config.py:58` | `ca_signer_socket_path` | DEAD_CONFIGURATION | 0 referințe în tot repo | Mediu | Verifică dacă `ca-signer` nu-l citește prin alt nume |
+| C3 | `config.py:84` | `job_signing_required` | DEAD_CONFIGURATION | Codul citește direct `os.environ["JOB_SIGNING_REQUIRED"]` (`job_envelope.py:79 signing_required()`), NU `settings.*` | Mediu | Aliniază: fie folosește settings, fie scoate câmpul |
+| C4 | `config.py:104` | `s3_multipart_threshold_bytes` | DEAD_CONFIGURATION | 0 referințe în cod; doar în `docs/security/OBJECT_STORAGE.md:60` | Mic | Șterge (legat de P6/MIS-146) |
+
+### 3.7 Variabile de mediu neutilizate (`.env.example`)
+
+Chei fără nicio referință (case-insensitiv, excluzând `.env*`/docs/README):
+
+```
+AGENT_HEARTBEAT_INTERVAL   AGENT_HEARTBEAT_TIMEOUT   AGENT_MAX_OFFLINE_DAYS
+AGENT_REGISTRATION_TOKEN_TTL   CERT_RENEWAL_DAYS
+CVE_FEED_SOURCES   CVE_FEED_UPDATE_INTERVAL
+PGBOUNCER_HOST   PGBOUNCER_PORT
+PLUGINS_MAX_CPU_CORES   PLUGINS_MAX_MEMORY_MB   PLUGINS_SANDBOX_MODE
+SLACK_ENABLED   SMTP_ENABLED   SMTP_FROM_ADDRESS   SMTP_USERNAME
+TIMESCALE_DB   TIMESCALE_HOST   TIMESCALE_PORT   TIMESCALE_USER
+```
+
+Clasificare: `DEAD_CONFIGURATION` (probabil leftover/planificat).
+**Atenție**: câteva (`PGBOUNCER_*`, `TIMESCALE_*`) pot fi folosite de tooling extern/manual — de
+verificat înainte de eliminare. `POSTGRES_*`, `REDIS_*`, `NATS_*`, `PROMETHEUS_*` SUNT folosite
+(compose + cod) → keep.
+
+### 3.8 Scripturi și infrastructură
+
+| ID | Fișier | Clasificare | Dovadă | Acțiune |
+|---|---|---|---|---|
+| S1 | `scripts/load_events.py` | PROBABLY_DEAD | 0 referințe în repo | Confirmă (tool manual de test?) apoi șterge |
+| S2 | `scripts/recover-rocky-agent.sh` | PROBABLY_DEAD | 0 referințe în repo | Confirmă apoi șterge |
+
+Restul scripturilor (`check-versions.sh`, `docker-init.sh`, `init-certificates.sh`, `install-agent.sh`,
+`loki-cli.sh`, `release-platform.sh`, `scripts/security/*.sh`) sunt referite din Makefile/docs/skills → keep.
+Dockerfile-urile și `security-pipeline.yml` sunt active → keep.
+
+### 3.9 Duplicare
+
+| ID | Subiect | Clasificare | Detaliu | Recomandare |
+|---|---|---|---|---|
+| D1 | Canonical JSON în agent | DUPLICATE | Două implementări: `internal/compliance/canonical.go:46` (`CanonicalJSON(facts Facts)`) și `internal/policy/canonical.go:14` (`CanonicalJSON(v interface{})`); plus `security.MustCanonical` | Posibil intenționat (payload-uri diferite) — verifică dacă pot fi unificate sub o singură funcție generică |
+| D2 | `stores/workflow.ts` vs `stores/workflows.ts` (frontend) | NOT duplicate | `workflow.ts` = editor/graf de execuție; `workflows.ts` = listă CRUD. Ambele folosite | Keep |
+| D3 | `services/agent_policies.py` vs `services/agent_policy_compiler.py` | NOT duplicate | Roluri diferite (CRUD vs compilare spec) | Keep (dar vezi P1/P2) |
+
+## 4. Artefacte temporare / pe disc (nu sunt în git)
+
+| ID | Path | Mărime | Status git | Recomandare |
+|---|---|---|---|---|
+| A1 | `.claude/worktrees/{analiza-implementarii-44c8f7, app-analysis-progress-0c17c7, linear-functionality-b9462c}` | **565 MB** | ignorat | `git worktree remove` cele 3 (branch-uri `claude/*`); nu afectează repo |
+| A2 | `.aislop/worktrees/agent-20260718-122541-1754934` | — | ignorat | Worktree detached stale — `git worktree prune` + remove |
+| A3 | `graphify-out/` (11 MB), `sbom/` (1.6 MB), `banks/`, `.planning/`, `.gstack/` | — | ignorate | Generate — curățabile oricând, nu intră în commit |
+| A4 | `logs/` | 0 | untracked | Gol; ignoră (nu e în `.gitignore` dar nici tracked) |
+
+Nu există fișiere backup/temp tracked (`.bak`, `.orig`, `.old`, `~`, `.DS_Store`, `copy.*`) — verificat.
+
+## 5. Necunoscute / acoperire parțială (`UNKNOWN`)
+
+Următoarele zone NU au fost epuizate în acest audit și **nu se ating** fără o a doua trecere dedicată:
+
+- **Dead API endpoints**: mapping complet frontend↔backend (apeluri `useApi()` vs rute FastAPI) — neefectuat.
+- **Dead DB artifacts**: modele/câmpuri/tabele/enum/migrations fără consumator — neefectuat.
+- **TS exports neutilizate** dincolo de componente (knip nu e instalat; nu există config).
+- **staticcheck** (Go) — neinstalat pentru versiunile de toolchain; `go vet` + `deadcode` au rulat.
+- **Duplicate logic** dincolo de D1 — scan parțial.
+
+## 6. Riscuri & impact
+
+- **Impact global**: mic. Toate elementele confirmate sunt cod fără consumatori; comportamentul
+  aplicației nu se schimbă prin eliminare.
+- **Riscuri punctuale**:
+  - C3 `job_signing_required` — NU șterge orbește: atinge calea de securitate a joburilor. Aliniază
+    întâi (`settings` vs `os.environ`) și rulează `.claude/skills/ship-changes` pe backend.
+  - G4 `HeartbeatManager` — deferral deliberat (Val 3). **Keep.**
+  - G10 `security.NewVerifier` / G5 `compliance.BuildRegistry` — pot fi păstrate pentru
+    compatibilitate/reflection. Necesită confirmare înainte de ștergere.
+  - P3 `BaselineApprovalResponse` — poate fi consumat de clienți API externi.
+
+## 7. Dovezi / verificări rulate
+
+```
+ruff 0.15.20        F401,F811,F841,F822,F823  → 15 findings (7 re-exporturi intenționate)
+vulture 2.16        --min-confidence 60       → 753 hinturi (zgomotos pe FastAPI; folosit ca indiciu)
+deadcode@v0.30.0    agent                     → 12 funcții unreachable
+deadcode@v0.35.0    compliance                → 1 funcție unreachable (Resolver.Resolve)
+go vet ./...        agent (go1.24)            → clean (exit 0)
+go vet ./...        compliance (go1.25)       → clean (exit 0)
+manual cross-ref    pentru fiecare candidat   → vezi coloana „Dovadă" din §3
+```
+
+Comenzi reproduce în anexă la cerere (rulări în containere `golang:1.24`/`golang:1.25`, read-only).
+
+## 8. Cleanup executat (2026-10-17)
+
+Fiecare etapă = commit separat, cu verificări înainte de commit. Ordine de la risc mic la mare.
+
+| Etapă | Ce | Commit | Verificare | Stare |
+|---|---|---|---|---|
+| 1 | Importuri neutilizate (P4) — 8 importuri | `3ade3d1` | ruff F curat, pytest 782 passed | ✅ |
+| 2 | `PolicyOut`, `VersionOut`, condiția `or True` (P1, P2, P5) | `adcc657` | pytest 782 passed | ✅ |
+| 3 | S3 scaffolding: `presign_put`, ramura PUT, parametrul `version` (P6, P7) | `9d07166` | pytest 782 passed | ✅ |
+| 4 | Config moartă: C1, C2, C3, C4 | `ff25075` | pytest 782 passed, ruff F curat | ✅ |
+| 5 | Go agent: G1, G3, G7, G8, G5 (deadcode) | `6639026` | go vet curat, `go test ./... -race` verde, deadcode 12→7 | ✅ |
+| 5b | Go compliance: `Resolver.Resolve` (GC1) | `81954a5` | go vet curat, `go test ./... -race` verde, deadcode 1→0 | ✅ |
+| 6 | Dependențe frontend (F1, F2) | — | **verificate în `node_modules` → false positive, KEEP** | ⛔ fără acțiune |
+| 7 | Scripturi orfane (S1, S2) | — | în așteptare de confirmare umană | ⏸ |
+| 8 | Worktree-uri stale (A1, A2) | — | în așteptare (operație pe disc, nu pe repo) | ⏸ |
+| 9 | Env leftover (§3.7) | — | în așteptare de confirmare per cheie | ⏸ |
+
+**Păstrate intenționat** (deadcode le raportează, dar au consumator real):
+`communication/heartbeat_manager.go` (deferral `ponytail: Val 3`),
+`eq.Queue.DroppedCount` (singurul semnal de overflow),
+`policy_sync.go currentCollectorPolicies` (accesor de test),
+`security.MustCanonical` / `security.NewVerifier` (folosite de teste),
+`internal/compliance/collector.go NewFileIntegrityCollectorWithConfig` (încă folosit).
+
+### Baseline de teste
+
+`pytest` (backend): **782 passed, 3 failed**. Cele 3 eșecuri sunt **preexistente** la HEAD
+(`tests/security/test_security_p0.py` — fake-ul de settings nu are `agent_cert_ttl_days`),
+verificate identic înainte și după fiecare commit. Nu au fost introduse de cleanup.
+
+`go test ./... -race`: agent și compliance — integral verde.
+
+## 9. Metrici (finale, după cleanup)
+
+| Metrică | Audit | După cleanup |
+|---|---|---|
+| Fișiere tracked analizate | 846 | 846 |
+| Simboluri/importuri neutilizate identificate | ~23 | **0 rămase neadresate** (restul păstrate justificat) |
+| Fișiere tracked candidate pentru eliminare | 0 | 0 |
+| Dependențe candidate pentru eliminare | 2 | **0** (F1/F2 = false positive) |
+| Câmpuri de config moarte | 4 | **0** |
+| Funcții Go inaccesibile (deadcode) | 13 | **7** (toate păstrate cu motiv) |
+| Duplicări identificate | 1 | 1 (neprodusă — necesită decizie de compatibilitate) |
+| Linii de cod eliminate | — | ~150 (net, 9 commits) |
+
+## 10. Commituri
+
+```
+05360be docs(audit): add dead code audit report
+3ade3d1 refactor(backend): remove unused imports flagged by ruff F401
+adcc657 refactor(policies): drop dead PolicyOut/VersionOut and dead if-condition
+9d07166 refactor(storage): remove dead presign_put path and version scaffolding
+ff25075 refactor(config): remove 4 unused Settings fields
+6639026 refactor(agent): remove dead code reported by deadcode
+81954a5 refactor(compliance): remove unused Resolver.Resolve
+```
+
+## 11. Rămas de făcut (nu acționat, necesită decizie)
+
+- **S1/S2** (`scripts/load_events.py`, `scripts/recover-rocky-agent.sh`) — confirmă dacă sunt
+  tool-uri manuale în afara repo-ului.
+- **A1/A2** — `git worktree remove` pentru cele 3 worktree-uri din `.claude/worktrees` (565 MB)
+  + `git worktree prune` pentru `.aislop`. Operație pe disc, nu atinge codul.
+- **§3.7** — cele 20 de chei `.env.example` fără referință, una cu una.
+- **D1** — Canonical JSON: policy / compliance / security — decide dacă se unifică.
+- **MIS-159** — audit continuare: dead endpoints, artefacte DB, exporturi TS, `staticcheck`.
+- **P3** `BaselineApprovalResponse` — confirmă lipsa consumatorilor externi.
+- **Teste preexistente broken** (`test_security_p0.py`, `agent_cert_ttl_days`) — raportat, neatins.
+
+## 12. Audit continuare (MIS-159)
+
+A doua trecere, pe zonele rămase neacoperite în §5. Metode: `app.openapi()` pentru
+inventarul de endpointuri (FastAPI 0.138 ține router-urile încorporate ca obiect
+`_IncludedRouter`, deci `app.routes` nu e complet — `openapi()` este), cross-referință cu
+apelurile din frontend, `information_schema` pe DB-ul live, `knip` pentru frontend,
+`staticcheck` pentru Go.
+
+### 12.1 Dead API endpoints — **0 dead**
+
+251 endpointuri REST. 244 sunt apelate din frontend. Cele 7 rămase:
+
+| Endpoint | Verdict |
+|---|---|
+| `GET /health`, `GET /ready` | Sonde de infrastructură (docker healthcheck) — keep |
+| `POST /otlp/v1/logs`, `POST /otlp/v1/traces` | Ingestie OTLP, consumată de agenți/telemetrie externă — keep |
+| `GET /configuration/baselines`, `GET /configuration/drift` | Router alias deliberat (Enterprise Compliance plan U2 Task 2) — delegă către handlerele `/compliance/*`. **Nu există `pages/configuration/`** → suprafața „Configuration" nu e încă în UI. PROBABLY_DEAD (planificat) |
+| `GET /observability/pipeline` | Snapshot de metrici pentru ops, fără consumator în UI. UNKNOWN (utilizabil prin curl, autentificat) |
+
+### 12.2 Dead DB artifacts — **7 tabele**
+
+| Tabel | Origine | Verdict |
+|---|---|---|
+| `update_jobs`, `update_job_results`, `update_policies` | `alembic/versions/002_update_management.py` (feature „update management" abandonată) | DEAD — create în upgrade, niciun model ORM, nicio referință în cod. Downgrade-ul le șterge, deci nici măcar o revine |
+| `dsc_provider_status`, `dsc_resource_blobs`, `dsc_resource_states`, `dsc_verifications` | **Nicio migrare din repo nu le creează** | DEAD/drift — există în DB-ul live, invizibile pentru Alembic și ORM. Provabile dintr-o ramură ne-mergită (worktree-urile șterse) sau din DBA manual |
+| — | DB live la `alembic_version = 060`; head-ul din repo este `061_job_result_held_until` | Migration 061 neaplicată în stack-ul curent |
+
+### 12.3 Frontend (`knip` 6.41.0)
+
+| Categorie | Nr | Verdict |
+|---|---|---|
+| Unused files | 2 | `scripts/migrate-db.ts` e **fals pozitiv** — apelat din `scripts/docker-init.sh:112`. `server/utils/migrate.ts` e **mort** (0 invocări; duplică `scripts/migrate-db.ts`) |
+| Unlisted dependencies | 3 | `h3` (server/utils/session.ts), `ofetch` (utils/api.ts), `vitest-environment-nuxt` (vitest.config.ts) — dependințe implicite, nesigur la upgrade |
+| Unused exported types | 34 | Interfețe exportate din `stores/*` și `components/ui/*` pe care nimeni nu le importă. Fix = scoaterea keyword-ului `export`, nu ștergerea tipului |
+| Unused devDependencies | 1 | `vue-tsc` — e tool de CLI (`npx vue-tsc --noEmit`), fals pozitiv |
+| Unused dependencies | 0 | toate cele 29 de dependențe de producție sunt folosite |
+
+### 12.4 Go — `staticcheck` 0.6.1
+
+`services/compliance`: **curat, 0 findings**.
+`agent`: 20 findings — 3 reale, restul noise de teste:
+
+| Regula | Locație | Ce | Severitate |
+|---|---|---|---|
+| SA4014 | `internal/agent/job_validation.go:181` | condiție repetată într-un lanț if/else-if → ramură inaccesibilă | **reală** (ramură moartă în calea de validare a joburilor) |
+| SA4006 | `internal/security/policy.go:52` | `ok` reatribuit, valoarea nu e folosită → verificarea "policy has no capabilities object" poate fi scăpată | **reală** (cale de securitate) |
+| SA1006 ×8 | `internal/security/approval_claim.go:82-116` | `fmt.Errorf(string(ClaimX))` — format string dinamic fără argumente | **reală** (claim-uri de aprobare) |
+| SA1019 | `internal/communication/grpc_client.go:95` | `grpc.Dial` deprecated (grpc-go 1.79) | migrare de API |
+| SA1012 ×9 | fișiere `_test.go` | `nil` Context pasat colecționatorului | stil, doar teste |
+
+### 12.5 `BaselineApprovalResponse` (P3)
+
+`backend/lokilinux/schemas/baseline.py:91` — în continuare 0 referințe (nici în cod, nici în
+teste, nici în frontend). Rămâne PROBABLY_DEAD: e în `schemas/`, deci ar putea apărea în
+OpenAPI pentru clienți externi.
+
+## 13. Remediere executată (2026-10-17, continuare)
+
+| Ticket | Ce | Commit | Verificare |
+|---|---|---|---|
+| MIS-170 | SA4014 (ramură inaccesibilă), SA4006 (**bug real** — `ParseLocalPolicy` respingea forma `policies.capabilities` documentată, prin shadowing), SA1006 ×8, SA1012 ×9 | `4026ad4` | `go vet` curat, `go test ./... -race` verde, staticcheck 20 → 1 (doar `grpc.Dial`, cu `//nolint` motivat) |
+| MIS-168 | `server/utils/migrate.ts` șters, 34 `export` nefolosite eliminate, `h3`/`ofetch` declarate | `46bc096` | `vue-tsc --noEmit` curat, `npm test` 111 passed |
+| MIS-169 (parțial) | migration `062` șterge `update_policies` / `update_jobs` / `update_job_results` (0 rânduri, fără consumator) | `d46a686` | up/down/up pe bază de test (0 → 3 → 0 tabele), pytest 1001 passed |
+
+### 13.1 Bug real găsit de staticcheck (nu era dead code)
+
+`agent/internal/security/policy.go` — `ParseLocalPolicy` acceptă, conform docstring-ului, forma
+`{"policies": {"capabilities": {...}}}` (wrapper-ul `PolicyConfig` produs de clientul gRPC).
+Implementarea umbrea `ok` cu aserția interioară, deci verificarea externă eșua **întotdeauna** →
+agentul respingea politica pe care serverul o livrase. Lipsa unui test pentru funcție a permis
+supraviețuirea bug-ului; fixul vine cu `internal/security/policy_test.go` (3 cazuri, inclusiv
+regresia care eșuează exact ca bug-ul fără fix).
+
+### 13.2 `dsc_*` — nu e dead code, e **date arhivate fără consumator**
+
+| Tabel | Rânduri | Ultima scriere |
+|---|---|---|
+| `dsc_resource_states` | 8.227.725 | 2026-08-06 |
+| `dsc_resource_blobs` | 25.528 | 2026-08-06 |
+| `dsc_provider_status` | 64 | 2026-08-06 |
+| `dsc_verifications` | 0 | — |
+
+Nu există migrare, model ORM sau cod care le citească — feature-ul (colectare de stări de
+resurse de la agenți) a fost scos din stack, dar datele au rămas. **Codul e recuperabil**:
+`recovery/dsc-2026-08-24` (la `98dfb41`, pushat pe origin) conține
+`backend/lokilinux/services/dsc_ingest_service.py` + `services/dsc/internal/ingest/`, iar
+stash-ul `e33b357` e în object DB. Branch-ul a fost creat explicit ca să nu piardă obiectele la
+`git gc`. Decizia (reîmvie / arhivează+drop / păstrează) e în **MIS-173**; migration 062 nu le
+atinge.
+
+## 14. Remedierea rundă 2 — ClickHouse, S3, JetStream (2026-10-21)
+
+Toate constatările din §12 au fost remediate; cele din §3 au fost acoperite în §13.
+
+| Ticket | Remediere | Commit | Verificare |
+|---|---|---|---|
+| MIS-138 | CH indisponibil la boot nu mai omoară API-ul: store-ul rămâne degradat și se reconectează leneș | `aaab9b9` | `test_ch_resilience.py` (5 teste) |
+| MIS-140 | timeouts: connect 5s, send/receive 60s, `max_execution_time` 60s pe query și insert | `aaab9b9` | idem |
+| MIS-141 | pool dedicat de 4 thread-uri pentru apelurile CH | `aaab9b9` | idem |
+| MIS-142 | schema declarativă: listele de coloane derivă CREATE **și** ALTER-urile de "coloană lipsă" | `aaab9b9` | `test_ch_ddl.py` (neles) |
+| MIS-143 | porturile 8123/9000 ale ClickHouse expuse în `docker-compose.dev.yml` | `aaab9b9` | — |
+| MIS-144 | delete: rândul e marcat DELETED și commit-at **înainte** de a atinge S3; eșecul S3 nu mai aruncă | `aaab9b9` | `test_storage_gc.py` |
+| MIS-145 | `workers/storage_gc.py` — sweep orar al obiectelor orfane, cu grace period de 1h | `aaab9b9` | idem |
+| MIS-148 | S3: bucket creat leneș la prima scriere; eșecul la boot degradează, nu omoară | `aaab9b9` | `test_object_storage_e2e.py` |
+| MIS-139 | consumator JetStream DURABIL pe stream-ul EVENTS, ack abia după scrierea în ClickHouse, loop periodic de flush, fallback pe core NATS | `031bbff` | `test_event_processor_ack.py` (6 teste) + verificare pe NATS live |
+| MIS-149 | test E2E multipart pe RustFS real + pas în CI | `e704580` | 1 passed contra RustFS real |
+| MIS-147 | decizie: layout fix `v1/`, fără versionare reală (parametrul mort era deja eliminat) | `9d07166` | — |
+| MIS-169 | migration 062 — `update_policies` / `update_jobs` / `update_job_results` (0 rânduri) | `d46a686` | up/down/up pe bază de test |
+| MIS-173 | arhivă + migration 063 — `dsc_*` (8.257.917 rânduri) | `4ff1917` | up/down pe bază de test |
+
+### 14.1 MIS-139 — ce s-a schimbat în calea de livrare
+
+Evenimentele erau publicate pe core NATS (fire-and-forget) și consumate de o
+subscriere core: ce se publica în timp ce API-ul era oprit se pierdea definitiv.
+Stream-ul EVENTS captura deja totul (24h), dar nu exista consumator.
+
+Acum workerul consumă de la un consumator JetStream **durabil** (`event-processor`):
+`deliver_policy=BY_START_TIME` cu `opt_start_time=acum` (un consumator nou pornește de la
+poziția curentă — nu rescrie backlog-ul deja scris în ClickHouse; unul existent reia de la
+ultimul ack). Mesajul e ack-uit **doar** după ce evenimentul e durabil în ClickHouse: un flush
+eșuat îl lasă neack-uit, deci JetStream îl redelivrează. Mesajele otravite (malformed /
+schema invalid / duplicat) sunt ack-uite imediat, altfel blochează consumatorul. Dacă
+JetStream nu e disponibil, workerul cade înapoi pe subscrierea core — degradat, nu mort.
+
+Verificat pe NATS-ul live: un consumator durable primește mesaje publicate pe core, ack-ul
+avansează `ack_floor`, iar `BY_START_TIME` nu replay-ează backlog-ul.
+
+### 14.2 MIS-173 — arhiva DSC
+
+8.257.917 rânduri, ultima scriere **2026-08-06**. Două dintre tabele sunt hypertables
+TimescaleDB (chunk-urile stau în `_timescaledb_internal`, iar `pg_dump -t` le sare — de
+aceea prima arhivă a ieșit goală și a fost detectată prin restore de probă).
+
+Arhiva finală: CSV-uri gz per tabel + `MANIFEST.txt` (coloane, rânduri, comenzi de
+restore) — 167.100.847 octeți, sha256
+`0ee0f7e8e27e06443ccfcc521bb10b18a9aa4c900d5210d90b89a681147551f1`, obiect în storage
+(`exports/ec1c125f-f0aa-42b3-a355-e1b4f7341d59/v1/dsc-archive-2026-10-21.tar.gz`).
+Verificat: sha256 local == rândul din `storage_objects` == obiectul din RustFS.
+
+### 14.3 Observație de operare (în afara scopului)
+
+Discul e la **97%** (2,9 GB liberi). Presiunea e din imaginile Docker nefolosite
+(9,3 GB reclaimable) și build cache (2,3 GB), nu din date. Curățarea
+`docker image prune` / `docker builder prune` ar elibera ~11 GB.
+

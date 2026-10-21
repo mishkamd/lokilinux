@@ -61,6 +61,36 @@ jobs:
           .venv/bin/pip install -e ".[dev]"
           .venv/bin/pytest tests/
 
+      # Object storage E2E against a real S3-compatible server (MIS-149).
+      # The rest of the suite only ever sees FakeObjectStorage, so the
+      # multipart path (boto3 TransferConfig above the threshold) was never
+      # exercised end to end.
+      - name: Start RustFS (S3-compatible) for the storage E2E test
+        run: |
+          docker run -d --name rustfs-e2e -p 9000:9000 \
+            -e RUSTFS_VOLUMES=/data \
+            -e RUSTFS_ADDRESS=":9000" \
+            -e RUSTFS_ACCESS_KEY=e2eaccesskey \
+            -e RUSTFS_SECRET_KEY=e2esecretkey \
+            -e RUSTFS_REGION=us-east-1 \
+            rustfs/rustfs:1.0.0-rc.5
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:9000/health >/dev/null; then echo "rustfs up"; exit 0; fi
+            sleep 2
+          done
+          echo "rustfs did not become healthy" >&2
+          exit 1
+      - name: Object storage E2E (multipart against RustFS)
+        working-directory: backend
+        env:
+          # conftest.py runs the migrations at import time, and alembic/env.py
+          # builds Settings — better_auth_url is required.
+          BETTER_AUTH_URL: http://localhost:3000
+          S3_E2E_ENDPOINT: http://127.0.0.1:9000
+          S3_E2E_ACCESS_KEY: e2eaccesskey
+          S3_E2E_SECRET_KEY: e2esecretkey
+        run: .venv/bin/pytest tests/integration/test_object_storage_e2e.py -q
+
   # Secret, SAST and dependency scans (ROADMAP P2, CI security scanning).
   # Fails on findings: triage the current advisories before merging to main.
   secrets-and-deps:

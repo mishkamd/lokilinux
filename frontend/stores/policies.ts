@@ -1,14 +1,14 @@
-export interface PolicyAction {
+interface PolicyAction {
   type: string
   params: Record<string, unknown>
 }
 
-export interface PolicyExecution {
+interface PolicyExecution {
   requires_approval?: boolean
   timeout_seconds?: number | null
 }
 
-export interface PolicyTargetServers {
+interface PolicyTargetServers {
   all?: boolean
   agent_ids?: string[]
   filters?: {

@@ -1,4 +1,4 @@
-export type PluginStatus =
+type PluginStatus =
   | 'PENDING_INSTALL'
   | 'INSTALLING'
   | 'INSTALLED'

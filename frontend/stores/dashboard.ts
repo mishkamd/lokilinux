@@ -4,7 +4,7 @@ import { useJobsStore } from './jobs'
 
 export type DashboardRange = '7d' | '30d' | '90d'
 
-export interface DashboardHealth {
+interface DashboardHealth {
   cpu_usage: number | null
   memory_usage: number | null
   disk_usage: number | null
@@ -27,10 +27,10 @@ export interface DashboardSummary {
   health: DashboardHealth
 }
 
-export interface ServerTrendPoint { day: string; total: number }
+interface ServerTrendPoint { day: string; total: number }
 export interface JobTrendPoint { day: string; successful: number; failed: number; running: number }
-export interface AlertTrendPoint { day: string; created: number; resolved: number }
-export interface DashboardVulnerabilityTrendPoint { day: string; critical: number; high: number; medium: number; low: number }
+interface AlertTrendPoint { day: string; created: number; resolved: number }
+interface DashboardVulnerabilityTrendPoint { day: string; critical: number; high: number; medium: number; low: number }
 
 export interface DashboardTrends {
   servers: ServerTrendPoint[]

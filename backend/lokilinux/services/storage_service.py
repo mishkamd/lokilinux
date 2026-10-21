@@ -67,9 +67,11 @@ def _category_prefix(category: str) -> str:
     return prefix
 
 
-def _build_key(category: str, object_id: UUID, filename: str, version: int) -> str:
+def _build_key(category: str, object_id: UUID, filename: str) -> str:
     prefix = _category_prefix(category)
-    return f"{prefix}/{object_id}/v{version}/{filename}"
+    # ponytail: the v1 segment is fixed — objects already written keep this
+    # layout; real versioning (a new object per upload) is MIS-147.
+    return f"{prefix}/{object_id}/v1/{filename}"
 
 
 class StorageService:
@@ -106,7 +108,7 @@ class StorageService:
             spool.seek(0)
 
             object_id = uuid4()
-            object_key = _build_key(category, object_id, filename, version=1)
+            object_key = _build_key(category, object_id, filename)
             await self._storage.put_stream(
                 object_key,
                 spool,
@@ -182,13 +184,9 @@ class StorageService:
         stream = await self._storage.get_stream(obj.object_key)
         return obj, stream
 
-    async def presign(self, object_id: UUID, *, method: str, expires_in: int) -> str:
+    async def presign(self, object_id: UUID, *, expires_in: int) -> str:
         obj = await self.get(object_id)
-        if method == "GET":
-            return await self._storage.presign_get(obj.object_key, expires_in=expires_in)
-        return await self._storage.presign_put(
-            obj.object_key, expires_in=expires_in, content_type=obj.content_type
-        )
+        return await self._storage.presign_get(obj.object_key, expires_in=expires_in)
 
     async def verify(self, object_id: UUID) -> bool:
         """Recomputes SHA-256 from S3 and compares against the recorded value."""
@@ -199,10 +197,29 @@ class StorageService:
         return digest.hexdigest() == obj.sha256
 
     async def delete(self, object_id: UUID, *, actor_name: str | None = None) -> None:
+        """Soft-delete the object: the DB row is the source of truth.
+
+        MIS-144: the row is marked DELETED and COMMITTED *before* S3 is
+        touched. The other order leaves a row saying AVAILABLE for an object
+        that no longer exists whenever the commit fails (or the process dies
+        between the two steps). With this order the only leftover is an orphan
+        blob — a row that says DELETED (or no row at all) next to an object
+        still in the bucket — and the storage GC sweeps those.
+        """
         obj = await self.get(object_id)
-        await self._storage.delete(obj.object_key)
         obj.status = "DELETED"
-        await self._db.flush()
+        await self._db.commit()
+        try:
+            await self._storage.delete(obj.object_key)
+        except Exception:
+            # The row already says DELETED; never fail the request over a
+            # leftover blob — the GC removes it.
+            logger.error(
+                "storage.object_delete_failed",
+                object_id=str(obj.id),
+                object_key=obj.object_key,
+                exc_info=True,
+            )
         await AuditService(self._db).log(
             action="storage.deleted",
             actor_name=actor_name,

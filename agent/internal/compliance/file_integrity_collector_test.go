@@ -1,6 +1,7 @@
 package compliance
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -51,7 +52,7 @@ func TestFileIntegrityCollector_Collect_FindsWrittenFile(t *testing.T) {
 	}
 
 	c := NewFileIntegrityCollectorWithConfig([]string{dir}, nil)
-	facts, err := c.Collect(nil)
+	facts, err := c.Collect(context.TODO())
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
 	}
@@ -84,7 +85,7 @@ func TestFileIntegrityCollector_Collect_ReportsModeUIDGIDMTime(t *testing.T) {
 	}
 
 	c := NewFileIntegrityCollectorWithConfig([]string{dir}, nil)
-	facts, err := c.Collect(nil)
+	facts, err := c.Collect(context.TODO())
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
 	}
@@ -126,10 +127,11 @@ func TestNewFileIntegrityCollectorWithConfig_CustomWatchPathsOverrideDefault(t *
 	}
 }
 
-func TestBuildRegistry_ReplacesOnlyFileIntegrityCollector(t *testing.T) {
-	registry := BuildRegistry([]string{"/custom/path"}, []string{"/ignore/me"})
+func TestBuildRegistryWithFIM_ReplacesOnlyFileIntegrityCollector(t *testing.T) {
+	fim := NewFileIntegrityCollectorWithConfig([]string{"/custom/path"}, []string{"/ignore/me"})
+	registry := BuildRegistryWithFIM(fim)
 	if len(registry) != len(Registry) {
-		t.Fatalf("BuildRegistry length = %d, want %d (same collector count as Registry)", len(registry), len(Registry))
+		t.Fatalf("BuildRegistryWithFIM length = %d, want %d (same collector count as Registry)", len(registry), len(Registry))
 	}
 
 	var found bool
@@ -145,7 +147,7 @@ func TestBuildRegistry_ReplacesOnlyFileIntegrityCollector(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatal("BuildRegistry dropped the FileIntegrityCollector entirely")
+		t.Fatal("BuildRegistryWithFIM dropped the FileIntegrityCollector entirely")
 	}
 }
 
@@ -160,7 +162,7 @@ func TestFileIntegrityCollector_Collect_DedupesOverlappingRoots(t *testing.T) {
 	}
 
 	c := NewFileIntegrityCollectorWithConfig([]string{dir, sub}, nil)
-	facts, err := c.Collect(nil)
+	facts, err := c.Collect(context.TODO())
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
 	}
@@ -181,7 +183,7 @@ func TestFileIntegrityCollector_Collect_SkipsOversizedFiles(t *testing.T) {
 	}
 
 	c := NewFileIntegrityCollectorWithConfig([]string{dir}, nil)
-	facts, err := c.Collect(nil)
+	facts, err := c.Collect(context.TODO())
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
 	}
@@ -206,7 +208,7 @@ func TestFileIntegrityCollector_SetPaths_ConcurrentWithCollect(t *testing.T) {
 		close(done)
 	}()
 	for i := 0; i < 50; i++ {
-		if _, err := c.Collect(nil); err != nil {
+		if _, err := c.Collect(context.TODO()); err != nil {
 			t.Fatalf("Collect: %v", err)
 		}
 	}

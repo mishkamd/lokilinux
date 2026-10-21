@@ -132,10 +132,9 @@ def validate(doc: dict) -> dict:
     if not isinstance(heartbeat, dict):
         raise PolicyValidationError("spec.heartbeat: must be a mapping")
     _reject_unknown(heartbeat, {"interval_seconds"}, "spec.heartbeat")
-    if "interval_seconds" in heartbeat or True:
-        heartbeat["interval_seconds"] = _clamp_int(
-            heartbeat.get("interval_seconds", 60), HEARTBEAT_INTERVAL_BOUNDS, "spec.heartbeat.interval_seconds"
-        )
+    heartbeat["interval_seconds"] = _clamp_int(
+        heartbeat.get("interval_seconds", 60), HEARTBEAT_INTERVAL_BOUNDS, "spec.heartbeat.interval_seconds"
+    )
     spec["heartbeat"] = heartbeat
 
     health = spec.get("health") or {}
@@ -212,7 +211,6 @@ def sign_payload(payload: dict) -> str:
 def verify_signature(payload: dict, signature_b64: str, public_key_b64_str: str) -> bool:
     """Mirror of the agent-side check — used by tests and by the admin UI's
     verify button."""
-    from cryptography.hazmat.primitives import serialization
     from cryptography.exceptions import InvalidSignature
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 

@@ -51,13 +51,13 @@ def test_validate_key_accepts_normal_key() -> None:
 
 def test_build_key_uses_category_prefix() -> None:
     object_id = uuid4()
-    key = _build_key("compliance.datastream", object_id, "ds.xml", version=1)
+    key = _build_key("compliance.datastream", object_id, "ds.xml")
     assert key == f"compliance/datastreams/{object_id}/v1/ds.xml"
 
 
 def test_build_key_unknown_category_raises() -> None:
     with pytest.raises(Exception):
-        _build_key("not.a.category", uuid4(), "f.txt", version=1)
+        _build_key("not.a.category", uuid4(), "f.txt")
 
 
 def test_categories_cover_expected_prefixes() -> None:

@@ -18,7 +18,7 @@ export type WorkflowNodeType =
   // Legacy aliases — permanent
   | 'validation' | 'wait_for_agent'
 
-export interface WorkflowNodeRetry {
+interface WorkflowNodeRetry {
   attempts: number
   delay: number
 }
@@ -38,7 +38,7 @@ export interface WorkflowNode {
   position?: { x: number; y: number }
 }
 
-export type WorkflowEdgeCondition = 'success' | 'failure' | 'always'
+type WorkflowEdgeCondition = 'success' | 'failure' | 'always'
 
 export type WorkflowHandleSide = 'top' | 'right' | 'bottom' | 'left'
 
@@ -73,9 +73,9 @@ export interface WorkflowStepRun {
   error: string | null
 }
 
-export type WorkflowRunStatus = 'PENDING' | 'RUNNING' | 'WAITING_APPROVAL' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'
+type WorkflowRunStatus = 'PENDING' | 'RUNNING' | 'WAITING_APPROVAL' | 'SUCCEEDED' | 'FAILED' | 'CANCELLED'
 
-export interface WorkflowRun {
+interface WorkflowRun {
   id: string
   workflow_id: string
   workflow_version_id: string
@@ -135,7 +135,7 @@ export interface WorkflowDetail extends Workflow {
 
 // The parsed spec.steps/spec.edges shape the backend compiler produces
 // (CompiledGraph, schemas/workflow.py) — what workflow_versions.graph holds.
-export interface CompiledGraph {
+interface CompiledGraph {
   targets: Record<string, unknown>
   strategy: { mode: string; batch_size?: number | null }
   defaults: { timeout?: number | null; on_failure?: string | null }
@@ -164,7 +164,7 @@ export interface ValidationIssue {
   step_id?: string | null
 }
 
-export interface DryRunStepResult {
+interface DryRunStepResult {
   id: string
   type: string
   eligible: number
