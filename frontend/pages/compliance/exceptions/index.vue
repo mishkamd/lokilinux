@@ -126,7 +126,7 @@ async function revoke(id: string) {
       sortable
       :page-size="25"
       empty-title="No exceptions"
-    >
+     caption="Compliance exceptions" preferences-key="compliance-exceptions">
       <template #rule_id-data="{ row }">
         <span class="font-mono text-xs" :title="row.rule_title ?? undefined">{{ row.rule_key || row.rule_id }}</span>
       </template>

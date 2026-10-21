@@ -65,7 +65,7 @@ const columns = [
       empty-description="Nothing matches these filters — the fleet may simply be compliant."
       rows-clickable
       @row-click="(row) => navigateTo(`/compliance/findings/${row.id}`)"
-    >
+     caption="Compliance findings" preferences-key="compliance-findings">
       <template #time-data="{ row }">
         <span class="font-mono text-xs">{{ fmtDateTime(String(row.time)) }}</span>
       </template>

@@ -106,7 +106,7 @@ function filterBySeverity(sev: string) {
       empty-title="No CVEs recorded yet"
       rows-clickable
       @row-click="(row) => navigateTo(`/vulnerabilities/${row.cve_id}`)"
-    >
+     caption="CVE catalog" preferences-key="cve-catalog">
       <template #cve_id-data="{ row }">
         <span class="font-mono text-sm text-primary-text">{{ row.cve_id }}</span>
       </template>

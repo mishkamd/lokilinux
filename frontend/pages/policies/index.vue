@@ -125,7 +125,7 @@ onMounted(() => store.fetchPolicies())
       :page-size="25"
       empty-title="No policies"
       empty-description="Create a policy to automate compliance checks."
-    >
+     caption="Enforcement policies" preferences-key="enforcement-policies">
       <template #is_enabled-data="{ row }">
         <Switch :model-value="Boolean(row.is_enabled)" :disabled="!canEdit" @update:model-value="toggleEnabled(row as unknown as Policy)" />
       </template>

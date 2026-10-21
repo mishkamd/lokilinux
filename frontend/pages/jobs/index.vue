@@ -82,6 +82,34 @@ async function approveJob(job: (typeof jobs.value)[0]) {
   }
 }
 
+// ── Bulk cancel ─────────────────────────────────────────────────────────────
+const selectedJobIds = ref<(string | number)[]>([])
+const cancellingSelected = ref(false)
+const bulkCancelOpen = ref(false)
+
+async function confirmCancelSelected() {
+  const ids = [...selectedJobIds.value]
+  bulkCancelOpen.value = false
+  if (!ids.length) return
+  cancellingSelected.value = true
+  let cancelled = 0
+  for (const id of ids) {
+    try {
+      await store.cancelJob(String(id))
+      cancelled++
+    } catch {
+      // one failure must not stop the rest
+    }
+  }
+  cancellingSelected.value = false
+  selectedJobIds.value = []
+  toast.add({
+    title: `${cancelled} job(s) cancelled`,
+    color: cancelled === ids.length ? 'green' : 'amber',
+  })
+  await store.fetchJobs()
+}
+
 async function confirmCancel() {
   if (!cancellingJob.value) return
   cancelling.value = true
@@ -164,10 +192,22 @@ onUnmounted(() => clearInterval(poll))
       :columns="columns"
       :loading="loading"
       sortable
+      selectable
+      :selected="selectedJobIds"
+      @update:selected="selectedJobIds = $event"
+      preferences-key="jobs"
+      caption="Jobs"
       :page-size="25"
       empty-title="No jobs"
-      empty-description="Create a job to run remediation on your servers."
     >
+      <template #bulk="{ selected }">
+        <Button size="xs" variant="outline" @click="bulkCancelOpen = true">
+          <Trash2 class="size-3.5" />
+          Cancel {{ selected.length }} job(s)
+        </Button>
+      </template>
+      empty-description="Create a job to run remediation on your servers."
+     caption="Jobs" preferences-key="jobs">
       <template #status-data="{ row }">
         <Badge :color="statusColor(String(row.status))" size="xs">{{ row.status }}</Badge>
       </template>
@@ -236,6 +276,22 @@ onUnmounted(() => clearInterval(poll))
     </Dialog>
 
     <JobDetail :job="selectedJob" @close="selectedJob = null" />
+
+    <ConfirmDeleteDialog
+      :model-value="bulkCancelOpen"
+      title="Cancel jobs"
+      confirm-label="Cancel jobs"
+      :loading="cancellingSelected"
+      @update:model-value="bulkCancelOpen = false"
+      @confirm="confirmCancelSelected"
+    >
+      <template #description>
+        <p class="text-sm text-muted-foreground">
+          Cancel <strong class="text-foreground">{{ selectedJobIds.length }}</strong> selected job(s)?
+          This cannot be undone.
+        </p>
+      </template>
+    </ConfirmDeleteDialog>
 
     <ConfirmDeleteDialog
       :model-value="!!cancellingJob"

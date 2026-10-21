@@ -80,7 +80,7 @@ onMounted(() => store.fetchIncidents())
       empty-description="Incidents appear here when correlated signals cross their thresholds."
       rows-clickable
       @row-click="(row) => router.push(`/incidents/${row.id}`)"
-    >
+     caption="Incidents" preferences-key="incidents">
       <template #severity-data="{ row }">
         <Badge :color="severityColor(String(row.severity))" size="xs">{{ row.severity }}</Badge>
       </template>

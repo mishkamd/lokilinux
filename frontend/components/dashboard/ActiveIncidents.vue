@@ -47,15 +47,16 @@ function duration(triggeredAt: string): string {
       </NuxtLink>
     </div>
 
-    <div v-if="props.error" class="text-xs text-destructive py-4 text-center">
-      Failed to load active incidents.
-    </div>
-    <div v-else-if="props.loading" class="space-y-2">
-      <Skeleton v-for="i in 3" :key="i" class="h-8 rounded-md" />
-    </div>
-    <div v-else-if="!props.incidents.length" class="text-xs text-muted-foreground py-4 text-center">
-      No active incidents.
-    </div>
+    <WidgetState
+      v-if="props.error || props.loading"
+      :error="props.error ? 'Failed to load active incidents.' : null"
+      :loading="props.loading"
+      :rows="3"
+      row-class="h-8 rounded-md"
+    />
+    <template v-else-if="!props.incidents.length">
+      <EmptyState>No active incidents.</EmptyState>
+    </template>
     <Table v-else>
       <TableHeader>
         <TableRow>

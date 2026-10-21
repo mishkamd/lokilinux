@@ -266,7 +266,7 @@ async function createGroup() {
       :page-size="25"
       empty-title="No policies"
       :empty-description="searchQuery ? `Nothing matches “${searchQuery}”.` : 'Create a policy or start from a seeded template.'"
-    >
+     caption="Agent policies">
       <template #toolbar>
         <Input v-model="searchQuery" placeholder="Search policies..." class="w-full sm:w-64" />
       </template>

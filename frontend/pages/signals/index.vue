@@ -72,7 +72,7 @@ onMounted(() => store.fetchSignals())
       :page-size="25"
       empty-title="No signals"
       empty-description="Signals appear here once agents report activity."
-    >
+     caption="Signals" preferences-key="signals">
       <template #severity-data="{ row }">
         <Badge :color="severityColor(String(row.severity))" size="xs">{{ row.severity }}</Badge>
       </template>

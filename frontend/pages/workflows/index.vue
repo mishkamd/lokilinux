@@ -91,7 +91,7 @@ async function remove(workflow: Workflow) {
       empty-description="Create a workflow to automate remediation."
       rows-clickable
       @row-click="(row) => navigateTo(`/workflows/${(row as unknown as Workflow).id}`)"
-    >
+     caption="Workflows" preferences-key="workflows">
       <template #name-data="{ row }">
         <div class="flex items-center gap-2">
           <span class="flex size-7 shrink-0 items-center justify-center rounded-md bg-[color-mix(in_oklch,var(--info)_15%,transparent)] text-info">

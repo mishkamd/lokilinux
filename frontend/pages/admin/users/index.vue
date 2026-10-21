@@ -137,7 +137,7 @@ const filteredUsers = computed(() => {
       :page-size="25"
       empty-title="No users found"
       :empty-description="searchQuery ? `Nothing matches “${searchQuery}”.` : 'Create the first user to get started.'"
-    >
+     caption="Users" preferences-key="users">
       <template #toolbar>
         <Input v-model="searchQuery" placeholder="Search name, email or role..." class="w-full sm:w-64" />
       </template>

@@ -28,15 +28,16 @@ function elapsed(startedAt: string | null): string {
       </NuxtLink>
     </div>
 
-    <div v-if="props.error" class="text-xs text-destructive py-4 text-center">
-      Failed to load running jobs.
-    </div>
-    <div v-else-if="props.loading" class="space-y-3">
-      <Skeleton v-for="i in 3" :key="i" class="h-10 rounded-md" />
-    </div>
-    <div v-else-if="!props.jobs.length" class="text-xs text-muted-foreground py-4 text-center">
-      No jobs currently running.
-    </div>
+    <WidgetState
+      v-if="props.error || props.loading"
+      :error="props.error ? 'Failed to load running jobs.' : null"
+      :loading="props.loading"
+      :rows="3"
+      row-class="h-10 rounded-md"
+    />
+    <template v-else-if="!props.jobs.length">
+      <EmptyState>No jobs currently running.</EmptyState>
+    </template>
     <div v-else class="space-y-3">
       <div v-for="job in props.jobs" :key="job.id" class="text-xs">
         <div class="flex items-center justify-between gap-2 mb-1">

@@ -107,7 +107,7 @@ async function confirmDelete() {
       sortable
       :page-size="25"
       empty-title="No projects"
-    >
+     caption="Ansible projects">
       <template #default_agent_ids-data="{ row }">
         <Badge color="gray" size="xs">{{ (row as AnsibleProject).default_agent_ids.length }} agents</Badge>
       </template>

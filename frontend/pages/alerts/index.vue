@@ -66,7 +66,7 @@ async function resolve(id: string) {
       :page-size="25"
       empty-title="No alerts"
       empty-description="Alerts appear here when rules trigger."
-    >
+     caption="Alerts" preferences-key="alerts">
       <template #severity-data="{ row }">
         <Badge :color="severityColor(String(row.severity))" size="xs">{{ row.severity }}</Badge>
       </template>

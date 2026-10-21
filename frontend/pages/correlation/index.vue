@@ -163,7 +163,7 @@ onMounted(() => store.fetchRules())
       :page-size="25"
       empty-title="No correlation rules"
       :empty-description="searchQuery ? `Nothing matches “${searchQuery}”.` : 'Create a rule to start correlating signals into incidents.'"
-    >
+     caption="Correlation rules" preferences-key="correlation-rules">
       <template #toolbar>
         <Input v-model="searchQuery" placeholder="Search rules..." class="w-full sm:w-64" />
       </template>

@@ -167,7 +167,7 @@ async function confirmExecute() {
       sortable
       :page-size="25"
       empty-title="No playbooks"
-    >
+     caption="Playbooks">
       <template #project_id-data="{ row }">
         <Badge color="gray" size="xs">{{ projectName((row as Playbook).project_id) }}</Badge>
       </template>

@@ -124,7 +124,7 @@ async function submitImport() {
       empty-title="No policy sets"
       rows-clickable
       @row-click="(row) => navigateTo(`/compliance/policies/${row.id}`)"
-    >
+     caption="Policy sets" preferences-key="compliance-policy-sets">
       <template #name-data="{ row }">
         <div>
           <p class="font-medium">{{ row.name }}</p>

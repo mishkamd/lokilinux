@@ -45,7 +45,7 @@ function coverageColor(pct: number): string {
       empty-description="Import ComplianceAsCode content or load curated rule packs to populate framework coverage."
       rows-clickable
       @row-click="(row) => navigateTo(`/compliance/standards/${row.key}/${row.version}`)"
-    >
+     caption="Standards" preferences-key="compliance-standards">
       <template #name-data="{ row }">
         <div>
           <p class="text-sm">{{ row.name }}</p>

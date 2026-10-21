@@ -175,7 +175,7 @@ async function rescan() {
           v-else :rows="selectedCveResources" :columns="resourceColumns" row-key="agent_id"
           sortable :page-size="25"
           :selectable="canEdit" :selected="selected" @update:selected="selected = $event"
-        >
+         caption="Affected hosts">
           <template #hostname-data="{ row }">
             <NuxtLink :to="`/servers/${row.agent_id}`" class="focus-ring font-mono text-xs text-primary-text hover:underline">
               {{ row.hostname || row.agent_id }}

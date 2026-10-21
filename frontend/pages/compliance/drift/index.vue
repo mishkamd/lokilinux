@@ -53,7 +53,7 @@ async function onSuppress(id: string) {
       empty-title="No drift detected"
       rows-clickable
       @row-click="(row) => navigateTo(`/compliance/drift/${row.id}`)"
-    >
+     caption="Drift events" preferences-key="compliance-drift">
       <template #time-data="{ row }">
         <span class="font-mono text-xs">{{ fmtDateTime(String(row.time)) }}</span>
       </template>

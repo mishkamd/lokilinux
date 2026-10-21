@@ -94,7 +94,7 @@ async function submitCreate() {
       empty-title="No baselines yet"
       rows-clickable
       @row-click="(row) => navigateTo(`/compliance/baselines/${row.id}`)"
-    >
+     caption="Baselines" preferences-key="compliance-baselines">
       <template #name-data="{ row }">
         <span class="font-medium">{{ row.name }}</span>
       </template>

@@ -121,7 +121,7 @@ onMounted(() => {
       :page-size="25"
       empty-title="No runbooks"
       empty-description="Create a runbook to automate incident response."
-    >
+     caption="Runbooks" preferences-key="runbooks">
       <template #name-data="{ row }">
         <button class="focus-ring font-medium hover:underline" @click="openEdit(row as Runbook)">{{ row.name }}</button>
       </template>

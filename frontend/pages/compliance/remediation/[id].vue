@@ -211,7 +211,7 @@ const actionColumns = [
         sortable
         :page-size="25"
         empty-title="No actions in this plan"
-      >
+       caption="Remediation actions">
         <template #sequence-data="{ row }">
           <span class="font-mono text-xs tabular-nums">{{ row.sequence }}</span>
         </template>

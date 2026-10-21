@@ -56,7 +56,7 @@ const columns = [
       empty-title="No rules found"
       rows-clickable
       @row-click="(row) => navigateTo(`/compliance/rules/${row.id}`)"
-    >
+     caption="Compliance rules" preferences-key="compliance-rules">
       <template #title-data="{ row }">
         <div>
           <div class="flex items-center gap-2">

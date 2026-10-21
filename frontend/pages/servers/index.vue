@@ -198,7 +198,7 @@ async function saveNewEntity() {
       selectable
       v-model:selected="selectedIds"
       @row-click="(row) => navigateTo(`/servers/${row.id}`)"
-    >
+     caption="Servers" preferences-key="servers">
       <template #hostname-data="{ row }">
         <span class="font-mono">{{ row.hostname }}</span>
       </template>

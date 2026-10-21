@@ -122,7 +122,7 @@ async function downloadReport(id: string, format: ReportFormat) {
       sortable
       :page-size="25"
       empty-title="No reports generated yet"
-    >
+     caption="Compliance reports">
       <template #report_type-data="{ row }">
         <Badge color="gray" size="xs">{{ row.report_type }}</Badge>
       </template>

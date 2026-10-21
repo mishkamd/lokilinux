@@ -17,6 +17,13 @@ const props = withDefaults(
     skeletonRows?: number
     emptyTitle?: string
     emptyDescription?: string
+    /** Accessible name for the table — a screen reader announces a table with
+     *  no name as an unlabelled grid. */
+    caption?: string
+    /** Persistence key for the column visibility + density preferences. */
+    preferencesKey?: string
+    /** Start with these columns hidden (the user can bring them back). */
+    hiddenColumns?: string[]
   }>(),
   { skeletonRows: 5 },
 )
@@ -28,6 +35,58 @@ const emit = defineEmits<{
 
 const slots = useSlots()
 
+// ── Column visibility + density (per table, persisted locally) ──────────────
+const STORAGE_KEY = 'lokilinux:table:'
+const hidden = ref<string[]>([])
+const density = ref<'compact' | 'comfortable'>('comfortable')
+
+function loadPreferences() {
+  if (!props.preferencesKey) return
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY + props.preferencesKey)
+    if (!raw) {
+      hidden.value = props.hiddenColumns ?? []
+      return
+    }
+    const parsed = JSON.parse(raw) as { hidden?: string[]; density?: 'compact' | 'comfortable' }
+    hidden.value = parsed.hidden ?? props.hiddenColumns ?? []
+    density.value = parsed.density ?? 'comfortable'
+  } catch {
+    hidden.value = props.hiddenColumns ?? []
+  }
+}
+
+function persistPreferences() {
+  if (!props.preferencesKey) return
+  try {
+    localStorage.setItem(
+      STORAGE_KEY + props.preferencesKey,
+      JSON.stringify({ hidden: hidden.value, density: density.value }),
+    )
+  } catch {
+    // private mode / quota — the preferences just don't persist
+  }
+}
+
+onMounted(loadPreferences)
+
+function toggleColumn(key: string) {
+  hidden.value = hidden.value.includes(key)
+    ? hidden.value.filter((k) => k !== key)
+    : [...hidden.value, key]
+  persistPreferences()
+}
+
+function toggleDensity() {
+  density.value = density.value === 'compact' ? 'comfortable' : 'compact'
+  persistPreferences()
+}
+
+/** The columns actually rendered, in the order the caller declared them. */
+const visibleColumns = computed(() =>
+  props.columns.filter((c) => !hidden.value.includes(c.key)),
+)
+
 const keyField = computed(() => props.rowKey ?? 'id')
 const selectedSet = computed(() => new Set(props.selected ?? []))
 const allSelected = computed(() =>
@@ -37,6 +96,10 @@ const allSelected = computed(() =>
 
 function val(row: T, key: string): unknown {
   return (row as Record<string, unknown>)[key]
+}
+
+function clearSelection() {
+  emit('update:selected', [])
 }
 
 function toggleAll(checked: boolean) {
@@ -132,19 +195,59 @@ function fmt(v: unknown): string {
 
 <template>
   <div class="rounded-[var(--radius-lg)] border border-border bg-card shadow-[var(--shadow-surface)] overflow-hidden">
-    <div v-if="$slots.toolbar" class="border-b border-border px-3 py-2">
+    <div
+      v-if="$slots.toolbar || $slots.bulk || preferencesKey"
+      class="flex items-center gap-2 border-b border-border px-3 py-2"
+    >
       <slot name="toolbar" />
+      <!-- Bulk actions, shown only while rows are selected -->
+      <div v-if="$slots.bulk && selected?.length" class="flex items-center gap-2 border-l border-border pl-2">
+        <slot name="bulk" :selected="selected" :clear="clearSelection" />
+      </div>
+      <div v-if="preferencesKey" class="ml-auto flex items-center gap-1">
+        <button
+          type="button"
+          class="focus-ring rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          :aria-pressed="density === 'compact'"
+          @click="toggleDensity"
+        >
+          {{ density === 'compact' ? 'Comfortable' : 'Compact' }}
+        </button>
+        <details class="relative">
+          <summary
+            class="focus-ring cursor-pointer list-none rounded-md px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          >
+            Columns
+          </summary>
+          <div class="absolute right-0 z-20 mt-1 w-44 rounded-[var(--radius-sm)] border border-border bg-popover p-1 shadow-[var(--shadow-overlay)]">
+            <label
+              v-for="col in columns"
+              :key="col.key"
+              class="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1 text-xs text-foreground hover:bg-accent"
+            >
+              <input
+                type="checkbox"
+                class="size-3.5 accent-[var(--primary)]"
+                :checked="!hidden.includes(col.key)"
+                @change="toggleColumn(col.key)"
+              >
+              {{ col.label }}
+            </label>
+          </div>
+        </details>
+      </div>
     </div>
 
-    <div class="overflow-x-auto">
-      <Table>
+    <div class="overflow-x-auto" :class="density === 'compact' ? '[&_td]:py-0.5 [&_th]:h-7' : ''">
+      <Table :aria-label="caption">
+        <caption v-if="caption" class="sr-only">{{ caption }}</caption>
         <TableHeader>
           <TableRow>
             <TableHead v-if="selectable" class="w-10">
               <Checkbox :model-value="allSelected" @update:model-value="toggleAll" />
             </TableHead>
             <TableHead
-              v-for="col in columns"
+              v-for="col in visibleColumns"
               :key="col.key"
               :aria-sort="sortKey === col.key ? (sortDir === 'asc' ? 'ascending' : 'descending') : 'none'"
             >
@@ -192,7 +295,7 @@ function fmt(v: unknown): string {
                   @update:model-value="(checked) => toggleRow(row, checked)"
                 />
               </TableCell>
-              <TableCell v-for="col in columns" :key="col.key">
+              <TableCell v-for="col in visibleColumns" :key="col.key">
                 <template v-if="slots[`${col.key}-data`]">
                   <slot :name="`${col.key}-data`" :row="row" />
                 </template>
@@ -201,7 +304,7 @@ function fmt(v: unknown): string {
             </TableRow>
           </template>
           <TableRow v-else class="hover:bg-transparent">
-            <TableCell :colspan="columns.length + (selectable ? 1 : 0)">
+            <TableCell :colspan="visibleColumns.length + (selectable ? 1 : 0)">
               <slot name="empty">
                 <div class="flex flex-col items-center gap-1 py-8 text-center">
                   <p class="text-sm font-medium text-foreground">{{ emptyTitle ?? 'No data' }}</p>

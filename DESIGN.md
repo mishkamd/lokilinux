@@ -92,8 +92,9 @@ rounded:
 spacing:
   xs: "4px"
   sm: "8px"
-  md: "16px"
-  lg: "24px"
+  md: "12px"
+  lg: "16px"
+  xl: "24px"
 components:
   button-primary:
     backgroundColor: "{colors.tactical-forest}"
@@ -344,6 +345,10 @@ are the contract between design and code.
 ### Responsive
 - **Every grid declares a mobile-first base** (`grid-cols-1 sm:grid-cols-…`). A fixed `grid-cols-4` with no base is a 375px-wide bug waiting to happen.
 - **Tables scroll horizontally** (`overflow-x-auto`) rather than squeezing columns.
+
+### Spacing
+- **One scale: 4 / 8 / 12 / 16 / 24.** 12px (`gap-3`, `p-3`) is the workhorse between the controls and their neighbours — it is part of the scale, not a deviation from it. Arbitrary values (`p-[13px]`) are banned by the design-system guard.
+- **Vertical rhythm in a panel:** 16px between blocks, 8px between a label and its control, 12px between a control and its helper text.
 
 ### Type scale
 - **Prefer the Tailwind steps that match the scale**: `text-xs` = 12px, `text-sm` = 14px, `text-lg` = 18px. The 11px (`.label-caps`) and 13px (`.data-value`) steps are the only arbitrary sizes in use; anything else is a new step that needs a token first.

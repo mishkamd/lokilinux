@@ -157,7 +157,7 @@ const columns = [
           sortable
           :page-size="25"
           empty-title="No rules"
-        >
+         caption="Policy set rules">
           <template #domain-data="{ row }"><Badge color="gray" size="xs">{{ row.domain }}</Badge></template>
           <template #severity-data="{ row }">
             <Badge :color="SEVERITY_COLORS[String(row.severity)] ?? 'gray'" size="xs">{{ row.severity }}</Badge>

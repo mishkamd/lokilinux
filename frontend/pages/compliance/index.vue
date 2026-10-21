@@ -325,7 +325,7 @@ async function submitRunAssessment() {
           <DataTable
             v-if="topViolations.top_rules.length"
             :rows="topViolations.top_rules.slice(0, 5)" :columns="ruleViolationColumns" row-key="rule_id"
-          >
+           caption="Top violating rules">
             <template #title-data="{ row }">
               <p class="text-sm font-medium truncate" :title="row.title">{{ row.title }}</p>
               <p class="text-xs text-muted-foreground font-mono truncate">{{ row.rule_key }} · {{ row.domain }}</p>
@@ -338,7 +338,7 @@ async function submitRunAssessment() {
             class="mt-3"
             :rows="sortedDrift.slice(0, 5)" :columns="driftColumns" row-key="id" rows-clickable
             @row-click="(row) => navigateTo(`/compliance/drift/${row.id}`)"
-          >
+           caption="Recent drift">
             <template #summary-data="{ row }">
               <p class="text-sm font-medium truncate">{{ row.summary }}</p>
               <p class="text-xs text-muted-foreground font-mono truncate">
@@ -365,7 +365,7 @@ async function submitRunAssessment() {
           v-else
           :rows="topChangedFiles.slice(0, 8)" :columns="changedFilesColumns" row-key="path" rows-clickable
           @row-click="(row) => navigateTo(`/compliance/file-integrity?path=${encodeURIComponent(String(row.path))}`)"
-        >
+         caption="Standards coverage">
           <template #path-data="{ row }"><span class="font-mono text-xs truncate" :title="row.path">{{ row.path }}</span></template>
           <template #change_count-data="{ row }"><Badge color="gray" size="xs">{{ row.change_count }}×</Badge></template>
         </DataTable>
@@ -388,7 +388,7 @@ async function submitRunAssessment() {
           v-else
           :rows="baselines.slice(0, 5)" :columns="baselineColumns" row-key="id" rows-clickable
           @row-click="(row) => navigateTo(`/compliance/baselines/${row.id}`)"
-        >
+         caption="Policy sets">
           <template #name-data="{ row }"><p class="text-sm font-medium">{{ row.name }}</p></template>
           <template #scope_type-data="{ row }"><span class="text-xs text-muted-foreground font-mono">{{ row.scope_type }}</span></template>
           <template #is_enabled-data="{ row }">

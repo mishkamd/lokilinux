@@ -434,7 +434,7 @@ const VULN_FILTER_OPTIONS = [
         <div class="mt-4 space-y-6">
           <div>
             <h3 class="text-sm font-medium mb-2">Disks</h3>
-            <DataTable :rows="server.disks ?? []" :columns="diskColumns" sortable empty-title="No disks reported">
+            <DataTable :rows="server.disks ?? []" :columns="diskColumns" sortable empty-title="No disks reported" caption="Server disks">
               <template #usage-data="{ row }">
                 {{ formatBytes(row.used_size) }} / {{ formatBytes(row.total_size) }}
               </template>
@@ -448,7 +448,7 @@ const VULN_FILTER_OPTIONS = [
 
           <div>
             <h3 class="text-sm font-medium mb-2">Network Interfaces</h3>
-            <DataTable :rows="server.network_interfaces ?? []" :columns="networkColumns" sortable empty-title="No interfaces reported">
+            <DataTable :rows="server.network_interfaces ?? []" :columns="networkColumns" sortable empty-title="No interfaces reported" caption="Server network interfaces">
               <template #ip_addresses-data="{ row }">
                 {{ row.ip_addresses?.join(', ') || '—' }}
               </template>
@@ -460,7 +460,7 @@ const VULN_FILTER_OPTIONS = [
 
           <div>
             <h3 class="text-sm font-medium mb-2">Block Devices</h3>
-            <DataTable :rows="server.block_devices ?? []" :columns="blockDeviceColumns" sortable empty-title="No block devices reported">
+            <DataTable :rows="server.block_devices ?? []" :columns="blockDeviceColumns" sortable empty-title="No block devices reported" caption="Server block devices">
               <template #name-data="{ row }">
                 <span :class="row.parent_name ? 'pl-4' : ''">{{ row.parent_name ? '└─ ' : '' }}{{ row.name }}</span>
               </template>
@@ -470,7 +470,7 @@ const VULN_FILTER_OPTIONS = [
 
           <div>
             <h3 class="text-sm font-medium mb-2">Listening Ports</h3>
-            <DataTable :rows="server.listening_ports ?? []" :columns="listeningPortColumns" sortable empty-title="No listening ports reported">
+            <DataTable :rows="server.listening_ports ?? []" :columns="listeningPortColumns" sortable empty-title="No listening ports reported" caption="Server listening ports">
               <template #protocol-data="{ row }">
                 <Badge color="gray" size="xs">{{ row.protocol }}</Badge>
               </template>
@@ -503,7 +503,7 @@ const VULN_FILTER_OPTIONS = [
             empty-description="This appears after the first heartbeat with inventory from the agent."
             selectable
             v-model:selected="selectedPackageIds"
-          >
+           caption="Server packages">
             <template #latest_version-data="{ row }">
               <span v-if="row.latest_version" class="text-[13px] font-medium">{{ row.latest_version }}</span>
               <span v-else class="text-[13px] text-muted-foreground">{{ row.version }}</span>
@@ -531,7 +531,7 @@ const VULN_FILTER_OPTIONS = [
             :page-size="25"
             empty-title="No vulnerabilities reported"
             :empty-description="vulnFilter === 'open' ? 'Switch to “All” to see resolved findings.' : 'This appears after CVE scan processing for this server\'s packages.'"
-          >
+           caption="Server vulnerabilities">
             <template #severity-data="{ row }">
               <Badge v-if="row.severity" :color="SEVERITY_COLORS[row.severity] ?? 'gray'" size="xs">{{ row.severity }}</Badge>
               <span v-else class="text-muted-foreground text-xs">—</span>
@@ -560,7 +560,7 @@ const VULN_FILTER_OPTIONS = [
             :page-size="25"
             empty-title="No drift detected"
             empty-description="This host matches its last known desired state."
-          >
+           caption="Server drift events">
             <template #time-data="{ row }">{{ fmtDateTime(row.time) }}</template>
             <template #severity-data="{ row }">
               <Badge :color="SEVERITY_COLORS[row.severity] ?? 'gray'" size="xs">{{ row.severity }}</Badge>
@@ -579,7 +579,7 @@ const VULN_FILTER_OPTIONS = [
             :page-size="25"
             empty-title="No compliance findings"
             empty-description="No rule has failed on this host."
-          >
+           caption="Server compliance findings">
             <template #time-data="{ row }">{{ fmtDateTime(row.time) }}</template>
             <template #severity-data="{ row }">
               <Badge :color="SEVERITY_COLORS[row.severity] ?? 'gray'" size="xs">{{ row.severity }}</Badge>
@@ -601,7 +601,7 @@ const VULN_FILTER_OPTIONS = [
             :page-size="25"
             empty-title="No file hashes reported"
             empty-description="This host has no file-integrity baseline yet."
-          >
+           caption="Server file hashes">
             <template #path-data="{ row }">
               <span class="font-mono text-xs truncate" :title="row.path">{{ row.path }}</span>
             </template>

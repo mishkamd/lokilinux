@@ -30,15 +30,16 @@ function worstSeverity(r: TopVulnerableResource): { label: string; color: string
       </NuxtLink>
     </div>
 
-    <div v-if="props.error" class="text-xs text-destructive py-4 text-center">
-      Failed to load vulnerable servers.
-    </div>
-    <div v-else-if="props.loading" class="space-y-3">
-      <Skeleton v-for="i in 3" :key="i" class="h-10 rounded-md" />
-    </div>
-    <div v-else-if="!props.resources.length" class="text-xs text-muted-foreground py-4 text-center">
-      No vulnerable servers detected.
-    </div>
+    <WidgetState
+      v-if="props.error || props.loading"
+      :error="props.error ? 'Failed to load vulnerable servers.' : null"
+      :loading="props.loading"
+      :rows="3"
+      row-class="h-10 rounded-md"
+    />
+    <template v-else-if="!props.resources.length">
+      <EmptyState>No vulnerable servers detected.</EmptyState>
+    </template>
     <div v-else class="space-y-2">
       <NuxtLink
         v-for="r in props.resources.slice(0, 5)" :key="r.agent_id"

@@ -29,15 +29,16 @@ function relativeTime(iso: string | null): string {
       </NuxtLink>
     </div>
 
-    <div v-if="props.error" class="flex-1 flex items-center justify-center text-xs text-destructive">
-      Failed to load recent jobs.
-    </div>
-    <div v-else-if="props.loading" class="space-y-3">
-      <Skeleton v-for="i in 3" :key="i" class="h-10 rounded-md" />
-    </div>
-    <div v-else-if="!props.jobs.length" class="flex-1 flex items-center justify-center text-xs text-muted-foreground">
-      No failed jobs — automation is healthy.
-    </div>
+    <WidgetState
+      v-if="props.error || props.loading"
+      :error="props.error ? 'Failed to load recent jobs.' : null"
+      :loading="props.loading"
+      :rows="3"
+      row-class="h-10 rounded-md"
+    />
+    <template v-else-if="!props.jobs.length">
+      <EmptyState>No failed jobs — automation is healthy.</EmptyState>
+    </template>
     <div v-else class="space-y-2">
       <NuxtLink
         v-for="job in props.jobs.slice(0, 5)" :key="job.id"

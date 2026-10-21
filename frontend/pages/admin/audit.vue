@@ -54,7 +54,7 @@ const columns = [
       sortable
       :page-size="25"
       empty-title="No audit entries"
-    >
+     caption="Audit log entries" preferences-key="audit">
       <template #timestamp-data="{ row }">
         <span class="font-mono text-xs text-muted-foreground">{{ fmtDateTime(String(row.timestamp)) }}</span>
       </template>

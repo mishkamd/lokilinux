@@ -55,15 +55,16 @@ function lastSeen(iso: string | null): string {
       </div>
     </div>
 
-    <div v-if="props.error" class="text-xs text-destructive py-4 text-center">
-      Failed to load inventory.
-    </div>
-    <div v-else-if="props.loading" class="space-y-2">
-      <Skeleton v-for="i in 4" :key="i" class="h-8 rounded-md" />
-    </div>
-    <div v-else-if="!filteredServers.length" class="text-xs text-muted-foreground py-4 text-center">
-      No servers match this filter.
-    </div>
+    <WidgetState
+      v-if="props.error || props.loading"
+      :error="props.error ? 'Failed to load inventory.' : null"
+      :loading="props.loading"
+      :rows="4"
+      row-class="h-8 rounded-md"
+    />
+    <template v-else-if="!filteredServers.length">
+      <EmptyState>No servers match this filter.</EmptyState>
+    </template>
     <div v-else class="overflow-x-auto">
       <Table>
         <TableHeader>

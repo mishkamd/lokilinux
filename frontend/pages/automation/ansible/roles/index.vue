@@ -134,7 +134,7 @@ async function confirmDelete() {
       sortable
       :page-size="25"
       empty-title="No roles"
-    >
+     caption="Ansible roles">
       <template #files-data="{ row }">
         <Badge color="gray" size="xs">{{ (row as AnsibleRole).file_count }} files</Badge>
       </template>

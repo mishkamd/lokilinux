@@ -166,7 +166,7 @@ async function openHistory(template: PlaybookTemplate) {
       sortable
       :page-size="25"
       empty-title="No templates"
-    >
+     caption="Job templates">
       <template #playbook_id-data="{ row }">
         <span class="text-sm">{{ playbookName((row as PlaybookTemplate).playbook_id) }}</span>
       </template>

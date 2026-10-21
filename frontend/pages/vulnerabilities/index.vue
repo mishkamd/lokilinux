@@ -117,7 +117,7 @@ const topVulnerabilities = computed(() => [...cves.value].slice(0, 10))
         <Skeleton v-if="topResourcesLoading" class="h-40 w-full" />
         <EmptyState v-else-if="topResources.length === 0">No open vulnerabilities on any scanned resource.</EmptyState>
         <DataTable v-else :rows="topResources" :columns="resourceColumns" row-key="agent_id" rows-clickable
-                   @row-click="(row) => navigateTo(`/servers/${row.agent_id}`)">
+                   @row-click="(row) => navigateTo(`/servers/${row.agent_id}`)" caption="Affected hosts">
           <template #hostname-data="{ row }">
             <span class="font-mono text-xs">{{ row.hostname || row.agent_id }}</span>
           </template>
@@ -137,7 +137,7 @@ const topVulnerabilities = computed(() => [...cves.value].slice(0, 10))
         <Skeleton v-if="patchableLoading" class="h-40 w-full" />
         <EmptyState v-else-if="patchable.length === 0">No patchable vulnerabilities found.</EmptyState>
         <DataTable v-else :rows="patchable" :columns="patchableColumns" rows-clickable
-                   @row-click="(row) => navigateTo(`/vulnerabilities/${row.cve_id}`)">
+                   @row-click="(row) => navigateTo(`/vulnerabilities/${row.cve_id}`)" caption="Vulnerability catalog">
           <template #cve_id-data="{ row }"><span class="font-mono text-xs text-primary-text">{{ row.cve_id }}</span></template>
           <template #cvss_v3_severity-data="{ row }">
             <Badge v-if="row.cvss_v3_severity" :color="SEVERITY_COLORS[String(row.cvss_v3_severity)] ?? 'gray'" size="xs">{{ row.cvss_v3_severity }}</Badge>
@@ -160,7 +160,7 @@ const topVulnerabilities = computed(() => [...cves.value].slice(0, 10))
       <Skeleton v-if="cvesLoading" class="h-48 w-full" />
       <EmptyState v-else-if="topVulnerabilities.length === 0">No CVEs recorded yet.</EmptyState>
       <DataTable v-else :rows="topVulnerabilities" :columns="topVulnColumns" rows-clickable
-                 @row-click="(row) => navigateTo(`/vulnerabilities/${row.cve_id}`)">
+                 @row-click="(row) => navigateTo(`/vulnerabilities/${row.cve_id}`)" caption="CVE catalog">
         <template #cve_id-data="{ row }"><span class="font-mono text-xs text-primary-text">{{ row.cve_id }}</span></template>
         <template #cvss_v3_score-data="{ row }"><span class="font-mono text-xs">{{ row.cvss_v3_score ?? '—' }}</span></template>
         <template #cvss_v3_severity-data="{ row }">

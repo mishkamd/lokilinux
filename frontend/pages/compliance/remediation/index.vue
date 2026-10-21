@@ -172,7 +172,7 @@ async function submitWindow() {
       empty-title="No remediation plans"
       rows-clickable
       @row-click="(row) => navigateTo(`/compliance/remediation/${row.id}`)"
-    >
+     caption="Remediation plans" preferences-key="compliance-remediation">
       <template #status-data="{ row }">
         <Badge :color="STATUS_COLORS[row.status as RemediationPlanStatus] ?? 'gray'" size="xs">{{ row.status }}</Badge>
       </template>

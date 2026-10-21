@@ -207,7 +207,7 @@ const changeColumns = [
           :page-size="25"
           empty-title="No watched files"
           :empty-description="fileHashPathPrefix ? 'No watched files match the path prefix.' : 'Files appear here after agents report their inventory.'"
-        >
+         caption="File hashes">
           <template #path-data="{ row }">
             <span class="font-mono text-xs">{{ row.path }}</span>
           </template>
@@ -242,7 +242,7 @@ const changeColumns = [
           sortable
           :page-size="25"
           empty-title="No changes recorded"
-        >
+         caption="File changes">
           <template #time-data="{ row }">
             <span class="font-mono text-xs">{{ fmtDateTime(String(row.time)) }}</span>
           </template>

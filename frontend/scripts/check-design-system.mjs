@@ -55,6 +55,7 @@ const files = SCAN_DIRS.flatMap((d) => walk(join(ROOT, d)))
 const PALETTE = /\b(?:text|bg|border|ring|from|to|via|fill|stroke|shadow|outline|decoration|accent|caret|divide|placeholder)-(?:red|green|blue|yellow|amber|gray|zinc|slate|orange|purple|indigo|emerald|sky|rose|lime|teal|cyan|fuchsia|pink|violet)-\d{2,3}\b/
 const HEX = /#[0-9a-fA-F]{3,8}\b/
 const RADIUS = /rounded-\[\d+px\]/
+const SPACING = /\b(?:gap|p|px|py|pt|pb|pl|pr|mt|mb|ml|mr|space-[xy])-\[\d+px\]/
 const CONFIRM = /(?<!function\s)(?<!const\s)(?<!let\s)(?<!var\s)(?<!=>\s)(?:window\.)?(?:confirm|alert|prompt)\s*\(/
 // Elements that already carry their own ring.
 const RING_CARRIERS = ['Button', 'Input', 'Select', 'Textarea', 'Checkbox', 'Switch', 'Stepper', 'AppTabs', 'TabNav', 'DataTable', 'FileInput', 'ColorModeButton']
@@ -70,6 +71,7 @@ for (const file of files) {
     if (HEX.test(line)) report(file, i + 1, 'hex', `raw hex color — use a token (${line.trim().slice(0, 60)})`)
     if (PALETTE.test(line)) report(file, i + 1, 'palette', `Tailwind palette color — use a token (${line.trim().slice(0, 60)})`)
     if (RADIUS.test(line)) report(file, i + 1, 'radius', `arbitrary radius — use --radius-* (${line.trim().slice(0, 60)})`)
+    if (SPACING.test(line)) report(file, i + 1, 'spacing', `arbitrary spacing — use the 4/8/12/16/24 scale (${line.trim().slice(0, 60)})`)
     if (CONFIRM.test(line) && !file.endsWith('.test.ts')) {
       report(file, i + 1, 'confirm', `window.confirm/alert/prompt — use ConfirmDeleteDialog (${line.trim().slice(0, 60)})`)
     }
