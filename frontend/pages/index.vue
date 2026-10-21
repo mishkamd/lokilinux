@@ -162,7 +162,7 @@ function pctOfFleet(count: number): string {
             v-for="item in needsAction"
             :key="item.key"
             :to="item.to"
-            class="group flex items-center gap-3 rounded-[var(--radius-lg)] border border-border bg-card px-4 py-3 transition-colors hover:border-primary/40"
+            class="focus-ring group flex items-center gap-3 rounded-[var(--radius-lg)] border border-border bg-card px-4 py-3 transition-colors hover:border-primary/40"
           >
             <span
               class="flex size-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold"

@@ -138,7 +138,7 @@ const columns = [
     </PageHeader>
     <p v-if="selectedPolicySet.parent_policy_set_id" class="text-xs text-muted-foreground mb-4">
       New version of
-      <NuxtLink :to="`/compliance/policies/${selectedPolicySet.parent_policy_set_id}`" class="text-primary hover:underline">
+      <NuxtLink :to="`/compliance/policies/${selectedPolicySet.parent_policy_set_id}`" class="focus-ring text-primary-text hover:underline">
         a previously published set
       </NuxtLink>
     </p>
@@ -147,7 +147,7 @@ const columns = [
       <template #rules>
         <Alert v-if="policySetRules.length === 0" color="amber" class="mb-4">
           This policy set has no rules and cannot be published.
-          <NuxtLink to="/compliance/policies" class="underline">Use "Import from ComplianceAsCode"</NuxtLink>
+          <NuxtLink to="/compliance/policies" class="focus-ring underline">Use "Import from ComplianceAsCode"</NuxtLink>
           on the Policy Sets list to populate it.
         </Alert>
         <DataTable

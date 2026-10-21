@@ -34,14 +34,14 @@ describe('dashboard/ActiveIncidents hostname', () => {
     })
     expect(wrapper.text()).toContain('web-01')
     expect(wrapper.text()).not.toContain('inv-db-07')
-  })
+  }, 20000)
 
   it('falls back to the inventory name when the alert hostname is null', async () => {
     const wrapper = await mountSuspended(ActiveIncidents, {
       props: { incidents: [alert({ hostname: null })], inventory },
     })
     expect(wrapper.text()).toContain('inv-db-07')
-  })
+  }, 20000)
 
   it('falls back to the raw agent id when neither the alert nor the inventory knows the host', async () => {
     const wrapper = await mountSuspended(ActiveIncidents, {

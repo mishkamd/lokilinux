@@ -78,7 +78,23 @@ function validate(): string | null {
   return null
 }
 
+// Per-field messages: the rule's problems belong to the fields, not to a toast.
+const fieldErrors = reactive({
+  name: '', incident_type: '', window_seconds: '', threshold_score: '', conditions: '',
+})
+
+function validateFields(): boolean {
+  fieldErrors.name = form.value.name.trim() ? '' : 'Name is required.'
+  fieldErrors.incident_type = form.value.incident_type.trim() ? '' : 'Incident type is required.'
+  fieldErrors.window_seconds =
+    form.value.window_seconds < 30 || form.value.window_seconds > 3600 ? 'Must be 30-3600 seconds.' : ''
+  fieldErrors.threshold_score = form.value.threshold_score <= 0 ? 'Must be greater than 0.' : ''
+  fieldErrors.conditions = form.value.conditions.length ? '' : 'At least one condition is required.'
+  return !Object.values(fieldErrors).some(Boolean)
+}
+
 async function submit() {
+  if (!validateFields()) return
   const err = validate()
   if (err) {
     toast.add({ title: 'Invalid rule', description: err, color: 'red' })
@@ -186,24 +202,32 @@ onMounted(() => store.fetchRules())
       <template #body>
         <div class="space-y-4">
           <div class="grid grid-cols-2 gap-3">
-            <FormField label="Name" required>
-              <Input v-model="form.name" />
+            <FormField label="Name" required :error="fieldErrors.name">
+              <template #default="{ invalid, describedBy }">
+                <Input v-model="form.name" :invalid="invalid" :aria-describedby="describedBy" @input="fieldErrors.name = ''" />
+              </template>
             </FormField>
-            <FormField label="Incident type" required>
-              <Input v-model="form.incident_type" placeholder="application_degradation" />
+            <FormField label="Incident type" required :error="fieldErrors.incident_type">
+              <template #default="{ invalid, describedBy }">
+                <Input v-model="form.incident_type" placeholder="application_degradation" :invalid="invalid" :aria-describedby="describedBy" @input="fieldErrors.incident_type = ''" />
+              </template>
             </FormField>
             <FormField label="Incident severity">
               <Select v-model="form.incident_severity" :options="['CRITICAL', 'HIGH', 'MEDIUM', 'LOW']" />
             </FormField>
-            <FormField label="Threshold score">
-              <Input v-model.number="form.threshold_score" type="number" min="1" />
+            <FormField label="Threshold score" :error="fieldErrors.threshold_score">
+              <template #default="{ invalid, describedBy }">
+                <Input v-model.number="form.threshold_score" type="number" min="1" :invalid="invalid" :aria-describedby="describedBy" @input="fieldErrors.threshold_score = ''" />
+              </template>
             </FormField>
-            <FormField label="Window (seconds, 30-3600)">
-              <Input v-model.number="form.window_seconds" type="number" min="30" max="3600" />
+            <FormField label="Window (seconds, 30-3600)" :error="fieldErrors.window_seconds">
+              <template #default="{ invalid, describedBy }">
+                <Input v-model.number="form.window_seconds" type="number" min="30" max="3600" :invalid="invalid" :aria-describedby="describedBy" @input="fieldErrors.window_seconds = ''" />
+              </template>
             </FormField>
           </div>
 
-          <FormField label="Conditions (signal type + weight)">
+          <FormField label="Conditions (signal type + weight)" :error="fieldErrors.conditions">
             <div class="space-y-2">
               <div v-for="(c, i) in form.conditions" :key="i" class="flex items-center gap-2">
                 <Input v-model="(c as CorrelationCondition).signal" placeholder="cpu.high" class="flex-1" />

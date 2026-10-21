@@ -39,7 +39,7 @@ onMounted(() => store.fetchStandard(key, version))
         </EmptyState>
         <ul v-else class="space-y-1.5">
           <li v-for="rule in control.rules" :key="rule.id" class="flex items-center justify-between gap-3 text-sm">
-            <NuxtLink :to="`/compliance/rules/${rule.id}`" class="hover:underline truncate">{{ rule.title }}</NuxtLink>
+            <NuxtLink :to="`/compliance/rules/${rule.id}`" class="focus-ring hover:underline truncate">{{ rule.title }}</NuxtLink>
             <div class="flex items-center gap-1.5 shrink-0">
               <Badge :color="SEVERITY_COLORS[rule.severity] ?? 'gray'" size="xs">{{ rule.severity }}</Badge>
               <Badge :color="CHECK_SOURCE_COLORS[rule.check_source] ?? 'gray'" size="xs">{{ rule.check_source }}</Badge>

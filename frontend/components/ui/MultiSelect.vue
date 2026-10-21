@@ -111,7 +111,7 @@ onClickOutside(containerRef, () => {
         :key="opt.value"
         type="button"
         @click="selectOption(opt.value)"
-        class="block w-full px-3 py-2 text-left text-sm hover:bg-muted focus:bg-muted focus:outline-none"
+        class="focus-ring block w-full px-3 py-2 text-left text-sm hover:bg-muted focus:bg-muted focus:outline-none"
       >
         {{ opt.label }}
       </button>

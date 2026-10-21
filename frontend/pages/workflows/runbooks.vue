@@ -48,11 +48,13 @@ function openEdit(runbook: Runbook) {
   showEditor.value = true
 }
 
+// Validation messages belong to the fields, not to a toast.
+const fieldErrors = reactive({ name: '', incident_type: '' })
+
 async function submit() {
-  if (!form.value.name.trim() || !form.value.incident_type.trim()) {
-    toast.add({ title: 'Invalid runbook', description: 'Name and incident type are required', color: 'red' })
-    return
-  }
+  fieldErrors.name = form.value.name.trim() ? '' : 'Name is required.'
+  fieldErrors.incident_type = form.value.incident_type.trim() ? '' : 'Incident type is required.'
+  if (fieldErrors.name || fieldErrors.incident_type) return
   submitting.value = true
   try {
     if (editingId.value) {
@@ -147,11 +149,26 @@ onMounted(() => {
     <Dialog v-model="showEditor" :title="editingId ? 'Edit runbook' : 'New runbook'">
       <template #body>
         <div class="space-y-4">
-          <FormField label="Name" required>
-            <Input v-model="form.name" />
+          <FormField label="Name" required :error="fieldErrors.name">
+            <template #default="{ invalid, describedBy }">
+              <Input
+                v-model="form.name"
+                :invalid="invalid"
+                :aria-describedby="describedBy"
+                @input="fieldErrors.name = ''"
+              />
+            </template>
           </FormField>
-          <FormField label="Incident type" required>
-            <Input v-model="form.incident_type" placeholder="application_degradation" />
+          <FormField label="Incident type" required :error="fieldErrors.incident_type">
+            <template #default="{ invalid, describedBy }">
+              <Input
+                v-model="form.incident_type"
+                placeholder="application_degradation"
+                :invalid="invalid"
+                :aria-describedby="describedBy"
+                @input="fieldErrors.incident_type = ''"
+              />
+            </template>
           </FormField>
           <FormField label="Workflow">
             <Select

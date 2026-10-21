@@ -706,8 +706,8 @@ const VULN_FILTER_OPTIONS = [
                 <span class="text-success font-medium">In sync</span>
               </template>
               <template v-else-if="policyState.desired">
-                <AlertTriangle class="size-4 text-amber-500" />
-                <span class="text-amber-500 font-medium">Out of sync</span>
+                <AlertTriangle class="size-4 text-warning" />
+                <span class="text-warning font-medium">Out of sync</span>
                 <span class="text-xs text-muted-foreground">
                   desired v{{ policyState.desired.version }} / actual
                   {{ policyState.actual ? `v${policyState.actual.version}` : 'none' }}

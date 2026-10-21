@@ -9,7 +9,9 @@
     "preview": "nuxi preview",
     "generate": "nuxi generate",
     "test": "vitest run",
-    "test:coverage": "vitest run --coverage"
+    "test:coverage": "vitest run --coverage",
+    "lint": "node scripts/check-design-system.mjs",
+    "typecheck": "vue-tsc --noEmit"
   },
   "dependencies": {
     "@better-auth/kysely-adapter": "^1.6.22",

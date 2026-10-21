@@ -222,7 +222,7 @@ async function openHistory(template: PlaybookTemplate) {
             <textarea
               v-model="form.extra_vars"
               rows="4"
-              class="w-full rounded-lg border border-input bg-card px-2.5 py-1.5 text-sm font-mono"
+              class="focus-ring w-full rounded-lg border border-input bg-card px-2.5 py-1.5 text-sm font-mono"
             />
           </FormField>
         </div>

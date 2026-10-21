@@ -228,7 +228,7 @@ async function confirmExecute() {
             <textarea
               v-model="executeExtraVars"
               rows="4"
-              class="w-full rounded-lg border border-input bg-card px-2.5 py-1.5 text-sm font-mono"
+              class="focus-ring w-full rounded-lg border border-input bg-card px-2.5 py-1.5 text-sm font-mono"
             />
           </FormField>
         </div>

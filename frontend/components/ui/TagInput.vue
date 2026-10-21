@@ -59,7 +59,7 @@ function removeAt(index: number) {
     <input
       v-model="draft"
       :placeholder="(modelValue ?? []).length === 0 ? placeholder : ''"
-      class="min-w-24 flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
+      class="focus-ring min-w-24 flex-1 bg-transparent outline-none placeholder:text-muted-foreground"
       @keydown="onKeydown"
       @blur="commitDraft"
     >

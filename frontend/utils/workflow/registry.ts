@@ -284,7 +284,7 @@ export const TONE_BG: Record<NodeTone, string> = {
   red: 'bg-[color-mix(in_oklch,var(--destructive)_15%,transparent)] text-destructive',
   blue: 'bg-[color-mix(in_oklch,var(--info)_15%,transparent)] text-info',
   amber: 'bg-[color-mix(in_oklch,var(--warning)_15%,transparent)] text-warning',
-  orange: 'bg-orange-500/15 text-[var(--severity-high)]',
+  orange: 'bg-[color-mix(in_oklch,var(--severity-high)_15%,transparent)] text-severity-high',
   gray: 'bg-muted text-muted-foreground',
 }
 

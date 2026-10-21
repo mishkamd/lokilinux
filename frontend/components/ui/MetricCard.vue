@@ -72,7 +72,7 @@ const hasChart = computed(() => !!props.chartData?.length)
         </span>
         <span class="label-caps truncate">{{ props.label }}</span>
       </div>
-      <span class="flex shrink-0 items-center gap-1 text-[12px] font-medium text-primary dark:text-primary-active">
+      <span class="flex shrink-0 items-center gap-1 text-[12px] font-medium text-primary-text dark:text-primary-active">
         {{ props.viewAllLabel }}
         <ArrowRight class="size-3 transition-transform duration-200 ease-out group-hover:translate-x-0.5" />
       </span>

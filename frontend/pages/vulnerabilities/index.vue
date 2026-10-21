@@ -138,7 +138,7 @@ const topVulnerabilities = computed(() => [...cves.value].slice(0, 10))
         <EmptyState v-else-if="patchable.length === 0">No patchable vulnerabilities found.</EmptyState>
         <DataTable v-else :rows="patchable" :columns="patchableColumns" rows-clickable
                    @row-click="(row) => navigateTo(`/vulnerabilities/${row.cve_id}`)">
-          <template #cve_id-data="{ row }"><span class="font-mono text-xs text-primary">{{ row.cve_id }}</span></template>
+          <template #cve_id-data="{ row }"><span class="font-mono text-xs text-primary-text">{{ row.cve_id }}</span></template>
           <template #cvss_v3_severity-data="{ row }">
             <Badge v-if="row.cvss_v3_severity" :color="SEVERITY_COLORS[String(row.cvss_v3_severity)] ?? 'gray'" size="xs">{{ row.cvss_v3_severity }}</Badge>
             <span v-else class="text-muted-foreground text-xs">—</span>
@@ -161,7 +161,7 @@ const topVulnerabilities = computed(() => [...cves.value].slice(0, 10))
       <EmptyState v-else-if="topVulnerabilities.length === 0">No CVEs recorded yet.</EmptyState>
       <DataTable v-else :rows="topVulnerabilities" :columns="topVulnColumns" rows-clickable
                  @row-click="(row) => navigateTo(`/vulnerabilities/${row.cve_id}`)">
-        <template #cve_id-data="{ row }"><span class="font-mono text-xs text-primary">{{ row.cve_id }}</span></template>
+        <template #cve_id-data="{ row }"><span class="font-mono text-xs text-primary-text">{{ row.cve_id }}</span></template>
         <template #cvss_v3_score-data="{ row }"><span class="font-mono text-xs">{{ row.cvss_v3_score ?? '—' }}</span></template>
         <template #cvss_v3_severity-data="{ row }">
           <Badge v-if="row.cvss_v3_severity" :color="SEVERITY_COLORS[String(row.cvss_v3_severity)] ?? 'gray'" size="xs">{{ row.cvss_v3_severity }}</Badge>

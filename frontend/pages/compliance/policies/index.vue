@@ -27,7 +27,17 @@ const form = ref({ name: '', slug: '', framework: 'INTERNAL', version: '', descr
 const creating = ref(false)
 const FRAMEWORKS = ['CIS', 'NIST', 'PCI_DSS', 'ISO27001', 'STIG', 'INTERNAL']
 
+// Field-level validation: the message belongs to the field, not to a toast.
+const createErrors = reactive({ name: '', slug: '' })
+
+function validateCreate(): boolean {
+  createErrors.name = form.value.name.trim() ? '' : 'Name is required.'
+  createErrors.slug = form.value.slug.trim() ? '' : 'Slug is required.'
+  return !createErrors.name && !createErrors.slug
+}
+
 async function submitCreate() {
+  if (!validateCreate()) return
   creating.value = true
   try {
     await store.createPolicySet({
@@ -40,6 +50,8 @@ async function submitCreate() {
     })
     showCreate.value = false
     form.value = { name: '', slug: '', framework: 'INTERNAL', version: '', description: '' }
+    createErrors.name = ''
+    createErrors.slug = ''
   } catch (err) {
     toast.add({ title: (err as { data?: { detail?: string } })?.data?.detail ?? 'Failed to create policy set', color: 'red' })
   } finally {
@@ -139,9 +151,27 @@ async function submitImport() {
     <Dialog v-model="showCreate" title="New policy set">
       <template #body>
         <div class="space-y-4">
-          <FormField label="Name" required><Input v-model="form.name" placeholder="Internal SSH Hardening" /></FormField>
-          <FormField label="Slug" required help="Stable identifier, e.g. internal-ssh-hardening">
-            <Input v-model="form.slug" placeholder="internal-ssh-hardening" />
+          <FormField label="Name" required :error="createErrors.name">
+            <template #default="{ invalid, describedBy }">
+              <Input
+                v-model="form.name"
+                placeholder="Internal SSH Hardening"
+                :invalid="invalid"
+                :aria-describedby="describedBy"
+                @input="createErrors.name = ''"
+              />
+            </template>
+          </FormField>
+          <FormField label="Slug" required help="Stable identifier, e.g. internal-ssh-hardening" :error="createErrors.slug">
+            <template #default="{ invalid, describedBy }">
+              <Input
+                v-model="form.slug"
+                placeholder="internal-ssh-hardening"
+                :invalid="invalid"
+                :aria-describedby="describedBy"
+                @input="createErrors.slug = ''"
+              />
+            </template>
           </FormField>
           <FormField label="Framework" required><Select v-model="form.framework" :options="FRAMEWORKS" /></FormField>
           <FormField label="Version"><Input v-model="form.version" placeholder="Optional" /></FormField>
@@ -150,7 +180,7 @@ async function submitImport() {
       </template>
       <template #footer>
         <Button variant="ghost" @click="showCreate = false">Cancel</Button>
-        <Button :loading="creating" :disabled="!form.name || !form.slug" @click="submitCreate">Create</Button>
+        <Button :loading="creating" @click="submitCreate">Create</Button>
       </template>
     </Dialog>
 

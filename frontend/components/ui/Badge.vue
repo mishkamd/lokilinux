@@ -2,16 +2,20 @@
 import { cn } from '~/utils/cn'
 
 const COLOR: Record<string, Record<string, string>> = {
-  red:    { soft: 'bg-red-50 text-red-700 dark:bg-[color-mix(in_oklch,var(--destructive)_16%,transparent)] dark:text-red-400', solid: 'bg-destructive text-white', plain: 'text-destructive' },
-  green:  { soft: 'bg-green-50 text-green-700 dark:bg-[color-mix(in_oklch,var(--success)_16%,transparent)] dark:text-green-400', solid: 'bg-success text-white', plain: 'text-success' },
+  // One rule for every status: a 14% tint of the status color as surface, the
+  // status color itself as text (both themes are >= 5.2:1 on that tint), and
+  // the matching foreground token for the solid variant. The Tailwind palette
+  // (bg-red-50 / text-red-700) is gone — it never followed the theme.
+  red:    { soft: 'bg-[color-mix(in_oklch,var(--destructive)_14%,transparent)] text-destructive', solid: 'bg-destructive text-destructive-foreground', plain: 'text-destructive' },
+  green:  { soft: 'bg-[color-mix(in_oklch,var(--success)_14%,transparent)] text-success', solid: 'bg-success text-success-foreground', plain: 'text-success' },
   gray:   { soft: 'bg-muted text-muted-foreground', solid: 'bg-secondary text-secondary-foreground', plain: 'text-muted-foreground' },
   // Compliance module (docs/compliance/11-FRONTEND.md D9): medium-severity
   // findings need a distinct color — gray reads as "no severity", not "medium".
-  amber:  { soft: 'bg-amber-50 text-amber-700 dark:bg-[color-mix(in_oklch,var(--warning)_16%,transparent)] dark:text-amber-400', solid: 'bg-warning text-white', plain: 'text-warning' },
-  orange: { soft: 'bg-orange-50 text-orange-700 dark:bg-orange-500/15 dark:text-orange-400', solid: 'bg-orange-600 text-white', plain: 'text-[var(--severity-high)]' },
+  amber:  { soft: 'bg-[color-mix(in_oklch,var(--warning)_14%,transparent)] text-warning', solid: 'bg-warning text-warning-foreground', plain: 'text-warning' },
+  orange: { soft: 'bg-[color-mix(in_oklch,var(--severity-high)_14%,transparent)] text-severity-high', solid: 'bg-severity-high text-severity-high-foreground', plain: 'text-severity-high' },
   // LOW severity's real color is Recon Blue (matches the donut's --info) —
   // previously missing, so LOW badges fell back to gray.
-  blue:   { soft: 'bg-blue-50 text-blue-700 dark:bg-[color-mix(in_oklch,var(--info)_16%,transparent)] dark:text-blue-400', solid: 'bg-info text-white', plain: 'text-info' },
+  blue:   { soft: 'bg-[color-mix(in_oklch,var(--info)_14%,transparent)] text-info', solid: 'bg-info text-info-foreground', plain: 'text-info' },
 }
 
 const props = withDefaults(defineProps<{

@@ -162,7 +162,7 @@ onMounted(() => store.fetchPolicies())
               <Play class="size-3.5" />
             </Button>
           </Tooltip>
-          <NuxtLink :to="`/policies/${row.id}`">
+          <NuxtLink :to="`/policies/${row.id}`" class="focus-ring">
             <Button size="xs" variant="ghost">Details</Button>
           </NuxtLink>
           <Tooltip v-if="canEdit" text="Edit policy">

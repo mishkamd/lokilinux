@@ -108,7 +108,7 @@ function filterBySeverity(sev: string) {
       @row-click="(row) => navigateTo(`/vulnerabilities/${row.cve_id}`)"
     >
       <template #cve_id-data="{ row }">
-        <span class="font-mono text-sm text-primary">{{ row.cve_id }}</span>
+        <span class="font-mono text-sm text-primary-text">{{ row.cve_id }}</span>
       </template>
       <template #cvss_v3_severity-data="{ row }">
         <Badge v-if="row.cvss_v3_severity" :color="SEVERITY_COLORS[String(row.cvss_v3_severity)] ?? 'gray'" size="xs">{{ row.cvss_v3_severity }}</Badge>

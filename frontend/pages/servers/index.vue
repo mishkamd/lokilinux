@@ -120,8 +120,14 @@ const entityTypeOptions = [
   { label: 'Project', value: 'project' },
 ]
 
+const newEntityError = ref('')
+
 async function saveNewEntity() {
-  if (!newEntityName.value.trim()) return
+  if (!newEntityName.value.trim()) {
+    newEntityError.value = 'Name is required.'
+    return
+  }
+  newEntityError.value = ''
   savingEntity.value = true
   try {
     if (newEntityType.value === 'category') {
@@ -133,6 +139,7 @@ async function saveNewEntity() {
     }
     newEntityName.value = ''
     newEntityCategoryId.value = ''
+    newEntityError.value = ''
     showNewEntity.value = false
   } catch {
     toast.add({ title: `Failed to create ${newEntityType.value}`, color: 'red' })
@@ -262,8 +269,17 @@ async function saveNewEntity() {
           <FormField label="Type">
             <Select v-model="newEntityType" :options="entityTypeOptions" />
           </FormField>
-          <FormField label="Name">
-            <Input v-model="newEntityName" placeholder="e.g. Production" @keyup.enter="saveNewEntity" />
+          <FormField label="Name" :error="newEntityError">
+            <template #default="{ invalid, describedBy }">
+              <Input
+                v-model="newEntityName"
+                placeholder="e.g. Production"
+                :invalid="invalid"
+                :aria-describedby="describedBy"
+                @input="newEntityError = ''"
+                @keyup.enter="saveNewEntity"
+              />
+            </template>
           </FormField>
           <FormField v-if="newEntityType === 'project'" label="Category" help="Optional">
             <Select v-model="newEntityCategoryId" :options="[{ label: 'None', value: '' }, ...categories.map((c) => ({ label: c.name, value: c.id }))]" />

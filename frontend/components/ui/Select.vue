@@ -25,6 +25,8 @@ const props = defineProps<{
   options: Option[]
   placeholder?: string
   class?: string
+  /** Error state — see Input.vue. */
+  invalid?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -58,8 +60,10 @@ const attrs = useAttrs()
 <template>
   <SelectRoot :model-value="internalValue" @update:model-value="onChange">
     <SelectTrigger
+      :aria-invalid="props.invalid ? 'true' : undefined"
       :class="cn(
         'group flex h-8 w-full items-center justify-between gap-2 rounded-[var(--radius-sm)] border border-input bg-card px-2.5 py-1 text-[14px] ring-offset-background transition-all duration-[var(--duration-fast)] hover:border-ring/50 focus:outline-none focus:ring-2 focus:ring-ring focus:border-primary focus:shadow-[0_0_0_3px_color-mix(in_oklch,var(--ring)_15%,transparent)] disabled:cursor-not-allowed disabled:opacity-50 data-[placeholder]:text-muted-foreground',
+        props.invalid && 'border-destructive focus:border-destructive focus:ring-destructive',
         props.class,
       )"
       v-bind="attrs"

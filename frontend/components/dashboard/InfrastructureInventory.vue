@@ -48,7 +48,7 @@ function lastSeen(iso: string | null): string {
       </div>
       <div class="flex items-center gap-2 shrink-0">
         <Select v-model="categoryFilter" :options="categoryOptions" class="w-36 h-7 text-xs" />
-        <NuxtLink to="/servers" class="flex items-center gap-1 text-[12px] font-medium text-primary dark:text-primary-active shrink-0">
+        <NuxtLink to="/servers" class="focus-ring flex items-center gap-1 text-[12px] font-medium text-primary-text dark:text-primary-active shrink-0">
           View all
           <ArrowRight class="size-3" />
         </NuxtLink>
@@ -80,7 +80,7 @@ function lastSeen(iso: string | null): string {
         <TableBody>
           <TableRow v-for="server in filteredServers" :key="server.id">
             <TableCell>
-              <NuxtLink :to="`/servers/${server.id}`" class="font-medium hover:text-primary dark:hover:text-primary-active transition-colors">
+              <NuxtLink :to="`/servers/${server.id}`" class="focus-ring font-medium hover:text-primary-text dark:hover:text-primary-active transition-colors">
                 {{ server.hostname }}
               </NuxtLink>
             </TableCell>

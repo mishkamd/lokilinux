@@ -129,7 +129,7 @@ const coverageEntries = computed(() => Object.entries(selectedRule.value?.covera
           <div class="flex flex-wrap gap-1">
             <NuxtLink
               v-for="fa in selectedRule.failing_agents.slice(0, 20)" :key="fa.agent_id"
-              :to="`/servers/${fa.agent_id}`" class="font-mono text-xs text-primary hover:underline"
+              :to="`/servers/${fa.agent_id}`" class="focus-ring font-mono text-xs text-primary-text hover:underline"
             >
               {{ fa.hostname || fa.agent_id.slice(0, 8) + '…' }}
             </NuxtLink>

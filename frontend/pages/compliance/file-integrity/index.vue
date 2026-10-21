@@ -250,7 +250,7 @@ const changeColumns = [
             <span class="font-mono text-xs">{{ row.hostname || row.agent_id }}</span>
           </template>
           <template #path-data="{ row }">
-            <button class="focus-ring font-mono text-xs text-primary hover:underline text-left" @click="openPathDetail(String(row.path))">
+            <button class="focus-ring font-mono text-xs text-primary-text hover:underline text-left" @click="openPathDetail(String(row.path))">
               {{ row.path }}
             </button>
           </template>
@@ -378,7 +378,7 @@ const changeColumns = [
             <div v-else class="flex flex-wrap gap-1">
               <NuxtLink
                 v-for="r in fileChangePathDetail.related_rules" :key="r.rule_id"
-                :to="`/compliance/rules/${r.rule_id}`" class="text-xs"
+                :to="`/compliance/rules/${r.rule_id}`" class="focus-ring text-xs"
               >
                 <Badge color="gray" size="xs">{{ r.rule_key }}</Badge>
               </NuxtLink>

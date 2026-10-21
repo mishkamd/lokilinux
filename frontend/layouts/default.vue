@@ -2,15 +2,29 @@
   <div class="flex h-screen bg-background text-foreground overflow-hidden atmosphere">
     <Toaster rich-colors position="top-center" />
 
+    <!-- Skip to content — the sidebar has ~20 links before the page, so a
+         keyboard user must not have to tab through all of them on every
+         route. Visible only while focused. -->
+    <a
+      href="#main-content"
+      class="focus-ring sr-only focus:not-sr-only fixed left-3 top-3 z-[70] rounded-[var(--radius-sm)] bg-primary px-3 py-2 text-sm text-primary-foreground"
+      @click="focusMain"
+    >
+      Skip to content
+    </a>
+
     <!-- Mobile backdrop -->
     <div
       v-if="sidebarOpen"
       class="fixed inset-0 z-30 bg-black/40 backdrop-blur-sm lg:hidden"
-      @click="sidebarOpen = false"
+      @click="closeSidebar"
     />
 
     <!-- Sidebar -->
     <aside
+      id="app-sidebar"
+      ref="sidebarEl"
+      @keydown="onSidebarKeydown"
       class="fixed lg:static inset-y-0 left-0 z-40 w-[232px] flex-shrink-0 flex flex-col bg-sidebar border-r border-sidebar-border shadow-[4px_0_32px_rgba(16,24,32,0.08)] dark:shadow-[4px_0_32px_rgba(0,0,0,0.35)] transition-transform duration-[var(--duration-slow)] ease-[var(--ease-out-expo)] -translate-x-full lg:translate-x-0"
       :class="{ 'translate-x-0': sidebarOpen, 'lg:hidden': sidebarCollapsed }"
     >
@@ -44,7 +58,7 @@
               <!-- Collapsible parent (e.g. "Ansible" under Automation Engine) -->
               <details v-if="link.children" :open="link.children.some((c) => isActive(c.to))">
                 <summary
-                  class="group relative flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[14px] font-medium transition-colors duration-200 cursor-pointer list-none text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+                  class="focus-ring group relative flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-[14px] font-medium transition-colors duration-200 cursor-pointer list-none text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground"
                 >
                   <span class="flex items-center justify-center size-5 rounded-md shrink-0 text-sidebar-foreground/60 group-hover:text-sidebar-foreground">
                     <component :is="link.icon" class="size-3.5" />
@@ -140,7 +154,7 @@
             type="button"
             class="focus-ring inline-flex items-center justify-center size-9 rounded-xl hover:bg-accent transition-colors shrink-0 lg:hidden"
             aria-label="Open menu"
-            @click="sidebarOpen = true"
+            @click="openSidebar"
           >
             <Menu class="size-4.5" />
           </button>
@@ -198,7 +212,7 @@
               <Bell class="size-4.5" />
               <span
                 v-if="activeAlerts > 0"
-                class="absolute top-1.5 right-1.5 flex size-4 items-center justify-center rounded-full bg-destructive text-[9px] font-medium text-white"
+                class="absolute top-1.5 right-1.5 flex size-4 items-center justify-center rounded-full bg-destructive text-[9px] font-medium text-destructive-foreground"
               >
                 {{ activeAlerts > 9 ? '9+' : activeAlerts }}
               </span>
@@ -227,7 +241,7 @@
 
       </div>
       <CommandPalette />
-      <main class="flex-1 overflow-y-auto p-3 sm:p-4">
+      <main id="main-content" tabindex="-1" class="focus:outline-none flex-1 overflow-y-auto p-3 sm:p-4">
         <slot />
       </main>
     </div>
@@ -265,6 +279,51 @@ const userRoleLabel = computed(() => {
   return role ? role.charAt(0).toUpperCase() + role.slice(1) : ''
 })
 const sidebarOpen = ref(false)
+const sidebarEl = ref<HTMLElement | null>(null)
+const sidebarToggleEl = ref<HTMLElement | null>(null)
+
+// The skip link moves the scroll, but the focus has to move with it.
+function focusMain() {
+  nextTick(() => document.getElementById('main-content')?.focus())
+}
+
+// The mobile drawer is a modal surface: Tab stays inside it, Escape closes
+// it, and the focus goes back to the button that opened it.
+function onSidebarKeydown(e: KeyboardEvent) {
+  if (!sidebarOpen.value) return
+  if (e.key === 'Escape') {
+    e.preventDefault()
+    closeSidebar()
+    return
+  }
+  if (e.key !== 'Tab' || !sidebarEl.value) return
+  const focusables = Array.from(
+    sidebarEl.value.querySelectorAll<HTMLElement>(
+      'a[href], button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex="-1"])',
+    ),
+  ).filter((el) => el.offsetParent !== null)
+  if (!focusables.length) return
+  const first = focusables[0]!
+  const last = focusables[focusables.length - 1]!
+  if (e.shiftKey && document.activeElement === first) {
+    e.preventDefault()
+    last.focus()
+  } else if (!e.shiftKey && document.activeElement === last) {
+    e.preventDefault()
+    first.focus()
+  }
+}
+
+function openSidebar() {
+  sidebarOpen.value = true
+  sidebarToggleEl.value = document.activeElement as HTMLElement
+  nextTick(() => sidebarEl.value?.querySelector<HTMLElement>('a[href], button')?.focus())
+}
+
+function closeSidebar() {
+  sidebarOpen.value = false
+  sidebarToggleEl.value?.focus()
+}
 const sidebarCollapsed = useLocalStorage('sidebar-collapsed', false)
 
 watch(() => route.path, () => { sidebarOpen.value = false })

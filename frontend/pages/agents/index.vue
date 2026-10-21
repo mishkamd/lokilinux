@@ -204,7 +204,7 @@ async function copy(text: string) {
       <Card v-for="card in packageCards" :key="card.type">
         <template #header>
           <div class="flex items-center gap-2">
-            <Download class="size-5 text-primary" />
+            <Download class="size-5 text-primary-text" />
             <span class="font-semibold">{{ card.type }}</span>
             <Badge size="xs">v{{ packages.version }}</Badge>
           </div>

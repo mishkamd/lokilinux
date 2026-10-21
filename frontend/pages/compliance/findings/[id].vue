@@ -50,7 +50,7 @@ async function acknowledge() {
         <Button v-if="canEdit && !selectedFinding.acknowledged_at" size="sm" variant="outline" :loading="acting" @click="acknowledge">
           Acknowledge
         </Button>
-        <NuxtLink v-if="selectedFinding.open_drift_event_id" :to="`/compliance/drift/${selectedFinding.open_drift_event_id}`">
+        <NuxtLink v-if="selectedFinding.open_drift_event_id" :to="`/compliance/drift/${selectedFinding.open_drift_event_id}`" class="focus-ring">
           <Button size="sm" variant="outline">View configuration drift</Button>
         </NuxtLink>
       </template>

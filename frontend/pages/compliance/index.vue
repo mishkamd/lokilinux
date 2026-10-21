@@ -193,7 +193,7 @@ async function submitRunAssessment() {
             <p class="text-xs text-muted-foreground flex items-center gap-1">
               <HelpCircle class="size-3.5" /> Unknown basis
             </p>
-            <p class="text-2xl font-mono font-semibold tabular-nums" :class="aggUnscored > 0 ? 'text-amber-500' : ''">
+            <p class="text-2xl font-mono font-semibold tabular-nums" :class="aggUnscored > 0 ? 'text-warning' : ''">
               {{ agg?.fleet.unscored_agents ?? '—' }}
             </p>
             <p class="text-[11px] text-muted-foreground">
@@ -382,7 +382,7 @@ async function submitRunAssessment() {
         </template>
         <Skeleton v-if="baselinesLoading" class="h-24 w-full" />
         <EmptyState v-else-if="baselines.length === 0">
-          No baselines yet. <NuxtLink to="/compliance/baselines" class="text-primary hover:underline">Create one</NuxtLink>.
+          No baselines yet. <NuxtLink to="/compliance/baselines" class="focus-ring text-primary-text hover:underline">Create one</NuxtLink>.
         </EmptyState>
         <DataTable
           v-else

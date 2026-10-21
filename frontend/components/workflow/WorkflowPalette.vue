@@ -45,7 +45,7 @@ function onActivate(def: NodeDefinition) {
           v-model="search"
           type="text"
           placeholder="Search steps…"
-          class="w-full rounded-[var(--radius-sm)] border border-border bg-background py-1.5 pl-7 pr-2 text-xs outline-none transition-colors placeholder:text-muted-foreground focus:border-primary-active"
+          class="focus-ring w-full rounded-[var(--radius-sm)] border border-border bg-background py-1.5 pl-7 pr-2 text-xs outline-none transition-colors placeholder:text-muted-foreground focus:border-primary-active"
         >
       </div>
     </div>

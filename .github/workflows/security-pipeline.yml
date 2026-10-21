@@ -61,6 +61,31 @@ jobs:
           .venv/bin/pip install -e ".[dev]"
           .venv/bin/pytest tests/
 
+  # Frontend: design-system guard, type check, unit tests. The guard is the
+  # reason a raw hex or a palette color can't reach main — it is cheaper than
+  # ESLint for these rules and needs no dependency.
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: install
+        working-directory: frontend
+        run: npm ci
+      - name: design-system guard
+        working-directory: frontend
+        run: npm run lint
+      - name: type check
+        working-directory: frontend
+        run: npm run typecheck
+      - name: unit tests
+        working-directory: frontend
+        run: npm test
+
   # Secret, SAST and dependency scans (ROADMAP P2, CI security scanning).
   # Fails on findings: triage the current advisories before merging to main.
   secrets-and-deps:

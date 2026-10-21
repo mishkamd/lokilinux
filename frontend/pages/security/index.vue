@@ -95,7 +95,7 @@ const criticalSignals = computed(() =>
             <div class="min-w-0">
               <NuxtLink
                 :to="`/vulnerabilities/${p.cve_id}`"
-                class="text-sm font-mono font-medium hover:underline hover:text-primary"
+                class="focus-ring text-sm font-mono font-medium hover:underline hover:text-primary-text"
               >{{ p.cve_id }}</NuxtLink>
               <p class="text-xs text-muted-foreground font-mono truncate">
                 {{ p.package_name }} → {{ p.fixed_version ?? '?' }} · {{ p.affected_count }} hosts

@@ -48,6 +48,12 @@
   --color-accent-foreground: var(--accent-foreground);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-info-foreground: var(--info-foreground);
+  --color-severity-high: var(--severity-high);
+  --color-severity-high-foreground: var(--severity-high-foreground);
+  --color-primary-text: var(--primary-text);
   --color-success: var(--success);
   --color-warning: var(--warning);
   --color-info: var(--info);
@@ -92,14 +98,20 @@
   --secondary: oklch(0.967 0.001 286.375);
   --secondary-foreground: oklch(0.21 0.006 285.885);
   --muted: oklch(0.967 0.001 286.375);
-  --muted-foreground: oklch(0.552 0.016 285.938);
+  --muted-foreground: oklch(0.545 0.016 285.938);
   --accent: oklch(0.967 0.001 286.375);
   --accent-foreground: oklch(0.21 0.006 285.885);
-  --destructive: #D34D4D;
+  --destructive: #A33A3A;
+  --success: #17633D;
+  --warning: #8A6114;
+  --info: #2F5FCC;
+  /* Foreground pairs — the color that sits ON a status surface. Light theme:
+   * white on the (now darker) status color, all of them above 4.5:1. */
   --destructive-foreground: #FAFAFA;
-  --success: #4FAF74;
-  --warning: #D6A44D;
-  --info: #5A8DFF;
+  --success-foreground: #FAFAFA;
+  --warning-foreground: #FAFAFA;
+  --info-foreground: #FAFAFA;
+  --severity-high-foreground: #FAFAFA;
   --border: oklch(0.92 0.004 286.32);
   --input: oklch(0.92 0.004 286.32);
   --ring: #2D6A4F;
@@ -121,7 +133,12 @@
   /* Severity scale — HIGH sits between the primary success/warning/
    * destructive triad, so it needs its own token rather than a literal
    * hex repeated at every call site. Same hue in both themes. */
-  --severity-high: #f97316;
+  --severity-high: #A34B0C;
+
+  /* Readable primary as TEXT. --primary is the button surface (white on it
+   * is 6.1:1); as a link color on white it is only 4.4:1, and on the dark
+   * card it is 2.9:1 — so text needs its own token per theme. */
+  --primary-text: #2D6A4F;
 
   /* Elevation shadows — light: soft, dark-tinted, low-alpha; the hairline
    * ring is barely visible against white so it leans on the shadow
@@ -134,6 +151,19 @@
 
 .dark {
   --severity-high: #f97316;
+
+  /* Dark theme: the status colors get brighter (readable on the dark card),
+   * and the text ON them flips to ink instead of white. */
+  --destructive: #E47373;
+  --success: #6FC792;
+  --warning: #E0B063;
+  --info: #86A9FF;
+  --destructive-foreground: #050507;
+  --success-foreground: #050507;
+  --warning-foreground: #050507;
+  --info-foreground: #050507;
+  --severity-high-foreground: #050507;
+  --primary-text: #4FAF74;
 
   /* Elevation shadows — dark: a bright hairline ring carries the edge,
    * black drop shadows carry the depth. */
@@ -159,11 +189,6 @@
   --muted-foreground: #A1A1AA;
   --accent: #1A1A23;
   --accent-foreground: #FAFAFA;
-  --destructive: #D34D4D;
-  --destructive-foreground: #FAFAFA;
-  --success: #4FAF74;
-  --warning: #D6A44D;
-  --info: #5A8DFF;
   --border: rgba(255, 255, 255, 0.07);
   --input: rgba(255, 255, 255, 0.07);
   --ring: #4FAF74;

@@ -68,11 +68,11 @@ async function apply(viewName: string) {
         v-model="name"
         type="text"
         placeholder="View name"
-        class="h-6 w-32 rounded-md border border-border bg-card px-2 text-xs outline-none focus:ring-2 focus:ring-ring"
+        class="focus-ring h-6 w-32 rounded-md border border-border bg-card px-2 text-xs outline-none focus:ring-2 focus:ring-ring"
         @keyup.enter="confirm"
         @keyup.esc="naming = false"
       >
-      <button type="button" class="text-xs text-primary hover:underline" @click="confirm">Save</button>
+      <button type="button" class="focus-ring text-xs text-primary-text hover:underline" @click="confirm">Save</button>
     </template>
     <button
       v-else

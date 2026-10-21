@@ -22,7 +22,7 @@ function elapsed(startedAt: string | null): string {
         </span>
         <h2 class="label-caps">Running Jobs</h2>
       </div>
-      <NuxtLink to="/jobs" class="flex items-center gap-1 text-[12px] font-medium text-primary dark:text-primary-active shrink-0">
+      <NuxtLink to="/jobs" class="focus-ring flex items-center gap-1 text-[12px] font-medium text-primary-text dark:text-primary-active shrink-0">
         View all
         <ArrowRight class="size-3" />
       </NuxtLink>
