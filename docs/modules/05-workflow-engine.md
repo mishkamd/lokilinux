@@ -1,6 +1,6 @@
 # 05 — Workflow Engine (modul transversal)
 
-> Documentație generată din cod la commit `77c4220` (v0.3.0 — „Add Workflow Builder engine"), august 2026. Singurul modul care traversează toate cele patru straturi ale platformei.
+> Documentație generată din cod la commit `7415631` (v0.5.0), octombrie 2026. Cifrele de mai jos sunt verificate pe cod la acest commit. Singurul modul care traversează toate cele patru straturi ale platformei.
 
 ## Rol
 

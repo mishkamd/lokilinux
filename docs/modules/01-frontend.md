@@ -1,6 +1,6 @@
 # 01 — Frontend (Nuxt 4 + Vue 3)
 
-> Documentație generată din cod la commit `77c4220` (v0.3.0), august 2026.
+> Documentație generată din cod la commit `7415631` (v0.5.0), octombrie 2026. Cifrele de mai jos sunt verificate pe cod la acest commit.
 
 ## Rol
 
@@ -38,7 +38,7 @@ frontend/
 │   ├── compliance.ts (35K, +test 8.5K)   # reguli, baselines, drift, exceptions
 │   ├── workflow.ts (23K)                  # builder state, validare, run-uri
 │   └── workflows.ts                       # listare
-├── composables/           # useAuth, useServers, useJobs, useSeverity, useBranding, useToast
+├── composables/           # useAuth, useServers, useJobs, useSeverity, useBranding, useToast, useCommandPalette, useSavedViews, useUrlFilters, useDateTime, useStatusColor, useRecentRoutes
 ├── components/            # Componente reutilizabile
 ├── middleware/auth.global.ts    # Guard rute protejate
 ├── plugins/auth.client.ts       # Client Better Auth hidratat
@@ -78,8 +78,16 @@ Fiecare domeniu are un store care încapsulează fetch/CRUD/caching local:
 | `compliance` | Cel mai mare (35K): rules, policy sets, assignments, baselines + versionare, drift events, exceptions, inventory, file integrity |
 | `workflow` | Builder: noduri/muchii, YAML compile/validate, versiuni, publish, run-uri, approve/reject pași |
 | `dashboard` | Summary + trends |
+| `incidents` | Incidente: listă, detaliu, timeline, evidence, ack/resolve |
+| `signals` | Semnale: listă, resolve/suppress |
+| `correlation` | Reguli de corelare (CRUD) + evaluate |
+| `topology` | Graf topologie: noduri, muchii |
+| `runbooks` | Runbook-uri CRUD + execuție |
+| `ansible_projects`, `ansible_roles`, `playbooks`, `playbook_templates` | Stratul Ansible (AWX-like) |
 
 ### Pagini principale
+
+56 pagini `.vue` în `frontend/pages/` (file-based routing). Principalele:
 
 | Rută | Ce face |
 |---|---|
@@ -88,8 +96,15 @@ Fiecare domeniu are un store care încapsulează fetch/CRUD/caching local:
 | `/jobs` | Istoric job-uri, aprobări, rezultate |
 | `/vulnerabilities` | CVE-uri: filtrare, patchable, remediere ghidată |
 | `/policies`, `/policies/[id]` | Politici de patch management |
-| `/compliance` | Dashboard compliance + subsecțiuni: `/compliance/policies`, `/compliance/baselines`, `/compliance/drift`, `/compliance/file-integrity` |
+| `/compliance` | Dashboard compliance + subsecțiuni: `/compliance/policies`, `/compliance/baselines`, `/compliance/drift`, `/compliance/file-integrity`, `/compliance/rules`, `/compliance/findings`, `/compliance/exceptions`, `/compliance/remediation`, `/compliance/standards`, `/compliance/reports` |
 | `/workflows`, `/workflows/[id]` | Workflow Builder: editor grafic, versiuni, dry-run, execuții |
+| `/workflows/runbooks` | Runbook-uri |
+| `/incidents`, `/incidents/[id]` | Incidente + timeline/evidence |
+| `/signals` | Semnale |
+| `/correlation` | Corelare |
+| `/topology` | Topologie flotă |
+| `/events` | Evenimente (ingest + listă) |
+| `/security` | Securitate |
 | `/automation/*` | AWX-like: proiecte, roles, playbooks, job templates |
 | `/plugins` | Marketplace plugin-uri (ciclu PENDING_INSTALL→ENABLED) |
 | `/admin` | Utilizatori, roluri, setări agent-config, audit log |

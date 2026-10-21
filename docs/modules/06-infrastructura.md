@@ -1,12 +1,12 @@
 # 06 — Infrastructură și deployment
 
-> Documentație generată din cod la commit `77c4220`, august 2026. Sursă: `docker-compose.yml`, `docker-compose.dev.yml`, `Makefile`, `scripts/`.
+> Documentație generată din cod la commit `7415631` (v0.5.0), octombrie 2026. Cifrele de mai jos sunt verificate pe cod la acest commit. Sursă: `docker-compose.yml`, `docker-compose.dev.yml`, `Makefile`, `scripts/`.
 
 ## Rol
 
 Tot ce rulează platforma stă în **12 servicii Docker** pe **cinci rețele segmentate** (`data-net`, `app-net`, `web-net` — interne; `gateway-net` pentru publicarea porturilor pe host; `egress-net` — doar api, pentru acces outbound), cu volume named pentru persistență. Un singur `make init` duce de la zero la stack funcțional.
 
-Doar frontend-ul (3000), api-ul (8000 REST + 9090 metrics) și grpc (50051) au porturi publicate pe host; postgres, pgBouncer (6432), redis (6379) și nats (4222/8222) sunt **internal-only**. Imaginile sunt tag-uite `${LOKILINUX_VERSION}` (0.3.0) — niciodată `latest`.
+Doar frontend-ul (3000), api-ul (8000 REST + 9090 metrics) și grpc (50051) au porturi publicate pe host; postgres, pgBouncer (6432), redis (6379) și nats (4222/8222) sunt **internal-only**. Imaginile sunt tag-uite `${LOKILINUX_VERSION}` (0.5.0) — niciodată `latest`.
 
 ## Harta serviciilor
 
@@ -102,7 +102,7 @@ PostgreSQL păstrează doar metadata în tabela `storage_objects` (hash SHA-256,
 
 ```bash
 make scan-image                       # Trivy peste toate imaginile lokilinux/* — pică pe HIGH/CRITICAL
-make sbom IMAGE=lokilinux/api:0.3.0   # SBOM CycloneDX în sbom/
+make sbom IMAGE=lokilinux/api:0.5.0   # SBOM CycloneDX în sbom/
 ```
 
 Excepțiile acceptate explicit sunt în `.trivyignore`. Pipeline-ul CI (`.github/workflows/security-pipeline.yml`) aplică același gate: build → teste → Trivy → SBOM → push GHCR → semnare cosign.

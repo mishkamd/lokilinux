@@ -1,6 +1,8 @@
 # 09 — Recomandări: remediere & dezvoltare
 
 > Document de recomandări, august 2026, bazat pe analiza codului la commit `77c4220` (v0.3.0). Fiecare recomandare are dovezi în cod (`fișier:linie`), impact evaluat și efort orientativ (S < 1 zi, M 1–3 zile, L > 3 zile).
+>
+> **Stare la `7415631` (v0.5.0, octombrie 2026):** R1, R2, R3 și R6 sunt rezolvate (vezi secțiunea D). R5 e parțial rezolvat — gate-ul se face pe `agent_version` (`utils/agent_capability.py`), nu pe negociere explicită de capabilități. R4 rămâne deschis. N1–N6 rămân neimplementate.
 
 ## Metodologie
 
@@ -62,7 +64,7 @@ Recomandările provin din trei surse: analiza directă a codului (gap-uri între
 |----|-----|-----------|-----|
 | N1 | **PAT/API tokens** cu scopes + rate limit | fundament pentru orice consum extern; design complet gata | `docs/modules/08-api-public-mcp.md` |
 | N2 | **Server MCP** (fastmcp, 7 tools read-only întâi) | ops invocabile din AI; moștenește auth/RBAC/audit prin REST | idem |
-| N3 | **Push live compliance** (SSE/WebSocket) folosind subiectele din R3 | drift vizibil în secunde, nu la următorul poll; UX conform principiului „onest despre latență" | R3 |
+| N3 | **Push live compliance** (SSE/WebSocket) | drift vizibil în secunde, nu la următorul poll; UX conform principiului „onest despre latență". Pipeline-ul de evenimente există acum (`events.raw.*` → `incidents.*`), dar nu are transport către browser | pipeline-ul din 02 |
 | N4 | **Scoring ponderat + mapping framework-uri** (CIS benchmark, ISO 27001) | azi `scoring.Classify(domain)` e o clasificare simplă; enterprise cere raport pe framework-uri | `scoring.go:36`, `framework_mapping.py` |
 | N5 | **Reguli de suppressie drift** (pattern-based, cu expiry + audit) | azi suppress e manual per event — noise-ul recurent (ex. mount temporar) trebuie tăiat sistematic | `routers/compliance/drift.py` |
 | N6 | **Modul Go comun pt. hashing** (agent ↔ serviciu) | duplicația `canonicalHash` e documentată ca intenționată până la al 3-lea consumator — MCP/scoring extern ar fi al treilea | `ingest.go:70-75` |
@@ -85,9 +87,17 @@ Impact mic    │ R2 sandbox cleanup   │ N4 scoring,         │
 
 > **Actualizare:** stările fantomă `IN_REMEDIATION`/`EXCEPTION` ale incidentelor de drift (identificate la analiza incidents) primesc acum un design complet de conectare în [`10-compliance-autopilot.md`](10-compliance-autopilot.md) — secțiunea A3.
 
-1. **R1** — bug de resource control, fix într-o zi, risc imediat pe fleet-uri aglomerate.
-2. **N1** — deblochează N2, N3 și orice integrare viitoare.
-3. **R4** — cea mai dureroasă gaură de produs; necesită decizie de arhitectură (scanare agent vs centralizată) — o săptămână de spike, apoi implementare.
-4. **R3 + N3** — transformă rezultatele compliance în timp-real aproape.
-5. **R6 → R5** — lanțul capability negotiation, deblochează executorii nativi.
-6. Restul după nevoie: N2, N4, N5, R2, N6.
+1. **N1** — deblochează N2, N3 și orice integrare viitoare.
+2. **R4** — cea mai dureroasă gaură de produs; necesită decizie de arhitectură (scanare agent vs centralizată) — o săptămână de spike, apoi implementare.
+3. **N3** — transformă rezultatele compliance în timp-real aproape.
+4. **R5** — negociere explicită de capabilități peste gate-ul actual pe `agent_version`.
+5. Restul după nevoie: N2, N4, N5, N6.
+
+## D. Rezolvate după snapshot (`7415631`, v0.5.0)
+
+| ID | Stare | Dovadă |
+|---|---|---|
+| R1 | rezolvat | `agent/internal/agent/manager.go:105,251,692` — `jobSlots chan struct{}` limitat de `JobExecution.MaxParallelJobs`; job-urile peste limită așteaptă slot, nu se pierd |
+| R2 | rezolvat | `agent/internal/config/config.go:65` — cheia `sandbox_enabled` a fost eliminată; nu mai există în config |
+| R3 | rezolvat | `backend/lokilinux/nats_topics.py` nu mai definește `compliance.drift.detected` / `.score.updated` / `compliance.hashes.reported`; pipeline-ul de observabilitate are în schimb `events.raw.*` → `events.normalized` → `signals.*` → `incidents.*` |
+| R6 | rezolvat | `agent/internal/communication/grpc_client.go:188` — bucla tipizată a fost eliminată din cod |

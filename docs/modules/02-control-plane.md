@@ -1,6 +1,6 @@
 # 02 — Control Plane (Backend FastAPI)
 
-> Documentație generată din cod la commit `77c4220` (v0.3.0), august 2026.
+> Documentație generată din cod la commit `7415631` (v0.5.0), octombrie 2026. Cifrele de mai jos sunt verificate pe cod la acest commit.
 
 ## Rol
 
@@ -25,17 +25,17 @@ Control Plane este creierul platformei LokiLinux: expune API-ul REST consumat de
 ```
 backend/
 ├── lokilinux/
-│   ├── main.py               # Lifespan: NATS connect → pornire 15 workers → shutdown invers
+│   ├── main.py               # Lifespan: NATS connect → pornire 20 workers → shutdown invers
 │   ├── grpc_server.py        # Entry-point container lokilinux-grpc (python -m lokilinux.grpc_server)
 │   ├── nats_topics.py        # Toate subiectele NATS, prefix „lokilinux." — sursă unică de adevăr
 │   ├── api/v1/__init__.py    # Montarea routerelor sub /api/v1
-│   │   └── routers/          # 15 fișiere routere REST (17 monturi) + sub-pachet compliance/ cu 9 routere
+│   │   └── routers/          # 27 module router REST (29 monturi) + sub-pachet compliance/ cu 13 routere
 │   ├── api/grpc/agent_service.py   # Servicer gRPC AgentService (heartbeat, jobs, policy)
 │   ├── auth/                 # Validare Bearer token contra Better Auth; dependențe roluri
-│   ├── models/               # 26 modele SQLAlchemy ORM
-│   ├── schemas/              # Scheme Pydantic (cereri/răspunsuri API)
-│   ├── services/             # ~27 servicii business logic (fără HTTP)
-│   └── workers/              # 15 workeri background (consumatori NATS + tickere)
+│   ├── models/               # 71 modele SQLAlchemy ORM (29 fișiere)
+│   ├── schemas/              # 26 module scheme Pydantic (cereri/răspunsuri API)
+│   ├── services/             # 49 servicii business logic în 39 fișiere (fără HTTP)
+│   └── workers/              # 20 workeri background (consumatori NATS + tickere)
 ├── alembic/                  # Migrările versionate
 ├── pyproject.toml
 └── Dockerfile
@@ -72,6 +72,18 @@ Montare în `api/v1/__init__.py:29-45`; prefix global `/api/v1` setat în `main.
 | `admin.py` | `/admin` | GET/PUT `/agent-config`, CRUD `/users`, POST `/users/{id}/role`, GET/PUT `/settings`, GET `/settings/public`, GET `/audit` |
 | `workflows.py` | `/workflows` | GET `/schema`, POST `/validate`, CRUD workflow, versionare `/versions` + publish, POST `/dry-run`, POST `/run`, GET `/runs/{run_id}`, POST `/runs/{run_id}/cancel`, approve/reject pe step |
 | `categories.py` | `/categories`, `/projects` | CRUD categorii CVE + proiecte |
+| `events.py` | `/events` | POST `/` (ingest eveniment), GET `/` (listă cu filtre) — sursa `lokilinux.events.raw.{source}` |
+| `incidents.py` | `/incidents` | list/get, `/timeline`, `/evidence`, POST `/{id}/ack`, POST `/{id}/resolve` |
+| `signals.py` | `/signals` | list, POST `/{id}/resolve`, POST `/{id}/suppress` |
+| `correlation.py` | `/correlation` | CRUD reguli de corelare, POST `/evaluate` |
+| `runbooks.py` | `/runbooks` | CRUD runbook-uri, POST `/{id}/execute` |
+| `topology.py` | `/topology` | GET graf, POST `/nodes`, POST `/edges`, DELETE `/edges` |
+| `saved_views.py` | `/account/views` | saved views server-side per utilizator (cross-device) |
+| `storage.py` | `/storage` | CRUD obiecte S3, import-url, download (presign sau proxy) |
+| `configuration.py` | `/configuration` | setări platformă (flat KV) |
+| `observability.py` | `/observability` | agregări pentru dashboard-uri de observabilitate |
+| `otlp.py` | `/otlp` | ingest OTLP → publică pe `lokilinux.events.raw.otel` |
+| `agent_policies.py` | `/agent-policies` | politici per agent (desired state) |
 | `compliance/` (sub-pachet) | `/compliance/*` | vezi mai jos |
 
 ### Sub-routere compliance (`/compliance/...`)
@@ -84,9 +96,13 @@ Montare în `api/v1/__init__.py:29-45`; prefix global `/api/v1` setat în `main.
 | `drift.py` | `/drift-events`: list/get/details, acknowledge/suppress/resolve |
 | `exceptions.py` | CRUD `/exceptions` + approve/revoke |
 | `file_integrity.py` | GET `/agents/{id}/file-hashes`, `/file-changes`, `/file-changes/by-path` |
-| `inventory.py` | GET `/agents/{id}/inventory/{domain}`, `.../history` |
+| `fim_scopes.py` | CRUD scope-uri FIM (domenii de monitorizat) |
+| `findings.py` | CRUD findings + workflow de evaluare |
+| `overview.py` | overview de conformitate pe flotă |
+| `dashboard.py` | agregări dashboard compliance (top violations, top changed files) |
 | `remediation.py` | CRUD `/maintenance-windows`, planuri de remediere: submit/dry-run/approve/execution/rollback |
 | `reports.py` | POST/GET `/reports`, GET `/{report_id}/download` |
+| `standards.py` | CRUD standarde (XCCDF) și versiunile lor |
 
 Autentificare: Bearer token validat prin delegare către sesiunea Better Auth a frontendului. Roluri: `ADMIN`, `MANAGER`, `OPERATOR`, `VIEWER`, `AUDITOR`.
 
@@ -124,7 +140,7 @@ Job-urile se execută pe agent **doar** ca răspuns la heartbeat (outbound-only)
 
 ## Workeri background (`workers/`)
 
-15 workeri porniți în lifespan (`main.py:85-140`), opși la shutdown în ordine inversă:
+20 workeri porniți în lifespan (`main.py:157-232`), opși la shutdown în ordine inversă:
 
 | Worker | Declanșare | Rol |
 |---|---|---|
@@ -143,6 +159,11 @@ Job-urile se execută pe agent **doar** ca răspuns la heartbeat (outbound-only)
 | `RetentionCleanupWorker` | ticker | Curățenie date expirate |
 | `WorkflowRunnerWorker` | subscr. NATS | Avansează run-uri de workflow |
 | `WorkflowSchedulerWorker` | ticker | Declanșează workflow-uri programate (trigger SCHEDULE) |
+| `EventProcessorWorker` | subscr. NATS (`events.raw.*`) | Normalizează evenimentele brute → `events.normalized` (dedup + fingerprint) |
+| `SignalProcessorWorker` | subscr. NATS | `events.normalized` → detectori → `signals.detected` / `signals.resolved` |
+| `CorrelationWorker` | subscr. NATS | `signals.detected` → evaluator cu ferestre ponderate → `incidents.created` |
+| `IncidentWorker` | subscr. NATS | Lifecycle incident: `incidents.created` / `.updated` / `.resolved` |
+| `OsvMatcherWorker` | ticker (condiționat `OSV_ENABLED`) | Potrivire CVE cu baza OSV |
 
 ## Subiecte NATS (`nats_topics.py`)
 
@@ -156,11 +177,12 @@ Toate cu prefix `lokilinux.`:
 | `lokilinux.agent.unhealthy` | HeartbeatMonitor → AlertProcessor |
 | `lokilinux.cve.database.updated` | CVE sync → CVEProcessor |
 | `lokilinux.plugin.install` / `.uninstall` | PluginService → PluginWorker |
-| `lokilinux.compliance.hashes.reported` | servicer gRPC → compliance Go |
-| `lokilinux.compliance.snapshot.{domain}` | servicer gRPC → compliance Go (ingest) |
-| `lokilinux.compliance.drift.detected` | compliance Go → API workers |
-| `lokilinux.compliance.score.updated` | compliance Go → API workers |
-| `lokilinux.compliance.baseline.published` | API → compliance Go (invalidare baseline_effective) |
+| `lokilinux.compliance.snapshot.{domain}` | ComplianceIngestService → compliance Go (ingest) |
+| `lokilinux.compliance.baseline.published` | BaselineService → compliance Go (invalidare baseline_effective) |
+| `lokilinux.events.raw.{source}` | routerul events/OTLP → EventProcessorWorker |
+| `lokilinux.events.normalized` | EventProcessorWorker → SignalProcessorWorker |
+| `lokilinux.signals.detected` / `.resolved` | SignalProcessorWorker → CorrelationWorker |
+| `lokilinux.incidents.created` / `.updated` / `.resolved` | CorrelationWorker → IncidentWorker |
 
 ## Dependențe
 

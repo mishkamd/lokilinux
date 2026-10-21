@@ -1,10 +1,10 @@
 # LokiLinux — Architecture Reference (Full Stack Documentation)
 
-**Version:** 0.1.0  
-**Last updated:** 2026-08-06  
-**Status:** Live — reflects deployed code at commit `9e77abb`
+**Version:** 0.5.0
+**Last updated:** 2026-10-21
+**Status:** Live — reflects deployed code at commit `7415631`
 
-> **Notă (aug 2026):** de la acest snapshot codul a evoluat (Workflow Builder engine v0.3.0, commit `77c4220`). Documentația per modul, actualizată la starea curentă a codului, se află în [`docs/modules/`](modules/) — index: [`docs/modules/00-index.md`](modules/00-index.md).
+> **Notă (oct 2026):** cifrele de mai jos au fost re-verificate pe cod la commit `7415631` (v0.5.0) — workeri, routere, modele, servicii, pagini frontend, subiecte NATS. Documentația per modul (mai scumpă) se află în [`docs/modules/`](modules/) — index: [`docs/modules/00-index.md`](modules/00-index.md).
 
 ---
 
@@ -179,15 +179,17 @@ backend/lokilinux/
 ├── grpc_server.py       # Standalone gRPC server bootstrap (mTLS)
 │
 ├── api/
-│   ├── v1/              # 16 REST router groups under /api/v1/
-│   │   ├── routers/     # servers, jobs, cves, policies, alerts,
-│   │   │                # playbooks, ansible-*, plugins, admin,
-│   │   │                # dashboard, agent-install, categories
-│   │   │                # (5 more)
-│   │   │   └── compliance/  # 8 sub-routers (dashboard, baselines,
-│   │   │                    # policy-engine, drift, file-integrity,
-│   │   │                    # inventory, remediation, reports)
-│   │   └── __init__.py  # Router aggregation (17 include_router calls)
+│   ├── v1/              # REST router groups under /api/v1/
+│   │   ├── routers/     # 27 router modules: servers, jobs, cves, policies, alerts,
+│   │   │                # playbooks, ansible-*, plugins, admin, dashboard,
+│   │   │                # agent-install, categories, events, incidents, signals,
+│   │   │                # correlation, runbooks, topology, saved_views, storage,
+│   │   │                # configuration, observability, otlp, agent_policies
+│   │   │   └── compliance/  # 13 sub-routers (assessments, baselines, dashboard,
+│   │   │                    # drift, exceptions, file-integrity, fim-scopes,
+│   │   │                    # findings, overview, policy-engine, remediation,
+│   │   │                    # reports, standards)
+│   │   └── __init__.py  # Router aggregation (29 include_router calls)
 │   └── grpc/            # gRPC service handlers
 │       └── agent_service.py  # HeartbeatStream bidirectional handler
 │
@@ -198,10 +200,10 @@ backend/lokilinux/
 ├── middleware/
 │   └── rate_limit.py    # Redis-backed rate limiting (configurable)
 │
-├── models/              # 27 SQLAlchemy ORM models across 20 files
-├── schemas/             # 16 Pydantic schema modules
-├── services/            # 17 business logic service classes
-└── workers/             # 13 background workers (NATS + asyncio loop)
+├── models/              # 71 SQLAlchemy ORM models across 29 files
+├── schemas/             # 26 Pydantic schema modules
+├── services/            # 49 business logic service classes across 39 files
+└── workers/             # 20 background workers (NATS + asyncio loop)
 ```
 
 ### 3.2 REST API — Router Groups
@@ -222,12 +224,24 @@ backend/lokilinux/
 | dashboard | `/api/v1/dashboard` | Fleet summary, OS distribution, severity bars |
 | admin | `/api/v1/admin` | Platform settings, user management |
 | categories | `/api/v1/categories` | Server category CRUD |
-| compliance | `/api/v1/compliance/*` | Compliance: baselines, policies, rules, drift, FIM, inventory, remediation, reports, dashboard |
+| compliance | `/api/v1/compliance/*` | Compliance: baselines, policies, rules, drift, FIM, findings, exceptions, standards, remediation, reports, dashboard |
 | audit | `/api/v1/audit` | Audit log browsing |
+| events | `/api/v1/events` | Event ingest + list (feeds the observability pipeline) |
+| incidents | `/api/v1/incidents` | Incident list/detail, timeline, evidence, ack/resolve |
+| signals | `/api/v1/signals` | Signal list, resolve, suppress |
+| correlation | `/api/v1/correlation` | Correlation rule CRUD + evaluation |
+| runbooks | `/api/v1/runbooks` | Runbook CRUD + execute |
+| topology | `/api/v1/topology` | Fleet topology graph (nodes, edges) |
+| saved-views | `/api/v1/account/views` | Server-side saved views, per user |
+| storage | `/api/v1/storage` | Object storage (S3) CRUD, import, download |
+| configuration | `/api/v1/configuration` | Platform settings (flat KV) |
+| observability | `/api/v1/observability` | Observability aggregations |
+| otlp | `/api/v1/otlp` | OTLP ingest → `events.raw.otel` |
+| agent-policies | `/api/v1/agent-policies` | Per-agent policies (desired state) |
 
 All endpoints require JWT validation via `get_current_user` and optional role enforcement via `require_role()`.
 
-### 3.3 Service Layer (17 Services)
+### 3.3 Service Layer (49 Services in 39 files)
 
 | Service | File | Responsibility |
 |---------|------|----------------|
@@ -248,9 +262,9 @@ All endpoints require JWT validation via `get_current_user` and optional role en
 | **ComplianceIngestService** | `compliance_ingest_service.py` | Domain hash diff, NATS publish for Go service |
 | **ComplianceAsCodeImporter** | `complianceascode_importer.py` | XCCDF 1.2 datastream parsing, rule/policy-set upsert |
 
-### 3.4 Background Workers (13 Workers)
+### 3.4 Background Workers (20 Workers)
 
-**NATS Subscribers (6):**
+**NATS Subscribers (10):**
 
 | Worker | Topic | Action |
 |--------|-------|--------|
@@ -260,8 +274,12 @@ All endpoints require JWT validation via `get_current_user` and optional role en
 | PluginWorker | `PLUGIN_INSTALL` | Cache invalidation |
 | CVEProcessorWorker | `CVE_DATABASE_UPDATED` | Cache invalidation |
 | NotificationWorker | `ALERT_CREATED` | SMTP/Slack delivery (via `asyncio.to_thread`) |
+| EventProcessorWorker | `EVENT_RAW.*` | Dedup + fingerprint → `EVENT_NORMALIZED` |
+| SignalProcessorWorker | `EVENT_NORMALIZED` | Detector registry → `SIGNAL_DETECTED` / `SIGNAL_RESOLVED` |
+| CorrelationWorker | `SIGNAL_DETECTED` | Weighted-window evaluator → `INCIDENT_CREATED` |
+| IncidentWorker | `INCIDENT_CREATED` | Incident lifecycle → `INCIDENT_UPDATED` / `INCIDENT_RESOLVED` |
 
-**Asyncio Loop Workers (7):**
+**Asyncio Loop Workers (9 + 1 conditional):**
 
 | Worker | Interval | Action |
 |--------|----------|--------|
@@ -272,8 +290,11 @@ All endpoints require JWT validation via `get_current_user` and optional role en
 | RemediationSchedulerWorker | 30s tick | Dispatches APPROVED remediation plans whose maintenance window is open |
 | RemediationVerificationWorker | 30s tick | Re-checks VERIFYING plans' actual state, closes the loop past exit-code-only success |
 | CVEEnrichmentWorker | 10s tick | Fills CVSS/title/description/CWE from NVD, exploited/KEV date from CISA |
+| WorkflowRunnerWorker | ticker | Advances workflow runs, advances run steps |
+| WorkflowSchedulerWorker | ticker | Triggers SCHEDULE-type workflows |
+| OsvMatcherWorker | ticker | OSV matching (only when `OSV_ENABLED`) |
 
-### 3.5 Database — 27 ORM Models
+### 3.5 Database — 71 ORM Models
 
 **Agent & Inventory:** Agent, AgentHealth (hypertable), AgentMetrics (hypertable)  
 **Jobs:** Job, JobResult  
@@ -509,7 +530,7 @@ BROWSER
             └─ Proxy: /api/v1/** → http://lokilinux-api:8000 (FastAPI)
 ```
 
-### 5.2 Pages (File-based Routing, ~35 routes)
+### 5.2 Pages (File-based Routing, 56 `.vue` pages)
 
 | Route | Component | Purpose |
 |-------|-----------|---------|
@@ -546,6 +567,19 @@ BROWSER
 | `/admin/settings` | `admin/settings.vue` | Platform settings (8 groups) |
 | `/admin/users` | `admin/users/index.vue` | User management |
 | `/admin/audit` | `admin/audit.vue` | Audit log browser |
+| `/admin/agent-policies` | `admin/agent-policies.vue` | Politici per agent |
+| `/incidents`, `/incidents/:id` | `incidents/index.vue`, `incidents/[id].vue` | Incidente + timeline/evidence |
+| `/signals` | `signals/index.vue` | Semnale: resolve/suppress |
+| `/correlation` | `correlation/index.vue` | Reguli de corelare |
+| `/topology` | `topology/index.vue` | Graf topologie |
+| `/events` | `events/index.vue` | Evenimente ingest + listă |
+| `/security` | `security/index.vue` | Securitate |
+| `/workflows/runbooks` | `workflows/runbooks.vue` | Runbook-uri |
+| `/compliance/findings` | `compliance/findings/index.vue`, `.../[id].vue` | Findings + workflow de evaluare |
+| `/compliance/exceptions` | `compliance/exceptions/index.vue` | Excepții (approve/revoke) |
+| `/compliance/standards` | `compliance/standards/index.vue`, `.../[key]/[version].vue` | Standarde XCCDF + versiuni |
+| `/compliance/remediation` | `compliance/remediation/index.vue`, `.../[id].vue` | Planuri de remediere |
+| `/compliance/reports` | `compliance/reports/index.vue` | Rapoarte + download |
 
 ### 5.3 UI Components
 
@@ -661,14 +695,14 @@ The Go service (`lokilinux-compliance`) is stateless, scalable via NATS JetStrea
 | `01-DATA-MODEL.md` | Full PostgreSQL schema (25+ tables) |
 | `02-GO-SERVICE.md` | Go microservice architecture |
 | `03-AGENT-PLUGIN-SDK.md` | Compiled-in collector design |
-| `04-PROTOCOL.md` | Wire protocol, delta sync, 25 NATS subjects |
-| `05-API.md` | 40+ REST endpoints |
+| `04-PROTOCOL.md` | Wire protocol, delta sync, NATS subjects |
+| `05-API.md` | REST API surface (71 endpoints in the compliance sub-routers) |
 | `06-BASELINE.md` | Scope tree, versioning, signing, approval workflow |
 | `07-POLICY-ENGINE.md` | ComplianceAsCode import, CEL evaluation |
 | `08-DRIFT-FIM.md` | 3-way comparison, diff algorithm, severity |
 | `09-REMEDIATION.md` | Remediation workflow, 4 execution providers |
 | `10-AI.md` | AI compliance assistant (Anthropic/OpenAI/Ollama) |
-| `11-FRONTEND.md` | 12 Nuxt 4 pages, Pinia stores |
+| `11-FRONTEND.md` | Nuxt 4 compliance pages (18), Pinia stores |
 | `12-DIAGRAMS.md` | 8 Mermaid workflow/sequence diagrams |
 | `13-OPS.md` | 100K-fleet scaling, security, 5-phase roadmap |
 
@@ -751,15 +785,18 @@ All subjects under `lokilinux.` prefix. Key topics:
 - **Pagination**: Cursor-based (`CursorPage` generic with `encode_cursor`/`decode_cursor`)
 - **Serialization**: ORJSON (orjson) for performance
 
-### 7.5 WebSocket
+### 7.5 Real-time updates
 
-Client-side composable `useWebSocket()` provides real-time events:
-- `job:log` — Job stdout/stderr streaming
-- `agent:status` — Agent online/offline transitions
-- `alert` — New alert notifications
-- `metrics` — Live metric updates
+There is **no WebSocket channel** in the codebase. Freshness comes from HTTP polling:
 
-Exponential-backoff reconnection, typed event emitter.
+| Where | Mechanism |
+|-------|-----------|
+| Workflow run progress | `stores/workflow.ts` polls the run endpoint on an interval |
+| Job detail live view | `components/JobDetail.vue` polls every 5s |
+| Compliance report export | `StreamingResponse` from the API (download stream, not an event channel) |
+
+Server-side push exists only inside the backend, over NATS (see §3.4 and §7.3). A browser-visible
+event stream would require a new transport — nothing in the frontend subscribes to one today.
 
 ---
 

@@ -1,6 +1,6 @@
 # 04 — Microserviciu Compliance (Go)
 
-> Documentație generată din cod la commit `77c4220`, august 2026. Detalii suplimentare: `docs/compliance/00-OVERVIEW.md` … `13-OPS.md`.
+> Documentație generată din cod la commit `7415631` (v0.5.0), octombrie 2026. Cifrele de mai jos sunt verificate pe cod la acest commit. Detalii suplimentare: `docs/compliance/00-OVERVIEW.md` … `13-OPS.md`.
 
 ## Rol
 

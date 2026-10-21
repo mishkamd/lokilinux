@@ -1,6 +1,6 @@
 # LokiLinux — Index documentație module
 
-> Documentație generată din cod la commit `77c4220` (v0.3.0), august 2026.
+> Documentație generată din cod la commit `7415631` (v0.5.0), octombrie 2026. Cifrele de mai jos sunt verificate pe cod la acest commit.
 
 LokiLinux este o platformă enterprise de operațiuni pentru infrastructură Linux: managementul flotelor, patch management centralizat, scanare vulnerabilități, compliance & drift management și remediere automată, dimensionată pentru 10K–100K+ servere.
 
@@ -13,7 +13,7 @@ LokiLinux este o platformă enterprise de operațiuni pentru infrastructură Lin
 | [03-agent.md](03-agent.md) | Agent Linux | Go 1.24, binar static | Daemon per host: inventar + 24 colectoare compliance, execuție job-uri, heartbeat outbound-only |
 | [04-compliance.md](04-compliance.md) | Compliance Service | Go 1.25, pgx, CEL, NATS JetStream | Hot path CPU-bound: ingest snapshot-uri, drift, evaluare reguli, scoring, scheduling |
 | [05-workflow-engine.md](05-workflow-engine.md) | Workflow Engine | Transversal (YAML + graf) | Automatizare multi-pași: compilare, versionare, aprobări, execuție pe agent |
-| [06-infrastructura.md](06-infrastructura.md) | Infrastructură | Docker Compose, TimescaleDB, pgBouncer, NATS, Redis, mTLS | Cele 9 servicii, volume, certificate, deployment |
+| [06-infrastructura.md](06-infrastructura.md) | Infrastructură | Docker Compose, TimescaleDB, pgBouncer, NATS, Redis, mTLS | Cele 12 servicii, volume, certificate, deployment |
 | [07-ansible.md](07-ansible.md) | Plugin Ansible Automation | FastAPI (gated) + Go executor | AWX-like: proiecte, roles, playbooks, templates; execuție locală securizată pe agent |
 | [08-api-public-mcp.md](08-api-public-mcp.md) | API deschis & MCP (design) | FastAPI auth + PAT + MCP | Cum funcționează API-ul azi; design PAT-uri scoped + server MCP pentru clienți AI |
 | [09-recomandari.md](09-recomandari.md) | Recomandări | Transversal | Remedieri prioritare (cu dovezi în cod) + implementări noi, matrice impact×efort |
@@ -52,6 +52,17 @@ Browser ──► Frontend (:3000, Better Auth)
 - Vreau să înțeleg cum ajunge un patch de la UI pe un server → citește 01 → 02 → 03, apoi fluxul „heartbeat" din 02 și „dispatch job-uri" din 03.
 - Vreau să înțeleg compliance/drift → 04 (+ seria detaliată `docs/compliance/00-13`).
 - Vreau să construiesc automatizări → 05.
-- Vreau să instalez/operz platforma → 06 (+ README.md).
+- Vreau să instalez/operez platforma → 06 (+ README.md).
+- Vreau să înțeleg pipeline-ul de observabilitate (events → signals → correlation → incidents) → 02 (workeri + subiecte NATS), apoi paginile `/events`, `/signals`, `/correlation`, `/incidents` din 01.
 
-Documente conexe existente: `docs/ARCHITECTURE.md` (referință full-stack EN), `README.md` (quick start), `docs/compliance/` (spec-ul complet al modulului de compliance).
+## Module adăugate după snapshot-ul inițial
+
+| Modul | Document | Unde |
+|---|---|---|
+| Observabilitate (events → signals → correlation → incidents) | acoperit în 01 (pagini + store-uri) și 02 (4 workeri + 7 subiecte NATS) | 01, 02 |
+| Runbook-uri | 01 (`/workflows/runbooks`), 02 (router `/runbooks`) | 01, 02 |
+| Topologie flotă | 01 (`/topology`), 02 (router `/topology`) | 01, 02 |
+| Saved views server-side | 01 (`useSavedViews`), 02 (router `/saved-views`) | 01, 02 |
+| ClickHouse (evidență incidentă) | 04 (compliance service) + `docs/observability-analysis.md` | 04 |
+
+Documente conexe existente: `docs/ARCHITECTURE.md` (referință full-stack EN), `README.md` (quick start), `docs/compliance/` (spec-ul complet al modulului de compliance), `docs/security/` (modelul de securitate), `docs/modules/09-recomandari.md` (backlog cu dovezi în cod).

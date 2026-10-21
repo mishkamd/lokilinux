@@ -23,7 +23,16 @@ pages/compliance/
 ├── policies/
 │   ├── index.vue             → /compliance/policies        (policy sets, import from ComplianceAsCode)
 │   └── [id].vue               → /compliance/policies/:id   (rules in set, coverage %, edit)
-├── rules/index.vue           → /compliance/rules            (searchable rule catalog, framework filter)
+├── rules/
+│   ├── index.vue             → /compliance/rules            (searchable rule catalog, framework filter)
+│   └── [id].vue              → /compliance/rules/:id        (rule detail, CEL expression viewer)
+├── findings/
+│   ├── index.vue             → /compliance/findings         (evaluation triage)
+│   └── [id].vue              → /compliance/findings/:id     (finding detail, evaluation trail)
+├── standards/
+│   ├── index.vue             → /compliance/standards        (framework catalog, read-only)
+│   └── [key]/[version].vue   → /compliance/standards/:key/:version
+├── exceptions/index.vue      → /compliance/exceptions       (waivers: approve/revoke)
 ├── drift/
 │   ├── index.vue             → /compliance/drift            (drift event list, severity/domain filters)
 │   └── [id].vue               → /compliance/drift/:id       (field-level diff, root cause, ack, create plan)
@@ -31,9 +40,14 @@ pages/compliance/
 ├── remediation/
 │   ├── index.vue             → /compliance/remediation      (plan list, approval queue)
 │   └── [id].vue               → /compliance/remediation/:id (actions, provider output, rollback)
-├── reports/index.vue         → /compliance/reports          (generate/download)
-└── assistant.vue             → /compliance/assistant        (AI chat-style Q&A, per-subject context panel)
+└── reports/index.vue         → /compliance/reports          (generate/download)
 ```
+
+18 pages in `pages/compliance/` (11 routes + detail/index variants) out of 56 `.vue` pages in
+`frontend/pages/` overall. Per-page reference: [11a-FRONTEND-PAGES.md](11a-FRONTEND-PAGES.md).
+
+> **Not implemented:** there is no `pages/compliance/assistant.vue`. The AI assistant is
+> backend-only (see `10-AI.md`); it is not exposed as a page in the shipped UI.
 
 No `definePageMeta` needed on any of these — route protection is already global
 (`middleware/auth.global.ts`), so new pages inherit auth automatically, matching every existing
