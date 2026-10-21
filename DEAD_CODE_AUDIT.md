@@ -358,3 +358,58 @@ stash-ul `e33b357` e în object DB. Branch-ul a fost creat explicit ca să nu pi
 `git gc`. Decizia (reîmvie / arhivează+drop / păstrează) e în **MIS-173**; migration 062 nu le
 atinge.
 
+## 14. Remedierea rundă 2 — ClickHouse, S3, JetStream (2026-10-21)
+
+Toate constatările din §12 au fost remediate; cele din §3 au fost acoperite în §13.
+
+| Ticket | Remediere | Commit | Verificare |
+|---|---|---|---|
+| MIS-138 | CH indisponibil la boot nu mai omoară API-ul: store-ul rămâne degradat și se reconectează leneș | `aaab9b9` | `test_ch_resilience.py` (5 teste) |
+| MIS-140 | timeouts: connect 5s, send/receive 60s, `max_execution_time` 60s pe query și insert | `aaab9b9` | idem |
+| MIS-141 | pool dedicat de 4 thread-uri pentru apelurile CH | `aaab9b9` | idem |
+| MIS-142 | schema declarativă: listele de coloane derivă CREATE **și** ALTER-urile de "coloană lipsă" | `aaab9b9` | `test_ch_ddl.py` (neles) |
+| MIS-143 | porturile 8123/9000 ale ClickHouse expuse în `docker-compose.dev.yml` | `aaab9b9` | — |
+| MIS-144 | delete: rândul e marcat DELETED și commit-at **înainte** de a atinge S3; eșecul S3 nu mai aruncă | `aaab9b9` | `test_storage_gc.py` |
+| MIS-145 | `workers/storage_gc.py` — sweep orar al obiectelor orfane, cu grace period de 1h | `aaab9b9` | idem |
+| MIS-148 | S3: bucket creat leneș la prima scriere; eșecul la boot degradează, nu omoară | `aaab9b9` | `test_object_storage_e2e.py` |
+| MIS-139 | consumator JetStream DURABIL pe stream-ul EVENTS, ack abia după scrierea în ClickHouse, loop periodic de flush, fallback pe core NATS | `031bbff` | `test_event_processor_ack.py` (6 teste) + verificare pe NATS live |
+| MIS-149 | test E2E multipart pe RustFS real + pas în CI | `e704580` | 1 passed contra RustFS real |
+| MIS-147 | decizie: layout fix `v1/`, fără versionare reală (parametrul mort era deja eliminat) | `9d07166` | — |
+| MIS-169 | migration 062 — `update_policies` / `update_jobs` / `update_job_results` (0 rânduri) | `d46a686` | up/down/up pe bază de test |
+| MIS-173 | arhivă + migration 063 — `dsc_*` (8.257.917 rânduri) | `4ff1917` | up/down pe bază de test |
+
+### 14.1 MIS-139 — ce s-a schimbat în calea de livrare
+
+Evenimentele erau publicate pe core NATS (fire-and-forget) și consumate de o
+subscriere core: ce se publica în timp ce API-ul era oprit se pierdea definitiv.
+Stream-ul EVENTS captura deja totul (24h), dar nu exista consumator.
+
+Acum workerul consumă de la un consumator JetStream **durabil** (`event-processor`):
+`deliver_policy=BY_START_TIME` cu `opt_start_time=acum` (un consumator nou pornește de la
+poziția curentă — nu rescrie backlog-ul deja scris în ClickHouse; unul existent reia de la
+ultimul ack). Mesajul e ack-uit **doar** după ce evenimentul e durabil în ClickHouse: un flush
+eșuat îl lasă neack-uit, deci JetStream îl redelivrează. Mesajele otravite (malformed /
+schema invalid / duplicat) sunt ack-uite imediat, altfel blochează consumatorul. Dacă
+JetStream nu e disponibil, workerul cade înapoi pe subscrierea core — degradat, nu mort.
+
+Verificat pe NATS-ul live: un consumator durable primește mesaje publicate pe core, ack-ul
+avansează `ack_floor`, iar `BY_START_TIME` nu replay-ează backlog-ul.
+
+### 14.2 MIS-173 — arhiva DSC
+
+8.257.917 rânduri, ultima scriere **2026-08-06**. Două dintre tabele sunt hypertables
+TimescaleDB (chunk-urile stau în `_timescaledb_internal`, iar `pg_dump -t` le sare — de
+aceea prima arhivă a ieșit goală și a fost detectată prin restore de probă).
+
+Arhiva finală: CSV-uri gz per tabel + `MANIFEST.txt` (coloane, rânduri, comenzi de
+restore) — 167.100.847 octeți, sha256
+`0ee0f7e8e27e06443ccfcc521bb10b18a9aa4c900d5210d90b89a681147551f1`, obiect în storage
+(`exports/ec1c125f-f0aa-42b3-a355-e1b4f7341d59/v1/dsc-archive-2026-10-21.tar.gz`).
+Verificat: sha256 local == rândul din `storage_objects` == obiectul din RustFS.
+
+### 14.3 Observație de operare (în afara scopului)
+
+Discul e la **97%** (2,9 GB liberi). Presiunea e din imaginile Docker nefolosite
+(9,3 GB reclaimable) și build cache (2,3 GB), nu din date. Curățarea
+`docker image prune` / `docker builder prune` ar elibera ~11 GB.
+
