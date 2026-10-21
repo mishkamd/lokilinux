@@ -14,6 +14,7 @@ from .routers.alerts import router as alerts_router
 from .routers.ansible_projects import router as ansible_projects_router
 from .routers.ansible_roles import router as ansible_roles_router
 from .routers.categories import router as categories_router
+from .routers.saved_views import router as saved_views_router
 from .routers.compliance import router as compliance_router
 from .routers.configuration import router as configuration_router
 from .routers.correlation import router as correlation_router
@@ -39,6 +40,7 @@ router = APIRouter()
 
 router.include_router(dashboard_router, prefix="/dashboard", tags=["dashboard"])
 router.include_router(categories_router, tags=["categories"])
+router.include_router(saved_views_router, tags=["saved-views"])
 router.include_router(compliance_router, prefix="/compliance", tags=["compliance"])
 router.include_router(configuration_router, prefix="/configuration", tags=["configuration"])
 router.include_router(events_router, prefix="/events", tags=["events"])

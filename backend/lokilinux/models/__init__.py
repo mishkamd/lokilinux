@@ -8,6 +8,7 @@ from .alert import Alert, AlertRule
 from .audit import AuditLog, RoleAssignment, Setting, UserProfile, UserRole
 from .baseline import Baseline, BaselineApproval, BaselineEffective, BaselineVersion
 from .category import Category, Project
+from .saved_view import SavedView
 from .compliance_assessment import ComplianceAssessment
 from .compliance_exception import ComplianceException
 from .compliance_framework import (
@@ -79,6 +80,7 @@ __all__ = [
     "BaselineVersion",
     # category
     "Category",
+    "SavedView",
     "Project",
     # compliance_assessment (compliance module)
     "ComplianceAssessment",
