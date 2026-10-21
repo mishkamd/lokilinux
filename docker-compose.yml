@@ -126,6 +126,11 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+      # Without a start_period the broker is "unhealthy" for the first ~50s
+      # of its life, and `docker compose up -d <svc>` then aborts on
+      # "dependency failed to start" — leaving the recreated dependencies
+      # stopped (MIS-172).
+      start_period: 60s
     deploy:
       resources:
         limits:
