@@ -1,4 +1,4 @@
-export interface IncidentSignal {
+interface IncidentSignal {
   id: string
   tenant_id: string
   type: string
@@ -12,7 +12,7 @@ export interface IncidentSignal {
   last_seen: string
 }
 
-export interface IncidentTimelineEntry {
+interface IncidentTimelineEntry {
   id: string
   ts: string
   kind: string

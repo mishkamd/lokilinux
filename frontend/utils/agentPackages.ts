@@ -1,4 +1,4 @@
-export interface ArchAvail { amd64: boolean; arm64: boolean }
+interface ArchAvail { amd64: boolean; arm64: boolean }
 
 export interface PackagesResponse {
   version: string

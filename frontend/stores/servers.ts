@@ -1,4 +1,4 @@
-export interface ServerDisk {
+interface ServerDisk {
   mount_point: string
   filesystem: string
   total_size: number
@@ -6,7 +6,7 @@ export interface ServerDisk {
   free_size: number
 }
 
-export interface ServerNetworkInterface {
+interface ServerNetworkInterface {
   name: string
   mac_address: string
   ip_addresses: string[]
@@ -15,7 +15,7 @@ export interface ServerNetworkInterface {
   tx_bytes: number
 }
 
-export interface ServerBlockDevice {
+interface ServerBlockDevice {
   name: string
   type: string
   size: number
@@ -23,7 +23,7 @@ export interface ServerBlockDevice {
   parent_name: string
 }
 
-export interface ServerListeningPort {
+interface ServerListeningPort {
   protocol: string
   local_address: string
   local_port: number

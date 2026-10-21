@@ -1,4 +1,4 @@
-export interface ChartSeriesConfig {
+interface ChartSeriesConfig {
   label: string
   /** CSS color value — always a `var(--chart-N)` / `var(--destructive)` etc. token, never a hardcoded hex. */
   color: string

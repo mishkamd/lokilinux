@@ -1,5 +1,5 @@
-export type VulnerabilitySeverity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'
-export type VulnerabilityStatus = 'OPEN' | 'PATCH_AVAILABLE' | 'IN_PROGRESS' | 'MITIGATED' | 'RESOLVED' | 'ACCEPTED_RISK'
+type VulnerabilitySeverity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW'
+type VulnerabilityStatus = 'OPEN' | 'PATCH_AVAILABLE' | 'IN_PROGRESS' | 'MITIGATED' | 'RESOLVED' | 'ACCEPTED_RISK'
 
 export interface Cve {
   id: number
@@ -22,7 +22,7 @@ export interface CveSummary {
   LOW: number
 }
 
-export interface Vulnerability {
+interface Vulnerability {
   id: number
   agent_id: string
   hostname: string | null

@@ -10,7 +10,7 @@ import type { Component } from 'vue'
 // this is a plain "open programmatically at (x,y)" popover instead —
 // still radix-vue's design vocabulary (DESIGN.md tokens, same overlay
 // shadow tier as Sheet.vue/Dialog.vue) without adding a dependency.
-export interface ContextMenuItem {
+interface ContextMenuItem {
   label: string
   icon?: Component
   onSelect: () => void
