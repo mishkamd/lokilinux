@@ -2,7 +2,10 @@ export interface AnsibleRole {
   id: string
   name: string
   description: string | null
-  files: Record<string, string>
+  // The list endpoint omits `files` (denormalized `file_count` instead — see
+  // backend AnsibleRoleListItem); only the detail endpoint returns the bodies.
+  files?: Record<string, string>
+  file_count: number
   version: number
   is_enabled: boolean
   created_by: string | null

@@ -13,6 +13,10 @@ const JOB_STATUSES = ['', 'QUEUED', 'SCHEDULED', 'PENDING', 'RUNNING', 'COMPLETE
 
 const { format: fmtDateTime } = useDateTime()
 
+// Filter state lives in the URL: a job list is shareable, bookmarkable and
+// linkable from the command palette.
+useUrlFilters(filters.value, { status: '', agent_id: '', job_type: '', search: '' })
+
 const columns = [
   { key: 'name', label: 'Name' },
   { key: 'job_type', label: 'Type' },
@@ -126,6 +130,12 @@ onUnmounted(() => clearInterval(poll))
           @change="store.fetchJobs()"
         />
         <Input
+          v-model="filters.search"
+          placeholder="Search jobs..."
+          class="w-56"
+          @keyup.enter="store.fetchJobs()"
+        />
+        <Input
           v-model="filters.agent_id"
           placeholder="Agent ID..."
           class="w-64"
@@ -144,6 +154,10 @@ onUnmounted(() => clearInterval(poll))
         </Button>
       </div>
     </PageHeader>
+
+    <div class="mb-3">
+      <SavedViews scope="jobs" />
+    </div>
 
     <DataTable
       :rows="jobs"

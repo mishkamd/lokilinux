@@ -100,6 +100,9 @@ export default defineNuxtConfig({
     // keeps the ~45KB gz canvas bundle out of every other route's payload
     // (dynamic-imported from pages/workflows/[id].vue).
     '/workflows/**': { ssr: false },
+    // Runbooks moved under the automation area as a tab (MIS-166); the old
+    // top-level URL keeps working.
+    '/runbooks': { redirect: '/workflows/runbooks' },
   },
 
   nitro: {

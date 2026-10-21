@@ -44,6 +44,54 @@ const vulnerabilityBadges = computed(() => {
   return badges
 })
 
+// ── Needs action ───────────────────────────────────────────────────────────
+// The dashboard used to lead with a grid of metrics: correct numbers, but the
+// operator still had to work out what to do about them. This is the triage
+// queue — built from /dashboard/summary and /compliance/overview, which the
+// page already loads, so it costs no extra request.
+interface ActionItem {
+  key: string
+  label: string
+  count: number
+  severity: 'red' | 'amber'
+  to: string
+}
+
+const needsAction = computed<ActionItem[]>(() => {
+  const s = dashboard.summary
+  const o = compliance.overview
+  const items: ActionItem[] = []
+
+  if (o) {
+    if (o.critical_violations > 0) {
+      items.push({ key: 'critical-violations', label: 'Critical compliance violations', count: o.critical_violations, severity: 'red', to: '/compliance/findings' })
+    }
+    if (o.open_drift > 0) {
+      items.push({ key: 'drift', label: 'Open drift', count: o.open_drift, severity: 'amber', to: '/compliance/drift' })
+    }
+    if (o.servers_non_compliant > 0) {
+      items.push({ key: 'non-compliant', label: 'Non-compliant servers', count: o.servers_non_compliant, severity: 'amber', to: '/compliance/findings' })
+    }
+  }
+
+  if (s) {
+    const criticalCves = s.vulnerabilities.by_severity.CRITICAL ?? 0
+    if (criticalCves > 0) {
+      items.push({ key: 'critical-cves', label: 'Critical CVEs', count: criticalCves, severity: 'red', to: '/vulnerabilities' })
+    }
+    const criticalAlerts = s.alerts.by_severity.CRITICAL ?? 0
+    if (criticalAlerts > 0) {
+      items.push({ key: 'critical-alerts', label: 'Critical alerts', count: criticalAlerts, severity: 'red', to: '/alerts' })
+    }
+    const failedJobs = (s.jobs.by_status.FAILED ?? 0) + (s.jobs.by_status.TIMEOUT ?? 0)
+    if (failedJobs > 0) {
+      items.push({ key: 'failed-jobs', label: 'Failed jobs', count: failedJobs, severity: 'amber', to: '/jobs' })
+    }
+  }
+
+  return items
+})
+
 const JOB_STATUS_COLOR: Record<string, string> = {
   COMPLETED: 'green', FAILED: 'red', CANCELLED: 'gray', TIMEOUT: 'amber',
   // 'blue' (--info), not 'orange' — orange is reserved for HIGH severity
@@ -102,6 +150,41 @@ function pctOfFleet(count: number): string {
     <DashboardError v-if="dashboard.summaryError" @retry="retry" />
 
     <template v-else>
+      <!-- Needs action: the triage queue. Everything the fleet is asking for
+           right now, with a way into it — the metrics live below. -->
+      <section class="mb-4">
+        <div class="mb-2 flex items-baseline gap-2">
+          <h2 class="label-caps text-muted-foreground">Needs action</h2>
+          <span v-if="needsAction.length" class="text-xs text-muted-foreground">{{ needsAction.length }} open</span>
+        </div>
+        <div v-if="needsAction.length" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+          <NuxtLink
+            v-for="item in needsAction"
+            :key="item.key"
+            :to="item.to"
+            class="group flex items-center gap-3 rounded-[var(--radius-lg)] border border-border bg-card px-4 py-3 transition-colors hover:border-primary/40"
+          >
+            <span
+              class="flex size-9 shrink-0 items-center justify-center rounded-full text-sm font-semibold"
+              :class="item.severity === 'red' ? 'bg-destructive/15 text-destructive' : 'bg-[color-mix(in_oklch,var(--warning)_15%,transparent)] text-warning'"
+            >
+              {{ item.count }}
+            </span>
+            <span class="min-w-0 flex-1 truncate text-sm text-foreground">{{ item.label }}</span>
+            <span class="shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5">→</span>
+          </NuxtLink>
+        </div>
+        <p
+          v-else-if="!dashboard.summary && !compliance.overview"
+          class="rounded-[var(--radius-lg)] border border-border bg-card px-4 py-3 text-sm text-muted-foreground"
+        >
+          Checking the fleet…
+        </p>
+        <p v-else class="rounded-[var(--radius-lg)] border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
+          Nothing needs attention right now.
+        </p>
+      </section>
+
       <!-- Operational health: the KPI row. Eight equal cells — each carries
            its own badge/subtitle row plus a trend sparkline where history
            exists, so none reads as thinner than its neighbors. -->

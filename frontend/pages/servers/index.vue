@@ -34,8 +34,20 @@ const columns = [
 
 const statusOptions = ['', 'ACTIVE', 'INACTIVE', 'UNHEALTHY', 'MAINTENANCE', 'PENDING', 'REGISTERED']
 
-const categoryFilter = ref('')
-const projectFilter = ref('')
+// All four filters live in the URL: the list is shareable, bookmarkable and
+// linkable. `search`/`status` are pushed to the API (server-side), while
+// `category`/`project` are filtered client-side on the fetched page.
+const view = reactive({ search: '', status: '', category: '', project: '' })
+useUrlFilters(view)
+
+watch(
+  view,
+  (v) => {
+    filters.value.search = v.search
+    filters.value.status = v.status
+  },
+  { deep: true, immediate: true },
+)
 
 const categoryOptions = computed(() => [
   { label: 'Category', value: '' },
@@ -47,8 +59,8 @@ const projectOptions = computed(() => [
 ])
 
 const filteredServers = computed(() => servers.value.filter((s) => {
-  if (categoryFilter.value && s.category_id !== categoryFilter.value) return false
-  if (projectFilter.value && s.project_id !== projectFilter.value) return false
+  if (view.category && s.category_id !== view.category) return false
+  if (view.project && s.project_id !== view.project) return false
   return true
 }))
 
@@ -137,21 +149,21 @@ async function saveNewEntity() {
         <div class="relative w-56">
           <Search class="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
           <Input
-            v-model="filters.search"
+            v-model="view.search"
             placeholder="Search hostname..."
             class="pl-9"
             @keyup.enter="fetchServers()"
           />
         </div>
         <Select
-          v-model="filters.status"
+          v-model="view.status"
           :options="statusOptions"
           placeholder="Status"
           class="w-40"
           @change="fetchServers()"
         />
-        <Select v-model="categoryFilter" :options="categoryOptions" class="w-36" />
-        <Select v-model="projectFilter" :options="projectOptions" class="w-36" />
+        <Select v-model="view.category" :options="categoryOptions" class="w-36" />
+        <Select v-model="view.project" :options="projectOptions" class="w-36" />
         <Button variant="ghost" size="xs" @click="showNewEntity = true">
           <Plus class="size-3.5" /> New
         </Button>
@@ -163,6 +175,10 @@ async function saveNewEntity() {
       <Badge v-if="selectedIds.length" color="green">{{ selectedIds.length }} selected</Badge>
       <Badge color="gray">{{ filteredServers.length }} servers</Badge>
     </PageHeader>
+
+    <div class="mb-3">
+      <SavedViews scope="servers" />
+    </div>
 
     <DataTable
       :rows="filteredServers"

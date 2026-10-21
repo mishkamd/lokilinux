@@ -38,7 +38,7 @@
       <!-- Navigation -->
       <nav class="flex-1 overflow-y-auto py-3 px-2 space-y-3" aria-label="Main navigation">
         <div v-for="section in navSections" :key="section.title">
-          <p class="label-caps px-3 pb-1.5">{{ section.title }}</p>
+            <p v-if="section.title" class="label-caps px-3 pb-1.5">{{ section.title }}</p>
           <ul class="space-y-0.5">
             <li v-for="link in section.links" :key="link.to">
               <!-- Collapsible parent (e.g. "Ansible" under Automation Engine) -->
@@ -167,18 +167,16 @@
           </div>
 
           <div class="flex-1 hidden md:flex justify-center">
-            <div class="relative w-full max-w-md">
-              <Search class="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-              <input
-                ref="searchInput"
-                v-model="searchQuery"
-                type="text"
-                placeholder="Search servers, jobs, CVEs..."
-                class="w-full h-8 rounded-lg bg-card border border-border pl-10 pr-14 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-primary transition-colors"
-                @keyup.enter="onSearchEnter"
-              >
+            <button
+              type="button"
+              class="relative flex w-full max-w-md items-center gap-2.5 h-8 rounded-lg bg-card border border-border pl-3 pr-12 text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+              aria-label="Open command palette"
+              @click="palette.show()"
+            >
+              <Search class="size-4 shrink-0" />
+              <span class="truncate">Search hosts, CVEs, jobs — or jump to a page</span>
               <kbd class="absolute right-3 top-1/2 -translate-y-1/2 text-[11px] font-medium text-muted-foreground border border-border rounded-md px-1.5 py-0.5">⌘K</kbd>
-            </div>
+            </button>
           </div>
           <div class="flex-1 md:hidden" />
 
@@ -187,8 +185,8 @@
             <button
               type="button"
               class="inline-flex items-center justify-center size-9 rounded-xl hover:bg-accent transition-colors md:hidden"
-              aria-label="Search"
-              @click="mobileSearchOpen = !mobileSearchOpen"
+              aria-label="Open command palette"
+              @click="palette.show()"
             >
               <Search class="size-4.5" />
             </button>
@@ -227,20 +225,8 @@
           </div>
         </header>
 
-        <div v-if="mobileSearchOpen" class="px-4 pb-3 md:hidden">
-          <div class="relative w-full">
-            <Search class="absolute left-3.5 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-            <input
-              v-model="searchQuery"
-              type="text"
-              placeholder="Search servers, jobs, CVEs..."
-              class="w-full h-11 rounded-[16px] bg-card border border-border pl-10 pr-3 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:border-primary transition-colors"
-              autofocus
-              @keyup.enter="onSearchEnter"
-            >
-          </div>
-        </div>
       </div>
+      <CommandPalette />
       <main class="flex-1 overflow-y-auto p-3 sm:p-4">
         <slot />
       </main>
@@ -250,29 +236,20 @@
 
 <script setup lang="ts">
 import {
-  LayoutDashboard, Server, Cpu, ClipboardList, ShieldAlert, Shield,
-  FileText, Puzzle, BellDot, Bell, Users, Settings, UserCircle, LogOut, Search, Menu, X,
-  PanelLeft, PanelLeftClose, Bot, Layers, FolderKanban, ShieldCheck,
-  BookCheck, ListChecks, GitCompare, Wrench, FileSearch, FileChartColumn, ShieldOff, CircleHelp, Flag, Award,
-  Workflow, Siren, RadioTower, Activity, Network, GitMerge, PlayCircle,
+  Bell, UserCircle, LogOut, Search, Menu, X,
+  PanelLeft, PanelLeftClose, CircleHelp,
 } from 'lucide-vue-next'
 import { Toaster } from 'vue-sonner'
-
-interface NavLink {
-  to: string
-  label: string
-  icon: unknown
-  children?: NavLink[]
-}
+import { buildNavSections, AREA_TABS, type NavSection } from '~/utils/nav'
 
 const route = useRoute()
 const { user: currentUser, isAdmin } = useCurrentUser()
 const { signOut } = useAuth()
 const { companyName, logoMaskStyle } = useBranding()
 const dashboard = useDashboardStore()
+const palette = useCommandPalette()
 const showUserModal = ref(false)
 const showHelp = ref(false)
-const searchQuery = ref('')
 
 onMounted(() => dashboard.ensureSummary())
 
@@ -287,10 +264,8 @@ const userRoleLabel = computed(() => {
   const role = (currentUser.value as Record<string, unknown> | null)?.role as string | undefined
   return role ? role.charAt(0).toUpperCase() + role.slice(1) : ''
 })
-const searchInput = ref<HTMLInputElement | null>(null)
 const sidebarOpen = ref(false)
 const sidebarCollapsed = useLocalStorage('sidebar-collapsed', false)
-const mobileSearchOpen = ref(false)
 
 watch(() => route.path, () => { sidebarOpen.value = false })
 
@@ -300,15 +275,10 @@ async function handleLogout() {
   await navigateTo('/auth/login')
 }
 
-function onSearchEnter() {
-  if (!searchQuery.value.trim()) return
-  navigateTo({ path: '/servers', query: { search: searchQuery.value.trim() } })
-}
-
 function onGlobalKeydown(e: KeyboardEvent) {
   if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
     e.preventDefault()
-    searchInput.value?.focus()
+    palette.show()
   }
 }
 onMounted(() => window.addEventListener('keydown', onGlobalKeydown))
@@ -325,101 +295,9 @@ onMounted(async () => {
   )
 })
 
-const navSections = computed((): { title: string; links: NavLink[] }[] => [
-  {
-    title: 'Overview',
-    links: [
-      { to: '/', label: 'Overview', icon: LayoutDashboard },
-    ],
-  },
-  {
-    title: 'Infrastructure',
-    links: [
-      { to: '/servers', label: 'Servers', icon: Server },
-      { to: '/agents',  label: 'Agents',  icon: Cpu },
-    ],
-  },
-  {
-    title: 'Automation',
-    links: [
-      { to: '/jobs',      label: 'Jobs',      icon: ClipboardList },
-      { to: '/workflows', label: 'Workflows', icon: Workflow },
-      { to: '/runbooks',  label: 'Runbooks',  icon: PlayCircle },
-      { to: '/policies',  label: 'Policies',  icon: FileText },
-      ...(ansibleEnabled.value ? [{
-        to: '/automation/ansible/playbooks', label: 'Ansible', icon: Bot,
-        children: [
-          { to: '/automation/ansible/projects',  label: 'Projects',      icon: FolderKanban },
-          { to: '/automation/ansible/playbooks', label: 'Playbooks',     icon: FileText },
-          { to: '/automation/ansible/roles',     label: 'Roles',         icon: Layers },
-          { to: '/automation/ansible/templates', label: 'Job Templates', icon: ClipboardList },
-        ],
-      }] : []),
-    ],
-  },
-  {
-    title: 'Security',
-    links: [
-      { to: '/security',             label: 'Overview',        icon: Shield },
-      { to: '/vulnerabilities',      label: 'Vulnerabilities', icon: ShieldAlert },
-      { to: '/vulnerabilities/list', label: 'CVE Catalog',     icon: ListChecks },
-    ],
-  },
-  {
-    // Domain separation (Enterprise Compliance plan U2): Configuration
-    // ("what should this host look like, and did it drift") and Compliance
-    // ("does it satisfy a rule/standard") are visibly separate products
-    // here even though every route still lives under /compliance/* — no
-    // engine moves, no table renames, sidebar routes stay exactly as they
-    // were (plan U2 Task 4 + the parent plan's own backward-compat list).
-    title: 'Configuration',
-    links: [
-      { to: '/compliance/baselines',      label: 'Baselines',      icon: FileText },
-      { to: '/compliance/drift',          label: 'Drift',          icon: GitCompare },
-      { to: '/compliance/file-integrity', label: 'File Integrity', icon: FileSearch },
-    ],
-  },
-  {
-    title: 'Compliance',
-    links: [
-      { to: '/compliance', label: 'Overview', icon: ShieldCheck },
-      {
-        to: '/compliance/standards', label: 'Modules', icon: Layers,
-        children: [
-          { to: '/compliance/standards',   label: 'Standards',    icon: Award },
-          { to: '/compliance/findings',    label: 'Findings',     icon: Flag },
-          { to: '/compliance/policies',    label: 'Policy Sets',  icon: BookCheck },
-          { to: '/compliance/rules',       label: 'Rule Catalog', icon: ListChecks },
-          { to: '/compliance/remediation', label: 'Remediation',  icon: Wrench },
-          { to: '/compliance/exceptions',  label: 'Exceptions',   icon: ShieldOff },
-          { to: '/compliance/reports',     label: 'Reports',      icon: FileChartColumn },
-        ],
-      },
-    ],
-  },
-  {
-    title: 'Observability',
-    links: [
-      { to: '/alerts',      label: 'Alerts',      icon: BellDot },
-      { to: '/incidents',   label: 'Incidents',   icon: Siren },
-      { to: '/signals',     label: 'Signals',     icon: RadioTower },
-      { to: '/events',      label: 'Events',      icon: Activity },
-      { to: '/topology',    label: 'Topology',    icon: Network },
-      { to: '/correlation', label: 'Correlation', icon: GitMerge },
-    ],
-  },
-  // Admin-gated: Plugins lives here too (it manages what the whole fleet can
-  // run), so non-admins lose it from the nav — the route itself stays reachable.
-  ...(isAdmin.value ? [{
-    title: 'Administration',
-    links: [
-      { to: '/admin/settings', label: 'Settings',  icon: Settings },
-      { to: '/admin/users',    label: 'Users',     icon: Users },
-      { to: '/plugins',        label: 'Plugins',   icon: Puzzle },
-      { to: '/admin/audit',    label: 'Audit Log', icon: ClipboardList },
-    ],
-  }] : []),
-])
+const navSections = computed((): NavSection[] =>
+  buildNavSections({ isAdmin: isAdmin.value, ansibleEnabled: ansibleEnabled.value }),
+)
 
 function isActive(to: string): boolean {
   // Exact match for index-style links that are themselves a path-prefix of a
@@ -429,11 +307,43 @@ function isActive(to: string): boolean {
   return route.path.startsWith(to)
 }
 
+// A route segment that is an identifier, not a word: /servers/<uuid>,
+// /vulnerabilities/CVE-2024-1234, /compliance/standards/<key>/<version>.
+function isIdSegment(seg: string): boolean {
+  return /^[0-9a-f]{8}-/i.test(seg) || /^(CVE-)/i.test(seg) || /^\d/.test(seg)
+}
+
+function humanize(seg: string): string {
+  return seg.replace(/[-_]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+}
+
 const currentPageTitle = computed((): string => {
+  // Tabbed areas name their own pages: /compliance/findings is "Findings",
+  // /vulnerabilities/list is "CVE Catalog".
+  const areaTab = AREA_TABS.find((t) => t.to === route.path)
+  if (areaTab) return areaTab.label
   // navSections already includes the admin-gated Administration section.
-  const allLinks = navSections.value.flatMap((s) => s.links.flatMap((l) => [l, ...(l.children ?? [])]))
-  const match = allLinks.find((l) => isActive(l.to))
-  return match?.label ?? companyName.value
+  // Children come before their group so a group's own route (e.g. the
+  // "Compliance" group pointing at /compliance) can't shadow the more
+  // specific child that actually matched.
+  const allLinks = navSections.value.flatMap((s) => s.links.flatMap((l) => [...(l.children ?? []), l]))
+  // Prefix match (not the sidebar's exact-match rule): the title wants the
+  // area a nested child belongs to. Longest match wins, so /compliance/findings
+  // never titles as the "/compliance" group.
+  const match = allLinks
+    .filter((l) => l.to === '/' ? route.path === '/' : route.path === l.to || route.path.startsWith(l.to + '/'))
+    .sort((a, b) => b.to.length - a.to.length)[0]
+  if (!match) return companyName.value
+  // One level below the matched entry the segment names the page
+  // ("/compliance/findings" -> "Findings"); an id segment doesn't, so the
+  // area's own label stays.
+  const segments = route.path.split('/').filter(Boolean)
+  const matchedSegments = match.to.split('/').filter(Boolean).length
+  if (segments.length > matchedSegments) {
+    const seg = segments.at(-1) ?? ''
+    if (seg && !isIdSegment(seg)) return humanize(seg)
+  }
+  return match.label
 })
 
 // Drives the browser tab (via nuxt.config.ts's titleTemplate), reusing the

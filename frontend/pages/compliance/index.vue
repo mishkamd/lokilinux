@@ -99,6 +99,12 @@ const baselineColumns = [
 ]
 
 const showRunAssessment = ref(false)
+
+// Deep link from the command palette: /compliance?action=assessment
+const route = useRoute()
+onMounted(() => {
+  if (route.query.action === 'assessment') showRunAssessment.value = true
+})
 const runningAssessment = ref(false)
 const assessmentFormError = ref<string | null>(null)
 const assessmentForm = ref({ policy_set_id: '', scope_selector: '{}' })

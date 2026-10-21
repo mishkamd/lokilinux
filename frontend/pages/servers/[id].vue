@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ACTIVE_STATUSES } from '~/stores/jobs'
 import { RefreshCw, CheckCircle2, AlertTriangle, Undo2 } from 'lucide-vue-next'
+import type { DriftEvent, Finding, FileHash } from '~/stores/compliance'
 
 const route = useRoute()
 const store = useServersStore()
@@ -52,12 +53,73 @@ const tabs = [
   { label: 'Hardware', slot: 'hardware' },
   { label: 'Packages', slot: 'packages' },
   { label: 'Vulnerabilities', slot: 'vulnerabilities' },
+  { label: 'Drift', slot: 'drift' },
+  { label: 'Findings', slot: 'findings' },
+  { label: 'File Integrity', slot: 'integrity' },
   { label: 'Jobs', slot: 'jobs' },
   { label: 'Policy', slot: 'policy' },
   { label: 'Users', slot: 'users' },
   { label: 'Logs', slot: 'logs' },
   { label: 'Settings', slot: 'settings' },
 ]
+
+// ── Compliance state of this host ───────────────────────────────────────────
+// One host's whole story lives in one place: drift, findings and file
+// integrity used to be three separate list pages the operator had to find.
+// Fetched straight from the API (not the shared compliance store) so the
+// server hub never leaves a filter behind for the compliance pages.
+const api = useApi()
+const agentId = computed(() => String(route.params.id))
+const driftRows = ref<DriftEvent[]>([])
+const findingRows = ref<Finding[]>([])
+const hashRows = ref<FileHash[]>([])
+const complianceLoading = ref(false)
+
+const DRIFT_COLUMNS = [
+  { key: 'time', label: 'Last seen' },
+  { key: 'domain', label: 'Domain' },
+  { key: 'change_type', label: 'Change' },
+  { key: 'summary', label: 'Summary' },
+  { key: 'severity', label: 'Severity' },
+]
+const FINDING_COLUMNS = [
+  { key: 'time', label: 'Last seen' },
+  { key: 'title', label: 'Rule' },
+  { key: 'domain', label: 'Domain' },
+  { key: 'severity', label: 'Severity' },
+  { key: 'result', label: 'Result' },
+]
+const HASH_COLUMNS = [
+  { key: 'path', label: 'Path' },
+  { key: 'hash', label: 'Hash' },
+  { key: 'mode', label: 'Mode' },
+  { key: 'size_bytes', label: 'Size' },
+  { key: 'updated_at', label: 'Updated' },
+]
+
+async function loadComplianceState(slot: string) {
+  complianceLoading.value = true
+  try {
+    if (slot === 'drift') {
+      const res = await api.get<{ items: DriftEvent[] }>(
+        `/compliance/drift-events?agent_id=${agentId.value}&limit=50`,
+      )
+      driftRows.value = res.items ?? []
+    } else if (slot === 'findings') {
+      const res = await api.get<{ items: Finding[] }>(
+        `/compliance/findings?agent_id=${agentId.value}&limit=50`,
+      )
+      findingRows.value = res.items ?? []
+    } else if (slot === 'integrity') {
+      const res = await api.get<FileHash[]>(`/compliance/agents/${agentId.value}/file-hashes`)
+      hashRows.value = res ?? []
+    }
+  } catch {
+    // A failed drill-down must not break the hub — the other tabs still work.
+  } finally {
+    complianceLoading.value = false
+  }
+}
 
 const diskColumns = [
   { key: 'mount_point', label: 'Mount' },
@@ -103,18 +165,24 @@ function onVulnFilterChange() {
 }
 
 function onTabChange(index: number) {
-  if (index === 2 && !packagesLoaded.value) {
+  // Switch on the slot name, not the index — inserting a tab must not
+  // silently re-point the loads.
+  const slot = tabs[index]?.slot
+  if (slot === 'packages' && !packagesLoaded.value) {
     store.fetchPackages(route.params.id as string)
     packagesLoaded.value = true
   }
-  if (index === 3 && !vulnerabilitiesLoaded.value) {
+  if (slot === 'vulnerabilities' && !vulnerabilitiesLoaded.value) {
     store.fetchVulnerabilities(route.params.id as string, vulnFilter.value === 'all')
     vulnerabilitiesLoaded.value = true
   }
-  if (index === 4) {
+  if (slot === 'drift' || slot === 'findings' || slot === 'integrity') {
+    loadComplianceState(slot)
+  }
+  if (slot === 'jobs') {
     useJobsStore().fetchJobs(route.params.id as string)
   }
-  if (index === 5 && !policyLoaded.value) {
+  if (slot === 'policy' && !policyLoaded.value) {
     loadPolicyState()
     policyLoaded.value = true
   }
@@ -478,6 +546,71 @@ const VULN_FILTER_OPTIONS = [
             <template #status-data="{ row }">
               <Badge :color="VULN_STATUS_COLORS[row.status] ?? 'gray'" size="xs">{{ row.status }}</Badge>
             </template>
+          </DataTable>
+        </div>
+      </template>
+
+      <template #drift>
+        <div class="mt-4">
+          <DataTable
+            :rows="driftRows"
+            :columns="DRIFT_COLUMNS"
+            :loading="complianceLoading"
+            sortable
+            :page-size="25"
+            empty-title="No drift detected"
+            empty-description="This host matches its last known desired state."
+          >
+            <template #time-data="{ row }">{{ fmtDateTime(row.time) }}</template>
+            <template #severity-data="{ row }">
+              <Badge :color="SEVERITY_COLORS[row.severity] ?? 'gray'" size="xs">{{ row.severity }}</Badge>
+            </template>
+          </DataTable>
+        </div>
+      </template>
+
+      <template #findings>
+        <div class="mt-4">
+          <DataTable
+            :rows="findingRows"
+            :columns="FINDING_COLUMNS"
+            :loading="complianceLoading"
+            sortable
+            :page-size="25"
+            empty-title="No compliance findings"
+            empty-description="No rule has failed on this host."
+          >
+            <template #time-data="{ row }">{{ fmtDateTime(row.time) }}</template>
+            <template #severity-data="{ row }">
+              <Badge :color="SEVERITY_COLORS[row.severity] ?? 'gray'" size="xs">{{ row.severity }}</Badge>
+            </template>
+            <template #result-data="{ row }">
+              <Badge :color="row.result === 'FAIL' ? 'red' : row.result === 'PASS' ? 'green' : 'gray'" size="xs">{{ row.result }}</Badge>
+            </template>
+          </DataTable>
+        </div>
+      </template>
+
+      <template #integrity>
+        <div class="mt-4">
+          <DataTable
+            :rows="hashRows"
+            :columns="HASH_COLUMNS"
+            :loading="complianceLoading"
+            sortable
+            :page-size="25"
+            empty-title="No file hashes reported"
+            empty-description="This host has no file-integrity baseline yet."
+          >
+            <template #path-data="{ row }">
+              <span class="font-mono text-xs truncate" :title="row.path">{{ row.path }}</span>
+            </template>
+            <template #hash-data="{ row }">
+              <span class="font-mono text-xs truncate" :title="row.hash">{{ row.hash }}</span>
+            </template>
+            <template #mode-data="{ row }">{{ row.mode !== null ? `0${(row.mode & 0o777).toString(8)}` : '—' }}</template>
+            <template #size_bytes-data="{ row }">{{ row.size_bytes !== null ? formatBytes(row.size_bytes) : '—' }}</template>
+            <template #updated_at-data="{ row }">{{ fmtDateTime(row.updated_at) }}</template>
           </DataTable>
         </div>
       </template>

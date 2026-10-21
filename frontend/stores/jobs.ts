@@ -40,7 +40,7 @@ export const useJobsStore = defineStore('jobs', () => {
   const jobs = ref<Job[]>([])
   const total = ref(0)
   const loading = ref(false)
-  const filters = ref({ status: '', agent_id: '', job_type: '' })
+  const filters = ref({ status: '', agent_id: '', job_type: '', search: '' })
 
   async function fetchJobs(agentId?: string, cursor?: string) {
     loading.value = true
@@ -51,6 +51,7 @@ export const useJobsStore = defineStore('jobs', () => {
       else if (filters.value.agent_id) params.set('agent_id', filters.value.agent_id)
       if (filters.value.status) params.set('status', filters.value.status)
       if (filters.value.job_type) params.set('job_type', filters.value.job_type)
+      if (filters.value.search) params.set('search', filters.value.search)
 
       const data = await api.get<{ items: Job[]; next_cursor: string | null; total: number }>(
         `/jobs?${params}`,

@@ -136,7 +136,7 @@ async function confirmDelete() {
       empty-title="No roles"
     >
       <template #files-data="{ row }">
-        <Badge color="gray" size="xs">{{ Object.keys((row as AnsibleRole).files).length }} files</Badge>
+        <Badge color="gray" size="xs">{{ (row as AnsibleRole).file_count }} files</Badge>
       </template>
       <template #version-data="{ row }">
         <span class="font-mono text-xs tabular-nums">v{{ (row as AnsibleRole).version }}</span>

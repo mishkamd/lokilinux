@@ -7,6 +7,10 @@ const { findings, findingsTotal, findingsLoading, findingsNextCursor, findingFil
 const { canEdit } = useCurrentUser()
 const { format: fmtDateTime } = useDateTime()
 
+// Filter state lives in the URL: a findings list is shareable, bookmarkable
+// and linkable from an incident or a runbook.
+useUrlFilters(findingFilters.value, { severity: '', domain: '', agent_id: '', result: 'FAIL' })
+
 onMounted(() => store.fetchFindings())
 
 const RESULT_COLORS: Record<string, string> = {
@@ -46,6 +50,10 @@ const columns = [
       </div>
       <Badge color="gray">{{ findingsTotal }} findings</Badge>
     </PageHeader>
+
+    <div class="mb-3">
+      <SavedViews scope="compliance-findings" />
+    </div>
 
     <DataTable
       :rows="findings"

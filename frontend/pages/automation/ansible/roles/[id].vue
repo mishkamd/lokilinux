@@ -19,7 +19,7 @@ if (!isNew.value) {
   role.value = await store.fetchRole(String(route.params.id))
   name.value = role.value.name
   description.value = role.value.description ?? ''
-  files.value = { ...role.value.files }
+  files.value = { ...(role.value.files ?? {}) }
   activePath.value = Object.keys(files.value)[0] ?? ''
 }
 

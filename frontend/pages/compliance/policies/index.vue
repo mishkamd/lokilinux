@@ -17,6 +17,12 @@ const columns = [
 ]
 
 const showCreate = ref(false)
+
+// Deep link from the command palette: /compliance/policies?action=new
+const route = useRoute()
+onMounted(() => {
+  if (route.query.action === 'new') showCreate.value = true
+})
 const form = ref({ name: '', slug: '', framework: 'INTERNAL', version: '', description: '' })
 const creating = ref(false)
 const FRAMEWORKS = ['CIS', 'NIST', 'PCI_DSS', 'ISO27001', 'STIG', 'INTERNAL']
