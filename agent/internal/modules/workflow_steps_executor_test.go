@@ -1,6 +1,9 @@
 package modules
 
-import "testing"
+import (
+	"context"
+	"testing"
+)
 
 // Only the pure/no-execution paths are unit-tested here — same boundary the
 // codebase already draws for RemediationExecutor (no remediation_executor_test.go
@@ -9,7 +12,7 @@ import "testing"
 
 func TestWorkflowStepsExecuteRejectsEmptySteps(t *testing.T) {
 	e := NewWorkflowStepsExecutor(nil, nil)
-	result := e.Execute(nil, "job-1", nil, 30)
+	result := e.Execute(context.TODO(), "job-1", nil, 30)
 	if result.ExitCode == 0 {
 		t.Errorf("expected a non-zero exit code for an empty step list")
 	}
@@ -20,7 +23,7 @@ func TestWorkflowStepsExecuteRejectsEmptySteps(t *testing.T) {
 
 func TestWorkflowStepsDispatchRejectsUnsupportedType(t *testing.T) {
 	e := NewWorkflowStepsExecutor(nil, nil)
-	result := e.dispatch(nil, "job-1", "bogus-type", nil, 30)
+	result := e.dispatch(context.TODO(), "job-1", "bogus-type", nil, 30)
 	if result.ExitCode == 0 {
 		t.Errorf("expected a non-zero exit code for an unsupported step type")
 	}
@@ -31,7 +34,7 @@ func TestWorkflowStepsDispatchRejectsUnsupportedType(t *testing.T) {
 
 func TestWorkflowStepsDispatchCommandRejectsMissingCommand(t *testing.T) {
 	e := NewWorkflowStepsExecutor(nil, NewJobExecutor())
-	result := e.dispatch(nil, "job-1", "command", map[string]interface{}{}, 30)
+	result := e.dispatch(context.TODO(), "job-1", "command", map[string]interface{}{}, 30)
 	if result.ExitCode == 0 {
 		t.Errorf("expected a non-zero exit code for a command step with no config.command")
 	}
@@ -39,7 +42,7 @@ func TestWorkflowStepsDispatchCommandRejectsMissingCommand(t *testing.T) {
 
 func TestWorkflowStepsDispatchAnsibleRejectsMissingPlaybook(t *testing.T) {
 	e := NewWorkflowStepsExecutor(NewAnsibleExecutor(), nil)
-	result := e.dispatch(nil, "job-1", "ansible", map[string]interface{}{}, 30)
+	result := e.dispatch(context.TODO(), "job-1", "ansible", map[string]interface{}{}, 30)
 	if result.ExitCode == 0 {
 		t.Errorf("expected a non-zero exit code for an ansible step with no playbook_content")
 	}

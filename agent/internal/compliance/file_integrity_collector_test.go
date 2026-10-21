@@ -1,6 +1,7 @@
 package compliance
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -51,7 +52,7 @@ func TestFileIntegrityCollector_Collect_FindsWrittenFile(t *testing.T) {
 	}
 
 	c := NewFileIntegrityCollectorWithConfig([]string{dir}, nil)
-	facts, err := c.Collect(nil)
+	facts, err := c.Collect(context.TODO())
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
 	}
@@ -84,7 +85,7 @@ func TestFileIntegrityCollector_Collect_ReportsModeUIDGIDMTime(t *testing.T) {
 	}
 
 	c := NewFileIntegrityCollectorWithConfig([]string{dir}, nil)
-	facts, err := c.Collect(nil)
+	facts, err := c.Collect(context.TODO())
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
 	}
@@ -161,7 +162,7 @@ func TestFileIntegrityCollector_Collect_DedupesOverlappingRoots(t *testing.T) {
 	}
 
 	c := NewFileIntegrityCollectorWithConfig([]string{dir, sub}, nil)
-	facts, err := c.Collect(nil)
+	facts, err := c.Collect(context.TODO())
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
 	}
@@ -182,7 +183,7 @@ func TestFileIntegrityCollector_Collect_SkipsOversizedFiles(t *testing.T) {
 	}
 
 	c := NewFileIntegrityCollectorWithConfig([]string{dir}, nil)
-	facts, err := c.Collect(nil)
+	facts, err := c.Collect(context.TODO())
 	if err != nil {
 		t.Fatalf("Collect: %v", err)
 	}
@@ -207,7 +208,7 @@ func TestFileIntegrityCollector_SetPaths_ConcurrentWithCollect(t *testing.T) {
 		close(done)
 	}()
 	for i := 0; i < 50; i++ {
-		if _, err := c.Collect(nil); err != nil {
+		if _, err := c.Collect(context.TODO()); err != nil {
 			t.Fatalf("Collect: %v", err)
 		}
 	}

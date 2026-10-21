@@ -178,9 +178,6 @@ func validateAndAuthorize(
 		); reason != "" {
 			return rejectResult(jobID, string(reason), detail)
 		}
-	} else if cfgSec.EnforceSignedJobs {
-		// Unsigned jobs never reach here when enforcement is on (rejected
-		// earlier); nothing to evaluate.
 	}
 	return nil
 }
