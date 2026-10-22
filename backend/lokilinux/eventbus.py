@@ -17,7 +17,11 @@ logger = structlog.get_logger()
 
 _REPLAY_WINDOW_SEC = 24 * 3600
 # Storage ceiling per stream (ROADMAP P1r-3.4). Age alone let a burst fill the disk.
-_STREAM_MAX_BYTES = 10 * 1024 * 1024 * 1024
+# ponytail: 2 GiB/stream, sized for the current single-node store — JetStream
+# reserves max_bytes up front, so 3x10 GiB + the compliance service's 4 GiB
+# over-committed the volume and left SIGNALS unrecoverable on restart
+# ("insufficient storage resources"). Raise per stream once the store grows.
+_STREAM_MAX_BYTES = 2 * 1024 * 1024 * 1024
 
 _STREAM_CONFIGS = [
     StreamConfig(name="EVENTS", subjects=["lokilinux.events.>"], retention=RetentionPolicy.LIMITS, max_age=_REPLAY_WINDOW_SEC, max_bytes=_STREAM_MAX_BYTES),
