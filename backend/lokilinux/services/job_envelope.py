@@ -69,7 +69,13 @@ _SIGNER_RETRY_SECONDS = 60.0
 _signer_retry_at = 0.0
 
 
-def _required_capabilities(job_type: str, params: dict) -> List[str]:
+def required_capabilities(job_type: str, params: dict) -> List[str]:
+    """The capability names a job demands.
+
+    This is the vocabulary the agent checks an approval claim against
+    (`RequestedCapabilities` on the envelope, and `approvedByClaim` in
+    job_validation.go) — capability NAMES, never job types.
+    """
     if job_type == "WORKFLOW_STEPS":
         caps = []
         for step in params.get("steps") or []:
@@ -189,7 +195,7 @@ def maybe_attach_envelope(
             payload=payload,
             policy_id=str(getattr(job, "policy_id", "") or ""),
             risk_level=_risk_level(job_type),
-            requested_capabilities=_required_capabilities(job_type, payload),
+            requested_capabilities=required_capabilities(job_type, payload),
         )
         out = dict(payload)
         out["_envelope"] = env

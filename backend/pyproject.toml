@@ -53,6 +53,13 @@ dependencies = [
     # Object storage — RustFS/S3-compatible (Centralized S3 Object Storage plan)
     "boto3==1.43.87",
     "python-multipart==0.0.32",  # required by fastapi.UploadFile
+
+    # Transitive deps with known CVEs, pinned explicitly so the resolver
+    # cannot pick a vulnerable version:
+    # certifi GHSA-6q48-6c7w-9gw2 (compromised eMudhra roots in the bundle)
+    # urllib3 PYSEC-2026-4175 / -4176 / -4177
+    "certifi==2026.10.19",
+    "urllib3==2.8.0",
 ]
 
 [project.optional-dependencies]
@@ -64,6 +71,11 @@ dev = [
     "ruff==0.15.20",
     "mypy==2.1.0",
     "testcontainers==4.13.1",
+    # testcontainers 4.13.1 ships the module tree but does not declare these
+    # two distributions — testcontainers.core.container and
+    # testcontainers.postgres live in them, and conftest.py imports both.
+    "testcontainers-core==0.0.1rc1",
+    "testcontainers-postgres==0.0.1rc1",
     "psycopg2-binary==2.9.12",  # testcontainers Postgres readiness check uses the sync driver
 ]
 

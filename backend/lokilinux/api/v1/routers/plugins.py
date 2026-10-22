@@ -38,7 +38,10 @@ async def install_plugin(
     plugin_id: UUID,
     agent_ids: list[UUID],
     svc: PluginService = Depends(_svc),
-    _: dict = Depends(require_role("ADMIN", "OPERATOR")),
+    # PLUGIN_INSTALL is ADMIN-only in the capability table
+    # (utils/capability_rbac.py) — this route pushes code to the fleet and
+    # the agent runs it as root.
+    _: dict = Depends(require_role("ADMIN")),
 ) -> list[PluginInstallationResponse]:
     try:
         return await svc.install_plugin(plugin_id, agent_ids)

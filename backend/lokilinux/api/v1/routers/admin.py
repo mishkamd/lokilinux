@@ -3,12 +3,12 @@ LokiLinux — Admin router: user management, settings, audit log.
 """
 
 import os
-from typing import Optional
+from typing import Annotated, Optional
 
 import httpx
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from fastapi import APIRouter, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Path, Query
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -28,6 +28,12 @@ from lokilinux.settings_schema import PUBLIC_GROUPS, PUBLIC_KEYS, get_all_settin
 router = APIRouter()
 
 _AGENT_KEYS = ("agent.download_base", "agent.version", "agent.platform_url")
+
+# A key_id becomes a directory name under LOKILINUX_KEYS_DIR — it must not be
+# able to escape it. Mirrors the check in kms/keys.py (KeyManager), which is
+# the authoritative one; this one turns a traversal attempt into a 422
+# instead of a 500.
+_KEY_ID_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
 
 
 # ── Agent config ──────────────────────────────────────────────────────────────
@@ -113,6 +119,16 @@ class CreateUserRequest(BaseModel):
     role: str = "VIEWER"
 
 
+# The roles the platform recognises. An unvalidated role forwarded to the
+# identity provider creates a user the platform cannot reason about — deny it
+# here, same as assign_role does. Single source of truth for both routes.
+#
+# ponytail: MANAGER is documented (README) and holds capabilities in
+# utils/capability_rbac.py, but is not assignable — promoting it is a
+# behaviour change that needs its own sign-off (see auth/permissions.py).
+_VALID_ROLES = {"ADMIN", "OPERATOR", "VIEWER", "AUDITOR"}
+
+
 @router.post("/users")
 async def create_user(
     body: CreateUserRequest,
@@ -120,6 +136,12 @@ async def create_user(
     current_user: dict = Depends(require_role("ADMIN")),
     authorization: Optional[str] = Header(None, alias="Authorization"),
 ) -> dict:
+    role = (body.role or "").upper()
+    if role not in _VALID_ROLES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid role. Must be one of: {', '.join(sorted(_VALID_ROLES))}",
+        )
     settings = get_settings()
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -130,7 +152,7 @@ async def create_user(
                     "email": body.email,
                     "name": body.username,
                     "password": body.password,
-                    "role": body.role.lower(),
+                    "role": role.lower(),
                 },
             )
     except httpx.RequestError as exc:
@@ -158,7 +180,7 @@ async def assign_role(
     current_user: dict = Depends(require_role("ADMIN")),
     authorization: Optional[str] = Header(None, alias="Authorization"),
 ) -> dict:
-    valid_roles = {"ADMIN", "OPERATOR", "VIEWER", "AUDITOR"}
+    valid_roles = _VALID_ROLES
     if role.upper() not in valid_roles:
         raise HTTPException(status_code=400, detail=f"Invalid role. Must be one of: {valid_roles}")
 
@@ -335,7 +357,7 @@ def _generate_ed25519_key_file(path: str) -> None:
 
 @router.get("/kms/keys/{key_id}")
 async def get_kms_key_versions(
-    key_id: str,
+    key_id: Annotated[str, Path(pattern=_KEY_ID_PATTERN)],
     _: dict = Depends(require_role("ADMIN")),
 ) -> dict:
     """Lists all known versions and their lifecycle state — used by the
@@ -355,7 +377,7 @@ class _KmsVersionStateIn(BaseModel):
 
 @router.post("/kms/keys/{key_id}/versions")
 async def stage_kms_key_version(
-    key_id: str,
+    key_id: Annotated[str, Path(pattern=_KEY_ID_PATTERN)],
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(require_role("ADMIN")),
 ) -> dict:
@@ -389,7 +411,7 @@ async def stage_kms_key_version(
 
 @router.patch("/kms/keys/{key_id}/versions/{version}")
 async def set_kms_key_version_state(
-    key_id: str,
+    key_id: Annotated[str, Path(pattern=_KEY_ID_PATTERN)],
     version: int,
     body: _KmsVersionStateIn,
     db: AsyncSession = Depends(get_db),
@@ -438,7 +460,7 @@ async def set_kms_key_version_state(
 
 @router.post("/kms/keys/{key_id}/rotate")
 async def rotate_kms_key(
-    key_id: str,
+    key_id: Annotated[str, Path(pattern=_KEY_ID_PATTERN)],
     db: AsyncSession = Depends(get_db),
     current_user: dict = Depends(require_role("ADMIN")),
 ) -> dict:

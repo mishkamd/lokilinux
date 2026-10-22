@@ -196,13 +196,17 @@ async def _ansible_job(db_session, template_id: str) -> Job:
 
 
 def _assert_content_keys(params: dict, role: str) -> None:
-    assert params["extra_vars"] == {"k": "v"}  # non-content keys always survive
+    assert params["playbook_id"]  # non-content keys always survive
     if role in ALLOWED_ROLES:
         assert params["playbook_content"].startswith("- hosts")
         assert "r1" in params["roles"]
+        assert params["extra_vars"] == {"k": "v"}
     else:
         assert "playbook_content" not in params
         assert "roles" not in params
+        # extra_vars is redacted too: Ansible extra-vars routinely carry vault
+        # passwords and API keys (OWASP audit M-7).
+        assert "extra_vars" not in params
 
 
 @pytest.mark.parametrize("role", ALLOWED_ROLES + DENIED_ROLES)

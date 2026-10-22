@@ -21,6 +21,7 @@ from sqlalchemy import select
 from lokilinux.models.alert import Alert
 from lokilinux.nats_topics import ALERT_CREATED
 from lokilinux.settings_schema import get_all_settings, get_setting_value
+from lokilinux.utils.url_guard import UnsafeURLError, assert_safe_url
 
 logger = structlog.get_logger()
 
@@ -73,6 +74,15 @@ class NotificationWorker:
             logger.warning("notification_worker.smtp_failed", exc_info=True)
 
     async def _send_slack(self, webhook_url: str, subject: str, body: str) -> None:
+        # The webhook URL is admin-configurable, but it is still an
+        # operator-influenced outbound request — refuse internal addresses
+        # (metadata endpoints, Redis, NATS) exactly like the other
+        # user-supplied-URL paths do.
+        try:
+            await asyncio.to_thread(assert_safe_url, webhook_url)
+        except UnsafeURLError as exc:
+            logger.warning("notification_worker.slack_url_refused", reason=str(exc))
+            return
         try:
             async with httpx.AsyncClient(timeout=10.0) as client:
                 await client.post(webhook_url, json={"text": f"*{subject}*\n{body}"})

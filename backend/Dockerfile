@@ -31,7 +31,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
     PyYAML==6.0.3 cryptography==50.0.0 \
     openpyxl==3.1.5 reportlab==5.0.0 \
     croniter==6.2.4 prometheus-client==0.21.1 \
-    boto3==1.43.87 python-multipart==0.0.32 && \
+    boto3==1.43.87 python-multipart==0.0.32 \
+    certifi==2026.10.19 urllib3==2.8.0 && \
     # Transitive-dep security fixes, forced AFTER main install so the
     # resolver cannot downgrade them back:
     # setuptools CVE-2025-47273, wheel CVE-2026-24049, jaraco.context

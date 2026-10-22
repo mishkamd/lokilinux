@@ -9,7 +9,7 @@ Derivation mirrors agent/internal/security/capabilities.go: a job_type maps
 to its capability; WORKFLOW_STEPS expands per step type present.
 """
 
-from typing import Iterable, Optional
+from typing import Any, Iterable, Optional
 
 ALL_ROLES = frozenset({"VIEWER", "MANAGER", "OPERATOR", "ADMIN", "AUDITOR"})
 
@@ -72,7 +72,14 @@ def required_capabilities(job_type: str, params: Optional[dict] = None) -> set[s
                 caps.add(cap)
         return caps
     cap = _JOB_TYPE_CAPABILITY.get(job_type)
-    return {cap} if cap else set()
+    if cap:
+        return {cap}
+    # Fail closed. An unmapped job_type must not be creatable by everyone:
+    # the agent dispatches any job type it does not know through its generic
+    # branch, which runs params["command"] as root — so "unknown" is at least
+    # as dangerous as CUSTOM_COMMAND. EXEC_BASH (ADMIN-only) is the strictest
+    # gate we have; a new job type must be mapped explicitly to get a weaker one.
+    return {"EXEC_BASH"}
 
 
 def unauthorized_capabilities(role: str, capabilities: Iterable[str]) -> list[str]:
@@ -93,3 +100,36 @@ def assert_can_create(role: str, job_type: str, params: Optional[dict] = None) -
         raise PermissionError(
             f"role {role!r} lacks capabilities required to create this job: {', '.join(denied)}"
         )
+
+
+def agent_can_run_job_type(capabilities: Optional[Iterable[str]], job_type: str) -> bool:
+    """Whether an agent that reports `capabilities` can run `job_type`.
+
+    The heartbeat list is ADVISORY. An agent that reports nothing is an agent
+    that predates the field: its abilities are unknown, not empty — so an
+    empty list must not block the job. Only a report that exists and lacks
+    the job type is a "no".
+    """
+    reported = list(capabilities or [])
+    if not reported:
+        return True
+    return job_type in reported
+
+
+# Job types whose agent-side execution IS the bare `command` parameter. The
+# agent runs params["command"] as root for any job type it does not dispatch
+# to a dedicated handler (agent/internal/agent/manager.go), so a `command` key
+# on any other job type is an attempt to smuggle a shell line past the
+# EXEC_BASH gate.
+_COMMAND_PARAM_JOB_TYPES = frozenset({"CUSTOM_COMMAND"})
+
+
+def assert_no_smuggled_command(job_type: str, params: Optional[dict[str, Any]] = None) -> None:
+    """Reject a top-level `command` parameter on a job type that is not a
+    shell job. Raises PermissionError.
+
+    Call this wherever a job is created, not only in the router — policies,
+    workflows and services all reach JobService.create_job directly.
+    """
+    if params and "command" in params and job_type not in _COMMAND_PARAM_JOB_TYPES:
+        raise PermissionError(f"job_type {job_type!r} may not carry a 'command' parameter")

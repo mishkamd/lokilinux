@@ -22,6 +22,8 @@ from lokilinux.models.job import Job, JobResult, JobStatus
 from lokilinux.models.plugin import Plugin, PluginInstallation, PluginStatus
 from lokilinux.models.remediation import RemediationAction, RemediationJob, RemediationPlan
 from lokilinux.nats_topics import JOB_CREATED
+from lokilinux.services.job_envelope import required_capabilities
+from lokilinux.utils.capability_rbac import assert_no_smuggled_command
 
 # Job types that execute arbitrary code as root on agents. These always
 # require approval before an agent may pick them up — enforced here so the
@@ -304,6 +306,12 @@ class JobService:
         if job_type in _FORCE_APPROVAL_JOB_TYPES and not skip_approval_gate:
             requires_approval = True
         params = parameters or {}
+        # A `command` parameter on a job type that is not a shell job would be
+        # executed as root by the agent's generic dispatch branch, bypassing the
+        # EXEC_BASH capability gate. Enforced here — the single chokepoint
+        # every job creation path (router, policies, workflows, services)
+        # routes through.
+        assert_no_smuggled_command(job_type, params)
         dedup_key = self.compute_dedup_key(job_type, target_servers, params)
 
         existing = await self.db.execute(
@@ -387,7 +395,13 @@ class JobService:
         try:
             signer = _get_job_signer()
             if signer is not None:
-                capabilities = [job.job_type]
+                # The claim names CAPABILITIES, not job types: the agent
+                # checks the claim against the envelope's
+                # requested_capabilities (agent/internal/security/
+                # approval_claim.go), and both come from the same registry.
+                # Signing the job type here made every approved job
+                # fail with claim_missing_caps:<CAPABILITY>.
+                capabilities = required_capabilities(job.job_type, job.parameters or {})
                 # One claim per target: each agent rejects a claim whose target is
                 # not its own. The agent checks claim.target_agent_id against its
                 # wire agent_id (Agent.agent_id), not the Agent PK in target_servers.

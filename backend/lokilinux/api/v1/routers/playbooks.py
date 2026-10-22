@@ -37,6 +37,19 @@ router = APIRouter()
 ANSIBLE_PLUGIN_NAME = "ansible-automation"
 
 
+async def assert_plugin_enabled(db: AsyncSession, name: str) -> None:
+    """Raises 403 if the named Plugin row is missing or not is_enabled.
+
+    Split out of the dependency factory so a route can gate conditionally
+    (e.g. POST /jobs only for job_type=ANSIBLE_PLAYBOOK).
+    """
+    plugin = (
+        await db.execute(select(Plugin).where(Plugin.name == name))
+    ).scalar_one_or_none()
+    if plugin is None or not plugin.is_enabled:
+        raise HTTPException(status_code=403, detail=f"Plugin '{name}' is not enabled")
+
+
 def require_plugin_enabled(name: str):
     """Dependency factory — 403 if the named Plugin row is not is_enabled.
 
@@ -46,11 +59,7 @@ def require_plugin_enabled(name: str):
     as a hot path.
     """
     async def _check(db: AsyncSession = Depends(get_db)) -> None:
-        plugin = (
-            await db.execute(select(Plugin).where(Plugin.name == name))
-        ).scalar_one_or_none()
-        if plugin is None or not plugin.is_enabled:
-            raise HTTPException(status_code=403, detail=f"Plugin '{name}' is not enabled")
+        await assert_plugin_enabled(db, name)
     return _check
 
 

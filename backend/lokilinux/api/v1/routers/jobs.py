@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from lokilinux.api.v1.routers.playbooks import ANSIBLE_PLUGIN_NAME, assert_plugin_enabled
 from lokilinux.auth.dependencies import get_current_user, require_role, safe_user_uuid
 from lokilinux.auth.permissions import has_permission
 from lokilinux.cache import TTL_JOB_STATUS, RedisCache
@@ -36,13 +37,14 @@ _CANCELLABLE = {JobStatusModel.QUEUED, JobStatusModel.SCHEDULED}
 # require approval before an agent may pick them up. The approval flag is
 # ALSO forced service-side (job_service._FORCE_APPROVAL_JOB_TYPES) so no
 # other code path can bypass it.
-_HOST_MUTATING_JOB_TYPES = frozenset(
-    {JobType.CUSTOM_COMMAND.value, JobType.ANSIBLE_PLAYBOOK.value}
-)
+_HOST_MUTATING_JOB_TYPES = frozenset({JobType.CUSTOM_COMMAND.value, JobType.ANSIBLE_PLAYBOOK.value})
 
 # Ansible job parameters carry the playbook source and role bodies. Callers
 # without storage.read get the job without these keys; the stored row is untouched.
-_CONTENT_JOB_PARAMS = frozenset({"playbook_content", "roles"})
+# "command" is the shell line the agent runs as root — it routinely carries
+# secrets as arguments, so it is redacted too
+# (docs/security/SECURITY_AUDIT_2026-10.md, M-7).
+_CONTENT_JOB_PARAMS = frozenset({"playbook_content", "roles", "command", "script", "extra_vars"})
 
 
 def redact_job_for_user(job: JobResponse, user: dict) -> JobResponse:
@@ -56,6 +58,7 @@ def redact_job_for_user(job: JobResponse, user: dict) -> JobResponse:
 
 # ── List jobs ─────────────────────────────────────────────────────────────────
 
+
 @router.get("", response_model=CursorPage[JobResponse])
 async def list_jobs(
     cursor: str | None = Query(None),
@@ -63,12 +66,13 @@ async def list_jobs(
     agent_id: str | None = Query(None),
     status: JobStatus | None = Query(None),
     policy_id: UUID | None = Query(None),
+    search: str | None = Query(None),
     db: AsyncSession = Depends(get_db),
     cache: RedisCache = Depends(get_cache),
     user: dict = Depends(get_current_user),
 ) -> CursorPage[JobResponse]:
     # Cache holds unredacted pages (shared across callers); redaction happens per response.
-    cache_key = f"job:list:{agent_id}:{status}:{policy_id}:{cursor}:{limit}"
+    cache_key = f"job:list:{agent_id}:{status}:{policy_id}:{search}:{cursor}:{limit}"
     if hit := await cache.get_cached(cache_key):
         page = CursorPage[JobResponse].model_validate(hit)
         return page.model_copy(update={"items": [redact_job_for_user(j, user) for j in page.items]})
@@ -84,6 +88,10 @@ async def list_jobs(
         # Powers a policy's "Executions" tab — jobs.policy_id existed since
         # 001 but nothing ever queried by it until now.
         q = q.where(Job.policy_id == policy_id)
+    if search:
+        # Name substring match — the command palette links straight to a job by
+        # name, and the jobs list keeps its filter in the URL.
+        q = q.where(Job.name.ilike(f"%{search}%"))
 
     if cursor:
         raw = decode_cursor(cursor)
@@ -92,11 +100,9 @@ async def list_jobs(
         except ValueError:
             raise HTTPException(status_code=400, detail="Malformed cursor")
         from datetime import datetime
+
         ts = datetime.fromisoformat(ts_str)
-        q = q.where(
-            (Job.created_at < ts)
-            | ((Job.created_at == ts) & (Job.id < UUID(uid)))
-        )
+        q = q.where((Job.created_at < ts) | ((Job.created_at == ts) & (Job.id < UUID(uid))))
 
     q = q.limit(limit + 1)
     rows = (await db.execute(q)).scalars().all()
@@ -129,6 +135,7 @@ async def list_jobs(
 
 # ── Create job ────────────────────────────────────────────────────────────────
 
+
 @router.post("", response_model=JobResponse, status_code=201)
 async def create_job(
     body: JobCreate,
@@ -156,6 +163,11 @@ async def create_job(
     if body.job_type.value in _HOST_MUTATING_JOB_TYPES:
         if role != "ADMIN":
             raise HTTPException(status_code=403, detail="Insufficient permissions")
+    if body.job_type.value == JobType.ANSIBLE_PLAYBOOK.value:
+        # The "ansible-automation" plugin is the kill-switch for the whole
+        # automation layer (playbooks, projects, roles). POST /jobs is the
+        # other door into it, so it carries the same gate.
+        await assert_plugin_enabled(db, ANSIBLE_PLUGIN_NAME)
 
     service = JobService(db, cache, nats)
     try:
@@ -171,6 +183,9 @@ async def create_job(
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except PermissionError as exc:
+        # Raised by JobService.create_job's smuggled-command guard.
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
     if body.job_type.value in _HOST_MUTATING_JOB_TYPES:
         await AuditService(db).log(
@@ -187,6 +202,7 @@ async def create_job(
 
 
 # ── Job detail ────────────────────────────────────────────────────────────────
+
 
 @router.get("/{job_id}", response_model=JobResponse)
 async def get_job(
@@ -209,6 +225,7 @@ async def get_job(
 
 
 # ── Job results (per agent) ──────────────────────────────────────────────────
+
 
 @router.get("/{job_id}/results", response_model=list[JobResultResponse])
 async def get_job_results(
@@ -244,6 +261,7 @@ async def get_job_results(
 
 # ── Approve job (requires_approval gate) ─────────────────────────────────────
 
+
 @router.post("/{job_id}/approve", response_model=JobResponse)
 async def approve_job(
     job_id: UUID,
@@ -262,6 +280,7 @@ async def approve_job(
 
 # ── Cancel job ────────────────────────────────────────────────────────────────
 
+
 @router.delete("/{job_id}", status_code=204)
 async def cancel_job(
     job_id: UUID,
@@ -279,6 +298,7 @@ async def cancel_job(
     await db.flush()
     if row.job_type == "COMPLIANCE_REMEDIATE":
         from lokilinux.services.job_service import sync_remediation_plan
+
         await sync_remediation_plan(db, row.id)
     await db.commit()
     await cache.invalidate(f"job:{job_id}:status")

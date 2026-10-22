@@ -14,6 +14,7 @@ Rotation never deletes material: old signatures must stay verifiable.
 
 import json
 import os
+import re
 import threading
 from typing import Dict, Optional
 
@@ -21,9 +22,16 @@ from lokilinux.kms.errors import KeyNotFound, KeyRetired
 from lokilinux.kms.file_provider import FileSigningProvider
 from lokilinux.kms.provider import KeyRef
 
+# A key_id becomes a directory name under keys_dir and is joined into every
+# key path — it must never be able to escape that directory. Restrict it to a
+# flat, filesystem-safe identifier.
+_KEY_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
 
 class KeyManager:
     def __init__(self, keys_dir: str, key_id: str = "job-signing"):
+        if not _KEY_ID_RE.match(key_id or ""):
+            raise ValueError(f"invalid key_id: {key_id!r}")
         self.keys_dir = keys_dir
         self.key_id = key_id
         self._lock = threading.Lock()

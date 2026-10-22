@@ -101,6 +101,46 @@ async def test_approve_job_issues_claim_bound_to_wire_agent_id(db_session, fake_
 
 
 @pytest.mark.asyncio
+async def test_approve_job_claim_names_capabilities_not_job_types(
+    db_session, fake_cache, monkeypatch
+):
+    """The claim must carry CAPABILITY names, not job types.
+
+    The agent checks the claim against the envelope's requested_capabilities
+    (agent/internal/security/approval_claim.go → VerifyApprovalClaim, and
+    job_validation.go → approvedByClaim). Both speak capability names.
+    A claim that names the job type was rejected with
+    claim_missing_caps:EXEC_ANSIBLE — i.e. every approved ANSIBLE_PLAYBOOK
+    and CUSTOM_COMMAND job was refused by the agent.
+    """
+    signer = _FakeApprovalSigner()
+    monkeypatch.setattr(job_service, "_get_job_signer", lambda: signer)
+
+    agent = Agent(
+        agent_id=f"wire-{uuid.uuid4().hex[:8]}",
+        status=AgentStatus.ACTIVE,
+        hostname=f"host-{uuid.uuid4().hex[:8]}",
+    )
+    db_session.add(agent)
+    await db_session.flush()
+    svc = JobService(db_session, fake_cache)
+    job = await svc.create_job(
+        name="ansible run",
+        job_type="ANSIBLE_PLAYBOOK",
+        target_servers={"agent_ids": [str(agent.id)]},
+        parameters={"playbook_content": "- hosts: all\n  tasks: []"},
+        requires_approval=True,
+    )
+    await svc.approve_job(job.id, approved_by=None)
+
+    assert signer.calls, "approve_job must sign an approval claim"
+    capabilities = signer.calls[0]["capabilities"]
+    assert capabilities == ["EXEC_ANSIBLE"]
+    # The claim's vocabulary has to be the one the agent checks.
+    assert capabilities == job_envelope.required_capabilities("ANSIBLE_PLAYBOOK", {})
+
+
+@pytest.mark.asyncio
 async def test_heartbeat_holds_unsignable_privileged_job_and_dispatches_the_rest(
     db_session, fake_cache, fake_nats, tmp_path, monkeypatch
 ):

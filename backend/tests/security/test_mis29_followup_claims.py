@@ -135,7 +135,7 @@ async def test_approving_two_target_job_issues_one_claim_per_agent(
             expected_job_id=str(job.id),
             expected_payload=job.parameters,
             expected_target_agent_id=row.target_agent_id,
-            required_capabilities=["SERVICE"],
+            required_capabilities=["SERVICE_CONTROL"],
         )
     # job.approval_claim_json keeps the first target's claim for existing callers
     assert json.loads(approved.approval_claim_json)["target_agent_id"] == a.agent_id
@@ -224,7 +224,7 @@ async def test_approval_issues_claim_on_legacy_and_fresh_keys_layouts(
         expected_job_id=str(job.id),
         expected_payload=job.parameters,
         expected_target_agent_id=a.agent_id,
-        required_capabilities=["SERVICE"],
+        required_capabilities=["SERVICE_CONTROL"],
     )
     if versioned:
         assert KeyManager(str(keys_dir), "job-signing").active_version() == 1
@@ -247,7 +247,7 @@ async def test_claim_is_signed_by_active_key_version(
         expected_job_id=str(job.id),
         expected_payload=job.parameters,
         expected_target_agent_id=a.agent_id,
-        required_capabilities=["SERVICE"],
+        required_capabilities=["SERVICE_CONTROL"],
     )
     verify_claim(_pub(rotated_keys / "v2.key"), claim, **bindings)
     with pytest.raises(ClaimRejected) as ei:

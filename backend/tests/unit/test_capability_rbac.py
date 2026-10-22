@@ -3,6 +3,7 @@
 import pytest
 
 from lokilinux.utils.capability_rbac import (
+    agent_can_run_job_type,
     assert_can_create,
     required_capabilities,
     unauthorized_capabilities,
@@ -52,3 +53,11 @@ def test_assert_raises_with_capability_names():
 
 def test_assert_passes_for_matching_role():
     assert_can_create("MANAGER", "REBOOT")
+
+def test_agent_capability_hint_is_advisory():
+    # No report = an agent that predates the field: unknown, not empty.
+    assert agent_can_run_job_type(None, "ANSIBLE_PLAYBOOK")
+    assert agent_can_run_job_type([], "ANSIBLE_PLAYBOOK")
+    # A report that exists and lacks the job type is a "no".
+    assert not agent_can_run_job_type(["SERVICE", "FILE"], "ANSIBLE_PLAYBOOK")
+    assert agent_can_run_job_type(["SERVICE", "ANSIBLE_PLAYBOOK"], "ANSIBLE_PLAYBOOK")
