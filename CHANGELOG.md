@@ -1,5 +1,22 @@
 ## [Unreleased]
 
+- feat(compliance): policy sets are editable — a rule can be removed from a draft (`DELETE /compliance/policy-sets/{id}/rules/{rule_id}`) and a set can be exported as a portable profile (`GET /compliance/policy-sets/{id}/export`, JSON/YAML, rule references by key) and re-imported (`POST /compliance/policy-sets/import-profile`); a published set stays immutable, editing it means a new version
+- feat(compliance): the remediation content is finally visible — `remediation_templates` (script + rollback, 21 curated rules) is exposed on the rule detail and per policy set; the policy set's Remediation tab lists the exact commands that would run, so choosing AUTOMATIC is reviewable before anything is dispatched; the command body is only handed to roles that can act on a host
+- feat(compliance): one canonical domain vocabulary (`GET /compliance/domains`, mirroring the agent's 24 collectors) replaces the free-text "Filter by domain" boxes on findings and drift — a wrong spelling used to match nothing, with no message
+- fix(compliance): a domain with no report category used to land silently in "configuration"; the vocabulary now lives in one place and covers all 24 collector domains
+- feat(compliance): policy templates — ready-made profiles selected from the rule catalog (CIS/NIST/STIG/PCI, severity bands, the curated set), created with their rules and scope in one transaction (`GET /compliance/policy-templates`, `POST /compliance/policy-sets/from-template`); the same "one rule body, many named profiles" model ComplianceAsCode, CIS and Tenable use
+- feat(compliance): rule-catalog filters are now real selects fed by the catalog's own values (`GET /compliance/rules/facets`) instead of free-text inputs that silently matched nothing
+- feat(compliance): policy sets can be edited in place — add rules from the catalog on a draft, and see/apply the fleet scopes a set covers
+- fix(compliance): the policy-set list offered three creation paths, one of which opened the legacy Enforcement wizard and created the wrong entity; the "New policy set" dialog is now one flow (template or blank), and the dead 8-step `ComplianceWizard` is gone
+- fix(compliance): the compliance overview showed two different compliance percentages (unweighted pass rate and weighted score) on one page, plus metric cards repeating the hero's findings and drift; the hero is now the single place that reports them
+- fix(compliance): the Configuration pages (baselines, drift, file integrity) had no tab bar at all, so there was no way to reach their neighbours from inside the area
+- fix(compliance): every compliance list fetched 20 rows while the tables page at 25, so the pager never appeared and "Load more" was the only way past the first screen
+- chore(compliance): dropped `policies.parent_policy_id` — declared but never written or read by anything (migration 065)
+
+- fix(observability): the events source filter never refetched and "Load more" replaced the list instead of appending; event timestamps were rendered as local time although ClickHouse stores them as naive UTC
+- fix(observability): saving a correlation rule wiped its suppression windows (the PATCH wrote the schema defaults); the rule's windows now round-trip
+- fix(ui): the DataTable header label was a bare text interpolation, so every table with an action column reported a hydration mismatch
+- feat(observability): alerts/signals/incidents/events lists — URL filters, saved views, hostname instead of a raw agent UUID, server-side totals, and cursor pagination for alerts
 - feat(security): security response headers (nosniff, X-Frame-Options DENY, Referrer-Policy, HSTS; CSP on API responses, not on /docs)
 - feat(security): SSRF guard `utils/url_guard.py` on webhook workflow steps and compliance datastream import; plugin installs limited to the platform origin
 - fix(security): `/ready` no longer returns driver error text in the response body
