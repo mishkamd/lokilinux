@@ -18,13 +18,24 @@ import (
 // interpolated into a shell string. Unlike JobExecutor.Execute, which runs
 // arbitrary shell commands, playbook/extra_vars content here is untrusted
 // user YAML/JSON and must never pass through /bin/sh -c.
+// AnsibleBinary is the executable the executor drives. It doubles as the
+// presence probe for the ANSIBLE_PLAYBOOK capability: without it the
+// playbook only fails at exec time, long after the operator picked the host.
+const AnsibleBinary = "ansible-playbook"
+
+// AnsibleAvailable reports whether this host can run a playbook at all.
+func AnsibleAvailable() bool {
+	_, err := exec.LookPath(AnsibleBinary)
+	return err == nil
+}
+
 type AnsibleExecutor struct {
 	maxOutputBytes int
 	binary         string
 }
 
 func NewAnsibleExecutor() *AnsibleExecutor {
-	return &AnsibleExecutor{maxOutputBytes: 4 * 1024 * 1024, binary: "ansible-playbook"}
+	return &AnsibleExecutor{maxOutputBytes: 4 * 1024 * 1024, binary: AnsibleBinary}
 }
 
 // ansibleTmpBase is a real (non-PrivateTmp) directory: the playbook actually
