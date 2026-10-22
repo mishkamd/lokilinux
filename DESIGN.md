@@ -21,19 +21,19 @@ typography:
   display:
     fontFamily: "Iceberg, Rubik, ui-sans-serif, sans-serif"
     fontSize: "1.25rem"
-    fontWeight: 300
+    fontWeight: 400
     lineHeight: 1.2
     letterSpacing: "-0.02em"
   display-wordmark:
     fontFamily: "Iceberg, Rubik, ui-sans-serif, sans-serif"
     fontSize: "1.5rem"
-    fontWeight: 300
+    fontWeight: 400
     lineHeight: 1.2
     letterSpacing: "-0.025em"
   title:
     fontFamily: "Iceberg, Rubik, ui-sans-serif, sans-serif"
     fontSize: "0.9375rem"
-    fontWeight: 300
+    fontWeight: 400
     lineHeight: 1.2
     letterSpacing: "-0.01em"
   body:
@@ -147,14 +147,14 @@ components:
 
 **Creative North Star: "Precision Terminal"**
 
-LokiLinux is a command-center dashboard, not a marketing surface — its users are IT/DevOps admins scanning a Linux fleet daily for problems: unpatched CVEs, drifted compliance, failed jobs. Every design decision defers to that job. The system runs dark-by-default (near-black canvas, `initialValue: 'dark'` in the color-mode config) with a single, disciplined forest-green accent that appears only where something needs a decision or a status. Typography carries the operational weight: a distinctive light-weight display face (Iceberg) marks page identity and section titles, everything else is set in Rubik, and numeric data uses tabular figures so columns of packages, CVEs, and metrics line up like a real instrument panel.
+LokiLinux is a command-center dashboard, not a marketing surface — its users are IT/DevOps admins scanning a Linux fleet daily for problems: unpatched CVEs, drifted compliance, failed jobs. Every design decision defers to that job. The system runs dark-by-default (near-black canvas, `initialValue: 'dark'` in the color-mode config) with a single, disciplined forest-green accent that appears only where something needs a decision or a status. Typography carries the operational weight: a distinctive narrow display face (Iceberg) marks page identity and section titles, everything else is set in Rubik, and numeric data uses tabular figures so columns of packages, CVEs, and metrics line up like a real instrument panel.
 
 Nothing here reaches for glassmorphism, gradients, skeuomorphism, or playful SaaS ornamentation — the codebase's own comment on its card surface states the intent directly: **"Terminal-precision surface: no glass/blur, just crisp borders + subtle shadow."** Depth is structural, not decorative — a component sits flush at rest and lifts 1px only as feedback (hover, elevation, an open overlay), never as passive polish.
 
 **Key Characteristics:**
 - Dark-by-default, near-black canvas with a single disciplined green accent
 - Crisp hairline borders and 1px-lift feedback — no blur, no glass, no gradients
-- A light-weight display face (Iceberg) marks identity and structure; Rubik carries every working word
+- A narrow geometric display face (Iceberg) marks identity and structure; Rubik carries every working word
 - Tabular numerals everywhere data is compared — packages, CVEs, metrics, timestamps
 - Density over whitespace: this is a daily instrument, not an onboarding surface
 
@@ -194,16 +194,19 @@ A parallel light-mode palette exists (`:root`, unprefixed) built from Tailwind's
 
 ## Typography
 
-**Display Font:** Iceberg (with Rubik, ui-sans-serif fallback)
+**Display Font:** Iceberg (with Rubik, ui-sans-serif fallback) — one cut only, weight 400
 **Body Font:** Rubik (with ui-sans-serif, system-ui fallback)
 **Label/Data Font:** Rubik, set with `font-variant-numeric: tabular-nums` wherever numbers are compared
+**Code/Data Font:** system monospace (`ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace`) — hostnames, paths, hashes, IPs, usernames. No webfont on purpose: the OS mono stack aligns those columns everywhere, at zero cost.
 
-**Character:** Iceberg is a narrow, geometric, faintly technical display face used exclusively at light weight (300) — it reads as an identity mark, not a headline font, and is confined to the app's own name/page-titles/section-titles. Rubik carries every sentence of working UI text at a normal, unforced weight; the pairing is one quiet workhorse face plus one distinctive light accent face, never two competing voices.
+**Character:** Iceberg is a narrow, geometric, faintly technical display face used exclusively at its single weight (400 — Google ships no lighter Iceberg cut, so a 300 token never rendered as 300) — it reads as an identity mark, not a headline font, and is confined to the app's own name/page-titles/section-titles. Rubik carries every sentence of working UI text at a normal, unforced weight; the pairing is one quiet workhorse face plus one distinctive accent face, never two competing voices.
+
+**Why these two.** Rubik carries the working text because its narrow width keeps long operational strings (FQDNs, package versions, rule names, error text) on one line at 13–14px where Inter's wider cut would wrap, and because it ships tabular figures for the metric columns. Iceberg is the opposite on purpose — a narrow geometric face at display sizes only, so the app has an identity mark instead of a second voice competing with the body text. Rejected: Inter (wider at the same size — costs a line in every data table) and "SN Pro" (a 13-minute experiment on 2026-09-02 that never had a written rationale). Delivery is `@nuxt/fonts` with the `fontsource` provider, so both faces come from npm and the Docker build never depends on fonts.google.com being reachable at build time.
 
 ### Hierarchy
-- **Display** (300, 1.25rem/20px, line-height 1.2, `-0.02em` tracking): page titles in the app header (`.page-title`). Nudged 3px down from its natural baseline — Iceberg sits visually high in its line box and needed manual optical centering in the 64px header.
-- **Display — Wordmark** (300, 1.5rem/24px, tracking-tight): the "LokiLinux" sidebar logo specifically — one step larger than the header's Display size since it stands alone as the app's identity mark rather than sharing a row with other controls. Nudged 4px down (`mt-1`) for the same Iceberg optical-centering reason as Display.
-- **Title** (300, 0.9375rem/15px, line-height 1.2, `-0.01em` tracking): section headings inside cards and panels (`.section-title`).
+- **Display** (400, 1.25rem/20px, line-height 1.2, `-0.02em` tracking): page titles in the app header (`.page-title`). Nudged 3px down from its natural baseline — Iceberg sits visually high in its line box and needed manual optical centering in the 64px header.
+- **Display — Wordmark** (400, 1.5rem/24px, tracking-tight): the "LokiLinux" sidebar logo specifically — one step larger than the header's Display size since it stands alone as the app's identity mark rather than sharing a row with other controls. Nudged 4px down (`mt-1`) for the same Iceberg optical-centering reason as Display.
+- **Title** (400, 0.9375rem/15px, line-height 1.2, `-0.01em` tracking): section headings inside cards and panels (`.section-title`).
 - **Body** (400, 14px, line-height 1.5): the working font size for buttons, inputs, table cells, and most UI copy — set as `text-[14px]` at most call sites rather than a Tailwind step, on a `106%` root font-size base.
 - **Label** (600, 0.6875rem/11px, `0.08em` tracking, uppercase): section eyebrows and metric labels (`.label-caps`) — bold, tiny, spaced-out caps in a muted gray, always paired with a `.data-value` number beneath it.
 - **Field Value** (500, 13px): a compact step between Label and Body for dense read-only data — server detail fields (OS, kernel, IP, FQDN, agent version, last seen), package version strings, user lists. Reused consistently (9 sites on the server detail page alone); not a one-off.
@@ -217,7 +220,7 @@ A parallel light-mode palette exists (`:root`, unprefixed) built from Tailwind's
 ### Named Rules
 **The Tabular Numerals Rule.** Anywhere a number can be compared to another number in the same view — metric cards, table columns, CVE counts — `font-variant-numeric: tabular-nums` is set (globally on `body`, reinforced on `.data-value`). Digits must line up; this is an ops tool, not prose.
 
-**The One Display Face Rule.** Iceberg never appears below `.section-title` size and never at a weight heavier than 300. If something needs emphasis at body scale, that's Rubik at a heavier weight — not a bigger or bolder display face.
+**The One Display Face Rule.** Iceberg never appears below `.section-title` size, and never at a weight heavier than 400 — that is its only cut. If something needs emphasis at body scale, that's Rubik at a heavier weight — not a bigger or bolder display face.
 
 ## Layout
 
@@ -365,7 +368,7 @@ are the contract between design and code.
 
 ### Don't:
 - **Don't** add glass, blur, or gradient fills to any surface — the system's own code comments state this explicitly as a rejected direction.
-- **Don't** use Iceberg below section-title size or heavier than weight 300 — it is an identity mark, not a general headline face.
+- **Don't** use Iceberg below section-title size or heavier than weight 400 — it is an identity mark, not a general headline face.
 - **Don't** introduce a second accent color. Every non-neutral hue besides Tactical Forest/Signal Green is semantic status information, not brand decoration.
 - **Don't** draw a border as a flat solid gray — dark-mode borders are always the translucent `rgba(255,255,255,0.07)` hairline over Panel Black.
 - **Don't** relax density or hairline precision on mobile; the drawer and stacked layout change, the visual language does not.

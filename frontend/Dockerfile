@@ -13,6 +13,12 @@ ENV NUXT_PUBLIC_API_BASE=${NUXT_PUBLIC_API_BASE}
 
 RUN npm run build
 
+# @nuxt/fonts fetches the faces over the network at build time. When that
+# fetch fails the build still succeeds and the app silently renders in the
+# OS font (seen 2026-10-22) — so refuse to ship a fontless image.
+RUN grep -rqs '@font-face' .output/public/_nuxt/ || { \
+      echo 'FATAL: no @font-face in built CSS — font fetch failed'; exit 1; }
+
 FROM node:22.23.1-alpine
 
 WORKDIR /app

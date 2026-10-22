@@ -45,9 +45,15 @@ export default defineNuxtConfig({
   ],
 
   fonts: {
+    // fontsource, not google: the google provider fetches family metadata
+    // from fonts.google.com at build time. When that fetch times out the
+    // build still succeeds and ships zero @font-face rules — the app silently
+    // fell back to the OS font (2026-10-22). fontsource resolves the faces
+    // from the @fontsource/* packages instead, and the Dockerfile fails the
+    // build if no @font-face made it into the output.
     families: [
-      { name: 'Rubik', provider: 'google' },
-      { name: 'Iceberg', provider: 'google' },
+      { name: 'Rubik', provider: 'fontsource' },
+      { name: 'Iceberg', provider: 'fontsource' },
     ],
   },
 

@@ -83,7 +83,7 @@
 
   /* Typography — three-face system */
   --font-sans: "Rubik", ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --font-mono: "Rubik", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
   --font-display: "Iceberg", "Rubik", ui-sans-serif, sans-serif;
 }
 
@@ -250,11 +250,12 @@ body {
   }
 }
 
-/* Page titles — Iceberg (display face, 300 weight) */
+/* Page titles — Iceberg (display face). Iceberg ships one cut only (400),
+ * so "300" was never rendered — the browser fell back to 400 anyway. */
 .page-title {
   font-family: var(--font-display);
   font-size: 1.25rem;
-  font-weight: 300;
+  font-weight: 400;
   letter-spacing: -0.02em;
   line-height: 1.2;
   margin-top: 3px; /* Iceberg sits visually high in its line box — nudge down to optically center in the h-16 header */
@@ -263,7 +264,7 @@ body {
 .section-title {
   font-family: var(--font-display);
   font-size: 0.9375rem;
-  font-weight: 300;
+  font-weight: 400;
   letter-spacing: -0.01em;
 }
 
