@@ -7,6 +7,11 @@ const tabs = ANSIBLE_TABS
 const route = useRoute()
 const showTabs = computed(() => tabs.some((t) => t.to === route.path))
 
+// The area shell has no index child (the tabs live one level deeper), so
+// landing on the bare area URL would render an empty page. Send it to the
+// first tab instead — a 302 on the server, so a bookmark never flashes an
+// empty screen.
+if (!showTabs.value) await navigateTo(tabs[0]!.to, { replace: true })
 </script>
 
 <template>

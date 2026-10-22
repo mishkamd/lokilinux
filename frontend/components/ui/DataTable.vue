@@ -193,6 +193,13 @@ function fmt(v: unknown): string {
 }
 </script>
 
+<!--
+  The header cell renders its label through an element, never through a bare
+  text interpolation. An empty label (the actions column) made the server
+  emit a text node where the client expected a fragment — Vue then reported
+  "Hydration completed but contains mismatches" on every table that has one.
+-->
+
 <template>
   <div class="rounded-[var(--radius-lg)] border border-border bg-card shadow-[var(--shadow-surface)] overflow-hidden">
     <div
@@ -263,7 +270,7 @@ function fmt(v: unknown): string {
                 <ArrowDown v-else-if="sortKey === col.key && sortDir === 'desc'" class="size-3" />
                 <ArrowUpDown v-else class="size-3 opacity-30 group-hover:opacity-60" />
               </button>
-              <template v-else>{{ col.label }}</template>
+              <span v-else-if="col.label">{{ col.label }}</span>
             </TableHead>
           </TableRow>
         </TableHeader>

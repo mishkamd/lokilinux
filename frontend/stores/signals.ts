@@ -5,6 +5,7 @@ export interface Signal {
   severity: string
   status: string
   host_id: string | null
+  hostname?: string | null
   service: string | null
   fingerprint: string
   occurrence_count: number
@@ -19,7 +20,7 @@ export const useSignalsStore = defineStore('signals', () => {
   const total = ref(0)
   const loading = ref(false)
   const nextCursor = ref<string | null>(null)
-  const filters = ref({ status: '', severity: '', type: '', host_id: '' })
+  const filters = ref({ status: '', severity: '', type: '', host_id: '', search: '' })
 
   async function fetchSignals(cursor?: string) {
     loading.value = true
@@ -30,11 +31,14 @@ export const useSignalsStore = defineStore('signals', () => {
       if (filters.value.severity) params.set('severity', filters.value.severity)
       if (filters.value.type) params.set('type', filters.value.type)
       if (filters.value.host_id) params.set('host_id', filters.value.host_id)
+      if (filters.value.search) params.set('search', filters.value.search)
 
       const data = await api.get<{ items: Signal[]; next_cursor: string | null; total: number | null }>(
         `/signals?${params}`,
       )
       signals.value = cursor ? [...signals.value, ...data.items] : data.items
+      // The server counts the whole filtered set; only fall back to the
+      // loaded row count if an older API doesn't send it.
       total.value = data.total ?? signals.value.length
       nextCursor.value = data.next_cursor
     } catch {

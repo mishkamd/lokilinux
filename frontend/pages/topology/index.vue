@@ -1,63 +1,110 @@
 <script setup lang="ts">
-// v1: simple list/form editor (node select + depends-on target), no SVG
-// graph — the plan explicitly defers the visual graph to a later pass.
 import { Plus, Trash2 } from 'lucide-vue-next'
 
 const store = useTopologyStore()
 const { nodes, edges, loading } = storeToRefs(store)
 const toast = useToast()
+const { canEdit } = useCurrentUser()
+const { format: fmtDateTime } = useDateTime()
 
 const KINDS = ['HOST', 'SERVICE', 'APPLICATION', 'EXTERNAL']
 
-const newNode = ref({ kind: 'SERVICE', name: '' })
-const creatingNode = ref(false)
+// Node kind carries meaning, so it gets a real hue instead of a gray pill.
+const KIND_COLOR: Record<string, string> = {
+  HOST: 'blue',
+  SERVICE: 'green',
+  APPLICATION: 'orange',
+  EXTERNAL: 'gray',
+}
 
-const newEdge = ref({ from: '', to: '' })
-const creatingEdge = ref(false)
-const removingEdge = ref<string | null>(null)
+const nodeColumns = [
+  { key: 'kind', label: 'Kind' },
+  { key: 'name', label: 'Name' },
+  { key: 'created_at', label: 'Created' },
+]
 
-const nodeOptions = computed(() => nodes.value.map((n) => ({ label: `${n.name} (${n.kind})`, value: n.id })))
+const edgeColumns = [
+  { key: 'from_node', label: 'Depends on' },
+  { key: 'to_node', label: 'Target' },
+  { key: 'actions', label: '', noSort: true },
+]
+
+const nodeOptions = computed(() =>
+  nodes.value.map((n) => ({ label: `${n.name} (${n.kind})`, value: n.id })),
+)
 
 function nodeName(id: string): string {
   return nodes.value.find((n) => n.id === id)?.name ?? id
 }
 
+const showNodeDialog = ref(false)
+const showEdgeDialog = ref(false)
+const nodeForm = ref({ kind: 'SERVICE', name: '' })
+const edgeForm = ref({ from: '', to: '' })
+const submitting = ref(false)
+
+function openNodeDialog() {
+  nodeForm.value = { kind: 'SERVICE', name: '' }
+  showNodeDialog.value = true
+}
+
+function openEdgeDialog() {
+  edgeForm.value = { from: '', to: '' }
+  showEdgeDialog.value = true
+}
+
 async function createNode() {
-  if (!newNode.value.name.trim()) return
-  creatingNode.value = true
+  if (!nodeForm.value.name.trim()) {
+    toast.add({ title: 'Name is required', description: 'Give the node a name.', color: 'red' })
+    return
+  }
+  submitting.value = true
   try {
-    await store.createNode({ kind: newNode.value.kind, name: newNode.value.name.trim() })
-    newNode.value.name = ''
+    await store.createNode({ kind: nodeForm.value.kind, name: nodeForm.value.name.trim() })
+    showNodeDialog.value = false
     toast.add({ title: 'Node created', color: 'green' })
   } catch {
     toast.add({ title: 'Error', description: 'Failed to create node', color: 'red' })
   } finally {
-    creatingNode.value = false
+    submitting.value = false
   }
 }
 
 async function addEdge() {
-  if (!newEdge.value.from || !newEdge.value.to || newEdge.value.from === newEdge.value.to) return
-  creatingEdge.value = true
+  const { from, to } = edgeForm.value
+  if (!from || !to) {
+    toast.add({ title: 'Both nodes are required', description: 'Pick the source and the target.', color: 'red' })
+    return
+  }
+  if (from === to) {
+    toast.add({ title: 'A node cannot depend on itself', color: 'red' })
+    return
+  }
+  submitting.value = true
   try {
-    await store.addEdge(newEdge.value.from, newEdge.value.to)
-    newEdge.value = { from: '', to: '' }
-    toast.add({ title: 'Edge created', color: 'green' })
+    await store.addEdge(from, to)
+    showEdgeDialog.value = false
+    toast.add({ title: 'Dependency created', color: 'green' })
   } catch {
-    toast.add({ title: 'Error', description: 'Failed to create edge', color: 'red' })
+    toast.add({ title: 'Error', description: 'Failed to create dependency', color: 'red' })
   } finally {
-    creatingEdge.value = false
+    submitting.value = false
   }
 }
 
-async function removeEdge(fromNode: string, toNode: string) {
-  removingEdge.value = `${fromNode}:${toNode}`
+const removingEdge = ref<{ from: string; to: string } | null>(null)
+const removing = ref(false)
+
+async function confirmRemoveEdge() {
+  if (!removingEdge.value) return
+  removing.value = true
   try {
-    await store.removeEdge(fromNode, toNode)
-  } catch {
-    toast.add({ title: 'Error', description: 'Failed to remove edge', color: 'red' })
-  } finally {
+    await store.removeEdge(removingEdge.value.from, removingEdge.value.to)
     removingEdge.value = null
+  } catch {
+    toast.add({ title: 'Error', description: 'Failed to remove dependency', color: 'red' })
+  } finally {
+    removing.value = false
   }
 }
 
@@ -65,67 +112,126 @@ onMounted(() => store.fetchGraph())
 </script>
 
 <template>
-  <div class="space-y-6">
-    <div>
-      <h2 class="text-sm font-medium mb-2">Nodes ({{ nodes.length }})</h2>
-      <div class="flex flex-wrap items-end gap-2 mb-3">
-        <FormField label="Kind">
-          <Select v-model="newNode.kind" :options="KINDS" class="w-36" />
-        </FormField>
-        <FormField label="Name">
-          <Input v-model="newNode.name" placeholder="e.g. checkout, db-1..." class="w-56" @keyup.enter="createNode" />
-        </FormField>
-        <Button :loading="creatingNode" @click="createNode">
+  <div class="space-y-4">
+    <PageHeader>
+      <div class="flex items-center gap-3">
+        <Badge color="gray">{{ nodes.length }} nodes</Badge>
+        <Badge color="gray">{{ edges.length }} dependencies</Badge>
+      </div>
+      <div v-if="canEdit" class="flex items-center gap-2">
+        <Button variant="outline" @click="openEdgeDialog">
           <Plus class="size-4" />
-          Add node
+          New dependency
+        </Button>
+        <Button @click="openNodeDialog">
+          <Plus class="size-4" />
+          New node
         </Button>
       </div>
-      <p v-if="loading" class="text-sm text-muted-foreground">Loading…</p>
-      <div v-else class="flex flex-wrap gap-2">
-        <div v-for="n in nodes" :key="n.id" class="inline-flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs">
-          <Badge color="gray" size="xs">{{ n.kind }}</Badge>
-          <span class="font-mono">{{ n.name }}</span>
-        </div>
-        <p v-if="!nodes.length" class="text-sm text-muted-foreground">No nodes yet.</p>
-      </div>
-    </div>
-
-    <Separator />
+    </PageHeader>
 
     <div>
-      <h2 class="text-sm font-medium mb-2">Dependencies ({{ edges.length }})</h2>
-      <div class="flex flex-wrap items-end gap-2 mb-3">
-        <FormField label="Depends on">
-          <Select v-model="newEdge.from" :options="nodeOptions" placeholder="From node..." class="w-56" />
-        </FormField>
-        <FormField label="Target">
-          <Select v-model="newEdge.to" :options="nodeOptions" placeholder="To node..." class="w-56" />
-        </FormField>
-        <Button :loading="creatingEdge" @click="addEdge">
-          <Plus class="size-4" />
-          Add edge
-        </Button>
-      </div>
-      <div class="space-y-1">
-        <div
-          v-for="e in edges"
-          :key="`${e.from_node}:${e.to_node}`"
-          class="flex items-center justify-between gap-2 rounded-lg border border-border px-3 py-2 text-sm"
-        >
-          <span class="font-mono">{{ nodeName(e.from_node) }} → {{ nodeName(e.to_node) }}</span>
-          <Button
-            size="xs"
-            variant="ghost"
-            class="text-muted-foreground"
-            aria-label="Remove dependency"
-            :loading="removingEdge === `${e.from_node}:${e.to_node}`"
-            @click="removeEdge(e.from_node, e.to_node)"
-          >
-            <Trash2 class="size-3.5" />
-          </Button>
-        </div>
-        <p v-if="!edges.length" class="text-sm text-muted-foreground">No dependencies yet.</p>
-      </div>
+      <h2 class="section-title mb-2">Nodes</h2>
+      <DataTable
+        :rows="nodes"
+        :columns="nodeColumns"
+        :loading="loading"
+        sortable
+        :page-size="25"
+        empty-title="No nodes"
+        empty-description="Nodes are the services and hosts the dependency graph is built from."
+        caption="Topology nodes"
+        preferences-key="topology-nodes"
+      >
+        <template #kind-data="{ row }">
+          <Badge :color="KIND_COLOR[String(row.kind)] ?? 'gray'" size="xs">{{ row.kind }}</Badge>
+        </template>
+        <template #name-data="{ row }">
+          <span class="font-mono text-xs">{{ row.name }}</span>
+        </template>
+        <template #created_at-data="{ row }">
+          <span class="font-mono text-xs text-muted-foreground">{{ fmtDateTime(String(row.created_at)) }}</span>
+        </template>
+      </DataTable>
     </div>
+
+    <div>
+      <h2 class="section-title mb-2">Dependencies</h2>
+      <DataTable
+        :rows="edges"
+        :columns="edgeColumns"
+        :loading="loading"
+        :page-size="25"
+        empty-title="No dependencies"
+        empty-description="Dependencies tell the correlator which service failures belong together."
+        caption="Topology dependencies"
+        preferences-key="topology-edges"
+      >
+        <template #from_node-data="{ row }">
+          <span class="font-mono text-xs">{{ nodeName(String(row.from_node)) }}</span>
+        </template>
+        <template #to_node-data="{ row }">
+          <span class="font-mono text-xs">{{ nodeName(String(row.to_node)) }}</span>
+        </template>
+        <template #actions-data="{ row }">
+          <div v-if="canEdit" class="flex items-center justify-end gap-1">
+            <Tooltip text="Remove dependency">
+              <Button
+                size="xs"
+                variant="ghost"
+                aria-label="Remove dependency"
+                @click="removingEdge = { from: String(row.from_node), to: String(row.to_node) }"
+              >
+                <Trash2 class="size-3.5" />
+              </Button>
+            </Tooltip>
+          </div>
+        </template>
+      </DataTable>
+    </div>
+
+    <Dialog v-model="showNodeDialog" title="New node">
+      <template #body>
+        <div class="space-y-3">
+          <FormField label="Kind">
+            <Select v-model="nodeForm.kind" :options="KINDS" />
+          </FormField>
+          <FormField label="Name" required>
+            <Input v-model="nodeForm.name" placeholder="e.g. checkout, db-1" @keyup.enter="createNode" />
+          </FormField>
+        </div>
+      </template>
+      <template #footer>
+        <Button variant="ghost" @click="showNodeDialog = false">Cancel</Button>
+        <Button :loading="submitting" @click="createNode">Create node</Button>
+      </template>
+    </Dialog>
+
+    <Dialog v-model="showEdgeDialog" title="New dependency">
+      <template #body>
+        <div class="space-y-3">
+          <FormField label="Depends on" required>
+            <Select v-model="edgeForm.from" :options="nodeOptions" placeholder="Source node..." />
+          </FormField>
+          <FormField label="Target" required>
+            <Select v-model="edgeForm.to" :options="nodeOptions" placeholder="Target node..." />
+          </FormField>
+        </div>
+      </template>
+      <template #footer>
+        <Button variant="ghost" @click="showEdgeDialog = false">Cancel</Button>
+        <Button :loading="submitting" :disabled="!nodeOptions.length" @click="addEdge">Create dependency</Button>
+      </template>
+    </Dialog>
+
+    <ConfirmDeleteDialog
+      :model-value="!!removingEdge"
+      :entity-name="removingEdge ? `${nodeName(removingEdge.from)} → ${nodeName(removingEdge.to)}` : ''"
+      :loading="removing"
+      title="Remove dependency"
+      confirm-label="Remove"
+      @update:model-value="removingEdge = null"
+      @confirm="confirmRemoveEdge"
+    />
   </div>
 </template>

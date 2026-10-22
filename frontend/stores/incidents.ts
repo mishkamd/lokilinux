@@ -58,7 +58,7 @@ export const useIncidentsStore = defineStore('incidents', () => {
   const total = ref(0)
   const loading = ref(false)
   const nextCursor = ref<string | null>(null)
-  const filters = ref({ status: '', severity: '', type: '' })
+  const filters = ref({ status: '', severity: '', type: '', search: '' })
 
   async function fetchIncidents(cursor?: string) {
     loading.value = true
@@ -68,11 +68,14 @@ export const useIncidentsStore = defineStore('incidents', () => {
       if (filters.value.status) params.set('status', filters.value.status)
       if (filters.value.severity) params.set('severity', filters.value.severity)
       if (filters.value.type) params.set('type', filters.value.type)
+      if (filters.value.search) params.set('search', filters.value.search)
 
       const data = await api.get<{ items: Incident[]; next_cursor: string | null; total: number | null }>(
         `/incidents?${params}`,
       )
       incidents.value = cursor ? [...incidents.value, ...data.items] : data.items
+      // The server counts the whole filtered set; only fall back to the
+      // loaded row count if an older API doesn't send it.
       total.value = data.total ?? incidents.value.length
       nextCursor.value = data.next_cursor
     } catch {

@@ -57,6 +57,9 @@ export interface Server {
   category_id: string | null
   project_id: string | null
   agent_group_id: string | null
+  /** Job types the agent reports it can run natively. Null/empty = an agent
+   *  that predates the field — unknown, not empty. */
+  capabilities?: string[] | null
 }
 
 export interface Category {
@@ -210,6 +213,9 @@ export const useServersStore = defineStore('servers', () => {
       return data.items.map((s) => ({
         label: s.hostname || s.id,
         value: s.id,
+        // Job types the agent says it can run natively — the caller decides
+        // what to do with them (see useAnsibleRunners).
+        capabilities: s.capabilities ?? [],
       }))
     } catch (e) {
       console.error('Failed to fetch agents:', e)

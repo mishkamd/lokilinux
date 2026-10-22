@@ -26,6 +26,7 @@ const columns = [
   { key: 'ip_address', label: 'IP' },
   { key: 'os_name', label: 'OS' },
   { key: 'status', label: 'Status' },
+  { key: 'capabilities', label: 'Can run' },
   { key: 'category', label: 'Category' },
   { key: 'project', label: 'Project' },
   { key: 'last_seen_at', label: 'Last Seen' },
@@ -207,6 +208,17 @@ async function saveNewEntity() {
       </template>
       <template #os_name-data="{ row }">
         {{ [row.os_name, row.os_version].filter(Boolean).join(' ') || '—' }}
+      </template>
+      <template #capabilities-data="{ row }">
+        <!-- The job types the agent reports it can run natively. An agent
+             that reports none predates the field: unknown, not empty. -->
+        <Tooltip
+          v-if="(row.capabilities ?? []).length"
+          :text="(row.capabilities ?? []).join(', ')"
+        >
+          <Badge color="gray" size="xs">{{ (row.capabilities ?? []).length }}</Badge>
+        </Tooltip>
+        <span v-else class="text-xs text-muted-foreground">—</span>
       </template>
       <template #category-data="{ row }">
         <div class="w-36" @click.stop>

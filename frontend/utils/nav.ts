@@ -53,8 +53,10 @@ export function buildNavSections(opts: { isAdmin: boolean; ansibleEnabled: boole
         { to: '/policies', label: 'Enforcement', icon: FileText },
         ...(opts.ansibleEnabled ? [{
           // Projects / Playbooks / Roles / Job Templates are tabs of one area
-          // (pages/automation/ansible.vue).
-          to: '/automation/ansible', label: 'Ansible', icon: Bot,
+          // (pages/automation/ansible.vue). The area shell has no index child
+          // of its own, so the entry point is the first tab — pointing at
+          // /automation/ansible rendered an empty page.
+          to: '/automation/ansible/projects', label: 'Ansible', icon: Bot,
         }] : []),
       ],
     },
@@ -133,16 +135,35 @@ export interface AreaTab {
  * Tab definitions for the nested areas (MIS-166). Shared by the route shells
  * (pages/compliance.vue etc.) and the layout's page title, so the tab bar and
  * the document title can never disagree.
+ *
+ * Compliance tabs are ordered by the operator's workflow, not alphabetically:
+ * pick a policy profile -> pick the rules it uses -> see which standard it
+ * maps to -> review what failed -> fix it -> waive what is intentional ->
+ * report. The same order Wazuh, CIS-CAT and Tenable walk their users through.
  */
 export const COMPLIANCE_TABS: AreaTab[] = [
   { label: 'Overview', to: '/compliance' },
-  { label: 'Standards', to: '/compliance/standards' },
-  { label: 'Findings', to: '/compliance/findings' },
   { label: 'Policy Sets', to: '/compliance/policies' },
   { label: 'Rules', to: '/compliance/rules' },
+  { label: 'Standards', to: '/compliance/standards' },
+  { label: 'Findings', to: '/compliance/findings' },
   { label: 'Remediation', to: '/compliance/remediation' },
   { label: 'Exceptions', to: '/compliance/exceptions' },
   { label: 'Reports', to: '/compliance/reports' },
+]
+
+/**
+ * Configuration ("what should this host look like, and did it drift") is a
+ * different product from Compliance ("does it satisfy a rule/standard") and
+ * keeps its own tab bar, its own sidebar group and its own vocabulary. It
+ * used to have no tab bar at all — pages/compliance.vue hid the compliance
+ * tabs on these routes, which left an operator who landed on /compliance/drift
+ * with no way to reach the neighbouring pages except via the sidebar.
+ */
+export const CONFIGURATION_TABS: AreaTab[] = [
+  { label: 'Baselines', to: '/compliance/baselines' },
+  { label: 'Drift', to: '/compliance/drift' },
+  { label: 'File Integrity', to: '/compliance/file-integrity' },
 ]
 
 export const VULNERABILITY_TABS: AreaTab[] = [
@@ -164,6 +185,7 @@ export const WORKFLOW_TABS: AreaTab[] = [
 
 export const AREA_TABS: AreaTab[] = [
   ...COMPLIANCE_TABS,
+  ...CONFIGURATION_TABS,
   ...VULNERABILITY_TABS,
   ...ANSIBLE_TABS,
   ...WORKFLOW_TABS,

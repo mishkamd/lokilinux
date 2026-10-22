@@ -6,21 +6,25 @@ const store = useCorrelationStore()
 const { rules, loading } = storeToRefs(store)
 const toast = useToast()
 const { severityColor } = useSeverity()
+const { canEdit } = useCurrentUser()
 
 const columns = [
   { key: 'name', label: 'Name' },
   { key: 'incident_type', label: 'Incident type' },
   { key: 'incident_severity', label: 'Severity' },
+  { key: 'conditions', label: 'Signals' },
   { key: 'threshold_score', label: 'Threshold' },
   { key: 'window_seconds', label: 'Window' },
   { key: 'enabled', label: 'Enabled' },
   { key: 'actions', label: '', noSort: true },
 ]
 
-const searchQuery = ref('')
+// The search box lives in the URL so a rule set can be shared and bookmarked.
+const view = reactive({ q: '' })
+useUrlFilters(view)
 
 const filteredRules = computed(() => {
-  const q = searchQuery.value.trim().toLowerCase()
+  const q = view.q.trim().toLowerCase()
   if (!q) return rules.value
   return rules.value.filter((r) =>
     [r.name, r.incident_type, r.incident_severity].some((v) => v != null && String(v).toLowerCase().includes(q)),
@@ -36,7 +40,7 @@ function emptyForm(): CorrelationRuleInput {
   return {
     name: '', enabled: true, window_seconds: 300, group_by: ['host_id'],
     conditions: [{ signal: '', weight: 20 }], threshold_score: 60,
-    incident_type: '', incident_severity: 'HIGH',
+    incident_type: '', incident_severity: 'HIGH', suppressions: [],
   }
 }
 
@@ -53,6 +57,9 @@ function openEdit(rule: CorrelationRule) {
     group_by: [...rule.group_by], conditions: rule.conditions.map((c) => ({ ...c })),
     threshold_score: rule.threshold_score, incident_type: rule.incident_type,
     incident_severity: rule.incident_severity,
+    // The rule's maintenance windows must survive an edit — the API used to
+    // reset them to [] on every save.
+    suppressions: (rule.suppressions ?? []).map((s) => ({ ...s })),
   }
   showEditor.value = true
 }
@@ -63,19 +70,6 @@ function addCondition() {
 
 function removeCondition(idx: number) {
   form.value.conditions.splice(idx, 1)
-}
-
-function validate(): string | null {
-  if (!form.value.name.trim()) return 'Name is required'
-  if (!form.value.incident_type.trim()) return 'Incident type is required'
-  if (form.value.window_seconds < 30 || form.value.window_seconds > 3600) return 'Window must be 30-3600 seconds'
-  if (form.value.threshold_score <= 0) return 'Threshold must be > 0'
-  if (!form.value.conditions.length) return 'At least one condition is required'
-  for (const c of form.value.conditions) {
-    if (!c.signal.trim()) return 'Every condition needs a signal name'
-    if (!c.weight || c.weight <= 0) return 'Every condition needs a weight > 0'
-  }
-  return null
 }
 
 // Per-field messages: the rule's problems belong to the fields, not to a toast.
@@ -89,17 +83,16 @@ function validateFields(): boolean {
   fieldErrors.window_seconds =
     form.value.window_seconds < 30 || form.value.window_seconds > 3600 ? 'Must be 30-3600 seconds.' : ''
   fieldErrors.threshold_score = form.value.threshold_score <= 0 ? 'Must be greater than 0.' : ''
-  fieldErrors.conditions = form.value.conditions.length ? '' : 'At least one condition is required.'
+  fieldErrors.conditions = !form.value.conditions.length
+    ? 'At least one condition is required.'
+    : form.value.conditions.some((c) => !c.signal.trim() || !c.weight || c.weight <= 0)
+      ? 'Every condition needs a signal name and a weight greater than 0.'
+      : ''
   return !Object.values(fieldErrors).some(Boolean)
 }
 
 async function submit() {
   if (!validateFields()) return
-  const err = validate()
-  if (err) {
-    toast.add({ title: 'Invalid rule', description: err, color: 'red' })
-    return
-  }
   submitting.value = true
   try {
     if (editingId.value) {
@@ -148,12 +141,16 @@ onMounted(() => store.fetchRules())
   <div>
     <PageHeader title="Correlation rules" description="Score-based rules that group signals into incidents.">
       <template #actions>
-        <Button @click="openCreate">
+        <Button v-if="canEdit" @click="openCreate">
           <Plus class="size-4" />
           New rule
         </Button>
       </template>
     </PageHeader>
+
+    <div class="mb-3">
+      <SavedViews scope="correlation-rules" />
+    </div>
 
     <DataTable
       :rows="filteredRules"
@@ -162,16 +159,33 @@ onMounted(() => store.fetchRules())
       sortable
       :page-size="25"
       empty-title="No correlation rules"
-      :empty-description="searchQuery ? `Nothing matches “${searchQuery}”.` : 'Create a rule to start correlating signals into incidents.'"
-     caption="Correlation rules" preferences-key="correlation-rules">
+      :empty-description="view.q ? `Nothing matches “${view.q}”.` : 'Create a rule to start correlating signals into incidents.'"
+      caption="Correlation rules"
+      preferences-key="correlation-rules"
+    >
       <template #toolbar>
-        <Input v-model="searchQuery" placeholder="Search rules..." class="w-full sm:w-64" />
+        <Input v-model="view.q" placeholder="Search rules..." class="w-full sm:w-64" aria-label="Search rules" />
       </template>
       <template #name-data="{ row }">
-        <button class="focus-ring font-medium hover:underline" @click="openEdit(row as CorrelationRule)">{{ row.name }}</button>
+        <button
+          v-if="canEdit"
+          class="focus-ring font-medium hover:underline"
+          @click="openEdit(row as CorrelationRule)"
+        >
+          {{ row.name }}
+        </button>
+        <span v-else class="font-medium">{{ row.name }}</span>
+      </template>
+      <template #incident_type-data="{ row }">
+        <span class="font-mono text-xs text-muted-foreground">{{ row.incident_type }}</span>
       </template>
       <template #incident_severity-data="{ row }">
         <Badge :color="severityColor(String(row.incident_severity))" size="xs">{{ row.incident_severity }}</Badge>
+      </template>
+      <template #conditions-data="{ row }">
+        <span class="text-xs text-muted-foreground">
+          {{ (row.conditions as CorrelationCondition[]).length }} signal(s)
+        </span>
       </template>
       <template #threshold_score-data="{ row }">
         <span class="font-mono text-xs tabular-nums">{{ row.threshold_score }}</span>
@@ -180,17 +194,30 @@ onMounted(() => store.fetchRules())
         <span class="font-mono text-xs">{{ row.window_seconds }}s</span>
       </template>
       <template #enabled-data="{ row }">
-        <Switch :model-value="Boolean(row.enabled)" @update:model-value="toggle(row as CorrelationRule)" />
+        <Switch
+          v-if="canEdit"
+          :model-value="Boolean(row.enabled)"
+          :aria-label="`Enable rule ${row.name}`"
+          @update:model-value="toggle(row as CorrelationRule)"
+        />
+        <Badge v-else :color="row.enabled ? 'green' : 'gray'" size="xs">
+          {{ row.enabled ? 'Enabled' : 'Disabled' }}
+        </Badge>
       </template>
       <template #actions-data="{ row }">
-        <div class="flex items-center justify-end gap-1">
+        <div v-if="canEdit" class="flex items-center justify-end gap-1">
           <Tooltip text="Edit rule">
             <Button size="xs" variant="ghost" aria-label="Edit rule" @click="openEdit(row as CorrelationRule)">
               <Pencil class="size-3.5" />
             </Button>
           </Tooltip>
           <Tooltip text="Delete rule">
-            <Button size="xs" variant="ghost" aria-label="Delete rule" @click="deletingRule = row as CorrelationRule">
+            <Button
+              size="xs"
+              variant="ghost"
+              aria-label="Delete rule"
+              @click="deletingRule = row as CorrelationRule"
+            >
               <Trash2 class="size-3.5" />
             </Button>
           </Tooltip>
@@ -226,13 +253,18 @@ onMounted(() => store.fetchRules())
               </template>
             </FormField>
           </div>
-
           <FormField label="Conditions (signal type + weight)" :error="fieldErrors.conditions">
             <div class="space-y-2">
               <div v-for="(c, i) in form.conditions" :key="i" class="flex items-center gap-2">
                 <Input v-model="(c as CorrelationCondition).signal" placeholder="cpu.high" class="flex-1" />
                 <Input v-model.number="(c as CorrelationCondition).weight" type="number" min="1" class="w-24" placeholder="weight" />
-                <Button size="xs" variant="ghost" class="text-muted-foreground" aria-label="Remove condition" @click="removeCondition(i)">
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  class="text-muted-foreground"
+                  aria-label="Remove condition"
+                  @click="removeCondition(i)"
+                >
                   <Trash2 class="size-3.5" />
                 </Button>
               </div>

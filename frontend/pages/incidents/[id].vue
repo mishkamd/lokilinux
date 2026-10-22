@@ -18,6 +18,9 @@ const route = useRoute()
 const store = useIncidentsStore()
 const api = useApi()
 const { severityColor } = useSeverity()
+const { statusColor } = useStatusColor()
+const { canEdit } = useCurrentUser()
+const { format: fmtDateTime } = useDateTime()
 const toast = useToast()
 
 const incidentId = computed(() => String(route.params.id))
@@ -60,24 +63,15 @@ const matchingRunbooks = computed(() =>
   runbooks.value.filter((r) => r.enabled && r.incident_type === incident.value?.type),
 )
 
-const rootCauseSignal = computed(() =>
-  incident.value?.signals.find((s) => s.id === incident.value?.root_cause_signal_id) ?? null,
+const rootCauseSignal = computed(
+  () => incident.value?.signals.find((s) => s.id === incident.value?.root_cause_signal_id) ?? null,
 )
-
-const statusColor = (s: string) =>
-  ({
-    OPEN: 'red', ACKNOWLEDGED: 'amber', IN_PROGRESS: 'blue', RESOLVED: 'green', CLOSED: 'gray',
-  } as Record<string, string>)[s] ?? 'gray'
 
 const timelineIcon = (kind: string) =>
   ({
     created: CirclePlus, signal: RadioTower, transition: ArrowRightLeft,
     runbook: PlayCircle, note: StickyNote,
   } as Record<string, typeof CirclePlus>)[kind] ?? FileText
-
-function fmtDate(v: string | null | undefined): string {
-  return v ? new Date(v).toLocaleString() : '—'
-}
 
 async function ack() {
   if (!incident.value) return
@@ -118,7 +112,7 @@ async function reopen() {
 // Fetch once, on first expand — <details> owns its own open/closed state
 // natively; a reactive :open binding fights the browser's own toggle (it
 // forces the DOM attribute back to match the ref on every re-render,
-// which can undo the user's click before the fetch even starts).
+// which can undo the user's click before the fetch even starts)
 async function loadEvidenceOnce() {
   if (evidence.value !== null) return
   evidenceLoading.value = true
@@ -149,11 +143,10 @@ async function executeRunbook(runbookId: string) {
   <div>
     <p v-if="loading" class="text-sm text-muted-foreground">Loading…</p>
     <p v-else-if="!incident" class="text-sm text-muted-foreground">Incident not found.</p>
-
-    <div v-else class="space-y-5">
+    <div v-else class="space-y-4">
       <PageHeader
         :title="incident.title"
-        :description="`${incident.type} · started ${fmtDate(incident.started_at)}`"
+        :description="`${incident.type} · started ${fmtDateTime(incident.started_at)}`"
         :back="{ to: '/incidents', label: 'Back to incidents' }"
       >
         <template #badges>
@@ -164,36 +157,90 @@ async function executeRunbook(runbookId: string) {
           </Badge>
         </template>
         <template #actions>
-          <Button v-if="incident.status === 'OPEN'" variant="outline" size="sm" :loading="acting" @click="ack">
+          <Button
+            v-if="canEdit && incident.status === 'OPEN'"
+            variant="outline"
+            size="sm"
+            :loading="acting"
+            @click="ack"
+          >
             <Check class="size-3.5" />
             Acknowledge
           </Button>
-          <Button v-if="!['RESOLVED', 'CLOSED'].includes(incident.status)" variant="outline" size="sm" :loading="acting" @click="resolve">
+          <Button
+            v-if="canEdit && !['RESOLVED', 'CLOSED'].includes(incident.status)"
+            variant="outline"
+            size="sm"
+            :loading="acting"
+            @click="resolve"
+          >
             <CheckCheck class="size-3.5" />
             Resolve
           </Button>
-          <Button v-if="incident.status === 'RESOLVED'" variant="outline" size="sm" :loading="acting" @click="reopen">
+          <Button
+            v-if="canEdit && incident.status === 'RESOLVED'"
+            variant="outline"
+            size="sm"
+            :loading="acting"
+            @click="reopen"
+          >
             <RotateCcw class="size-3.5" />
             Reopen
           </Button>
         </template>
       </PageHeader>
 
-      <Separator />
+      <div class="surface-card rounded-[var(--radius-md)] p-3">
+        <h2 class="section-title mb-2.5">Summary</h2>
+        <dl class="grid grid-cols-2 gap-x-4 gap-y-2 text-xs sm:grid-cols-4">
+          <div>
+            <dt class="text-muted-foreground">Host</dt>
+            <dd class="font-mono text-foreground">{{ incident.hostname ?? '—' }}</dd>
+          </div>
+          <div>
+            <dt class="text-muted-foreground">Type</dt>
+            <dd class="font-mono text-foreground">{{ incident.type }}</dd>
+          </div>
+          <div>
+            <dt class="text-muted-foreground">Started</dt>
+            <dd class="font-mono text-foreground">{{ fmtDateTime(incident.started_at) }}</dd>
+          </div>
+          <div>
+            <dt class="text-muted-foreground">Last update</dt>
+            <dd class="font-mono text-foreground">{{ fmtDateTime(incident.updated_at) }}</dd>
+          </div>
+          <div v-if="incident.acknowledged_at">
+            <dt class="text-muted-foreground">Acknowledged</dt>
+            <dd class="font-mono text-foreground">{{ fmtDateTime(incident.acknowledged_at) }}</dd>
+          </div>
+          <div v-if="incident.resolved_at">
+            <dt class="text-muted-foreground">Resolved</dt>
+            <dd class="font-mono text-foreground">{{ fmtDateTime(incident.resolved_at) }}</dd>
+          </div>
+          <div v-if="incident.group_key">
+            <dt class="text-muted-foreground">Group key</dt>
+            <dd class="font-mono text-foreground break-all">{{ incident.group_key }}</dd>
+          </div>
+        </dl>
+      </div>
 
-      <div v-if="rootCauseSignal" class="rounded-lg border border-border p-3">
-        <h3 class="text-sm font-medium mb-1.5">Root cause</h3>
+      <div v-if="rootCauseSignal" class="surface-card rounded-[var(--radius-md)] p-3">
+        <h2 class="section-title mb-2.5">Root cause</h2>
         <div class="flex items-center gap-2 flex-wrap text-sm">
           <Badge :color="severityColor(rootCauseSignal.severity)" size="xs">{{ rootCauseSignal.severity }}</Badge>
           <span class="font-mono">{{ rootCauseSignal.type }}</span>
-          <span v-if="rootCauseSignal.host_id" class="text-xs text-muted-foreground">host {{ rootCauseSignal.host_id }}</span>
-          <span class="font-mono text-xs text-muted-foreground">{{ rootCauseSignal.occurrence_count }} occurrences</span>
+          <span v-if="rootCauseSignal.host_id" class="text-xs text-muted-foreground">
+            host {{ rootCauseSignal.host_id }}
+          </span>
+          <span class="font-mono text-xs text-muted-foreground">
+            {{ rootCauseSignal.occurrence_count }} occurrences
+          </span>
         </div>
       </div>
 
-      <div>
-        <h3 class="text-sm font-medium mb-2">Affected signals ({{ incident.signals.length }})</h3>
-        <div class="flex flex-wrap gap-2">
+      <div class="surface-card rounded-[var(--radius-md)] p-3">
+        <h2 class="section-title mb-2.5">Affected signals ({{ incident.signals.length }})</h2>
+        <div v-if="incident.signals.length" class="flex flex-wrap gap-2">
           <div
             v-for="s in incident.signals"
             :key="s.id"
@@ -203,45 +250,43 @@ async function executeRunbook(runbookId: string) {
             <span class="font-mono">{{ s.type }}</span>
             <span class="font-mono text-muted-foreground">×{{ s.occurrence_count }}</span>
           </div>
-          <p v-if="!incident.signals.length" class="text-sm text-muted-foreground">No linked signals.</p>
         </div>
+        <p v-else class="text-sm text-muted-foreground">No linked signals.</p>
       </div>
 
-      <Separator />
-
-      <div>
-        <h3 class="text-sm font-medium mb-2">Timeline</h3>
-        <ol class="space-y-3">
+      <div class="surface-card rounded-[var(--radius-md)] p-3">
+        <h2 class="section-title mb-2.5">Timeline</h2>
+        <ol v-if="incident.timeline.length" class="space-y-3">
           <li v-for="entry in incident.timeline" :key="entry.id" class="flex items-start gap-2.5">
             <component :is="timelineIcon(entry.kind)" class="size-4 text-muted-foreground shrink-0 mt-0.5" />
             <div class="text-sm">
               <p>{{ entry.message }}</p>
-              <p class="text-xs text-muted-foreground font-mono">{{ fmtDate(entry.ts) }}</p>
+              <p class="text-xs text-muted-foreground font-mono">{{ fmtDateTime(entry.ts) }}</p>
             </div>
           </li>
-          <p v-if="!incident.timeline.length" class="text-sm text-muted-foreground">No timeline entries.</p>
         </ol>
+        <p v-else class="text-sm text-muted-foreground">No timeline entries.</p>
       </div>
 
-      <Separator />
+      <div class="surface-card rounded-[var(--radius-md)] p-3">
+        <details>
+          <summary class="section-title cursor-pointer">Evidence</summary>
+          <div class="mt-2.5">
+            <p v-if="evidenceLoading" class="text-sm text-muted-foreground">Loading…</p>
+            <p v-else-if="evidence && !evidence.length" class="text-sm text-muted-foreground">
+              No evidence recorded.
+            </p>
+            <ul v-else-if="evidence" class="space-y-1.5">
+              <li v-for="(e, i) in evidence" :key="i" class="text-xs font-mono bg-muted rounded p-2">
+                <span class="text-muted-foreground">[{{ e.kind }}]</span> {{ e.summary }}
+              </li>
+            </ul>
+          </div>
+        </details>
+      </div>
 
-      <details>
-        <summary class="cursor-pointer text-sm font-medium" @click="loadEvidenceOnce">Evidence</summary>
-        <div class="mt-2">
-          <p v-if="evidenceLoading" class="text-sm text-muted-foreground">Loading…</p>
-          <p v-else-if="evidence && !evidence.length" class="text-sm text-muted-foreground">No evidence recorded.</p>
-          <ul v-else-if="evidence" class="space-y-1.5">
-            <li v-for="(e, i) in evidence" :key="i" class="text-xs font-mono bg-muted rounded p-2">
-              <span class="text-muted-foreground">[{{ e.kind }}]</span> {{ e.summary }}
-            </li>
-          </ul>
-        </div>
-      </details>
-
-      <Separator />
-
-      <div v-if="matchingRunbooks.length">
-        <h3 class="text-sm font-medium mb-2">Runbooks</h3>
+      <div v-if="matchingRunbooks.length" class="surface-card rounded-[var(--radius-md)] p-3">
+        <h2 class="section-title mb-2.5">Runbooks</h2>
         <div class="space-y-2">
           <div
             v-for="rb in matchingRunbooks"
@@ -253,7 +298,7 @@ async function executeRunbook(runbookId: string) {
               <p class="text-xs text-muted-foreground">{{ rb.trigger_mode }} · min {{ rb.min_severity }}</p>
             </div>
             <Button
-              v-if="rb.trigger_mode === 'MANUAL'"
+              v-if="rb.trigger_mode === 'MANUAL' && canEdit"
               size="xs"
               variant="outline"
               :loading="executingRunbook === rb.id"
@@ -262,7 +307,7 @@ async function executeRunbook(runbookId: string) {
               <PlayCircle class="size-3.5" />
               Execute
             </Button>
-            <Badge v-else color="blue" size="xs">Auto</Badge>
+            <Badge v-else-if="rb.trigger_mode === 'AUTO'" color="blue" size="xs">Auto</Badge>
           </div>
         </div>
       </div>

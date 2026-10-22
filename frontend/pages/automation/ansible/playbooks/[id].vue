@@ -4,7 +4,6 @@ import type { Playbook } from '~/stores/playbooks'
 
 const route = useRoute()
 const store = usePlaybooksStore()
-const serversStore = useServersStore()
 const rolesStore = useAnsibleRolesStore()
 const projectsStore = useAnsibleProjectsStore()
 const { canEdit } = useCurrentUser()
@@ -65,7 +64,7 @@ async function save() {
 const showRun = ref(false)
 const runAgentIds = ref<string[]>([])
 const runExtraVars = ref('{}')
-const agentOptions = ref<Array<{ label: string; value: string }>>([])
+const runners = useAnsibleRunners()
 const running = ref(false)
 
 async function openRun() {
@@ -74,7 +73,7 @@ async function openRun() {
   const project = projectsStore.projects.find((p) => p.id === form.value.project_id)
   runAgentIds.value = project ? [...project.default_agent_ids] : []
   runExtraVars.value = '{}'
-  if (!agentOptions.value.length) agentOptions.value = await serversStore.fetchAgentsForSelect()
+  await runners.load()
   showRun.value = true
 }
 
@@ -82,6 +81,15 @@ async function confirmRun() {
   if (!playbook.value) return
   if (!runAgentIds.value.length) {
     toast.add({ title: 'Select at least one runner server', color: 'red' })
+    return
+  }
+  const blocked = runners.blockedSelection(runAgentIds.value)
+  if (blocked.length) {
+    toast.add({
+      title: 'ansible-core is missing on the selected host',
+      description: `${blocked.length} selected server(s) cannot run Ansible.`,
+      color: 'red',
+    })
     return
   }
   let extraVars: Record<string, unknown>
@@ -153,7 +161,11 @@ async function confirmRun() {
             Execution requires approval on the Jobs page before it starts.
           </p>
           <FormField label="Runner servers" required>
-            <MultiSelect v-model="runAgentIds" :options="agentOptions" placeholder="Select Ansible runner servers..." />
+            <MultiSelect v-model="runAgentIds" :options="runners.options.value" placeholder="Select Ansible runner servers..." />
+            <p class="text-xs text-muted-foreground mt-1">
+              {{ runners.compatibleCount.value }} of {{ runners.options.value.length }} servers can run Ansible
+              (the agent reports which hosts have ansible-core).
+            </p>
           </FormField>
           <FormField label="Extra vars (JSON)">
             <textarea

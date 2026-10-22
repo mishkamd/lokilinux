@@ -39,7 +39,7 @@ function duration(triggeredAt: string): string {
         <span class="flex items-center justify-center size-5 rounded-md bg-[color-mix(in_oklch,var(--destructive)_15%,transparent)] text-destructive shrink-0">
           <Siren class="size-3" />
         </span>
-        <h2 class="label-caps">Active Incidents</h2>
+        <h2 class="label-caps">Active Alerts</h2>
       </div>
       <NuxtLink to="/alerts" class="focus-ring flex items-center gap-1 text-xs font-medium text-primary-text dark:text-primary-active shrink-0">
         View all
@@ -49,13 +49,13 @@ function duration(triggeredAt: string): string {
 
     <WidgetState
       v-if="props.error || props.loading"
-      :error="props.error ? 'Failed to load active incidents.' : null"
+      :error="props.error ? 'Failed to load active alerts.' : null"
       :loading="props.loading"
       :rows="3"
       row-class="h-8 rounded-md"
     />
     <template v-else-if="!props.incidents.length">
-      <EmptyState>No active incidents.</EmptyState>
+      <EmptyState>No active alerts.</EmptyState>
     </template>
     <Table v-else>
       <TableHeader>

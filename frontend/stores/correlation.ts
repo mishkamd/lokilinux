@@ -14,6 +14,9 @@ export interface CorrelationRule {
   threshold_score: number
   incident_type: string
   incident_severity: string
+  // Maintenance windows. The API used to hide them, so every save sent an
+  // empty list back and wiped the operator's suppressions.
+  suppressions: Array<Record<string, unknown>>
   version: number
   created_at: string
 }
@@ -27,6 +30,7 @@ export interface CorrelationRuleInput {
   threshold_score: number
   incident_type: string
   incident_severity: string
+  suppressions?: Array<Record<string, unknown>>
 }
 
 export const useCorrelationStore = defineStore('correlation', () => {
@@ -69,6 +73,10 @@ export const useCorrelationStore = defineStore('correlation', () => {
       name: rule.name, enabled: !rule.enabled, window_seconds: rule.window_seconds,
       group_by: rule.group_by, conditions: rule.conditions, threshold_score: rule.threshold_score,
       incident_type: rule.incident_type, incident_severity: rule.incident_severity,
+      // Round-trip the suppressions: the API only writes the fields it is
+      // sent, but dropping them here would still clear the operator's
+      // maintenance windows on every toggle.
+      suppressions: rule.suppressions ?? [],
     })
   }
 
