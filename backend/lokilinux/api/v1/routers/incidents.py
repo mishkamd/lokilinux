@@ -7,7 +7,7 @@ from typing import Any
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.auth.dependencies import get_current_user, require_role, safe_user_uuid
@@ -39,13 +39,16 @@ async def list_incidents(
     status: str | None = None,
     severity: str | None = None,
     type: str | None = None,
+    search: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
     cursor: str | None = None,
     db: AsyncSession = Depends(get_db),
     _: dict[str, Any] = Depends(get_current_user),
 ) -> IncidentListResponse:
     q = (
-        select(Incident)
+        select(Incident, Agent.hostname)
+        .outerjoin(Signal, Signal.id == Incident.root_cause_signal_id)
+        .outerjoin(Agent, Agent.id == Signal.host_id)
         .where(Incident.tenant_id == _TENANT_ID)
         .order_by(Incident.started_at.desc(), Incident.id.desc())
     )
@@ -55,6 +58,40 @@ async def list_incidents(
         q = q.where(Incident.severity == severity)
     if type:
         q = q.where(Incident.type == type)
+    if search:
+        q = q.where(
+            or_(
+                Incident.title.ilike(f"%{search}%"),
+                Incident.type.ilike(f"%{search}%"),
+                # The hostname is the operator's handle on an incident — it
+                # has to be searchable, not just displayed.
+                Agent.hostname.ilike(f"%{search}%"),
+            )
+        )
+    # Total for the filter as a whole (no cursor) — the UI shows "N incidents"
+    # and must not be counting only the rows it happens to have loaded.
+    count_q = (
+        select(func.count())
+        .select_from(Incident)
+        .outerjoin(Signal, Signal.id == Incident.root_cause_signal_id)
+        .outerjoin(Agent, Agent.id == Signal.host_id)
+        .where(Incident.tenant_id == _TENANT_ID)
+    )
+    if status:
+        count_q = count_q.where(Incident.status == status)
+    if severity:
+        count_q = count_q.where(Incident.severity == severity)
+    if type:
+        count_q = count_q.where(Incident.type == type)
+    if search:
+        count_q = count_q.where(
+            or_(
+                Incident.title.ilike(f"%{search}%"),
+                Incident.type.ilike(f"%{search}%"),
+                Agent.hostname.ilike(f"%{search}%"),
+            )
+        )
+    total = (await db.execute(count_q)).scalar_one()
     if cursor:
         raw = decode_cursor(cursor)
         try:
@@ -64,16 +101,21 @@ async def list_incidents(
         ts = datetime.fromisoformat(ts_str)
         q = q.where((Incident.started_at < ts) | ((Incident.started_at == ts) & (Incident.id < UUID(uid))))
 
-    rows = (await db.execute(q.limit(limit + 1))).scalars().all()
+    rows = (await db.execute(q.limit(limit + 1))).all()
     has_more = len(rows) > limit
-    items = rows[:limit]
+    rows = rows[:limit]
     next_cursor = None
-    if has_more and items:
-        last = items[-1]
+    if has_more and rows:
+        last = rows[-1][0]
         next_cursor = encode_cursor(f"{last.started_at.isoformat()}:{last.id}")
-    await _attach_hostnames(db, items)
+    items = [
+        IncidentResponse.model_validate(incident).model_copy(update={"hostname": hostname})
+        for incident, hostname in rows
+    ]
     return IncidentListResponse(
-        items=[IncidentResponse.model_validate(i) for i in items], next_cursor=next_cursor
+        items=items,
+        next_cursor=next_cursor,
+        total=total,
     )
 
 

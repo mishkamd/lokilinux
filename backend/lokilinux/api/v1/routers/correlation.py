@@ -58,7 +58,11 @@ async def update_rule(
     rule = await db.get(CorrelationRule, rule_id)
     if rule is None:
         raise HTTPException(status_code=404, detail="Correlation rule not found")
-    for field, value in payload.model_dump().items():
+    # exclude_unset: only the fields the client actually sent are written.
+    # A full model_dump() also writes the schema defaults, which silently
+    # reset the stored `suppressions` (the operator's maintenance windows)
+    # to [] on every save.
+    for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(rule, field, value)
     rule.version += 1
     await db.flush()

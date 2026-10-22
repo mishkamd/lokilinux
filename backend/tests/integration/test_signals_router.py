@@ -1,8 +1,10 @@
+import uuid
 from datetime import datetime, timezone
 
 import pytest
 
 from lokilinux.events.fingerprint import fingerprint
+from lokilinux.models.agent import Agent, AgentStatus
 from lokilinux.signals.models import Signal
 
 
@@ -23,7 +25,7 @@ async def _make_signal(db_session, *, sig_type: str = "cpu.high", status: str = 
 async def test_list_signals_empty(client):
     resp = await client.get("/api/v1/signals")
     assert resp.status_code == 200
-    assert resp.json() == {"items": [], "next_cursor": None, "total": None}
+    assert resp.json() == {"items": [], "next_cursor": None, "total": 0}
 
 
 @pytest.mark.asyncio
@@ -34,6 +36,34 @@ async def test_list_signals_returns_created_row(client, db_session):
     items = resp.json()["items"]
     assert len(items) == 1
     assert items[0]["id"] == str(sig.id)
+
+
+@pytest.mark.asyncio
+async def test_list_signals_carries_hostname_and_total(client, db_session):
+    """The list must carry the hostname of the reporting host, not just its id.
+
+    The UI has no way to turn a raw agent UUID into a name, so a UUID in the
+    "Host" column is all the operator would ever see.
+    """
+    agent = Agent(agent_id=str(uuid.uuid4()), status=AgentStatus.ACTIVE, hostname="web-01")
+    db_session.add(agent)
+    await db_session.flush()
+    now = datetime.now(timezone.utc)
+    sig = Signal(
+        tenant_id="default", type="cpu.high", severity="HIGH", status="OPEN",
+        host_id=agent.id,
+        fingerprint=fingerprint("default", str(agent.id), "cpu.high", None),
+        first_seen=now, last_seen=now,
+    )
+    db_session.add(sig)
+    await db_session.flush()
+    await db_session.commit()
+
+    resp = await client.get("/api/v1/signals")
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 1
+    assert body["items"][0]["hostname"] == "web-01"
 
 
 @pytest.mark.asyncio

@@ -136,3 +136,56 @@ async def test_execute_snapshots_content_into_job(client: AsyncClient, db_sessio
 
     job = (await db_session.execute(select(Job).where(Job.id == job_id))).scalar_one()
     assert job.parameters["playbook_content"] == "- hosts: all\n  tasks: []\n"
+
+
+@pytest.mark.asyncio
+async def test_execute_refuses_agents_that_cannot_run_ansible(client: AsyncClient, db_session):
+    """The agent reports what it can run — a target without ansible-core must
+    be refused BEFORE the job exists, not after the approval."""
+    from lokilinux.models.agent import Agent, AgentStatus
+
+    agent = Agent(
+        agent_id="test-agent-2",
+        hostname="no-ansible",
+        status=AgentStatus.ACTIVE,
+        capabilities=["SERVICE", "FILE"],
+    )
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+
+    create_resp = await client.post(
+        "/api/v1/playbooks", json={"name": "needs-ansible", "content": "- hosts: all\n  tasks: []\n"},
+    )
+    playbook_id = create_resp.json()["id"]
+
+    exec_resp = await client.post(
+        f"/api/v1/playbooks/{playbook_id}/execute", json={"agent_ids": [str(agent.id)]},
+    )
+    assert exec_resp.status_code == 409
+    assert "no-ansible" in exec_resp.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_execute_allows_agents_that_report_ansible(client: AsyncClient, db_session):
+    from lokilinux.models.agent import Agent, AgentStatus
+
+    agent = Agent(
+        agent_id="test-agent-3",
+        hostname="has-ansible",
+        status=AgentStatus.ACTIVE,
+        capabilities=["SERVICE", "ANSIBLE_PLAYBOOK"],
+    )
+    db_session.add(agent)
+    await db_session.commit()
+    await db_session.refresh(agent)
+
+    create_resp = await client.post(
+        "/api/v1/playbooks", json={"name": "ok-ansible", "content": "- hosts: all\n  tasks: []\n"},
+    )
+    playbook_id = create_resp.json()["id"]
+
+    exec_resp = await client.post(
+        f"/api/v1/playbooks/{playbook_id}/execute", json={"agent_ids": [str(agent.id)]},
+    )
+    assert exec_resp.status_code == 201

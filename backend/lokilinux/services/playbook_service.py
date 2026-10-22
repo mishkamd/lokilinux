@@ -18,12 +18,14 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.cache import RedisCache
+from lokilinux.models.agent import Agent
 from lokilinux.models.job import Job
 from lokilinux.models.playbook import Playbook
 from lokilinux.object_storage import ObjectStorage
 from lokilinux.services.ansible_role_service import AnsibleRoleService
 from lokilinux.services.job_service import JobService
 from lokilinux.services.storage_service import StorageService
+from lokilinux.utils.capability_rbac import agent_can_run_job_type
 
 _MAX_PLAYBOOK_BYTES = 1024 * 1024  # 1MiB — matches the agent's own maxPlaybookBytes cap
 
@@ -170,7 +172,7 @@ class PlaybookService:
         playbook = await self._get_or_404(playbook_id)
         if not playbook.is_enabled:
             raise ValueError("Playbook is disabled")
-
+        await self._assert_agents_can_run_ansible(agent_ids)
         merged_extra_vars = {**(playbook.default_extra_vars or {}), **(extra_vars or {})}
         content = await self.resolve_content(playbook)
 
@@ -198,3 +200,29 @@ class PlaybookService:
             requires_approval=requires_approval,
         )
         return job
+
+    async def _assert_agents_can_run_ansible(self, agent_ids: list[UUID]) -> None:
+        """Refuse a run whose targets cannot run Ansible.
+
+        Without ansible-core on the host the agent accepts the job and fails
+        it at exec time — after the operator picked the hosts, after the
+        approval, with a message that reads like a network error. The agent
+        reports what it can run in the heartbeat, so the mismatch is knowable
+        before the job exists.
+        """
+        if not agent_ids:
+            return
+        rows = (
+            await self.db.execute(
+                select(Agent).where(Agent.id.in_([UUID(str(a)) for a in agent_ids]))
+            )
+        ).scalars().all()
+        blocked = [
+            (a.hostname or str(a.id))
+            for a in rows
+            if not agent_can_run_job_type(a.capabilities, "ANSIBLE_PLAYBOOK")
+        ]
+        if blocked:
+            raise ValueError(
+                "ansible-core is not installed on: " + ", ".join(sorted(blocked))
+            )

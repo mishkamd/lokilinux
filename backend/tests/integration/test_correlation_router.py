@@ -54,6 +54,38 @@ async def test_create_rule_rejects_zero_weight_condition(client):
 
 
 @pytest.mark.asyncio
+async def test_update_preserves_suppressions(client, db_session):
+    """An edit must not wipe the rule's maintenance windows.
+
+    The PATCH used to write every field of the request schema, including the
+    `suppressions` default, so any save (even a threshold tweak) reset the
+    operator's suppressions to [].
+    """
+    rule = await _make_rule(db_session)
+    rule.suppressions = [{"until": "2026-10-22T00:00:00Z", "reason": "maintenance"}]
+    await db_session.flush()
+    await db_session.commit()
+
+    resp = await client.patch(
+        f"/api/v1/correlation/rules/{rule.id}",
+        json={
+            "name": "test-rule",
+            "window_seconds": 300,
+            "group_by": ["host_id"],
+            "conditions": [{"signal": "cpu.high", "weight": 60}],
+            "threshold_score": 80,
+            "incident_type": "application_degradation",
+            "incident_severity": "CRITICAL",
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.json()["threshold_score"] == 80
+    assert resp.json()["suppressions"] == [
+        {"until": "2026-10-22T00:00:00Z", "reason": "maintenance"}
+    ]
+
+
+@pytest.mark.asyncio
 async def test_update_and_delete_rule(client, db_session):
     rule = await _make_rule(db_session)
 

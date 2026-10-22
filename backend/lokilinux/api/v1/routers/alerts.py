@@ -23,11 +23,16 @@ def _svc(db: AsyncSession = Depends(get_db)) -> AlertService:
 async def list_alerts(
     status: str | None = None,
     severity: str | None = None,
-    limit: int = Query(20, le=100),
+    search: str | None = Query(None),
+    limit: int = Query(50, ge=1, le=200),
+    cursor: str | None = None,
     svc: AlertService = Depends(_svc),
     _user: dict = Depends(get_current_user),
 ) -> dict:
-    return await svc.list_alerts(status, severity, limit)
+    try:
+        return await svc.list_alerts(status, severity, search, limit, cursor)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/{alert_id}/acknowledge")

@@ -62,6 +62,10 @@ class AgentResponse(AgentBase):
     updates_available: int = 0
     agent_version: str | None = None
     created_at: datetime
+    # Job types the agent reports it can run natively (heartbeat
+    # "capabilities"). Empty/None = an agent that predates the field — its
+    # abilities are unknown, not empty.
+    capabilities: list[str] | None = None
 
     model_config = {"from_attributes": True}
 

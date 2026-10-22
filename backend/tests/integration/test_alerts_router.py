@@ -39,6 +39,59 @@ async def test_list_alerts_filters_by_status(client: AsyncClient, db_session):
 
 
 @pytest.mark.asyncio
+async def test_list_alerts_filters_by_search(client: AsyncClient, db_session):
+    db_session.add(
+        Alert(
+            title="Agent X UNHEALTHY",
+            severity="HIGH",
+            alert_type="AGENT_OFFLINE",
+            status="ACTIVE",
+        )
+    )
+    db_session.add(
+        Alert(
+            title="Agent Y UNHEALTHY",
+            severity="HIGH",
+            alert_type="AGENT_OFFLINE",
+            status="ACTIVE",
+        )
+    )
+    await db_session.commit()
+
+    resp = await client.get("/api/v1/alerts", params={"search": "Agent X"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert [i["title"] for i in body["items"]] == ["Agent X UNHEALTHY"]
+    assert body["total"] == 1
+
+
+@pytest.mark.asyncio
+async def test_list_alerts_paginates_with_a_cursor(client: AsyncClient, db_session):
+    """The oldest alerts must be reachable — the list used to be capped at
+    the newest N with no way to ask for more."""
+    for i in range(3):
+        db_session.add(
+            Alert(title=f"alert-{i}", severity="HIGH", alert_type="AGENT_OFFLINE", status="ACTIVE")
+        )
+    await db_session.commit()
+
+    first = await client.get("/api/v1/alerts", params={"limit": 2})
+    assert first.status_code == 200
+    body = first.json()
+    assert len(body["items"]) == 2
+    assert body["total"] == 3
+    assert body["next_cursor"]
+
+    second = await client.get(
+        "/api/v1/alerts", params={"limit": 2, "cursor": body["next_cursor"]}
+    )
+    assert second.status_code == 200
+    second_body = second.json()
+    assert len(second_body["items"]) == 1
+    assert second_body["items"][0]["title"] not in {i["title"] for i in body["items"]}
+
+
+@pytest.mark.asyncio
 async def test_list_alert_rules_returns_200_with_data(client: AsyncClient, db_session):
     db_session.add(AlertRule(name="rule-1", conditions={}, is_enabled=True))
     await db_session.commit()

@@ -127,6 +127,18 @@ async def test_get_events_cursor_round_trips_into_query_params(client, fake_ch):
     assert fake_ch.last_params["before_id"] == "evt-0"
 
 
+@pytest.mark.asyncio
+async def test_get_events_search_matches_a_type_substring(client, fake_ch):
+    """`search` is a substring match — an exact-match filter silently
+    returned nothing whenever the operator typed a prefix."""
+    ts = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    fake_ch.queued_rows = [_ch_row(ts, "evt-1")]
+    resp = await client.get("/api/v1/events?search=heartbeat")
+    assert resp.status_code == 200
+    assert "positionCaseInsensitive(type" in fake_ch.last_query
+    assert fake_ch.last_params["search"] == "heartbeat"
+
+
 def _encode(ts: datetime, event_id: str) -> str:
     from lokilinux.schemas.common import encode_cursor
 

@@ -11,13 +11,14 @@ import logging
 from datetime import datetime, timezone
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.models.agent import Agent
 from lokilinux.models.alert import Alert, AlertRule
 from lokilinux.nats_topics import ALERT_CREATED
+from lokilinux.schemas.common import decode_cursor, encode_cursor
 
 logger = logging.getLogger(__name__)
 
@@ -134,13 +135,22 @@ class AlertService:
         self,
         status: str | None = None,
         severity: str | None = None,
+        search: str | None = None,
         limit: int = 20,
+        cursor: str | None = None,
     ) -> dict:
         filters = []
         if status:
             filters.append(Alert.status == status.upper())
         if severity:
             filters.append(Alert.severity == severity.upper())
+        if search:
+            filters.append(
+                or_(
+                    Alert.title.ilike(f"%{search}%"),
+                    Alert.description.ilike(f"%{search}%"),
+                )
+            )
 
         count_query = select(func.count()).select_from(Alert).where(*filters)
         total = (await self.db.execute(count_query)).scalar_one()
@@ -149,16 +159,36 @@ class AlertService:
             select(Alert, Agent.hostname)
             .outerjoin(Agent, Agent.id == Alert.agent_id)
             .where(*filters)
-            .order_by(Alert.created_at.desc())
-            .limit(limit)
+            .order_by(Alert.created_at.desc(), Alert.id.desc())
         )
-        result = await self.db.execute(query)
+        if cursor:
+            # Cursor encodes "created_at_iso:uuid" — the same shape the
+            # servers list uses.
+            raw = decode_cursor(cursor)
+            try:
+                ts_str, uid = raw.rsplit(":", 1)
+            except ValueError as exc:
+                raise ValueError("Malformed cursor") from exc
+            ts = datetime.fromisoformat(ts_str)
+            query = query.where(
+                or_(
+                    Alert.created_at < ts,
+                    (Alert.created_at == ts) & (Alert.id < UUID(uid)),
+                )
+            )
+        result = await self.db.execute(query.limit(limit + 1))
         rows = result.all()
+        has_more = len(rows) > limit
+        rows = rows[:limit]
         items = []
         for alert, hostname in rows:
             alert.hostname = hostname  # transient — not a DB column
             items.append(alert)
-        return {"items": items, "next_cursor": None, "total": total}
+        next_cursor = None
+        if has_more and items:
+            last = items[-1]
+            next_cursor = encode_cursor(f"{last.created_at.isoformat()}:{last.id}")
+        return {"items": items, "next_cursor": next_cursor, "total": total}
 
     async def create_rule(
         self,

@@ -115,6 +115,7 @@ class EventRepository:
         type: str | None = None,
         source: str | None = None,
         host_id: str | None = None,
+        search: str | None = None,
         since: datetime | None = None,
         until: datetime | None = None,
         limit: int = 50,
@@ -132,6 +133,12 @@ class EventRepository:
         if host_id:
             conditions.append("host_id = %(host_id)s")
             params["host_id"] = host_id
+        if search:
+            # Substring match on the event type — the UI presents this as a
+            # search box, and an exact-match filter silently returns nothing
+            # when the operator types a prefix.
+            conditions.append("positionCaseInsensitive(type, %(search)s) > 0")
+            params["search"] = search
         if since:
             conditions.append("timestamp >= %(since)s")
             params["since"] = since

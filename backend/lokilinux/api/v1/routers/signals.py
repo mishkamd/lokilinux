@@ -8,12 +8,13 @@ from uuid import UUID
 import json
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
 from lokilinux.auth.dependencies import get_current_user, require_role
 from lokilinux.dependencies import get_db, get_nats
+from lokilinux.models.agent import Agent
 from lokilinux.nats_topics import SIGNAL_RESOLVED
 from lokilinux.schemas.common import decode_cursor, encode_cursor
 from lokilinux.signals.models import Signal
@@ -32,13 +33,15 @@ async def list_signals(
     severity: str | None = None,
     type: str | None = None,
     host_id: UUID | None = None,
+    search: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
     cursor: str | None = None,
     db: AsyncSession = Depends(get_db),
     _: dict[str, Any] = Depends(get_current_user),
 ) -> SignalListResponse:
     q = (
-        select(Signal)
+        select(Signal, Agent.hostname)
+        .outerjoin(Agent, Agent.id == Signal.host_id)
         .where(Signal.tenant_id == _TENANT_ID)
         .order_by(Signal.last_seen.desc(), Signal.id.desc())
     )
@@ -50,6 +53,22 @@ async def list_signals(
         q = q.where(Signal.type == type)
     if host_id:
         q = q.where(Signal.host_id == host_id)
+    if search:
+        q = q.where(Signal.type.ilike(f"%{search}%"))
+    # Total for the filter as a whole (no cursor) — the UI shows "N signals"
+    # and must not be counting only the rows it happens to have loaded.
+    count_q = select(func.count()).select_from(Signal).where(Signal.tenant_id == _TENANT_ID)
+    if status:
+        count_q = count_q.where(Signal.status == status)
+    if severity:
+        count_q = count_q.where(Signal.severity == severity)
+    if type:
+        count_q = count_q.where(Signal.type == type)
+    if host_id:
+        count_q = count_q.where(Signal.host_id == host_id)
+    if search:
+        count_q = count_q.where(Signal.type.ilike(f"%{search}%"))
+    total = (await db.execute(count_q)).scalar_one()
     if cursor:
         raw = decode_cursor(cursor)
         try:
@@ -59,15 +78,23 @@ async def list_signals(
         ts = datetime.fromisoformat(ts_str)
         q = q.where((Signal.last_seen < ts) | ((Signal.last_seen == ts) & (Signal.id < UUID(uid))))
 
-    rows = (await db.execute(q.limit(limit + 1))).scalars().all()
+    rows = (await db.execute(q.limit(limit + 1))).all()
     has_more = len(rows) > limit
-    items = rows[:limit]
+    rows = rows[:limit]
     next_cursor = None
-    if has_more and items:
-        last = items[-1]
+    if has_more and rows:
+        last = rows[-1][0]
         next_cursor = encode_cursor(f"{last.last_seen.isoformat()}:{last.id}")
+    # The agent hostname rides along on the join — without it the UI can
+    # only show a raw UUID where the operator expects a hostname.
+    items = [
+        SignalResponse.model_validate(signal).model_copy(update={"hostname": hostname})
+        for signal, hostname in rows
+    ]
     return SignalListResponse(
-        items=[SignalResponse.model_validate(s) for s in items], next_cursor=next_cursor
+        items=items,
+        next_cursor=next_cursor,
+        total=total,
     )
 
 

@@ -17,6 +17,7 @@ class SignalResponse(BaseModel):
     severity: str
     status: str
     host_id: UUID | None = None
+    hostname: str | None = None  # transient — filled by the router from the owning agent
     service: str | None = None
     fingerprint: str
     occurrence_count: int
@@ -35,11 +36,15 @@ class CorrelationRuleResponse(BaseModel):
     name: str
     enabled: bool
     window_seconds: int
-    group_by: list
-    conditions: list
+    group_by: list[str]
+    conditions: list[dict]
     threshold_score: int
     incident_type: str
     incident_severity: str
+    # Surfaced so an editor can round-trip it: the PATCH used to overwrite
+    # the stored list with the schema default, silently dropping the
+    # operator's maintenance windows on every save.
+    suppressions: list[dict] = []
     version: int
     created_at: datetime
 

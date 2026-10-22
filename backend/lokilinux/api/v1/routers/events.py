@@ -86,6 +86,7 @@ async def list_events(
     type: str | None = None,
     source: str | None = None,
     host_id: str | None = None,
+    search: str | None = Query(None),
     limit: int = Query(50, ge=1, le=200),
     cursor: str | None = None,
     _: dict[str, Any] = Depends(get_current_user),
@@ -102,7 +103,13 @@ async def list_events(
 
     repo = EventRepository(ch)
     result = await repo.query(
-        _TENANT_ID, type=type, source=source, host_id=host_id, limit=limit, before=before
+        _TENANT_ID,
+        type=type,
+        source=source,
+        host_id=host_id,
+        search=search,
+        limit=limit,
+        before=before,
     )
     next_cursor = None
     if result["next_before"]:

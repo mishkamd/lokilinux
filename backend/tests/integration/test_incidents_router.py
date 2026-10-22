@@ -48,6 +48,58 @@ async def test_list_incidents_returns_created_row(client, db_session):
 
 
 @pytest.mark.asyncio
+async def test_list_incidents_reports_total_and_search(client, db_session):
+    incident, _ = await _make_incident_with_signal(db_session)
+    resp = await client.get("/api/v1/incidents")
+    assert resp.status_code == 200
+    # The badge in the UI must count the whole filtered set, not the page.
+    assert resp.json()["total"] == 1
+
+    hit = await client.get("/api/v1/incidents", params={"search": "degraded"})
+    assert hit.status_code == 200
+    assert hit.json()["total"] == 1
+    assert hit.json()["items"][0]["id"] == str(incident.id)
+
+    miss = await client.get("/api/v1/incidents", params={"search": "nothing-matches"})
+    assert miss.json()["items"] == []
+    assert miss.json()["total"] == 0
+
+
+@pytest.mark.asyncio
+async def test_list_incidents_search_matches_the_hostname(client, db_session):
+    """The Host column shows a hostname, so the search box has to find it."""
+    from lokilinux.models.agent import Agent, AgentStatus
+
+    agent = Agent(agent_id=str(uuid4()), status=AgentStatus.ACTIVE, hostname="rocky")
+    db_session.add(agent)
+    await db_session.flush()
+    now = datetime.now(timezone.utc)
+    sig = Signal(
+        tenant_id="default", type="host.unreachable", severity="CRITICAL", status="OPEN",
+        host_id=agent.id,
+        fingerprint=fingerprint("default", str(agent.id), "host.unreachable", None),
+        first_seen=now, last_seen=now,
+    )
+    db_session.add(sig)
+    await db_session.flush()
+    incident = Incident(
+        tenant_id="default", title="Host Down", type="host_down",
+        severity="CRITICAL", status="OPEN", group_key=str(uuid4()),
+        root_cause_signal_id=sig.id,
+    )
+    db_session.add(incident)
+    await db_session.flush()
+    await db_session.commit()
+
+    resp = await client.get("/api/v1/incidents", params={"search": "rocky"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["total"] == 1
+    assert body["items"][0]["id"] == str(incident.id)
+    assert body["items"][0]["hostname"] == "rocky"
+
+
+@pytest.mark.asyncio
 async def test_filter_by_status(client, db_session):
     await _make_incident_with_signal(db_session)
     resp = await client.get("/api/v1/incidents", params={"status": "RESOLVED"})
