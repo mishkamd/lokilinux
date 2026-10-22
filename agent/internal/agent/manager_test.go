@@ -93,6 +93,31 @@ func TestRunJob_CommandFallbackStillWorks(t *testing.T) {
 	}
 }
 
+// TestRunJob_UnknownTypeWithCommandIsRejected locks the security fix for
+// CVE-01: the generic dispatch branch used to run params["command"] as root
+// for ANY job_type it did not recognise, so a job type that is not gated on
+// EXEC_BASH (CVE_SCAN, SECURITY_PATCH, …) became arbitrary root command
+// execution on the managed host. Only CUSTOM_COMMAND is a shell job.
+func TestRunJob_UnknownTypeWithCommandIsRejected(t *testing.T) {
+	m := &Manager{
+		log:     slog.New(slog.NewTextHandler(io.Discard, nil)),
+		jobExec: modules.NewJobExecutor(),
+	}
+
+	for _, jobType := range []string{"CVE_SCAN", "INVENTORY_SCAN", "SECURITY_PATCH", "REMEDIATION", "COMPLIANCE_IMPORT_CONTENT"} {
+		result, ok := m.runJob(context.Background(), "job-sec", jobType, map[string]interface{}{"command": "touch /tmp/pwned"}, 5)
+		if !ok {
+			t.Fatalf("%s: runJob returned ok=false", jobType)
+		}
+		if result.ExitCode == 0 {
+			t.Errorf("%s: ExitCode = 0, want non-zero — the command was executed", jobType)
+		}
+		if !strings.Contains(result.Error, "unsupported job_type") {
+			t.Errorf("%s: Error = %q, want it to name the unsupported job_type", jobType, result.Error)
+		}
+	}
+}
+
 // TestNudge_CoalescesBurst locks the non-blocking-send shape: several jobs
 // finishing back to back must coalesce into a single pending wake, not one
 // per job (the heartbeat loop only ever drains one per tick, and a job's

@@ -53,6 +53,7 @@ var Registry = map[string]Capability{
 	"REBOOT":              {CapRebootHost, RiskHigh},
 	"FILE":                {CapFileWrite, RiskMedium},
 	"WORKFLOW_STEPS":      {CapExecBash, RiskCritical},
+	"CUSTOM_COMMAND":      {CapExecBash, RiskCritical},
 	"ANSIBLE_PLAYBOOK":    {CapExecAnsible, RiskCritical},
 	"PLUGIN_INSTALL":      {CapPluginInstall, RiskCritical},
 }

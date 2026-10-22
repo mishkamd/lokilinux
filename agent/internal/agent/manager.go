@@ -800,12 +800,20 @@ func (m *Manager) runLocal(ctx context.Context, jobID, jobType string, params ma
 		dryRun := operation == "DRY_RUN"
 		return m.remediationExec.Execute(ctx, jobID, actions, timeoutSec, dryRun)
 	default:
-		// Any job_type not matched above (including CUSTOM_COMMAND) falls
-		// here — a bare `command` param is enough regardless of job_type,
-		// same as before this fix, just no longer silent on failure.
+		// Only CUSTOM_COMMAND is executed as a bare shell line. Every other
+		// job_type is either handled above or unknown to this agent — and an
+		// unknown job_type must never reach `command`, or a job type that is
+		// not gated on EXEC_BASH (CVE_SCAN, SECURITY_PATCH, …) would run
+		// attacker-supplied shell as root. The control plane refuses a
+		// `command` parameter on those job types too; this is the last line
+		// of defence if that check is ever bypassed.
+		if jobType != "CUSTOM_COMMAND" {
+			m.log.Warn("unsupported job_type, skipping", "job_id", jobID, "job_type", jobType)
+			return modules.JobResult{JobID: jobID, ExitCode: 1, Error: fmt.Sprintf("unsupported job_type %q", jobType)}
+		}
 		command, _ := params["command"].(string)
 		if command == "" {
-			m.log.Warn("unsupported job_type, skipping", "job_id", jobID, "job_type", jobType)
+			m.log.Warn("custom command job has no command, skipping", "job_id", jobID, "job_type", jobType)
 			return modules.JobResult{JobID: jobID, ExitCode: 1, Error: fmt.Sprintf("unsupported job_type %q: no command parameter", jobType)}
 		}
 		return m.jobExec.Execute(ctx, jobID, command, timeoutSec)
