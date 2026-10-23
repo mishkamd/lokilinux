@@ -30,6 +30,22 @@ function duration(triggeredAt: string): string {
   if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ${Math.floor((diffSec % 3600) / 60)}m`
   return `${Math.floor(diffSec / 86400)}d`
 }
+
+// The widget lives in a half-width grid column — a 578px card. The alert type
+// is the widest column and the title already spells the type out, so it
+// starts hidden; the Columns menu brings it back and /alerts carries every
+// alert.
+const columns: { key: string; label: string; noSort?: boolean }[] = [
+  // Severity has its own order (critical > high > medium > low) — sorting the
+  // raw value alphabetically would rank it wrongly.
+  { key: 'severity', label: 'Severity', noSort: true },
+  { key: 'title', label: 'Incident' },
+  { key: 'alert_type', label: 'Type' },
+  { key: 'triggered_at', label: 'Duration' },
+  { key: 'status', label: 'Status' },
+]
+
+const hiddenColumns = ['alert_type']
 </script>
 
 <template>
@@ -57,28 +73,43 @@ function duration(triggeredAt: string): string {
     <template v-else-if="!props.incidents.length">
       <EmptyState>No active alerts.</EmptyState>
     </template>
-    <Table v-else>
-      <TableHeader>
-        <TableRow>
-          <TableHead>Severity</TableHead>
-          <TableHead>Incident</TableHead>
-          <TableHead>Type</TableHead>
-          <TableHead>Duration</TableHead>
-          <TableHead>Status</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        <TableRow v-for="incident in props.incidents" :key="incident.id">
-          <TableCell><Badge size="xs" :color="severityColor(incident.severity)">{{ severityLabel(incident.severity) }}</Badge></TableCell>
-          <TableCell>
-            <p class="font-medium leading-tight">{{ incident.title }}</p>
-            <p class="text-xs text-muted-foreground">{{ hostname(incident) }}</p>
-          </TableCell>
-          <TableCell class="text-xs text-muted-foreground">{{ incident.alert_type ?? '—' }}</TableCell>
-          <TableCell class="font-mono text-xs text-muted-foreground">{{ duration(incident.triggered_at) }}</TableCell>
-          <TableCell><Badge size="xs" :color="STATUS_COLOR[incident.status] ?? 'gray'">{{ incident.status }}</Badge></TableCell>
-        </TableRow>
-      </TableBody>
-    </Table>
+    <DataTable
+      v-else
+      class="widget-table"
+      :rows="props.incidents"
+      :columns="columns"
+      :hidden-columns="hiddenColumns"
+      preferences-key="dashboard-alerts"
+      sortable
+      caption="Active alerts"
+    >
+      <template #severity-data="{ row }">
+        <Badge size="xs" :color="severityColor(row.severity)">{{ severityLabel(row.severity) }}</Badge>
+      </template>
+      <template #title-data="{ row }">
+        <div>
+          <p class="font-medium leading-tight">{{ row.title }}</p>
+          <p class="text-xs text-muted-foreground">{{ hostname(row) }}</p>
+        </div>
+      </template>
+      <template #triggered_at-data="{ row }">
+        <span class="font-mono text-xs text-muted-foreground">{{ duration(row.triggered_at) }}</span>
+      </template>
+      <template #status-data="{ row }">
+        <Badge size="xs" :color="STATUS_COLOR[row.status] ?? 'gray'">{{ row.status }}</Badge>
+      </template>
+    </DataTable>
   </div>
 </template>
+
+<style scoped>
+/* The DataTable ships its own card chrome, and the widget is already a card —
+   the table panel drops the second border and shadow so the widget reads as
+   one surface instead of a card inside a card. */
+.widget-table {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+</style>

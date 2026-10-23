@@ -35,6 +35,24 @@ function lastSeen(iso: string | null): string {
   if (diffSec < 86400) return `${Math.floor(diffSec / 3600)}h ago`
   return `${Math.floor(diffSec / 86400)}d ago`
 }
+
+// The widget lives in a half-width grid column — a 578px card. All seven
+// columns do not fit in it, and a table wider than its card grows a scrollbar
+// of its own. IP and Environment start hidden; the Columns menu brings them
+// back and /servers carries the whole inventory.
+const columns: { key: string; label: string; noSort?: boolean }[] = [
+  { key: 'hostname', label: 'Name' },
+  { key: 'os_name', label: 'OS' },
+  { key: 'status', label: 'Status' },
+  { key: 'ip_address', label: 'IP' },
+  // The cell shows the category name, so sorting by the raw id would sort by
+  // the wrong thing.
+  { key: 'category_id', label: 'Environment', noSort: true },
+  { key: 'last_seen_at', label: 'Last Seen' },
+  { key: 'cve_count', label: 'CVEs' },
+]
+
+const hiddenColumns = ['ip_address', 'category_id']
 </script>
 
 <template>
@@ -65,38 +83,55 @@ function lastSeen(iso: string | null): string {
     <template v-else-if="!filteredServers.length">
       <EmptyState>No servers match this filter.</EmptyState>
     </template>
-    <div v-else class="overflow-x-auto">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Name</TableHead>
-            <TableHead>OS</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>IP</TableHead>
-            <TableHead>Environment</TableHead>
-            <TableHead>Last Seen</TableHead>
-            <TableHead>CVEs</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          <TableRow v-for="server in filteredServers" :key="server.id">
-            <TableCell>
-              <NuxtLink :to="`/servers/${server.id}`" class="focus-ring font-medium hover:text-primary-text dark:hover:text-primary-active transition-colors">
-                {{ server.hostname }}
-              </NuxtLink>
-            </TableCell>
-            <TableCell class="text-xs text-muted-foreground">{{ server.os_name ?? '—' }}</TableCell>
-            <TableCell><Badge size="xs" :color="statusColor(server.status)">{{ server.status }}</Badge></TableCell>
-            <TableCell class="font-mono text-xs text-muted-foreground">{{ server.ip_address ?? '—' }}</TableCell>
-            <TableCell class="text-xs text-muted-foreground">{{ categoryName(server.category_id) }}</TableCell>
-            <TableCell class="text-xs text-muted-foreground">{{ lastSeen(server.last_seen_at) }}</TableCell>
-            <TableCell>
-              <Badge v-if="server.cve_count > 0" size="xs" color="red">{{ server.cve_count }}</Badge>
-              <span v-else class="text-xs text-muted-foreground">0</span>
-            </TableCell>
-          </TableRow>
-        </TableBody>
-      </Table>
-    </div>
+    <DataTable
+      v-else
+      class="widget-table"
+      :rows="filteredServers"
+      :columns="columns"
+      :hidden-columns="hiddenColumns"
+      preferences-key="dashboard-inventory"
+      sortable
+      caption="Infrastructure inventory"
+    >
+      <template #hostname-data="{ row }">
+        <NuxtLink
+          :to="`/servers/${row.id}`"
+          class="focus-ring font-medium hover:text-primary-text dark:hover:text-primary-active transition-colors py-1 -my-1"
+        >
+          {{ row.hostname }}
+        </NuxtLink>
+      </template>
+      <template #status-data="{ row }">
+        <Badge size="xs" :color="statusColor(row.status)">{{ row.status }}</Badge>
+      </template>
+      <template #os_name-data="{ row }">
+        <span class="text-xs text-muted-foreground">{{ row.os_name ?? '—' }}</span>
+      </template>
+      <template #ip_address-data="{ row }">
+        <span class="font-mono text-xs text-muted-foreground">{{ row.ip_address ?? '—' }}</span>
+      </template>
+      <template #category_id-data="{ row }">
+        <span class="text-xs text-muted-foreground">{{ categoryName(row.category_id) }}</span>
+      </template>
+      <template #last_seen_at-data="{ row }">
+        <span class="text-xs text-muted-foreground">{{ lastSeen(row.last_seen_at) }}</span>
+      </template>
+      <template #cve_count-data="{ row }">
+        <Badge v-if="row.cve_count > 0" size="xs" color="red">{{ row.cve_count }}</Badge>
+        <span v-else class="text-xs text-muted-foreground">0</span>
+      </template>
+    </DataTable>
   </div>
 </template>
+
+<style scoped>
+/* The DataTable ships its own card chrome, and the widget is already a card —
+   the table panel drops the second border and shadow so the widget reads as
+   one surface instead of a card inside a card. */
+.widget-table {
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  background: transparent;
+}
+</style>
