@@ -22,7 +22,7 @@ function fmtDate(v: string | null): string {
   return v ? new Date(v).toLocaleString() : '—'
 }
 
-const SEVERITY_COLOR: Record<string, string> = { CRITICAL: 'red', HIGH: 'orange', MEDIUM: 'amber', LOW: 'blue' }
+const { severityColor } = useSeverity()
 
 const showCreate = ref(false)
 const createForm = ref({ name: '', yaml: '' })
@@ -109,7 +109,7 @@ async function remove(workflow: Workflow) {
         <Badge size="xs" :color="row.trigger_type === 'SCHEDULE' ? 'blue' : 'gray'">{{ row.trigger_type }}</Badge>
       </template>
       <template #severity-data="{ row }">
-        <Badge v-if="row.severity" size="xs" :color="SEVERITY_COLOR[row.severity as string] ?? 'gray'">{{ row.severity }}</Badge>
+        <Badge v-if="row.severity" size="xs" :color="severityColor(row.severity as string)">{{ row.severity }}</Badge>
         <span v-else class="text-xs text-muted-foreground">—</span>
       </template>
       <template #current_version_id-data="{ row }">
