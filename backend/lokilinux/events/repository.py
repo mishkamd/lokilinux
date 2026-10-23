@@ -11,7 +11,7 @@ router owns encode_cursor/decode_cursor, this repository only ever sees an
 already-decoded (timestamp, event_id) keyset pair.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from typing import Any
 import asyncio
 import json
@@ -22,12 +22,18 @@ import structlog
 from lokilinux.ch import ClickHouseStore
 from lokilinux.events.schemas import NormalizedEvent
 from lokilinux.metrics import clickhouse_insert_errors_total, event_buffer_depth, events_dropped_total
+from lokilinux.utils import liveness
 
 logger = structlog.get_logger()
 
 EVENT_INSERT_BATCH = 1000
 EVENT_INSERT_FLUSH_SEC = 1.0
 EVENT_BUFFER_MAX = 10_000
+# After a failed insert, add() stops triggering flushes for this long — otherwise every
+# incoming event re-sends the whole failing buffer to a ClickHouse that is already struggling.
+EVENT_FLUSH_BACKOFF_SEC = 5.0
+# Look-back windows tried in order by query(); None = no lower bound.
+_LIST_WINDOWS = (timedelta(days=1), timedelta(days=7), None)
 
 # Severity index within a buffered row — kept in sync with _COLUMNS below.
 _SEVERITY_COL = 5
@@ -55,6 +61,7 @@ class EventRepository:
         self.ch = ch
         self._buffer: list[list[Any]] = []
         self._oldest_buffered_at: float | None = None
+        self._retry_after = 0.0
         self._lock = asyncio.Lock()
 
     async def add(self, event: NormalizedEvent) -> None:
@@ -62,7 +69,9 @@ class EventRepository:
             self._buffer.append(_row(event))
             if self._oldest_buffered_at is None:
                 self._oldest_buffered_at = time.monotonic()
-            should_flush = (
+            # Cap here too: a slow (not failing) ClickHouse never reaches the requeue path.
+            self._enforce_cap()
+            should_flush = time.monotonic() >= self._retry_after and (
                 len(self._buffer) >= EVENT_INSERT_BATCH
                 or (time.monotonic() - self._oldest_buffered_at) > EVENT_INSERT_FLUSH_SEC
             )
@@ -82,9 +91,12 @@ class EventRepository:
             event_buffer_depth.labels(buffer="events").set(0)
         try:
             await self.ch.insert("events", batch, column_names=_COLUMNS)
+            self._retry_after = 0.0
+            liveness.beat("events_flush")
         except Exception:
             logger.error("events.flush_failed", batch_size=len(batch), exc_info=True)
             clickhouse_insert_errors_total.labels(table="events").inc()
+            self._retry_after = time.monotonic() + EVENT_FLUSH_BACKOFF_SEC
             await self._requeue_with_backpressure(batch)
 
     async def _requeue_with_backpressure(self, failed_batch: list[list[Any]]) -> None:
@@ -92,21 +104,31 @@ class EventRepository:
             self._buffer = failed_batch + self._buffer
             if self._oldest_buffered_at is None:
                 self._oldest_buffered_at = time.monotonic()
-            overflow = len(self._buffer) - EVENT_BUFFER_MAX
-            if overflow <= 0:
-                return
-            # Oldest DEBUG/INFO first, then WARNING — ERROR/CRITICAL never drop.
-            droppable = sorted(
-                (i for i, row in enumerate(self._buffer) if row[_SEVERITY_COL] not in _NEVER_DROP),
-                key=lambda i: (_DROP_PRIORITY.get(self._buffer[i][_SEVERITY_COL], 99), i),
-            )
-            to_drop = set(droppable[:overflow])
-            if not to_drop:
-                return
-            self._buffer = [row for i, row in enumerate(self._buffer) if i not in to_drop]
-            events_dropped_total.labels(reason="buffer_overflow").inc(len(to_drop))
+            self._enforce_cap()
+
+    def _enforce_cap(self) -> None:
+        """Shed rows above EVENT_BUFFER_MAX. The caller holds self._lock."""
+        overflow = len(self._buffer) - EVENT_BUFFER_MAX
+        if overflow <= 0:
+            return
+        # Oldest DEBUG/INFO first, then WARNING — ERROR/CRITICAL are spared by severity.
+        droppable = sorted(
+            (i for i, row in enumerate(self._buffer) if row[_SEVERITY_COL] not in _NEVER_DROP),
+            key=lambda i: (_DROP_PRIORITY.get(self._buffer[i][_SEVERITY_COL], 99), i),
+        )
+        to_drop = set(droppable[:overflow])
+        kept = [row for i, row in enumerate(self._buffer) if i not in to_drop]
+        # shortcut: past 2x the cap even ERROR/CRITICAL go (oldest first), so a long outage
+        # can't grow the buffer without bound; spill to disk if those losses ever matter.
+        excess = len(kept) - EVENT_BUFFER_MAX * 2
+        if excess > 0:
+            kept = kept[excess:]
+        dropped = len(self._buffer) - len(kept)
+        if dropped:
+            self._buffer = kept
+            events_dropped_total.labels(reason="buffer_overflow").inc(dropped)
             event_buffer_depth.labels(buffer="events").set(len(self._buffer))
-            logger.warning("events.buffer_overflow_dropped", dropped=len(to_drop))
+            logger.warning("events.buffer_overflow_dropped", dropped=dropped)
 
     async def query(
         self,
@@ -151,15 +173,29 @@ class EventRepository:
             params["before_ts"] = before_ts
             params["before_id"] = before_id
 
-        sql = f"""
+        # The sorting key is (tenant, type, timestamp) but the list is ordered by time, so an
+        # unbounded query sorts every partition. Read the newest day first and only widen the
+        # window while the page isn't full; the partition key (toDate(timestamp)) prunes the rest.
+        # shortcut: an almost-empty tenant pays up to 3 cheap queries per page; if the list
+        # ever needs deep paging at volume, add a projection ordered by (tenant, timestamp).
+        upper = before[0] if before else datetime.now(timezone.utc)
+        windows = _LIST_WINDOWS if since is None else (None,)
+        for window in windows:
+            win_conditions, win_params = list(conditions), dict(params)
+            if window is not None:
+                win_conditions.append("timestamp >= %(window_start)s")
+                win_params["window_start"] = upper - window
+            sql = f"""
         SELECT {", ".join(_COLUMNS)}
         FROM events
-        WHERE {" AND ".join(conditions)}
+        WHERE {" AND ".join(win_conditions)}
         ORDER BY timestamp DESC, event_id DESC
         LIMIT {limit + 1}
         """
-        result = await self.ch.query(sql, parameters=params)
-        rows = result.result_rows
+            result = await self.ch.query(sql, parameters=win_params)
+            rows = result.result_rows
+            if len(rows) > limit:
+                break
         items = [dict(zip(result.column_names, row)) for row in rows[:limit]]
         next_before: tuple[datetime, str] | None = None
         if len(rows) > limit and items:

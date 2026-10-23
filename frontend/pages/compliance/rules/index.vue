@@ -4,12 +4,29 @@ import { RefreshCw } from 'lucide-vue-next'
 import type { CheckSource, RuleStatus } from '~/stores/compliance'
 
 const store = useComplianceStore()
-const { rules, rulesTotal, rulesLoading, rulesNextCursor, ruleFilters } = storeToRefs(store)
+const { rules, rulesTotal, rulesLoading, rulesNextCursor, ruleFilters, ruleFacets } = storeToRefs(store)
 
-onMounted(() => store.fetchRules())
+onMounted(async () => {
+  await Promise.all([store.fetchRules(), store.fetchRuleFacets()])
+})
 
 const CHECK_SOURCES: CheckSource[] = ['CEL', 'OVAL_UNMAPPED', 'OSCAP_FALLBACK']
 const RULE_STATUSES: RuleStatus[] = ['ACTIVE', 'DISABLED', 'REFERENCE_ONLY', 'DEPRECATED']
+
+// The filter values come from the catalog itself (GET /compliance/rules/facets),
+// so an operator picks a domain instead of guessing its spelling.
+const domainOptions = computed(() => [
+  { label: 'All domains', value: '' },
+  ...ruleFacets.value.domains.map((d) => ({ label: `${d.value} (${d.count})`, value: d.value })),
+])
+const frameworkOptions = computed(() => [
+  { label: 'All frameworks', value: '' },
+  ...ruleFacets.value.frameworks.map((f) => ({ label: `${f.value} (${f.count})`, value: f.value })),
+])
+const platformOptions = computed(() => [
+  { label: 'All platforms', value: '' },
+  ...ruleFacets.value.platforms.map((p) => ({ label: `${p.value} (${p.count})`, value: p.value })),
+])
 
 const columns = [
   { key: 'title', label: 'Rule' },
@@ -26,20 +43,20 @@ const columns = [
       <div class="flex flex-wrap items-center gap-3">
         <Input v-model="ruleFilters.search" placeholder="Search rule ID, title, CCE/NIST/STIG/CIS…" class="w-64"
                aria-label="Search rules" @keyup.enter="store.fetchRules()" />
-        <Input v-model="ruleFilters.domain" placeholder="Filter by domain (e.g. sshd)" class="w-48"
-               @keyup.enter="store.fetchRules()" />
+        <Select v-model="ruleFilters.domain" :options="domainOptions" placeholder="All domains" class="w-44"
+                @change="store.fetchRules()" />
         <Select v-model="ruleFilters.check_source" :options="['', ...CHECK_SOURCES]" placeholder="Coverage" class="w-44"
                 @change="store.fetchRules()" />
         <Select v-model="ruleFilters.severity" :options="['', 'CRITICAL', 'HIGH', 'MEDIUM', 'LOW']" placeholder="Severity"
                 class="w-36" @change="store.fetchRules()" />
-        <Input v-model="ruleFilters.framework" placeholder="Framework (e.g. cis)" class="w-36"
-               @keyup.enter="store.fetchRules()" />
-        <Input v-model="ruleFilters.platform" placeholder="Platform (e.g. rocky9)" class="w-36"
-               @keyup.enter="store.fetchRules()" />
+        <Select v-model="ruleFilters.framework" :options="frameworkOptions" placeholder="All frameworks" class="w-44"
+                @change="store.fetchRules()" />
+        <Select v-model="ruleFilters.platform" :options="platformOptions" placeholder="All platforms" class="w-40"
+                @change="store.fetchRules()" />
         <Select v-model="ruleFilters.status" :options="[{ label: 'All', value: '' }, { label: 'Enabled', value: 'enabled' }, { label: 'Disabled', value: 'disabled' }]"
-                placeholder="Status" class="w-32" @change="store.fetchRules()" />
+                 placeholder="Status" class="w-32" @change="store.fetchRules()" />
         <Select v-model="ruleFilters.rule_status" :options="['', ...RULE_STATUSES]"
-                placeholder="Lifecycle" class="w-36" @change="store.fetchRules()" />
+                 placeholder="Lifecycle" class="w-36" @change="store.fetchRules()" />
         <Button variant="outline" @click="store.fetchRules()">
           <RefreshCw class="size-4" /> Refresh
         </Button>

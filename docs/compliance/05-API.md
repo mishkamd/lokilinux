@@ -85,11 +85,43 @@ paths:
 ## 2. Policy Engine
 
 ```yaml
+  /api/v1/compliance/policy-templates:
+    get:
+      summary: Ready-made policy profiles (named selections over the rule catalog)
+      description: >
+        One rule body, many named profiles — the ComplianceAsCode / CIS / Tenable
+        pattern. Each template is a selector (framework reference, severity band,
+        source) resolved against the live catalog, so rule_count and
+        severity_breakdown are what a creation would actually apply.
   /api/v1/compliance/policy-sets:
     get: { summary: List policy sets (CIS/STIG/PCI/NIST/ISO27001/internal) }
     post:
       summary: Create custom policy set
       security: [{ bearerAuth: [ADMIN, OPERATOR] }]
+  /api/v1/compliance/policy-sets/from-template:
+    post:
+      summary: Create a policy set populated from a template
+      description: >
+        Creates the policy set, links the template's rules and the optional scope
+        assignment in one transaction — a policy set never exists half-built.
+        The set stays a DRAFT; publishing is a separate, explicit step.
+      security: [{ bearerAuth: [ADMIN, OPERATOR] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [template_key]
+              properties:
+                template_key: { type: string, example: "cis" }
+                name: { type: string }
+                slug: { type: string }
+                description: { type: string }
+                version: { type: string }
+                include_unmapped: { type: boolean, default: false }
+                severity_overrides: { type: object, additionalProperties: { type: string } }
+                scope_type: { type: string, enum: [GLOBAL, OS, ROLE, ENVIRONMENT, DATACENTER, CLUSTER, APPLICATION] }
+                scope_selector: { type: object }
   /api/v1/compliance/policy-sets/import:
     post:
       summary: Import a ComplianceAsCode profile (07-POLICY-ENGINE.md pipeline)
@@ -104,9 +136,60 @@ paths:
                 profile_id: { type: string, example: "xccdf_org.ssgproject.content_profile_cis" }
                 content_version: { type: string, example: "v0.1.75" }
   /api/v1/compliance/policy-sets/{id}/export:
-    get: { summary: Export policy set as JSON/YAML for git-tracked change review }
+    get:
+      summary: Export policy set as JSON/YAML for git-tracked change review
+      description: >
+        A portable profile: rule references by rule_key, not by UUID, so the
+        artifact reads as a diff a human recognises. Round-trips with
+        POST /policy-sets/import-profile.
+      parameters:
+        - { name: format, in: query, schema: { type: string, enum: [json, yaml], default: json } }
+  /api/v1/compliance/policy-sets/import-profile:
+    post:
+      summary: Create a policy set from an exported profile
+      description: >
+        Rules are matched by rule_key against the local catalog; a profile
+        carries no rule bodies. Rules the catalog does not know are reported
+        in missing_rules rather than silently dropped.
+      security: [{ bearerAuth: [ADMIN, OPERATOR] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [profile]
+              properties:
+                profile: { type: object }
+                slug: { type: string }
+                name: { type: string }
+  /api/v1/compliance/policy-sets/{id}/rules/{rule_id}:
+    delete:
+      summary: Remove a rule from a DRAFT policy set
+      description: >
+        A published set is immutable — editing it means creating a new
+        version, never mutating the rules under a version that is already
+        live for the fleet.
+      security: [{ bearerAuth: [ADMIN, OPERATOR] }]
+  /api/v1/compliance/policy-sets/{id}/remediation:
+    get:
+      summary: The remediation each rule in the policy set carries
+      description: >
+        The exact commands that would run on the hosts in scope — the point
+        is reviewability before anything is dispatched. The body is only
+        handed to the roles that can act on a host.
+  /api/v1/compliance/domains:
+    get:
+      summary: The domain vocabulary (the values a domain filter may take)
+      description: >
+        Sourced from the canonical list, not from the data — drift events
+        come from collectors that have no rule at all, and a filter offering
+        only the rule domains would make those unreachable.
   /api/v1/compliance/policy-assignments:
-    get: { summary: List scope -> policy-set assignments }
+    get:
+      summary: List scope -> policy-set assignments
+      parameters:
+        - { name: policy_set_id, in: query, schema: { type: string, format: uuid } }
+        - { name: scope_type, in: query, schema: { type: string } }
     post:
       summary: Assign a policy set to a scope
       security: [{ bearerAuth: [ADMIN, OPERATOR] }]

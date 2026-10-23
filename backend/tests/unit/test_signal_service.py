@@ -89,3 +89,20 @@ async def test_resolve_by_fingerprint_is_noop_when_nothing_open(db_session, fake
     svc = SignalService(db_session, fake_nats, occurrences)
     await svc.resolve_by_fingerprint("default", "host-does-not-exist", "host.unreachable")
     assert fake_nats.published == []
+
+
+@pytest.mark.asyncio
+async def test_resolve_ignores_a_recovery_older_than_the_latest_occurrence(db_session, fake_nats):
+    from datetime import datetime, timedelta, timezone
+
+    svc = SignalService(db_session, fake_nats, _FakeOccurrences())
+    await svc.upsert_signal(DetectedSignal(type="host.unreachable", severity="CRITICAL", host_id="host-6"))
+    fake_nats.published.clear()
+
+    stale = datetime.now(timezone.utc) - timedelta(minutes=5)
+    await svc.resolve_by_fingerprint("default", "host-6", "host.unreachable", stale.isoformat())
+    assert fake_nats.published == []  # an old heartbeat must not resolve a newer outage
+
+    fresh = datetime.now(timezone.utc) + timedelta(seconds=5)
+    await svc.resolve_by_fingerprint("default", "host-6", "host.unreachable", fresh)
+    assert "lokilinux.signals.resolved" in [p[0] for p in fake_nats.published]

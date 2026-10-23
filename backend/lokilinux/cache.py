@@ -99,11 +99,11 @@ class RedisCache:
         count = await self.incr_checked(key, ttl)
         return 0 if count is None else count
 
-    async def incr_checked(self, key: str, ttl: int) -> int | None:
-        """Atomic INCR + EXPIRE. Returns None on a Redis error so the caller can decide."""
+    async def incr_checked(self, key: str, ttl: int, amount: int = 1) -> int | None:
+        """Atomic INCRBY + EXPIRE. Returns None on a Redis error so the caller can decide."""
         try:
             pipe = self._client.pipeline()  # type: ignore[union-attr]
-            pipe.incr(key)
+            pipe.incrby(key, amount)
             pipe.expire(key, ttl)
             results = await pipe.execute()
             return int(results[0])
@@ -157,19 +157,30 @@ class RedisCache:
             logger.warning("cache.zrangebyscore_error", key=key, error=str(exc))
             return []
 
+    async def zrem(self, key: str, member: str) -> None:
+        try:
+            await self._client.zrem(key, member)  # type: ignore[union-attr]
+        except Exception as exc:
+            logger.warning("cache.zrem_error", key=key, error=str(exc))
+
     async def expire(self, key: str, ttl: int) -> None:
         try:
             await self._client.expire(key, ttl)  # type: ignore[union-attr]
         except Exception as exc:
             logger.warning("cache.expire_error", key=key, error=str(exc))
 
-    async def set_nx(self, key: str, ttl: int) -> bool:
-        """SETNX + EXPIRE in one shot — True if the lock was newly acquired."""
+    async def set_nx_checked(self, key: str, ttl: int) -> bool | None:
+        """SETNX + EXPIRE in one shot — True if newly acquired, False if already held,
+        None on a Redis error so the caller can tell "taken" from "cache down"."""
         try:
             return bool(await self._client.set(key, "1", nx=True, ex=ttl))  # type: ignore[union-attr]
         except Exception as exc:
             logger.warning("cache.set_nx_error", key=key, error=str(exc))
-            return False
+            return None
+
+    async def set_nx(self, key: str, ttl: int) -> bool:
+        """Like set_nx_checked, but a Redis error reads as "not acquired"."""
+        return bool(await self.set_nx_checked(key, ttl))
 
     # ── Domain-level invalidation helpers ────────────────────────────────────
 

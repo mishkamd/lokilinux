@@ -24,10 +24,12 @@ from lokilinux.nats_topics import INCIDENT_CREATED, SIGNAL_RESOLVED
 from lokilinux.runbooks.service import maybe_auto_run
 from lokilinux.settings_schema import get_setting_value
 from lokilinux.signals.models import Signal
+from lokilinux.utils import liveness
 
 logger = structlog.get_logger()
 
 _SWEEP_INTERVAL_SECONDS = 60
+_SWEEP_BATCH = 1000
 _OPEN_STATUSES = ("OPEN", "ACKNOWLEDGED", "IN_PROGRESS")
 
 
@@ -52,6 +54,7 @@ class IncidentWorker:
 
     async def _loop(self) -> None:
         while True:
+            liveness.beat("incident_worker")
             try:
                 await self._sweep()
             except Exception:
@@ -115,16 +118,34 @@ class IncidentWorker:
 
     async def _sweep(self) -> None:
         async with self.db_factory() as db:
+            # shortcut: bounded sweep. An incident that stays open never changes updated_at, so
+            # with more than _SWEEP_BATCH of them the newest ones are not checked; page by id
+            # or keep a sweep cursor if that many incidents can really be open at once.
             open_incidents = (
-                await db.execute(select(Incident).where(Incident.status.in_(_OPEN_STATUSES)))
+                await db.execute(
+                    select(Incident)
+                    .where(Incident.status.in_(_OPEN_STATUSES))
+                    .order_by(Incident.updated_at.asc())
+                    .limit(_SWEEP_BATCH)
+                )
             ).scalars().all()
             if not open_incidents:
                 return
             svc = IncidentService(db, self.nats, self.cache, self.ch)
-            for incident in open_incidents:
-                resolved = await svc.maybe_auto_resolve(incident.id)
+            # Ids first: a rollback below expires every loaded row, and reading .id off an
+            # expired row would try to reload it outside the async context.
+            for incident_id in [i.id for i in open_incidents]:
+                try:
+                    resolved = await svc.maybe_auto_resolve(incident_id)
+                except Exception:
+                    # One bad incident must not stop the rest of the sweep.
+                    logger.error(
+                        "incident.sweep_failed", incident_id=str(incident_id), exc_info=True
+                    )
+                    await db.rollback()
+                    continue
                 if resolved:
                     logger.info(
-                        "incident.auto_resolved_by_sweep", incident_id=str(incident.id),
+                        "incident.auto_resolved_by_sweep", incident_id=str(incident_id),
                         swept_at=str(datetime.now(timezone.utc)),
                     )

@@ -14,12 +14,17 @@ import gzip
 import json
 import logging
 import re
+from uuid import NAMESPACE_URL, uuid5
 
 import grpc
 from cryptography import x509
 from cryptography.x509.oid import NameOID
 
-from lokilinux.services.agent_service import PENDING_JOBS_PER_HEARTBEAT, AgentService
+from lokilinux.services.agent_service import (
+    _JOB_STATE_TO_STATUS,
+    PENDING_JOBS_PER_HEARTBEAT,
+    AgentService,
+)
 from lokilinux.services.cert_revocation import (
     CertificateRevoked,
     RevocationUnavailable,
@@ -161,6 +166,23 @@ async def _authenticate_agent(context, requested_agent_id: str, cache, settings)
 
 
 _REJECT_RE = re.compile(r"rejected \[(\w+)\]")
+
+
+async def _emit_job_outcomes(nats, host_id: str, job_results: list[dict]) -> None:
+    """Job outcomes reach the backend on the heartbeat (nothing publishes JOB_RESULT), so this
+    is where job.completed / job.failed events — and through them job.failed signals — start."""
+    for r in job_results:
+        status = _JOB_STATE_TO_STATUS.get(r.get("state"))
+        if not r.get("job_id") or status not in ("COMPLETED", "FAILED", "TIMEOUT"):
+            continue  # not finished (or cancelled): nothing to report
+        failed = status != "COMPLETED"
+        await emit(
+            nats, "job", "job.failed" if failed else "job.completed",
+            severity="WARNING" if failed else "INFO", host_id=host_id,
+            payload={"job_id": r["job_id"], "exit_code": r.get("exit_code"), "status": status},
+            # Stable id: a result repeated on a later heartbeat is deduped by the processor.
+            event_id=str(uuid5(NAMESPACE_URL, f"job-result:{r['job_id']}:{status}")),
+        )
 
 
 def _count_agent_rejections(job_results) -> None:
@@ -343,6 +365,9 @@ class AgentServicer:
                     # blocks or fails the heartbeat itself.
                     if await is_pipeline_enabled(self.cache, db):
                         await emit(self.nats, "agent", "host.heartbeat.ok", host_id=str(agent.id))
+                        await _emit_job_outcomes(
+                            self.nats, str(agent.id), [_as_dict(r) for r in (job_results or [])]
+                        )
                         health_raw = _as_dict(health)
                         health_dict: dict = health_raw if isinstance(health_raw, dict) else {}
                         if health_dict:

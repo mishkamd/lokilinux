@@ -17,6 +17,7 @@ describe('useComplianceStore', () => {
     setActivePinia(createPinia())
     apiMocks.get.mockReset()
     apiMocks.post.mockReset()
+    apiMocks.del.mockReset()
   })
 
   describe('baselines', () => {
@@ -112,6 +113,139 @@ describe('useComplianceStore', () => {
       )
       expect(updated.remediation?.mode).toBe('AUTOMATIC')
       expect(store.selectedPolicySet?.remediation?.mode).toBe('AUTOMATIC')
+    })
+  })
+
+  describe('policy templates', () => {
+    it('fetchPolicyTemplates populates the template list', async () => {
+      apiMocks.get.mockResolvedValueOnce([
+        { key: 'cis', name: 'CIS-mapped rules', description: 'd', framework: 'CIS', rule_count: 2, severity_breakdown: {} },
+      ])
+      const store = useComplianceStore()
+
+      await store.fetchPolicyTemplates()
+
+      expect(apiMocks.get).toHaveBeenCalledWith('/compliance/policy-templates')
+      expect(store.policyTemplates).toHaveLength(1)
+      expect(store.policyTemplates[0]!.rule_count).toBe(2)
+      expect(store.policyTemplatesLoading).toBe(false)
+    })
+
+    it('createPolicySetFromTemplate posts once and prepends the created set', async () => {
+      const store = useComplianceStore()
+      apiMocks.post.mockResolvedValueOnce({
+        policy_set: { id: 'ps9', name: 'CIS-mapped rules', slug: 'cis' },
+        template_key: 'cis',
+        rules_added: 2,
+        severity_breakdown: { HIGH: 1, MEDIUM: 1 },
+        assignment_id: 'as1',
+      })
+
+      const result = await store.createPolicySetFromTemplate({
+        template_key: 'cis',
+        name: 'CIS-mapped rules',
+        scope_type: 'GLOBAL',
+      })
+
+      // One request creates the set, its rules and its scope assignment —
+      // a policy set never exists half-built.
+      expect(apiMocks.post).toHaveBeenCalledTimes(1)
+      expect(apiMocks.post).toHaveBeenCalledWith(
+        '/compliance/policy-sets/from-template',
+        expect.objectContaining({ template_key: 'cis', scope_type: 'GLOBAL' }),
+      )
+      expect(result.rules_added).toBe(2)
+      expect(result.assignment_id).toBe('as1')
+      expect(store.policySets[0]!.id).toBe('ps9')
+    })
+
+    it('fetchRuleFacets populates the catalog filter values', async () => {
+      apiMocks.get.mockResolvedValueOnce({
+        domains: [{ value: 'sshd', count: 5 }],
+        severities: [],
+        sources: [],
+        platforms: [{ value: 'rocky9', count: 5 }],
+        frameworks: [{ value: 'cis', count: 2 }],
+      })
+      const store = useComplianceStore()
+
+      await store.fetchRuleFacets()
+
+      expect(apiMocks.get).toHaveBeenCalledWith('/compliance/rules/facets')
+      expect(store.ruleFacets.domains[0]!.value).toBe('sshd')
+      expect(store.ruleFacets.frameworks[0]!.count).toBe(2)
+    })
+
+    it('fetchPolicyAssignments scopes the request to one policy set', async () => {
+      apiMocks.get.mockResolvedValueOnce([
+        { id: 'as1', policy_set_id: 'ps1', scope_type: 'GLOBAL', scope_selector: {} },
+      ])
+      const store = useComplianceStore()
+
+      await store.fetchPolicyAssignments('ps1')
+
+      expect(apiMocks.get).toHaveBeenCalledWith(
+        expect.stringContaining('policy_set_id=ps1'),
+      )
+      expect(store.policyAssignments).toHaveLength(1)
+    })
+
+    it('fetchComplianceDomains populates the canonical vocabulary', async () => {
+      apiMocks.get.mockResolvedValueOnce({
+        domains: [
+          { value: 'sshd', rules: 9, category: 'security' },
+          { value: 'cron', rules: 0, category: 'configuration' },
+        ],
+      })
+      const store = useComplianceStore()
+
+      await store.fetchComplianceDomains()
+
+      expect(apiMocks.get).toHaveBeenCalledWith('/compliance/domains')
+      expect(store.complianceDomains).toHaveLength(2)
+      expect(store.complianceDomains[0]!.value).toBe('sshd')
+      // a collector domain with no rules is still offered — drift events
+      // come from collectors that have no rule
+      expect(store.complianceDomains[1]!.rules).toBe(0)
+    })
+
+    it('removePolicySetRule deletes the link and refreshes the rule list', async () => {
+      const store = useComplianceStore()
+      apiMocks.del.mockResolvedValueOnce(undefined)
+      apiMocks.get.mockResolvedValueOnce([])
+
+      await store.removePolicySetRule('ps1', 'r1')
+
+      expect(apiMocks.del).toHaveBeenCalledWith('/compliance/policy-sets/ps1/rules/r1')
+      expect(apiMocks.get).toHaveBeenCalledWith('/compliance/policy-sets/ps1/rules')
+    })
+
+    it('exportPolicySet asks for the portable profile as a blob', async () => {
+      const store = useComplianceStore()
+      const blob = { size: 10 } as Blob
+      apiMocks.get.mockResolvedValueOnce(blob)
+
+      const res = await store.exportPolicySet('ps1', 'yaml')
+
+      expect(apiMocks.get).toHaveBeenCalledWith(
+        '/compliance/policy-sets/ps1/export?format=yaml',
+        { responseType: 'blob' },
+      )
+      expect(res).toBe(blob)
+    })
+
+    it('fetchPolicySetRemediation keeps only the per-rule list', async () => {
+      apiMocks.get.mockResolvedValueOnce({
+        policy_set_id: 'ps1',
+        remediations: [{ rule_id: 'r1', rule_key: 'SSH-001', remediation: null }],
+      })
+      const store = useComplianceStore()
+
+      await store.fetchPolicySetRemediation('ps1')
+
+      expect(apiMocks.get).toHaveBeenCalledWith('/compliance/policy-sets/ps1/remediation')
+      expect(store.policySetRemediation).toHaveLength(1)
+      expect(store.policySetRemediation[0]!.rule_key).toBe('SSH-001')
     })
   })
 

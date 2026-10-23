@@ -53,18 +53,22 @@ DEFAULT_RULES: list[dict[str, Any]] = [
 
 class RuleCache:
     def __init__(self) -> None:
-        self._rules: list[CorrelationRule] = []
-        self._loaded_at: float = 0.0
+        self._cache: dict[str, tuple[float, list[CorrelationRule]]] = {}
 
-    async def get_enabled_rules(self, db: AsyncSession) -> list[CorrelationRule]:
-        if self._rules and (time.monotonic() - self._loaded_at) < RULE_CACHE_TTL_SEC:
-            return self._rules
+    async def get_enabled_rules(self, db: AsyncSession, tenant_id: str) -> list[CorrelationRule]:
+        hit = self._cache.get(tenant_id)
+        if hit and (time.monotonic() - hit[0]) < RULE_CACHE_TTL_SEC:
+            return hit[1]
         rows = (
-            await db.execute(select(CorrelationRule).where(CorrelationRule.enabled.is_(True)))
+            await db.execute(
+                select(CorrelationRule).where(
+                    CorrelationRule.tenant_id == tenant_id, CorrelationRule.enabled.is_(True)
+                )
+            )
         ).scalars().all()
-        self._rules = list(rows)
-        self._loaded_at = time.monotonic()
-        return self._rules
+        rules = list(rows)
+        self._cache[tenant_id] = (time.monotonic(), rules)
+        return rules
 
 
 async def ensure_default_rules(db: AsyncSession, *, tenant_id: str = "default") -> None:

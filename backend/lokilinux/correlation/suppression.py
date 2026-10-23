@@ -26,7 +26,7 @@ def is_suppressed(suppressions: list, now: datetime) -> bool:
         try:
             start = _parse_point(window["from"])
             end = _parse_point(window["to"])
-        except (KeyError, ValueError, IndexError):
+        except (KeyError, ValueError, IndexError, TypeError, AttributeError):
             continue  # malformed entry — skip it, don't let it suppress everything
         if start <= end:
             if start <= now_minute <= end:

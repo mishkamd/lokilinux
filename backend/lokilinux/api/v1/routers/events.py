@@ -15,12 +15,14 @@ from typing import Any
 import json
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
 from lokilinux.auth.dependencies import get_current_user
 from lokilinux.ch import ClickHouseStore
 from lokilinux.config import get_settings
-from lokilinux.dependencies import get_cache, get_ch, get_nats
+from lokilinux.dependencies import get_cache, get_ch, get_db, get_nats
+from lokilinux.events.publish import is_pipeline_enabled
 from lokilinux.events.repository import EventRepository
 from lokilinux.events.schemas import EventIn
 from lokilinux.nats_topics import EVENT_RAW
@@ -43,8 +45,14 @@ async def ingest_events(
     current_user: dict[str, Any] = Depends(get_current_user),
     cache: Any = Depends(get_cache),
     nats: Any = Depends(get_nats),
+    db: AsyncSession = Depends(get_db),
 ) -> dict[str, Any]:
-    body = await request.json()
+    if not await is_pipeline_enabled(cache, db):
+        raise HTTPException(status_code=503, detail="event pipeline disabled")
+    try:
+        body = await request.json()
+    except ValueError:
+        raise HTTPException(status_code=400, detail="request body is not valid JSON")
     if isinstance(body, dict) and "events" in body:
         raw_events = body["events"]
     else:
@@ -57,9 +65,11 @@ async def ingest_events(
     principal = current_user.get("id") or "unknown"
     settings = get_settings()
     window = int(datetime.now().timestamp() // 60)
-    count = await cache.incr_checked(f"rate:ev:{principal}:{window}", ttl=90)
+    # The limit is per event, not per request: a batch of 100 costs 100.
+    n = len(raw_events)
+    count = await cache.incr_checked(f"rate:ev:{principal}:{window}", ttl=90, amount=n)
     if count is None:  # Redis down: count in this process instead of failing open
-        count = local_counter.increment(f"rate:ev:{principal}", window)
+        count = local_counter.increment(f"rate:ev:{principal}", window, amount=n)
     if count > settings.event_rate_per_agent_per_min:
         raise HTTPException(status_code=429, detail="event rate limit exceeded")
 

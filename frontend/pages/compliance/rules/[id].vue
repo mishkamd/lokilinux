@@ -99,6 +99,36 @@ const coverageEntries = computed(() => Object.entries(selectedRule.value?.covera
       </Card>
 
       <Card class="mb-4">
+        <template #header><p class="label-caps">Remediation</p></template>
+        <EmptyState v-if="!selectedRule.has_remediation">
+          No remediation recorded for this rule — it is reported, not fixed automatically.
+        </EmptyState>
+        <template v-else-if="selectedRule.remediation">
+          <dl class="grid grid-cols-2 gap-3 text-sm">
+            <div>
+              <dt class="text-muted-foreground">Provider</dt>
+              <dd class="font-mono">{{ selectedRule.remediation.provider }}</dd>
+            </div>
+            <div>
+              <dt class="text-muted-foreground">Version</dt>
+              <dd class="font-mono">{{ selectedRule.remediation.version }}</dd>
+            </div>
+          </dl>
+          <div class="mt-3">
+            <p class="text-xs text-muted-foreground mb-1">Command</p>
+            <pre class="font-mono text-xs whitespace-pre-wrap rounded-lg border p-2 bg-muted/30">{{ selectedRule.remediation.body }}</pre>
+          </div>
+          <div v-if="selectedRule.remediation.rollback_body" class="mt-3">
+            <p class="text-xs text-muted-foreground mb-1">Rollback</p>
+            <pre class="font-mono text-xs whitespace-pre-wrap rounded-lg border p-2 bg-muted/30">{{ selectedRule.remediation.rollback_body }}</pre>
+          </div>
+        </template>
+        <p v-else class="text-sm text-muted-foreground">
+          This rule has a remediation, but your role cannot see the command it runs.
+        </p>
+      </Card>
+
+      <Card class="mb-4">
         <template #header><p class="label-caps">Framework mappings</p></template>
         <EmptyState v-if="selectedRule.framework_mappings.length === 0">
           No framework mappings recorded.

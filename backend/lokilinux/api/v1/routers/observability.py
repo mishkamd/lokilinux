@@ -5,12 +5,10 @@ Reads directly from the prometheus_client metric objects this pipeline owns
 (metrics.py) rather than the entire global REGISTRY, which also carries
 unrelated KMS/job-signing counters from elsewhere in the app.
 
-Not included here (documented simplification, not an oversight): per-worker
-liveness timestamps. Tracking those would mean every worker touching a
-shared registry on its hot path — a broad instrumentation sweep across
-~10 files for a "last active" signal that /health already answers at the
-process level. A real per-worker heartbeat is a reasonable follow-up, not
-something this snapshot endpoint needs to block on.
+"workers" carries the last-seen timestamp of each pipeline worker (utils/liveness.py) and of
+the last successful ClickHouse flush per buffer. The event, signal and incident workers beat
+on a timer, so a stale timestamp means a stuck worker; correlation_worker has no timer and
+only beats when it handles a signal, so a quiet pipeline looks stale there too.
 """
 
 from typing import Any
@@ -28,6 +26,7 @@ from lokilinux.metrics import (
     incidents_created_total,
     signals_detected_total,
 )
+from lokilinux.utils import liveness
 
 router = APIRouter()
 
@@ -51,4 +50,5 @@ async def pipeline_snapshot(_: dict[str, Any] = Depends(get_current_user)) -> di
         "buffer_depth": _samples(event_buffer_depth),
         "correlation_duration": _samples(correlation_duration_seconds),
         "clickhouse_operation_duration": _samples(ch_operation_duration_seconds),
+        "workers": liveness.snapshot(),
     }

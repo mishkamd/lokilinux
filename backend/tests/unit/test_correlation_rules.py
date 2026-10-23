@@ -63,7 +63,7 @@ async def test_ensure_default_rules_is_idempotent(db_session):
 async def test_rule_cache_loads_enabled_rules(db_session):
     await ensure_default_rules(db_session)
     cache = RuleCache()
-    rules = await cache.get_enabled_rules(db_session)
+    rules = await cache.get_enabled_rules(db_session, "default")
     seeded_names = {spec["name"] for spec in DEFAULT_RULES}
     assert seeded_names <= {r.name for r in rules}
 
@@ -72,7 +72,7 @@ async def test_rule_cache_loads_enabled_rules(db_session):
 async def test_rule_cache_serves_from_cache_within_ttl(db_session, monkeypatch):
     await ensure_default_rules(db_session)
     cache = RuleCache()
-    first = await cache.get_enabled_rules(db_session)
+    first = await cache.get_enabled_rules(db_session, "default")
 
     calls = {"n": 0}
     real_execute = db_session.execute
@@ -82,7 +82,15 @@ async def test_rule_cache_serves_from_cache_within_ttl(db_session, monkeypatch):
         return await real_execute(*args, **kwargs)
 
     monkeypatch.setattr(db_session, "execute", _counting_execute)
-    second = await cache.get_enabled_rules(db_session)
+    second = await cache.get_enabled_rules(db_session, "default")
 
     assert calls["n"] == 0  # served from cache, no DB round-trip
     assert first == second
+
+
+@pytest.mark.asyncio
+async def test_rule_cache_only_loads_rules_of_the_requested_tenant(db_session):
+    await ensure_default_rules(db_session, tenant_id="other")
+    cache = RuleCache()
+    assert await cache.get_enabled_rules(db_session, "default") == []
+    assert len(await cache.get_enabled_rules(db_session, "other")) == len(DEFAULT_RULES)

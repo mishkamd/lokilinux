@@ -37,3 +37,13 @@ def test_non_int_retention_days_raises_instead_of_interpolating_raw():
     malicious/malformed value raises instead of ever reaching the SQL string."""
     with pytest.raises(ValueError):
         _events_ddl("30; DROP TABLE events")  # type: ignore[arg-type]
+
+
+def test_modify_ttl_ddl_reapplies_retention_to_an_existing_table():
+    from lokilinux.ch import _modify_ttl_ddl
+
+    assert _modify_ttl_ddl("events", 45) == (
+        "ALTER TABLE events MODIFY TTL toDateTime(timestamp) + INTERVAL 45 DAY"
+    )
+    with pytest.raises(ValueError):
+        _modify_ttl_ddl("events", "45; DROP TABLE events")  # type: ignore[arg-type]

@@ -40,7 +40,11 @@ def _group_key(rule: Any, tenant_id: str, group_values: dict[str, str]) -> str:
 
 
 def _weights_by_type(rule: Any) -> dict[str, int]:
-    return {c["signal"]: int(c["weight"]) for c in rule.conditions}
+    # Two conditions on the same signal type add up instead of the last one winning.
+    weights: dict[str, int] = {}
+    for c in rule.conditions:
+        weights[c["signal"]] = weights.get(c["signal"], 0) + int(c["weight"])
+    return weights
 
 
 class CorrelationEvaluator:
@@ -52,6 +56,17 @@ class CorrelationEvaluator:
     ) -> list[IncidentCandidate]:
         with correlation_duration_seconds.time():
             return await self._on_signal(rules, signal, tenant_id=tenant_id)
+
+    async def on_signal_resolved(
+        self, rules: list[Any], signal: Any, *, tenant_id: str = "default"
+    ) -> None:
+        """A resolved signal stops counting toward its windows right away, instead of
+        lingering in the ZSET until window_seconds expires."""
+        group_values = {"host_id": str(signal.host_id) if signal.host_id else ""}
+        for rule in rules:
+            if signal.type in _weights_by_type(rule):
+                group_key = _group_key(rule, tenant_id, group_values)
+                await self.cache.zrem(f"corr:{rule.id}:{group_key}", signal.type)
 
     async def _on_signal(
         self, rules: list[Any], signal: Any, *, tenant_id: str
@@ -87,7 +102,7 @@ class CorrelationEvaluator:
                 # with no error, same as the healthy path drops
                 # below-threshold signals.
                 severity = getattr(signal, "severity", None)
-                if severity in ("ERROR", "CRITICAL"):
+                if severity in ("HIGH", "CRITICAL"):  # the severities signals actually carry
                     candidates.append(IncidentCandidate(
                         rule=rule, group_key=group_key, group_values=group_values,
                         member_types=[signal.type], score=rule.threshold_score,

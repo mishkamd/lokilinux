@@ -22,6 +22,15 @@ async def add_evidence(
     await ch.insert("incident_evidence", row, column_names=_COLUMNS)
 
 
+async def add_evidence_batch(
+    ch: ClickHouseStore, tenant_id: str, incident_id: str, kind: str, items: list[tuple[str, str]]
+) -> None:
+    """One insert for all (ref, summary) pairs instead of a round-trip per signal."""
+    now = datetime.now(timezone.utc)
+    rows = [[now, tenant_id, incident_id, kind, ref, summary] for ref, summary in items]
+    await ch.insert("incident_evidence", rows, column_names=_COLUMNS)
+
+
 async def query_evidence(ch: ClickHouseStore, tenant_id: str, incident_id: str) -> list[dict[str, Any]]:
     result = await ch.query(
         f"SELECT {', '.join(_COLUMNS)} FROM incident_evidence "

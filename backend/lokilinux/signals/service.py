@@ -103,9 +103,13 @@ class SignalService:
             logger.error("signal.publish_failed", fingerprint=fp, exc_info=True)
         return row
 
-    async def resolve_by_fingerprint(self, tenant_id: str, host_id: str | None, signal_type: str) -> None:
+    async def resolve_by_fingerprint(
+        self, tenant_id: str, host_id: str | None, signal_type: str,
+        event_ts: datetime | str | None = None,
+    ) -> None:
         """Used by the host.heartbeat.ok recovery hook — resolves any OPEN
-        signal of `signal_type` for this host (e.g. host.unreachable)."""
+        signal of `signal_type` for this host (e.g. host.unreachable). A recovery event
+        older than the signal's latest occurrence doesn't cover it and is ignored."""
         fp = fingerprint(tenant_id, host_id, signal_type, None)
         from sqlalchemy import select, update
 
@@ -116,6 +120,19 @@ class SignalService:
         ).scalar_one_or_none()
         if row is None:
             return
+        if event_ts is not None:
+            try:
+                ts = datetime.fromisoformat(event_ts) if isinstance(event_ts, str) else event_ts
+            except ValueError:
+                ts = None  # unparsable stamp: fall back to resolving, as before
+            if ts is not None:
+                # shortcut: last_seen is processing time, so a recovery stamped inside the
+                # few ms before its own unreachable event was processed waits for the next
+                # heartbeat to resolve; compare against an event-time column if that matters.
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+                if ts < row.last_seen:
+                    return
         await self.db.execute(
             update(Signal).where(Signal.id == row.id).values(status="RESOLVED")
         )
@@ -134,6 +151,7 @@ def _signal_event_json(row: Signal, fp: str, *, status: str | None = None) -> by
 
     return json.dumps({
         "signal_id": str(row.id),
+        "tenant_id": row.tenant_id,
         "type": row.type,
         "severity": row.severity,
         "host_id": str(row.host_id) if row.host_id else None,

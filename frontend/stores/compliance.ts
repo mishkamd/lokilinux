@@ -63,12 +63,34 @@ export interface FailingAgent {
   hostname: string | null
 }
 
+export interface RemediationTemplate {
+  provider: string
+  body: string
+  rollback_body: string | null
+  source: string
+  version: number
+}
+
 export interface RuleDetail extends ComplianceRule {
   framework_mappings: FrameworkMapping[]
   coverage: Record<string, number>
   failing_agents: FailingAgent[]
   platform_filter: string[]
   expected_value: unknown
+  /** Whether a remediation exists at all — every role sees this. */
+  has_remediation: boolean
+  /** The command + rollback. Only present for roles that can act on a host. */
+  remediation: RemediationTemplate | null
+}
+
+/** One rule's remediation inside a policy set. */
+export interface PolicySetRuleRemediation {
+  rule_id: string
+  rule_key: string
+  title: string
+  domain: string
+  severity: string
+  remediation: RemediationTemplate | null
 }
 
 export interface PolicySet {
@@ -95,6 +117,57 @@ export interface PolicySetCoverage {
   mapped: number
   unmapped: number
   coverage_pct: number
+}
+
+/** A ready-made policy profile: a named *selection* over the rule catalog,
+ *  not a copy of it. rule_count is resolved against the live catalog. */
+export interface PolicyTemplate {
+  key: string
+  name: string
+  description: string
+  framework: string
+  rule_count: number
+  severity_breakdown: Record<string, number>
+}
+
+export interface PolicySetFromTemplate {
+  policy_set: PolicySet
+  template_key: string
+  rules_added: number
+  severity_breakdown: Record<string, number>
+  assignment_id: string | null
+}
+
+/** One domain of the canonical vocabulary. */
+export interface ComplianceDomain {
+  value: string
+  rules: number
+  category: string
+}
+
+/** The distinct values the rule catalog can be filtered by, with counts. */
+export interface FacetValue {
+  value: string
+  count: number
+}
+
+export interface RuleFacets {
+  domains: FacetValue[]
+  severities: FacetValue[]
+  sources: FacetValue[]
+  platforms: FacetValue[]
+  frameworks: FacetValue[]
+}
+
+/** The fleet scope a policy set is evaluated against. */
+export interface PolicyAssignment {
+  id: string
+  policy_set_id: string
+  scope_type: ScopeType
+  scope_selector: Record<string, unknown>
+  is_enabled: boolean
+  created_by: string | null
+  created_at: string
 }
 
 export interface DriftEvent {
@@ -416,6 +489,10 @@ export const useComplianceStore = defineStore('compliance', () => {
   // Shared cursor-pagination fetch — replaces eight verbatim copies of the
   // build-params / append-or-replace / total / next-cursor dance. Errors
   // propagate; callers that swallow them wrap the call in try/catch.
+  //
+  // One page size for every compliance list: the tables paginate
+  // client-side at 25 rows, so a 20-row API page left the pager empty and
+  // the "Load more" button as the only way past the first screen.
   async function fetchCursorPage<T>(
     path: string,
     params: URLSearchParams,
@@ -430,6 +507,7 @@ export const useComplianceStore = defineStore('compliance', () => {
     targets.loading.value = true
     try {
       if (cursor) params.set('cursor', cursor)
+      if (!params.has('limit')) params.set('limit', '100')
       const data = await api.get<{ items: T[]; next_cursor: string | null; total: number }>(`${path}?${params}`)
       targets.items.value = cursor ? [...targets.items.value, ...data.items] : data.items
       targets.total.value = data.total ?? 0
@@ -529,35 +607,33 @@ export const useComplianceStore = defineStore('compliance', () => {
   const selectedPolicySet = ref<PolicySet | null>(null)
   const policySetRules = ref<ComplianceRule[]>([])
   const policySetCoverage = ref<PolicySetCoverage | null>(null)
+  const policyTemplates = ref<PolicyTemplate[]>([])
+  const policyTemplatesLoading = ref(false)
+  const policyAssignments = ref<PolicyAssignment[]>([])
+  const policySetRemediation = ref<PolicySetRuleRemediation[]>([])
+  const ruleFacets = ref<RuleFacets>({
+    domains: [], severities: [], sources: [], platforms: [], frameworks: [],
+  })
+  const catalogRules = ref<ComplianceRule[]>([])
+  const complianceDomains = ref<ComplianceDomain[]>([])
 
   async function fetchRules(cursor?: string) {
-    rulesLoading.value = true
+    const params = new URLSearchParams()
+    if (ruleFilters.value.domain) params.set('domain', ruleFilters.value.domain)
+    if (ruleFilters.value.check_source) params.set('check_source', ruleFilters.value.check_source)
+    if (ruleFilters.value.severity) params.set('severity', ruleFilters.value.severity)
+    if (ruleFilters.value.search) params.set('search', ruleFilters.value.search)
+    if (ruleFilters.value.framework) params.set('framework', ruleFilters.value.framework)
+    if (ruleFilters.value.platform) params.set('platform', ruleFilters.value.platform)
+    if (ruleFilters.value.source) params.set('source', ruleFilters.value.source)
+    if (ruleFilters.value.status) params.set('status', ruleFilters.value.status)
+    if (ruleFilters.value.rule_status) params.set('rule_status', ruleFilters.value.rule_status)
     try {
-      const params = new URLSearchParams()
-      if (cursor) params.set('cursor', cursor)
-      if (ruleFilters.value.domain) params.set('domain', ruleFilters.value.domain)
-      if (ruleFilters.value.check_source) params.set('check_source', ruleFilters.value.check_source)
-      if (ruleFilters.value.severity) params.set('severity', ruleFilters.value.severity)
-      if (ruleFilters.value.search) params.set('search', ruleFilters.value.search)
-      if (ruleFilters.value.framework) params.set('framework', ruleFilters.value.framework)
-      if (ruleFilters.value.platform) params.set('platform', ruleFilters.value.platform)
-      if (ruleFilters.value.source) params.set('source', ruleFilters.value.source)
-      if (ruleFilters.value.status) params.set('status', ruleFilters.value.status)
-      if (ruleFilters.value.rule_status) params.set('rule_status', ruleFilters.value.rule_status)
-      const data = await api.get<{ items: ComplianceRule[]; next_cursor: string | null; total: number }>(
-        `/compliance/rules?${params}`,
-      )
-      if (cursor) {
-        rules.value = [...rules.value, ...data.items]
-      } else {
-        rules.value = data.items
-      }
-      rulesTotal.value = data.total ?? 0
-      rulesNextCursor.value = data.next_cursor
+      await fetchCursorPage<ComplianceRule>('/compliance/rules', params, {
+        items: rules, total: rulesTotal, nextCursor: rulesNextCursor, loading: rulesLoading,
+      }, cursor)
     } catch {
       // swallow — global onResponseError already surfaces a toast; keep last-known-good list
-    } finally {
-      rulesLoading.value = false
     }
   }
 
@@ -566,29 +642,64 @@ export const useComplianceStore = defineStore('compliance', () => {
   }
 
   async function fetchPolicySets(cursor?: string) {
-    policySetsLoading.value = true
-    try {
-      const params = new URLSearchParams()
-      if (cursor) params.set('cursor', cursor)
-      const data = await api.get<{ items: PolicySet[]; next_cursor: string | null; total: number }>(
-        `/compliance/policy-sets?${params}`,
-      )
-      if (cursor) {
-        policySets.value = [...policySets.value, ...data.items]
-      } else {
-        policySets.value = data.items
-      }
-      policySetsTotal.value = data.total ?? 0
-      policySetsNextCursor.value = data.next_cursor
-    } finally {
-      policySetsLoading.value = false
-    }
+    const params = new URLSearchParams()
+    await fetchCursorPage<PolicySet>('/compliance/policy-sets', params, {
+      items: policySets, total: policySetsTotal, nextCursor: policySetsNextCursor, loading: policySetsLoading,
+    }, cursor)
   }
 
   async function createPolicySet(body: { name: string; slug: string; framework: string; version?: string; description?: string }) {
     const policySet = await api.post<PolicySet>('/compliance/policy-sets', body)
     policySets.value = [policySet, ...policySets.value]
     return policySet
+  }
+
+  /** The ready-made profiles, with live rule counts. */
+  async function fetchPolicyTemplates() {
+    policyTemplatesLoading.value = true
+    try {
+      policyTemplates.value = await api.get<PolicyTemplate[]>('/compliance/policy-templates')
+    } finally {
+      policyTemplatesLoading.value = false
+    }
+  }
+
+  /** Create a policy set already populated with a template's rules —
+   *  one call, so a policy set never exists in a half-built state. */
+  async function createPolicySetFromTemplate(body: {
+    template_key: string
+    name?: string
+    slug?: string
+    description?: string
+    version?: string
+    include_unmapped?: boolean
+    severity_overrides?: Record<string, string>
+    scope_type?: ScopeType
+    scope_selector?: Record<string, unknown>
+  }) {
+    const result = await api.post<PolicySetFromTemplate>('/compliance/policy-sets/from-template', body)
+    policySets.value = [result.policy_set, ...policySets.value]
+    return result
+  }
+
+/** The rule catalog, for pickers that need the whole thing (the
+   *  "add rules to a policy set" panel). Separate from `rules`, which
+   *  carries the Rule Catalog page's filters — a picker must not inherit
+   *  another page's filter state. */
+  async function fetchCatalogRules(limit = 100) {
+    catalogRules.value = await api.get<ComplianceRule[]>(`/compliance/rules?limit=${limit}`)
+  }
+
+  /** The real values the rule catalog can be filtered by. */
+  async function fetchRuleFacets() {
+    ruleFacets.value = await api.get<RuleFacets>('/compliance/rules/facets')
+  }
+
+  /** The domain vocabulary — the values a domain filter may take. Wider than
+   *  the rule catalog: drift events come from collectors that have no rule. */
+  async function fetchComplianceDomains() {
+    const res = await api.get<{ domains: ComplianceDomain[] }>('/compliance/domains')
+    complianceDomains.value = res.domains
   }
 
   async function fetchPolicySet(id: string) {
@@ -603,12 +714,44 @@ export const useComplianceStore = defineStore('compliance', () => {
     return await api.post(`/compliance/policy-sets/${id}/rules`, { rule_id: ruleId })
   }
 
+  /** Unlinks a rule from a DRAFT policy set. A published set is immutable —
+   *  the backend rejects it, so the UI only offers this on drafts. */
+  async function removePolicySetRule(id: string, ruleId: string) {
+    await api.del(`/compliance/policy-sets/${id}/rules/${ruleId}`)
+    await fetchPolicySetRules(id)
+  }
+
+  /** The policy set as a portable profile (rule references by rule_key, not
+   *  UUID) — the artifact meant to be committed to git and reviewed. */
+  async function exportPolicySet(id: string, format: 'json' | 'yaml' = 'json') {
+    return await api.get<Blob>(`/compliance/policy-sets/${id}/export?format=${format}`, {
+      responseType: 'blob',
+    })
+  }
+
   async function createPolicyAssignment(body: { policy_set_id: string; scope_type: ScopeType; scope_selector: Record<string, unknown> }) {
     return await api.post('/compliance/policy-assignments', body)
   }
 
+  /** The scopes a policy set is applied to. */
+  async function fetchPolicyAssignments(policySetId: string) {
+    policyAssignments.value = await api.get<PolicyAssignment[]>(
+      `/compliance/policy-assignments?policy_set_id=${policySetId}`,
+    )
+  }
+
   async function fetchPolicySetCoverage(id: string) {
     policySetCoverage.value = await api.get<PolicySetCoverage>(`/compliance/policy-sets/${id}/coverage`)
+  }
+
+  /** The remediation each rule in this policy set carries — the exact
+   *  commands that would run on the hosts in scope. */
+  async function fetchPolicySetRemediation(id: string) {
+    const res = await api.get<{
+      policy_set_id: string
+      remediations: PolicySetRuleRemediation[]
+    }>(`/compliance/policy-sets/${id}/remediation`)
+    policySetRemediation.value = res.remediations
   }
 
   async function importPolicySet(body: { source: string; profile_id?: string; content_version: string; datastream_url: string }) {
@@ -1111,9 +1254,13 @@ export const useComplianceStore = defineStore('compliance', () => {
     rules, rulesTotal, rulesLoading, rulesNextCursor, ruleFilters, fetchRules,
     selectedRule, fetchRule,
     policySets, policySetsTotal, policySetsLoading, policySetsNextCursor, selectedPolicySet, policySetRules, policySetCoverage,
+    policyTemplates, policyTemplatesLoading, fetchPolicyTemplates, createPolicySetFromTemplate,
+    ruleFacets, fetchRuleFacets, catalogRules, fetchCatalogRules,
+    complianceDomains, fetchComplianceDomains,
     fetchPolicySets, createPolicySet, fetchPolicySet, fetchPolicySetRules, fetchPolicySetCoverage, importPolicySet,
     publishPolicySet, archivePolicySet, newPolicySetVersion, setPolicySetRemediation,
-    addPolicySetRule, createPolicyAssignment,
+    addPolicySetRule, removePolicySetRule, exportPolicySet, createPolicyAssignment, policyAssignments, fetchPolicyAssignments,
+    policySetRemediation, fetchPolicySetRemediation,
     driftEvents, driftTotal, driftLoading, driftNextCursor, driftFilters,
     selectedDriftEvent, driftDetails,
     fetchDriftEvents, fetchDriftEvent, fetchDriftDetails, acknowledgeDrift, suppressDrift, resolveDrift,

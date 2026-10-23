@@ -2,6 +2,14 @@
 
 > Audit realizat pe commit `77c4220` (v0.3.0), august 2026. Document cerut de spec-ul Observability (§2) — precede orice implementare.
 
+> **Status (2026-10-22): arhivă, depășit parțial.** Secțiunile 4, 6 și 8 nu mai sunt adevărate: ClickHouse (`backend/lokilinux/ch.py`), modulul de incidente (`backend/lokilinux/api/v1/routers/incidents.py`) și runbook-urile (`backend/lokilinux/api/v1/routers/runbooks.py`) există acum.
+>
+> Verificările din MIS-55:
+> - **Journald follower pe agent: nu există.** `agent/go.mod` nu are libsystemd; singura referință e comentariul `agent/internal/config/config.go:89`. `eq`, `logredact` și `broker` există, dar niciunul nu citește journalul.
+> - **`IncidentAnalysisProvider`: nu există în cod.** Apare doar în acest document și în planul `docs/superpowers/plans/2026-08-23-2152-observability-critical-signals-plan.md:104`, unde `services/observability/analysis.py` nu există.
+> - **Liveness per worker: neimplementat, intenționat.** `backend/lokilinux/api/v1/routers/observability.py:8-13` îl declară simplificare; `/health` (`backend/lokilinux/main.py:317`) acoperă nivelul de proces.
+> - **UI: `frontend/pages/observability` nu există.** Există `incidents/`, `signals/`, `events/`, `correlation/` și `topology/`.
+
 ## 1. Current architecture
 
 Patru straturi verificate în cod:

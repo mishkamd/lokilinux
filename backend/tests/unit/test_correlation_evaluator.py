@@ -21,6 +21,9 @@ class _FakeZSetCache:
     async def zrangebyscore(self, key: str, min_score: float, max_score: float) -> list[str]:
         return [m for m, s in self._zsets.get(key, {}).items() if min_score <= s <= max_score]
 
+    async def zrem(self, key: str, member: str) -> None:
+        self._zsets.get(key, {}).pop(member, None)
+
     async def expire(self, key: str, ttl: int) -> None:
         pass
 
@@ -221,3 +224,38 @@ async def test_suppressed_rule_produces_no_candidate():
 
     candidates = await evaluator.on_signal([rule], _signal(type="cpu.high"))
     assert candidates == []
+
+
+@pytest.mark.asyncio
+async def test_redis_down_opens_a_candidate_for_a_high_severity_signal():
+    """Signals only carry LOW/MEDIUM/HIGH/CRITICAL; the degraded path used to look for
+    ERROR, so every HIGH signal (job.failed, cpu.high, ...) vanished during an outage."""
+    cache = _FakeZSetCache()
+    cache.set_down()
+    candidates = await CorrelationEvaluator(cache).on_signal(
+        [_rule()], _signal(type="cpu.high", severity="HIGH")
+    )
+    assert len(candidates) == 1
+
+
+@pytest.mark.asyncio
+async def test_two_conditions_on_one_signal_type_add_up():
+    rule = _rule(
+        conditions=[{"signal": "cpu.high", "weight": 20}, {"signal": "cpu.high", "weight": 40}],
+        threshold_score=60,
+    )
+    candidates = await CorrelationEvaluator(_FakeZSetCache()).on_signal([rule], _signal())
+    assert len(candidates) == 1  # 20 + 40, not just the last 40
+
+
+@pytest.mark.asyncio
+async def test_resolved_signal_stops_counting_toward_the_window():
+    cache = _FakeZSetCache()
+    evaluator = CorrelationEvaluator(cache)
+    rule = _rule(threshold_score=40)  # cpu.high 20 + load.high 20
+
+    await evaluator.on_signal([rule], _signal(type="cpu.high"))
+    await evaluator.on_signal_resolved([rule], _signal(type="cpu.high"))
+    candidates = await evaluator.on_signal([rule], _signal(type="load.high"))
+
+    assert candidates == []  # the resolved cpu.high no longer adds its 20

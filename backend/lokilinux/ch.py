@@ -79,6 +79,21 @@ TTL toDateTime(timestamp) + INTERVAL {int(retention_days)} DAY
 """.strip()
 
 
+def _modify_ttl_ddl(table: str, retention_days: int) -> str:
+    ttl = f"toDateTime(timestamp) + INTERVAL {int(retention_days)} DAY"
+    return f"ALTER TABLE {table} MODIFY TTL {ttl}"
+
+
+# host_id and source are API filters but not in the sorting key. Skip indexes only cover
+# parts written after they exist; older parts age out through the TTL instead of being
+# rewritten (no MATERIALIZE INDEX on a live table).
+_EVENTS_INDEXES_DDL = (
+    "ALTER TABLE events ADD INDEX IF NOT EXISTS idx_host_id host_id"
+    " TYPE bloom_filter GRANULARITY 4",
+    "ALTER TABLE events ADD INDEX IF NOT EXISTS idx_source source TYPE set(100) GRANULARITY 4",
+)
+
+
 class ClickHouseStore:
     """Async-wrapped ClickHouse client + idempotent schema bootstrap."""
 
@@ -131,7 +146,16 @@ class ClickHouseStore:
         incident_evidence_retention_days: int,
     ) -> None:
         """Idempotent DDL bootstrap — safe to call on every startup."""
-        await self.command(_events_ddl(event_retention_days))
-        await self.command(_signal_occurrences_ddl(signal_occurrence_retention_days))
-        await self.command(_incident_evidence_ddl(incident_evidence_retention_days))
+        tables = (
+            ("events", _events_ddl, event_retention_days),
+            ("signal_occurrences", _signal_occurrences_ddl, signal_occurrence_retention_days),
+            ("incident_evidence", _incident_evidence_ddl, incident_evidence_retention_days),
+        )
+        for table, ddl, days in tables:
+            await self.command(ddl(days))
+            # CREATE ... IF NOT EXISTS never touches an existing table, so a changed
+            # retention env var would otherwise be ignored once the table exists.
+            await self.command(_modify_ttl_ddl(table, days))
+        for statement in _EVENTS_INDEXES_DDL:
+            await self.command(statement)
         logger.info("clickhouse.tables_ready")

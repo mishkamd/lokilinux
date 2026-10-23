@@ -1,16 +1,24 @@
 <script setup lang="ts">
 import { SEVERITY_COLORS } from '~/utils/complianceColors'
+import type { ScopeType } from '~/stores/compliance'
+import { Download } from 'lucide-vue-next'
 const route = useRoute()
 const policySetId = String(route.params.id)
 
 const store = useComplianceStore()
-const { selectedPolicySet, policySetRules, policySetCoverage } = storeToRefs(store)
+const { selectedPolicySet, policySetRules, policySetCoverage, policyAssignments, catalogRules, policySetRemediation } =
+  storeToRefs(store)
 const { canEdit, isAdmin } = useCurrentUser()
 const toast = useToast()
 
 onMounted(async () => {
   await store.fetchPolicySet(policySetId)
-  await Promise.all([store.fetchPolicySetRules(policySetId), store.fetchPolicySetCoverage(policySetId)])
+  await Promise.all([
+    store.fetchPolicySetRules(policySetId),
+    store.fetchPolicySetCoverage(policySetId),
+    store.fetchPolicyAssignments(policySetId),
+    store.fetchPolicySetRemediation(policySetId),
+  ])
 })
 
 const STATUS_COLORS: Record<string, string> = {
@@ -66,9 +74,112 @@ async function newVersion() {
 
 const tabs = [
   { label: 'Rules', slot: 'rules' },
+  { label: 'Scope', slot: 'scope' },
   { label: 'Coverage', slot: 'coverage' },
   { label: 'Remediation', slot: 'remediation' },
 ]
+
+// ── Add rules from the catalog ────────────────────────────────────────────────
+const catalogSearch = ref('')
+const catalogDomain = ref('')
+const catalogSeverity = ref('')
+const addingRule = ref<string | null>(null)
+
+// The catalog is fetched once per page — the add-rule panel filters it
+// client-side. A policy set holds tens of rules, the catalog hundreds.
+const catalogDomainOptions = computed(() => [
+  { label: 'All domains', value: '' },
+  ...[...new Set(catalogRules.value.map((r) => r.domain))].sort().map((d) => ({ label: d, value: d })),
+])
+const catalogRows = computed(() => {
+  const term = catalogSearch.value.trim().toLowerCase()
+  return catalogRules.value
+    .filter((r) => !catalogDomain.value || r.domain === catalogDomain.value)
+    .filter((r) => !catalogSeverity.value || r.severity === catalogSeverity.value)
+    .filter((r) => !term || r.title.toLowerCase().includes(term) || r.rule_key.toLowerCase().includes(term))
+    .slice(0, 50)
+})
+const inSet = computed(() => new Set(policySetRules.value.map((r) => r.id)))
+
+onMounted(async () => {
+  await store.fetchCatalogRules()
+})
+
+async function addRule(ruleId: string) {
+  addingRule.value = ruleId
+  try {
+    await store.addPolicySetRule(policySetId, ruleId)
+    await store.fetchPolicySetRules(policySetId)
+    toast.add({ title: 'Rule added' })
+  } catch (err) {
+    toast.add({ title: (err as { data?: { detail?: string } })?.data?.detail ?? 'Failed to add rule', color: 'red' })
+  } finally {
+    addingRule.value = null
+  }
+}
+
+const removingRule = ref<string | null>(null)
+async function removeRule(ruleId: string, ruleKey: string) {
+  removingRule.value = ruleId
+  try {
+    await store.removePolicySetRule(policySetId, ruleId)
+    toast.add({ title: 'Rule removed', description: ruleKey })
+  } catch (err) {
+    toast.add({ title: (err as { data?: { detail?: string } })?.data?.detail ?? 'Failed to remove rule', color: 'red' })
+  } finally {
+    removingRule.value = null
+  }
+}
+
+// ── Export ────────────────────────────────────────────────────────────────────
+const exporting = ref(false)
+async function exportSet(format: 'json' | 'yaml') {
+  exporting.value = true
+  try {
+    const blob = await store.exportPolicySet(policySetId, format)
+    const url = URL.createObjectURL(blob as Blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${selectedPolicySet.value?.slug ?? 'policy-set'}.${format}`
+    a.click()
+    URL.revokeObjectURL(url)
+    toast.add({ title: 'Policy set exported' })
+  } catch (err) {
+    toast.add({ title: (err as { data?: { detail?: string } })?.data?.detail ?? 'Export failed', color: 'red' })
+  } finally {
+    exporting.value = false
+  }
+}
+
+// ── Scope ─────────────────────────────────────────────────────────────────────
+const SCOPE_OPTIONS: { label: string; value: ScopeType }[] = [
+  { label: 'Entire fleet', value: 'GLOBAL' },
+  { label: 'By operating system', value: 'OS' },
+  { label: 'By role', value: 'ROLE' },
+  { label: 'By environment', value: 'ENVIRONMENT' },
+  { label: 'By datacenter', value: 'DATACENTER' },
+  { label: 'By cluster', value: 'CLUSTER' },
+  { label: 'By application', value: 'APPLICATION' },
+]
+const newScopeType = ref<ScopeType>('GLOBAL')
+const addingScope = ref(false)
+
+async function addScope() {
+  addingScope.value = true
+  try {
+    await store.createPolicyAssignment({
+      policy_set_id: policySetId,
+      scope_type: newScopeType.value,
+      scope_selector: {},
+    })
+    await store.fetchPolicyAssignments(policySetId)
+    toast.add({ title: 'Policy set applied to scope' })
+  } catch (err) {
+    toast.add({ title: (err as { data?: { detail?: string } })?.data?.detail ?? 'Failed to apply', color: 'red' })
+  } finally {
+    addingScope.value = false
+  }
+}
 
 // Remediation mode form (plan U7/KTD8) — a policy_set with remediation
 // unset behaves as ASSISTED, so the form defaults there too rather than
@@ -85,6 +196,10 @@ watch(selectedPolicySet, (p) => {
 })
 
 const domainOptions = computed(() => [...new Set(policySetRules.value.map((r) => String(r.domain)))].sort())
+
+// The per-rule remediation list — one row per rule, whether or not it has a
+// remediation, so an operator can see what's fixable and what isn't.
+const remediationRows = computed(() => policySetRemediation.value)
 
 const savingRemediation = ref(false)
 async function saveRemediation() {
@@ -108,6 +223,7 @@ const columns = [
   { key: 'domain', label: 'Domain' },
   { key: 'severity', label: 'Severity' },
   { key: 'check_source', label: 'Coverage' },
+  { key: 'actions', label: '' },
 ]
 </script>
 
@@ -125,6 +241,9 @@ const columns = [
         </Badge>
       </template>
       <template #actions>
+        <Button size="sm" variant="outline" :loading="exporting" @click="exportSet('json')">
+          <Download class="size-4" /> Export
+        </Button>
         <Button v-if="canEdit && selectedPolicySet.status === 'DRAFT'" size="sm" :loading="busy" @click="publish">
           Publish
         </Button>
@@ -146,9 +265,10 @@ const columns = [
     <AppTabs :items="tabs">
       <template #rules>
         <Alert v-if="policySetRules.length === 0" color="amber" class="mb-4">
-          This policy set has no rules and cannot be published.
-          <NuxtLink to="/compliance/policies" class="focus-ring underline">Use "Import from ComplianceAsCode"</NuxtLink>
-          on the Policy Sets list to populate it.
+          This policy set has no rules and cannot be published. Add rules from the catalog below,
+          or start from a
+          <NuxtLink to="/compliance/policies" class="focus-ring underline">template</NuxtLink>
+          instead.
         </Alert>
         <DataTable
           :rows="policySetRules"
@@ -165,7 +285,81 @@ const columns = [
           <template #check_source-data="{ row }">
             <Badge :color="row.check_source === 'CEL' ? 'green' : 'gray'" size="xs">{{ row.check_source }}</Badge>
           </template>
+          <template #actions-data="{ row }">
+            <Button
+              v-if="canEdit && selectedPolicySet.status === 'DRAFT'"
+              size="xs"
+              variant="ghost"
+              :loading="removingRule === row.id"
+              @click.stop="removeRule(String(row.id), String(row.rule_key))"
+            >
+              Remove
+            </Button>
+          </template>
         </DataTable>
+
+        <!-- Add rules from the catalog. Only a DRAFT can change: a published
+             set is immutable by design, editing it means creating a new
+             version (the "New version" action above). -->
+        <Card v-if="canEdit && selectedPolicySet.status === 'DRAFT'" class="mt-4">
+          <template #header>
+            <h2 class="text-sm font-semibold">Add rules from the catalog</h2>
+          </template>
+          <div class="space-y-3">
+            <div class="flex flex-wrap items-center gap-3">
+              <Input v-model="catalogSearch" placeholder="Search the rule catalog…" class="w-72"
+                     aria-label="Search the rule catalog" />
+              <Select v-model="catalogDomain" :options="catalogDomainOptions" placeholder="All domains" class="w-44" />
+              <Select v-model="catalogSeverity" :options="['', 'CRITICAL', 'HIGH', 'MEDIUM', 'LOW']" placeholder="Severity" class="w-36" />
+            </div>
+            <p v-if="catalogRows.length === 0" class="text-sm text-muted-foreground">
+              No catalog rules match. Clear the search to see everything.
+            </p>
+            <ul v-else class="divide-y divide-border max-h-72 overflow-y-auto">
+              <li v-for="rule in catalogRows" :key="rule.id" class="flex items-center gap-3 py-2">
+                <div class="min-w-0 flex-1">
+                  <p class="truncate text-sm">{{ rule.title }}</p>
+                  <p class="truncate text-xs text-muted-foreground font-mono">{{ rule.rule_key }}</p>
+                </div>
+                <Badge :color="SEVERITY_COLORS[String(rule.severity)] ?? 'gray'" size="xs">{{ rule.severity }}</Badge>
+                <Button
+                  size="xs"
+                  variant="outline"
+                  :disabled="inSet.has(rule.id)"
+                  :loading="addingRule === rule.id"
+                  @click="addRule(rule.id)"
+                >
+                  {{ inSet.has(rule.id) ? 'Added' : 'Add' }}
+                </Button>
+              </li>
+            </ul>
+          </div>
+        </Card>
+      </template>
+
+      <template #scope>
+        <Card>
+          <template #header>
+            <h2 class="text-sm font-semibold">Applied to</h2>
+          </template>
+          <p v-if="policyAssignments.length === 0" class="text-sm text-muted-foreground">
+            This policy set is not applied to any scope yet — nothing is evaluated for it.
+          </p>
+          <ul v-else class="space-y-2">
+            <li v-for="a in policyAssignments" :key="a.id" class="flex items-center gap-3">
+              <Badge color="gray" size="xs">{{ a.scope_type }}</Badge>
+              <span class="font-mono text-xs text-muted-foreground">
+                {{ Object.keys(a.scope_selector).length ? JSON.stringify(a.scope_selector) : 'entire fleet' }}
+              </span>
+            </li>
+          </ul>
+          <div v-if="canEdit" class="mt-4 flex flex-wrap items-end gap-3 border-t border-border pt-4">
+            <FormField label="Scope type">
+              <Select v-model="newScopeType" :options="SCOPE_OPTIONS" class="w-56" />
+            </FormField>
+            <Button variant="outline" :loading="addingScope" @click="addScope">Apply to scope</Button>
+          </div>
+        </Card>
       </template>
 
       <template #coverage>
@@ -225,6 +419,37 @@ const columns = [
               Save
             </Button>
           </div>
+        </Card>
+
+        <!-- What would actually run. The operator picks AUTOMATIC; the exact
+             commands are listed here, so the choice is reviewable before
+             anything is dispatched to a host. -->
+        <Card class="mt-4">
+          <template #header>
+            <div class="flex items-center justify-between">
+              <p class="label-caps">Commands that would run</p>
+              <Badge color="gray" size="xs">{{ remediationRows.length }} rules</Badge>
+            </div>
+          </template>
+          <EmptyState v-if="remediationRows.length === 0">
+            No rule in this policy set carries a remediation — findings are reported, not fixed.
+          </EmptyState>
+          <ul v-else class="divide-y divide-border">
+            <li v-for="r in remediationRows" :key="r.rule_id" class="py-2">
+              <div class="flex items-center gap-2">
+                <span class="text-sm font-mono">{{ r.rule_key }}</span>
+                <Badge :color="SEVERITY_COLORS[String(r.severity)] ?? 'gray'" size="xs">{{ r.severity }}</Badge>
+                <Badge color="gray" size="xs">{{ r.domain }}</Badge>
+              </div>
+              <pre
+                v-if="r.remediation"
+                class="mt-1 font-mono text-xs whitespace-pre-wrap rounded-lg border p-2 bg-muted/30"
+              >{{ r.remediation.body }}</pre>
+              <p v-else class="mt-1 text-xs text-muted-foreground">
+                {{ r.title }} — no remediation recorded, or your role cannot see it.
+              </p>
+            </li>
+          </ul>
         </Card>
       </template>
     </AppTabs>

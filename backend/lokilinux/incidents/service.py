@@ -15,7 +15,7 @@ from typing import Any
 from uuid import UUID
 import json
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,11 +23,12 @@ import structlog
 
 from lokilinux.correlation.evaluator import IncidentCandidate
 from lokilinux.events.fingerprint import fingerprint
-from lokilinux.incidents.evidence import add_evidence
+from lokilinux.incidents.evidence import add_evidence_batch
 from lokilinux.incidents.lifecycle import assert_legal
 from lokilinux.incidents.models import Incident, IncidentSignal
 from lokilinux.incidents.timeline import add_entry
 from lokilinux.metrics import clickhouse_insert_errors_total, incidents_created_total
+from lokilinux.models.alert import Alert
 from lokilinux.nats_topics import INCIDENT_CREATED, INCIDENT_RESOLVED, INCIDENT_UPDATED
 from lokilinux.services.alert_service import AlertService
 from lokilinux.signals.models import Signal
@@ -67,28 +68,64 @@ class IncidentService:
 
     async def _resolve_member_signals(self, candidate: IncidentCandidate, tenant_id: str) -> list[Signal]:
         host_id = candidate.group_values.get("host_id") or None
-        fingerprints = [fingerprint(tenant_id, host_id, t, None) for t in candidate.member_types]
+        host_uuid = _safe_uuid(host_id)
+        if host_uuid:
+            # By host + type, not by fingerprint: a signal's fingerprint may carry a resource
+            # (job.failed per service) that the candidate doesn't know.
+            match = (Signal.host_id == host_uuid) & Signal.type.in_(candidate.member_types)
+        else:
+            fingerprints = [
+                fingerprint(tenant_id, host_id, t, None) for t in candidate.member_types
+            ]
+            match = Signal.fingerprint.in_(fingerprints)
         rows = (
             await self.db.execute(
-                select(Signal).where(Signal.tenant_id == tenant_id, Signal.fingerprint.in_(fingerprints))
+                select(Signal).where(
+                    Signal.tenant_id == tenant_id,
+                    match,
+                    Signal.status != "RESOLVED",  # a resolved signal isn't part of a new incident
+                )
             )
         ).scalars().all()
         return list(rows)
 
+    async def _write_evidence(
+        self, tenant_id: str, incident_id: UUID, signals: list[Signal]
+    ) -> None:
+        """One ClickHouse insert, after the Postgres commit: evidence is best-effort, so a
+        ClickHouse failure must not undo (or hold open) the incident itself."""
+        if not signals:
+            return
+        try:
+            await add_evidence_batch(
+                self.ch, tenant_id, str(incident_id), "signal",
+                [(s.fingerprint, f"{s.type} (severity {s.severity})") for s in signals],
+            )
+        except Exception:
+            logger.error(
+                "incident.evidence_write_failed", incident_id=str(incident_id), exc_info=True
+            )
+            clickhouse_insert_errors_total.labels(table="incident_evidence").inc()
+
     async def _attach_to_existing(
         self, existing: Incident, candidate: IncidentCandidate, signal_rows: list[Signal]
     ) -> Incident:
+        newly_linked = []
         for sig in signal_rows:
-            await self.db.execute(
+            result = await self.db.execute(
                 pg_insert(IncidentSignal)
                 .values(incident_id=existing.id, signal_id=sig.id)
                 .on_conflict_do_nothing(index_elements=["incident_id", "signal_id"])
+                .returning(IncidentSignal.signal_id)
             )
+            if result.first() is not None:  # no row back = already linked; the window re-fires
+                newly_linked.append(sig)
         await add_entry(
             self.db, existing.id, "signal",
             f"additional signal: {candidate.root_signal_type} (score {candidate.score})",
         )
         await self.db.commit()
+        await self._write_evidence(existing.tenant_id, existing.id, newly_linked)
         return existing
 
     async def open_from_candidate(self, candidate: IncidentCandidate, *, tenant_id: str = "default") -> Incident:
@@ -165,16 +202,6 @@ class IncidentService:
         )
         for sig in signal_rows:
             await add_entry(self.db, incident.id, "signal", f"contributing signal: {sig.type}")
-        try:
-            for sig in signal_rows:
-                await add_evidence(
-                    self.ch, tenant_id, str(incident.id), "signal", sig.fingerprint,
-                    f"{sig.type} (severity {sig.severity})",
-                )
-        except Exception:
-            logger.error("incident.evidence_write_failed", incident_id=str(incident.id), exc_info=True)
-            clickhouse_insert_errors_total.labels(table="incident_evidence").inc()
-
         alert_svc = AlertService(self.db, self.nats)
         alert = await alert_svc.create_alert(
             title=f"Incident: {title}",
@@ -187,6 +214,7 @@ class IncidentService:
             alert.incident_id = incident.id
 
         await self.db.commit()
+        await self._write_evidence(tenant_id, incident.id, signal_rows)
 
         try:
             await self.nats.publish(INCIDENT_CREATED, _incident_event_json(incident))
@@ -211,6 +239,14 @@ class IncidentService:
             incident.acknowledged_at = now
         if target == "RESOLVED":
             incident.resolved_at = now
+            # The alert opened with the incident would otherwise stay ACTIVE on /alerts.
+            await self.db.execute(
+                update(Alert)
+                .where(Alert.incident_id == incident.id, Alert.status != "RESOLVED")
+                .values(status="RESOLVED", resolved_at=now)
+            )
+        elif target == "OPEN":
+            incident.resolved_at = None  # reopened: the old resolution date no longer applies
         kind = "REOPENED" if target == "OPEN" else "transition"
         await add_entry(self.db, incident.id, kind, target, payload={"by": str(actor) if actor else None})
         await self.db.commit()
@@ -248,7 +284,9 @@ class IncidentService:
         signals = (await self.db.execute(select(Signal).where(Signal.id.in_(signal_ids)))).scalars().all()
         now = datetime.now(timezone.utc)
         all_quiet = all(
-            s.status == "RESOLVED" and (now - s.last_seen).total_seconds() >= INCIDENT_AUTO_RESOLVE_QUIET_SEC
+            # SUPPRESSED publishes nothing, so it must count as done or the incident never closes.
+            s.status in ("RESOLVED", "SUPPRESSED")
+            and (now - s.last_seen).total_seconds() >= INCIDENT_AUTO_RESOLVE_QUIET_SEC
             for s in signals
         )
         if not all_quiet:

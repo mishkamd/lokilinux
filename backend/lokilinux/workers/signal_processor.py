@@ -7,11 +7,13 @@ detector registry as everything else.
 
 from types import SimpleNamespace
 from uuid import UUID
+import asyncio
 import json
 
 import structlog
 
 from lokilinux.ch import ClickHouseStore
+from lokilinux.metrics import signals_dropped_total
 from lokilinux.models.agent import Agent
 from lokilinux.nats_topics import EVENT_NORMALIZED
 from lokilinux.signals.detectors import (
@@ -21,9 +23,10 @@ from lokilinux.signals.detectors import (
     RECOVERY_RESOLVES_SIGNAL_TYPE,
     detect_metric_samples,
 )
-from lokilinux.signals.repository import SignalOccurrenceRepository
+from lokilinux.signals.repository import OCCURRENCE_INSERT_FLUSH_SEC, SignalOccurrenceRepository
 from lokilinux.signals.service import SignalService
 from lokilinux.topology.service import ensure_host_node
+from lokilinux.utils.flush_loop import flush_loop
 
 logger = structlog.get_logger()
 
@@ -34,12 +37,18 @@ class SignalProcessorWorker:
         self.db_factory = db_session_factory
         self.cache = cache
         self.occurrences = SignalOccurrenceRepository(ch)
+        self._flush_task: asyncio.Task | None = None
 
     async def start(self) -> None:
         await self.nats.subscribe(EVENT_NORMALIZED, cb=self._handle_normalized_event)
+        self._flush_task = asyncio.create_task(
+            flush_loop(self.occurrences.flush, OCCURRENCE_INSERT_FLUSH_SEC, "signal_processor")
+        )
         logger.info("SignalProcessorWorker started")
 
     async def stop(self) -> None:
+        if self._flush_task:
+            self._flush_task.cancel()
         await self.occurrences.flush()
 
     async def _auto_seed_host_node(self, db, host_id: str | None) -> None:
@@ -68,10 +77,12 @@ class SignalProcessorWorker:
         except Exception:
             logger.error("signal_processor.malformed_json", exc_info=True)
             return
+        tenant_id = data.get("tenant_id") or "default"
         event = SimpleNamespace(
             type=data.get("type"), host_id=data.get("host_id"), payload=data.get("payload") or {},
+            tenant_id=tenant_id, service=data.get("service"), timestamp=data.get("timestamp"),
         )
-        await self._process(event, tenant_id=data.get("tenant_id") or "default")
+        await self._process(event, tenant_id=tenant_id)
 
     async def _process(self, event, *, tenant_id: str) -> None:
         try:
@@ -79,7 +90,10 @@ class SignalProcessorWorker:
                 svc = SignalService(db, self.nats, self.occurrences)
 
                 if event.type == RECOVERY_EVENT_TYPE:
-                    await svc.resolve_by_fingerprint(tenant_id, event.host_id, RECOVERY_RESOLVES_SIGNAL_TYPE)
+                    await svc.resolve_by_fingerprint(
+                        tenant_id, event.host_id, RECOVERY_RESOLVES_SIGNAL_TYPE,
+                        getattr(event, "timestamp", None),
+                    )
                     await self._auto_seed_host_node(db, event.host_id)
                     return
 
@@ -96,3 +110,5 @@ class SignalProcessorWorker:
                     await svc.upsert_signal(detected, tenant_id=tenant_id)
         except Exception:
             logger.error("signal_processor.process_failed", event_type=getattr(event, "type", None), exc_info=True)
+            # NATS core is at-most-once: the event is gone, so make the loss visible.
+            signals_dropped_total.labels(reason="process_failed").inc()

@@ -5,13 +5,15 @@ Registry keyed by event type, fed by SignalProcessorWorker's
 EVENT_NORMALIZED subscription.
 
 Sustain counters (cpu/memory need 2 consecutive over-threshold samples) live
-in Redis, keyed sig:thr:{host}:{metric}, reset on any under-threshold sample.
+in Redis, keyed sig:thr:{tenant}:{host}:{metric}, reset on any under-threshold sample.
 Thresholds are module-level constants for now (plan: "configurable later via
 settings").
 """
 
 from dataclasses import dataclass, field
 from typing import Any
+
+from lokilinux.metrics import signals_dropped_total
 
 CPU_MEMORY_THRESHOLD = 90.0
 DISK_THRESHOLD = 90.0
@@ -42,8 +44,10 @@ def detect_host_unreachable(event: Any) -> DetectedSignal | None:
 
 def detect_job_failed(event: Any) -> DetectedSignal | None:
     payload = event.payload or {}
+    service = getattr(event, "service", None)
     return DetectedSignal(
         type="job.failed", severity="HIGH", host_id=event.host_id,
+        service=service, resource=service,  # resource is what the fingerprint keys on
         metadata={"job_id": payload.get("job_id")},
     )
 
@@ -69,11 +73,13 @@ _METRIC_RULES = (
 async def detect_metric_samples(event: Any, cache: Any) -> list[DetectedSignal]:
     payload = event.payload or {}
     detected: list[DetectedSignal] = []
+    if not event.host_id:
+        return detected  # host-less samples would all share one counter key
     for metric_key, sig_type, threshold, sustain in _METRIC_RULES:
         value = payload.get(metric_key)
         if value is None:
             continue
-        counter_key = f"sig:thr:{event.host_id}:{metric_key}"
+        counter_key = f"sig:thr:{event.tenant_id}:{event.host_id}:{metric_key}"
         if value < threshold:
             await cache.invalidate(counter_key)
             continue
@@ -81,6 +87,9 @@ async def detect_metric_samples(event: Any, cache: Any) -> list[DetectedSignal]:
             detected.append(DetectedSignal(type=sig_type, severity="HIGH", host_id=event.host_id, value=value))
             continue
         count = await cache.incr(counter_key, ttl=SUSTAIN_WINDOW_SEC)
+        if count == 0:  # RedisCache.incr returns 0 on a Redis error; a real INCR is >= 1
+            signals_dropped_total.labels(reason="cache_unavailable").inc()
+            continue
         if count >= sustain:
             detected.append(DetectedSignal(type=sig_type, severity="HIGH", host_id=event.host_id, value=value))
     return detected

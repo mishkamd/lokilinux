@@ -24,7 +24,7 @@ from lokilinux.incidents.schemas import (
 )
 from lokilinux.incidents.service import IncidentService
 from lokilinux.models.agent import Agent
-from lokilinux.schemas.common import decode_cursor, encode_cursor
+from lokilinux.schemas.common import CursorPage, decode_cursor, encode_cursor
 from lokilinux.signals.models import Signal
 from lokilinux.signals.schemas import SignalResponse
 
@@ -32,6 +32,14 @@ router = APIRouter()
 
 _TENANT_ID = "default"
 _TIMELINE_LIMIT = 20
+
+
+def _parse_cursor(cursor: str) -> tuple[datetime, UUID]:
+    try:
+        ts_str, uid = decode_cursor(cursor).rsplit(":", 1)
+        return datetime.fromisoformat(ts_str), UUID(uid)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Malformed cursor")
 
 
 @router.get("", response_model=IncidentListResponse)
@@ -93,13 +101,10 @@ async def list_incidents(
         )
     total = (await db.execute(count_q)).scalar_one()
     if cursor:
-        raw = decode_cursor(cursor)
-        try:
-            ts_str, uid = raw.rsplit(":", 1)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Malformed cursor")
-        ts = datetime.fromisoformat(ts_str)
-        q = q.where((Incident.started_at < ts) | ((Incident.started_at == ts) & (Incident.id < UUID(uid))))
+        ts, cursor_id = _parse_cursor(cursor)
+        q = q.where(
+            (Incident.started_at < ts) | ((Incident.started_at == ts) & (Incident.id < cursor_id))
+        )
 
     rows = (await db.execute(q.limit(limit + 1))).all()
     has_more = len(rows) > limit
@@ -121,7 +126,7 @@ async def list_incidents(
 
 async def _get_or_404(db: AsyncSession, incident_id: UUID) -> Incident:
     incident = await db.get(Incident, incident_id)
-    if incident is None:
+    if incident is None or incident.tenant_id != _TENANT_ID:
         raise HTTPException(status_code=404, detail="Incident not found")
     return incident
 
@@ -172,21 +177,33 @@ async def get_incident(
     )
 
 
-@router.get("/{incident_id}/timeline", response_model=list[IncidentTimelineEntry])
+@router.get("/{incident_id}/timeline", response_model=CursorPage[IncidentTimelineEntry])
 async def get_timeline(
     incident_id: UUID,
+    limit: int = Query(200, ge=1, le=1000),
+    cursor: str | None = None,
     db: AsyncSession = Depends(get_db),
     _: dict[str, Any] = Depends(get_current_user),
-) -> list[IncidentTimeline]:
+) -> CursorPage[IncidentTimelineEntry]:
     await _get_or_404(db, incident_id)
-    rows = (
-        await db.execute(
-            select(IncidentTimeline)
-            .where(IncidentTimeline.incident_id == incident_id)
-            .order_by(IncidentTimeline.ts.asc())
+    q = (
+        select(IncidentTimeline)
+        .where(IncidentTimeline.incident_id == incident_id)
+        .order_by(IncidentTimeline.ts.asc(), IncidentTimeline.id.asc())
+    )
+    if cursor:
+        ts, cursor_id = _parse_cursor(cursor)
+        q = q.where(
+            (IncidentTimeline.ts > ts)
+            | ((IncidentTimeline.ts == ts) & (IncidentTimeline.id > cursor_id))
         )
-    ).scalars().all()
-    return list(rows)
+    rows = list((await db.execute(q.limit(limit + 1))).scalars().all())
+    has_more = len(rows) > limit
+    rows = rows[:limit]
+    next_cursor = encode_cursor(f"{rows[-1].ts.isoformat()}:{rows[-1].id}") if has_more else None
+    return CursorPage[IncidentTimelineEntry](
+        items=[IncidentTimelineEntry.model_validate(r) for r in rows], next_cursor=next_cursor
+    )
 
 
 @router.get("/{incident_id}/evidence")
@@ -204,6 +221,7 @@ async def get_evidence(
 async def _transition_or_error(
     db: AsyncSession, nats: Any, cache: Any, ch: Any, incident_id: UUID, actor, method: str
 ) -> Incident:
+    await _get_or_404(db, incident_id)  # tenant check; the service looks up by id only
     svc = IncidentService(db, nats, cache, ch)
     try:
         incident = await getattr(svc, method)(incident_id, actor)

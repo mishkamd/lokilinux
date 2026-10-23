@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { SEVERITY_COLORS } from '~/utils/complianceColors'
-import { FileText, ShieldCheck, ShieldAlert, Gauge, BookCheck, ShieldOff, HelpCircle } from 'lucide-vue-next'
+import { ShieldCheck, ShieldAlert, BookCheck, ShieldOff, HelpCircle } from 'lucide-vue-next'
 
 const store = useComplianceStore()
 const {
@@ -163,7 +163,7 @@ async function submitRunAssessment() {
             </p>
             <p class="text-xs text-muted-foreground mt-1">weighted overall · {{ aggOverall?.agents_scored ?? 0 }} agents</p>
           </div>
-          <div class="space-y-1">
+          <NuxtLink to="/compliance/findings" class="space-y-1 focus-ring rounded-[var(--radius-md)]">
             <p class="text-xs text-muted-foreground flex items-center gap-1">
               <ShieldAlert class="size-3.5" /> Open findings
             </p>
@@ -174,13 +174,13 @@ async function submitRunAssessment() {
               <Badge :color="SEVERITY_COLORS.MEDIUM" size="xs">{{ sevTotal(agg?.findings_by_severity, 'MEDIUM') }} M</Badge>
               <Badge :color="SEVERITY_COLORS.LOW" size="xs">{{ sevTotal(agg?.findings_by_severity, 'LOW') }} L</Badge>
             </div>
-          </div>
-          <div class="space-y-1">
+          </NuxtLink>
+          <NuxtLink to="/compliance/drift" class="space-y-1 focus-ring rounded-[var(--radius-md)]">
             <p class="text-xs text-muted-foreground flex items-center gap-1">
               <ShieldOff class="size-3.5" /> Open drift
             </p>
             <p class="text-2xl font-mono font-semibold tabular-nums">{{ agg?.open_drift_total ?? '—' }}</p>
-          </div>
+          </NuxtLink>
           <div class="space-y-1">
             <p class="text-xs text-muted-foreground flex items-center gap-1">
               <ShieldCheck class="size-3.5" /> Scored agents (24h)
@@ -232,27 +232,9 @@ async function submitRunAssessment() {
     </Card>
 
     <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
-      <MetricCard
-        :icon="Gauge"
-        label="Compliance"
-        :value="overview ? `${overview.overall_compliance_pct.toFixed(1)}%` : (overviewLoading ? '…' : '—')"
-        to="/compliance/rules"
-        view-all-label="View"
-      />
-      <MetricCard
-        :icon="ShieldAlert"
-        label="Critical violations"
-        :value="overview?.critical_violations ?? (overviewLoading ? '…' : '—')"
-        to="/compliance/drift"
-        view-all-label="View"
-      />
-      <MetricCard
-        :icon="ShieldAlert"
-        label="High violations"
-        :value="overview?.high_violations ?? (overviewLoading ? '…' : '—')"
-        to="/compliance/drift"
-        view-all-label="View"
-      />
+      <!-- The hero above is the single place that reports findings, drift
+           and the fleet score. These cards cover only what the hero does
+           not: the shape of the fleet and the content behind the score. -->
       <MetricCard
         :icon="ShieldCheck"
         label="Baselines"
@@ -263,17 +245,10 @@ async function submitRunAssessment() {
       />
       <MetricCard
         :icon="BookCheck"
-        label="Policies"
+        label="Policy sets"
         :value="overview?.enabled_policies ?? (overviewLoading ? '…' : '—')"
         subtitle="published + enabled"
         to="/compliance/policies"
-        view-all-label="View"
-      />
-      <MetricCard
-        :icon="FileText"
-        label="Open drift"
-        :value="overview?.open_drift ?? (overviewLoading ? '…' : '—')"
-        to="/compliance/drift"
         view-all-label="View"
       />
       <MetricCard

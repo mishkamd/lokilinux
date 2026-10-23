@@ -3,7 +3,8 @@ import { SEVERITY_COLORS } from '~/utils/complianceColors'
 import { RefreshCw } from 'lucide-vue-next'
 
 const store = useComplianceStore()
-const { findings, findingsTotal, findingsLoading, findingsNextCursor, findingFilters } = storeToRefs(store)
+const { findings, findingsTotal, findingsLoading, findingsNextCursor, findingFilters, complianceDomains } =
+  storeToRefs(store)
 const { canEdit } = useCurrentUser()
 const { format: fmtDateTime } = useDateTime()
 
@@ -11,7 +12,16 @@ const { format: fmtDateTime } = useDateTime()
 // and linkable from an incident or a runbook.
 useUrlFilters(findingFilters.value, { severity: '', domain: '', agent_id: '', result: 'FAIL' })
 
-onMounted(() => store.fetchFindings())
+onMounted(async () => {
+  await Promise.all([store.fetchFindings(), store.fetchComplianceDomains()])
+})
+
+// The domain vocabulary from the API — a free-text box here matched nothing
+// whenever the spelling was off ("ssh" vs "sshd"), with no message.
+const domainOptions = computed(() => [
+  { label: 'All domains', value: '' },
+  ...complianceDomains.value.map((d) => ({ label: d.value, value: d.value })),
+])
 
 const RESULT_COLORS: Record<string, string> = {
   FAIL: 'red',
@@ -39,8 +49,8 @@ const columns = [
       <div class="flex flex-wrap items-center gap-3">
         <Select v-model="findingFilters.severity" :options="['', 'CRITICAL', 'HIGH', 'MEDIUM', 'LOW']"
                 placeholder="Severity" class="w-36" @change="store.fetchFindings()" />
-        <Input v-model="findingFilters.domain" placeholder="Filter by domain" class="w-48"
-               @keyup.enter="store.fetchFindings()" />
+        <Select v-model="findingFilters.domain" :options="domainOptions" placeholder="All domains" class="w-48"
+                @change="store.fetchFindings()" />
         <Select v-model="findingFilters.result"
                 :options="[{ label: 'Failing (default)', value: 'FAIL' }, { label: 'Unknown', value: 'UNKNOWN' }, { label: 'All', value: '' }]"
                 placeholder="Result" class="w-44" @change="store.fetchFindings()" />

@@ -24,3 +24,12 @@ async def test_pipeline_snapshot_reflects_incremented_counters(client):
     samples = resp.json()["signals_detected"]
     total_values = [s["value"] for s in samples if s["name"].endswith("_total")]
     assert any(v >= 1 for v in total_values)
+
+
+@pytest.mark.asyncio
+async def test_pipeline_snapshot_reports_worker_last_seen(client):
+    from lokilinux.utils import liveness
+
+    liveness.beat("incident_worker")
+    body = (await client.get("/api/v1/observability/pipeline")).json()
+    assert "incident_worker" in body["workers"]

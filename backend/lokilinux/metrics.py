@@ -54,6 +54,11 @@ events_dropped_total = Counter(
 signals_detected_total = Counter(
     "lokilinux_signals_detected_total", "Signal upserts (new + re-occurrence)", ["type"]
 )
+signals_dropped_total = Counter(
+    "lokilinux_signals_dropped_total",
+    "Events the signal pipeline could not turn into a signal (NATS is at-most-once: lost)",
+    ["reason"],
+)
 incidents_created_total = Counter(
     "lokilinux_incidents_created_total", "New incidents opened (not re-attaches)", ["incident_type"]
 )

@@ -11,17 +11,20 @@ lower-stakes, easily-reversible grouping, not a signed, fleet-wide contract.
 """
 
 import asyncio
+import json
 import logging
 from datetime import datetime, timezone
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import httpx
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
+import yaml
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import String, func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from lokilinux.api.v1.routers.compliance._pagination import paginate_keyset
 from lokilinux.auth.dependencies import get_current_user, require_permission, safe_user_uuid
+from lokilinux.compliance_domains import CATEGORY_BY_DOMAIN, COMPLIANCE_DOMAINS
 from lokilinux.config import get_settings
 from lokilinux.dependencies import get_db
 from lokilinux.models.compliance_rule import (
@@ -29,34 +32,107 @@ from lokilinux.models.compliance_rule import (
     PolicyAssignment,
     PolicySet,
     PolicySetRule,
+    RemediationTemplate,
 )
 from lokilinux.models.job import Job, JobStatus
 from lokilinux.object_storage import ObjectStorage
 from lokilinux.schemas.common import CursorPage
 from lokilinux.schemas.compliance_rule import (
+    ComplianceDomain,
+    ComplianceDomainsResponse,
     ComplianceRuleResponse,
+    FacetValue,
     FailingAgent,
     FrameworkMapping,
     PolicyAssignmentCreate,
     PolicyAssignmentResponse,
     PolicySetCoverageResponse,
     PolicySetCreate,
+    PolicySetFromTemplateRequest,
+    PolicySetFromTemplateResponse,
     PolicySetImportRequest,
     PolicySetImportResponse,
+    PolicySetProfileImportRequest,
+    PolicySetProfileImportResponse,
+    PolicySetRemediationResponse,
     PolicySetRemediationUpdate,
     PolicySetResponse,
     PolicySetRuleAdd,
+    PolicySetRuleRemediation,
+    PolicyTemplateResponse,
+    RemediationTemplateResponse,
     RuleDetailResponse,
+    RuleFacetsResponse,
 )
 from lokilinux.services.audit_service import AuditService
 from lokilinux.services.complianceascode_importer import ComplianceAsCodeImporter
 from lokilinux.services.policy_set_service import PolicySetService
+from lokilinux.services.policy_templates import (
+    get_template,
+    list_templates,
+    resolve_template_rules,
+    severity_breakdown,
+)
 from lokilinux.services.storage_service import StorageService
 from lokilinux.utils.url_guard import UnsafeURLError, assert_safe_url
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+async def _unique_slug(db: AsyncSession, base: str) -> str:
+    """Slug for a policy set created from a template — the template key,
+    suffixed if that slug is taken (creating the same template twice is a
+    normal thing to do, e.g. per platform)."""
+    candidate = base
+    for n in range(1, 100):
+        exists = (
+            await db.execute(select(PolicySet.id).where(PolicySet.slug == candidate))
+        ).scalar_one_or_none()
+        if exists is None:
+            return candidate
+        candidate = f"{base}-{n + 1}"
+    return f"{base}-{uuid4().hex[:6]}"
+
+
+# Roles that may act on a host. The remediation body is the command that
+# would run there — operator-grade detail, not catalogue metadata — so an
+# AUDITOR sees that a remediation exists, not what it does.
+_REMEDIATION_ROLES = frozenset({"ADMIN", "OPERATOR"})
+
+
+def _can_see_remediation(user: dict) -> bool:
+    return user.get("role", "VIEWER") in _REMEDIATION_ROLES
+
+
+async def _remediation_for(
+    db: AsyncSession, rule_key: str
+) -> RemediationTemplateResponse | None:
+    """The remediation for a rule, if it has one.
+
+    A rule can carry more than one template (the table is unique per
+    rule_key+provider+version); the highest version wins, and among equal
+    versions the first by provider — a rule's remediation is "the command
+    that fixes it", not a menu.
+    """
+    row = (
+        await db.execute(
+            select(RemediationTemplate)
+            .where(RemediationTemplate.rule_key == rule_key)
+            .order_by(RemediationTemplate.version.desc(), RemediationTemplate.provider)
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        return None
+    return RemediationTemplateResponse(
+        provider=row.provider,
+        body=row.body,
+        rollback_body=row.rollback_body,
+        source=row.source,
+        version=row.version,
+    )
 
 
 # ── Rule catalog (read-only) ──────────────────────────────────────────────────
@@ -142,17 +218,116 @@ async def list_rules(
     )
 
 
+@router.get("/domains", response_model=ComplianceDomainsResponse)
+async def list_compliance_domains(
+    db: AsyncSession = Depends(get_db),
+    _: dict = Depends(get_current_user),
+) -> ComplianceDomainsResponse:
+    """The domain vocabulary — the values a domain filter may take.
+
+    Sourced from the canonical list (lokilinux/compliance_domains.py, which
+    mirrors the agent's collectors), not from the data: findings are
+    per-rule, but drift events come from collectors that have no rule at
+    all (cron, processes, open_ports…), and a filter that only offered the
+    rule domains would make those unreachable.
+
+    A free-text box for this was the problem: typing "ssh" instead of
+    "sshd" matched nothing, with no message.
+    """
+    counts = dict(
+        (
+            await db.execute(
+                select(ComplianceRule.domain, func.count()).group_by(ComplianceRule.domain)
+            )
+        ).all()
+    )
+    domains = [
+        ComplianceDomain(
+            value=domain,
+            rules=int(counts.get(domain, 0)),
+            category=CATEGORY_BY_DOMAIN.get(domain, "configuration"),
+        )
+        for domain in COMPLIANCE_DOMAINS
+    ]
+    # A rule for a domain the collector list doesn't know about (imported
+    # content) still has to be filterable.
+    known = set(COMPLIANCE_DOMAINS)
+    domains += [
+        ComplianceDomain(
+            value=domain,
+            rules=int(count),
+            category=CATEGORY_BY_DOMAIN.get(domain, "configuration"),
+        )
+        for domain, count in sorted(counts.items())
+        if domain not in known
+    ]
+    return ComplianceDomainsResponse(domains=domains)
+
+
+@router.get("/rules/facets", response_model=RuleFacetsResponse)
+async def get_rule_facets(
+    db: AsyncSession = Depends(get_db),
+    _: dict = Depends(get_current_user),
+) -> RuleFacetsResponse:
+    """The distinct values the rule catalog can actually be filtered by.
+
+    Without this, the catalog UI asks the operator to type a domain or a
+    framework key as free text and silently returns nothing when the
+    spelling is off ("ssh" vs "sshd"). One call, real values, real
+    counts.
+    """
+    domain_rows = (
+        await db.execute(
+            select(ComplianceRule.domain, func.count())
+            .group_by(ComplianceRule.domain)
+            .order_by(ComplianceRule.domain)
+        )
+    ).all()
+    severity_rows = (
+        await db.execute(
+            select(ComplianceRule.severity, func.count()).group_by(ComplianceRule.severity)
+        )
+    ).all()
+    source_rows = (
+        await db.execute(
+            select(ComplianceRule.source, func.count()).group_by(ComplianceRule.source)
+        )
+    ).all()
+
+    # platform_filter and standard_refs are JSONB — pull the distinct
+    # values out in Python (the catalog is hundreds of rules, not millions).
+    rows = (
+        await db.execute(select(ComplianceRule.platform_filter, ComplianceRule.standard_refs))
+    ).all()
+    platforms: dict[str, int] = {}
+    frameworks: dict[str, int] = {}
+    for platform_filter, standard_refs in rows:
+        for platform in platform_filter or []:
+            platforms[platform] = platforms.get(platform, 0) + 1
+        for key in standard_refs or {}:
+            frameworks[key] = frameworks.get(key, 0) + 1
+
+    return RuleFacetsResponse(
+        domains=[FacetValue(value=v, count=c) for v, c in domain_rows],
+        severities=[FacetValue(value=v, count=c) for v, c in severity_rows],
+        sources=[FacetValue(value=v, count=c) for v, c in source_rows],
+        platforms=[FacetValue(value=v, count=c) for v, c in sorted(platforms.items())],
+        frameworks=[FacetValue(value=v, count=c) for v, c in sorted(frameworks.items())],
+    )
+
+
 @router.get("/rules/{rule_id}", response_model=RuleDetailResponse)
 async def get_rule_detail(
     rule_id: UUID,
     db: AsyncSession = Depends(get_db),
-    _: dict = Depends(get_current_user),
+    current_user: dict = Depends(get_current_user),
 ) -> RuleDetailResponse:
     """Full rule detail (docs/compliance §37): everything list_rules already
     returns, plus framework mappings (the normalized Framework/Control
     tables, not just raw standard_refs), live PASS/FAIL/NOT_APPLICABLE/
-    ERROR coverage from the latest verdict per agent, and which agents are
-    currently failing."""
+    ERROR coverage from the latest verdict per agent, which agents are
+    currently failing, and the remediation (script + rollback) when the role
+    can act on a host."""
     rule = (await db.execute(select(ComplianceRule).where(ComplianceRule.id == rule_id))).scalar_one_or_none()
     if rule is None:
         raise HTTPException(status_code=404, detail="Rule not found")
@@ -220,12 +395,15 @@ async def get_rule_detail(
     ).mappings().all()
     failing_agents = [FailingAgent(agent_id=r["agent_id"], hostname=r["hostname"]) for r in failing_rows]
 
+    template = await _remediation_for(db, rule.rule_key)
     return RuleDetailResponse(
         **ComplianceRuleResponse.model_validate(rule).model_dump(),
         framework_mappings=framework_mappings,
-         coverage=coverage,
-         failing_agents=failing_agents,
-     )
+        coverage=coverage,
+        failing_agents=failing_agents,
+        has_remediation=template is not None,
+        remediation=template if _can_see_remediation(current_user) else None,
+    )
 
 
 # ── Policy sets ────────────────────────────────────────────────────────────────
@@ -286,6 +464,97 @@ async def create_policy_set(
     return PolicySetResponse.model_validate(policy_set)
 
 
+@router.get("/policy-templates", response_model=list[PolicyTemplateResponse])
+async def list_policy_templates(
+    db: AsyncSession = Depends(get_db),
+    _: dict = Depends(get_current_user),
+) -> list[PolicyTemplateResponse]:
+    """The ready-made policy profiles, with live rule counts.
+
+    A template is a *selection* over the rule catalog, not a copy of it
+    (services/policy_templates.py) — the counts here are resolved against
+    the catalog as it stands right now, so the picker can say "42 rules
+    match" before anything is created. A template whose count is 0 means
+    the catalog has no rules for it yet, not that the template is broken.
+    """
+    out: list[PolicyTemplateResponse] = []
+    for template in list_templates():
+        rules = await resolve_template_rules(db, template)
+        out.append(
+            PolicyTemplateResponse(
+                key=template.key,
+                name=template.name,
+                description=template.description,
+                framework=template.framework,
+                rule_count=len(rules),
+                severity_breakdown=severity_breakdown(rules),
+            )
+        )
+    return out
+
+
+@router.post(
+    "/policy-sets/from-template", response_model=PolicySetFromTemplateResponse, status_code=201
+)
+async def create_policy_set_from_template(
+    body: PolicySetFromTemplateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(require_permission("compliance.policies.manage")),
+) -> PolicySetFromTemplateResponse:
+    """Creates a DRAFT policy set already populated with a template's rules.
+
+    The one-call path to a useful policy set: previously this was
+    "create empty set → POST rules one by one → publish", which produced
+    an empty policy set whenever any step was missed. Rules, the optional
+    scope assignment and the audit row all land in a single transaction.
+
+    The set is still a DRAFT — publishing stays a separate, explicit step
+    (POST /policy-sets/{id}/publish), because publishing makes the set
+    live for the fleet.
+    """
+    template = get_template(body.template_key)
+    if template is None:
+        raise HTTPException(
+            status_code=404, detail=f"Unknown policy template '{body.template_key}'"
+        )
+
+    rules = await resolve_template_rules(db, template, include_unmapped=body.include_unmapped)
+    if not rules:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Template '{template.key}' matches no rules in the catalog. "
+                "Import compliance content first (POST /compliance/policy-sets/import) "
+                "or pick a different template."
+            ),
+        )
+
+    name = body.name or template.name
+    slug = body.slug or await _unique_slug(db, template.key)
+    overrides = {k: v for k, v in body.severity_overrides.items()}
+    rule_rows = [(r.id, overrides.get(r.rule_key) or template.severity_for(r)) for r in rules]
+
+    policy_set, assignment_id = await PolicySetService(db).create_draft_with_rules(
+        name=name,
+        slug=slug,
+        framework=template.framework,
+        version=body.version,
+        description=body.description or template.description,
+        rules=rule_rows,
+        scope_type=body.scope_type,
+        scope_selector=body.scope_selector,
+        actor=current_user,
+    )
+
+    return PolicySetFromTemplateResponse(
+        policy_set=PolicySetResponse.model_validate(policy_set),
+        template_key=template.key,
+        rules_added=len(rule_rows),
+        severity_breakdown=severity_breakdown(rules),
+        assignment_id=assignment_id,
+    )
+
+
 @router.post("/policy-sets/{policy_set_id}/publish", response_model=PolicySetResponse)
 async def publish_policy_set(
     policy_set_id: UUID,
@@ -317,6 +586,51 @@ async def new_policy_set_version(
     published rule. Edit the returned draft's rules, then publish it."""
     clone = await PolicySetService(db).create_new_version(policy_set_id, current_user)
     return PolicySetResponse.model_validate(clone)
+
+
+@router.get("/policy-sets/{policy_set_id}/remediation", response_model=PolicySetRemediationResponse)
+async def list_policy_set_remediation(
+    policy_set_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(get_current_user),
+) -> PolicySetRemediationResponse:
+    """The remediation each rule in this policy set carries — the exact
+    commands that would run on the hosts in scope.
+
+    The point is reviewability: at AUTOMATIC mode the operator sees exactly
+    what would be executed, before anything is dispatched. The body is only
+    handed to the roles that can act on a host; other roles see which rules
+    have a remediation and that it exists, but not the command.
+    """
+    policy_set = (
+        await db.execute(select(PolicySet).where(PolicySet.id == policy_set_id))
+    ).scalar_one_or_none()
+    if policy_set is None:
+        raise HTTPException(status_code=404, detail="Policy set not found")
+
+    rules = (
+        await db.execute(
+            select(ComplianceRule)
+            .join(PolicySetRule, PolicySetRule.rule_id == ComplianceRule.id)
+            .where(PolicySetRule.policy_set_id == policy_set_id)
+            .order_by(ComplianceRule.rule_key)
+        )
+    ).scalars().all()
+    visible = _can_see_remediation(current_user)
+    out: list[PolicySetRuleRemediation] = []
+    for rule in rules:
+        template = await _remediation_for(db, rule.rule_key)
+        out.append(
+            PolicySetRuleRemediation(
+                rule_id=rule.id,
+                rule_key=rule.rule_key,
+                title=rule.title,
+                domain=rule.domain,
+                severity=rule.severity,
+                remediation=template if visible else None,
+            )
+        )
+    return PolicySetRemediationResponse(policy_set_id=policy_set_id, remediations=out)
 
 
 @router.patch("/policy-sets/{policy_set_id}/remediation", response_model=PolicySetResponse)
@@ -569,6 +883,83 @@ async def add_policy_set_rule(
     return {"policy_set_id": str(policy_set_id), "rule_id": str(body.rule_id), "status": "added"}
 
 
+@router.delete("/policy-sets/{policy_set_id}/rules/{rule_id}", status_code=204)
+async def remove_policy_set_rule(
+    policy_set_id: UUID,
+    rule_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(require_permission("compliance.policies.manage")),
+) -> None:
+    """Unlinks a rule from a DRAFT policy set (audit trail: policy_set_rule_removed).
+
+    Only a DRAFT can be edited — a published set is immutable by design, so
+    changing it means creating a new version, never mutating the rules under
+    a version that is already live for the fleet.
+    """
+    await PolicySetService(db).remove_rule(policy_set_id, rule_id, current_user)
+
+
+@router.get("/policy-sets/{policy_set_id}/export")
+async def export_policy_set(
+    policy_set_id: UUID,
+    format: str = Query("json", pattern="^(json|yaml)$"),
+    db: AsyncSession = Depends(get_db),
+    _: dict = Depends(get_current_user),
+) -> Response:
+    """The policy set as a portable profile — rule references by rule_key, not
+    by UUID, so the artifact can be committed to git and reviewed as a diff a
+    human reads (docs/compliance/07-POLICY-ENGINE.md §5).
+
+    Round-trips with POST /policy-sets/import-profile: exporting and
+    re-importing the same profile yields the same set of rules.
+    """
+    profile = await PolicySetService(db).export_profile(policy_set_id)
+    slug = profile["policy_set"]["slug"]
+    if format == "yaml":
+        return Response(
+            content=yaml.safe_dump(profile, sort_keys=False, allow_unicode=True),
+            media_type="application/yaml",
+            headers={"Content-Disposition": f"attachment; filename={slug}.yaml"},
+        )
+    return Response(
+        content=json.dumps(profile, indent=2, ensure_ascii=False),
+        media_type="application/json",
+        headers={"Content-Disposition": f"attachment; filename={slug}.json"},
+    )
+
+
+@router.post(
+    "/policy-sets/import-profile", response_model=PolicySetProfileImportResponse, status_code=201
+)
+async def import_policy_set_profile(
+    body: PolicySetProfileImportRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: dict = Depends(require_permission("compliance.policies.manage")),
+) -> PolicySetProfileImportResponse:
+    """Creates a DRAFT policy set from an exported profile.
+
+    Rules are matched by rule_key against the local catalog; a profile never
+    carries rule bodies. Rules the catalog doesn't know are reported in
+    `missing_rules` rather than silently dropped — an imported policy set
+    must never have invisible holes in it.
+    """
+    policy_set, missing = await PolicySetService(db).import_profile(
+        body.profile, body.slug, body.name, current_user
+    )
+    imported = (
+        await db.execute(
+            select(func.count())
+            .select_from(PolicySetRule)
+            .where(PolicySetRule.policy_set_id == policy_set.id)
+        )
+    ).scalar_one()
+    return PolicySetProfileImportResponse(
+        policy_set=PolicySetResponse.model_validate(policy_set),
+        rules_imported=int(imported),
+        missing_rules=missing,
+    )
+
+
 @router.get("/policy-sets/{policy_set_id}/coverage", response_model=PolicySetCoverageResponse)
 async def get_policy_set_coverage(
     policy_set_id: UUID,
@@ -615,12 +1006,15 @@ async def get_policy_set_coverage(
 @router.get("/policy-assignments", response_model=list[PolicyAssignmentResponse])
 async def list_policy_assignments(
     scope_type: str | None = Query(None),
+    policy_set_id: UUID | None = Query(None),
     db: AsyncSession = Depends(get_db),
     _: dict = Depends(get_current_user),
 ) -> list[PolicyAssignmentResponse]:
     q = select(PolicyAssignment).order_by(PolicyAssignment.created_at.desc())
     if scope_type:
         q = q.where(PolicyAssignment.scope_type == scope_type)
+    if policy_set_id:
+        q = q.where(PolicyAssignment.policy_set_id == policy_set_id)
     rows = (await db.execute(q)).scalars().all()
     return [PolicyAssignmentResponse.model_validate(a) for a in rows]
 

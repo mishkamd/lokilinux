@@ -15,10 +15,10 @@ class LocalCounter:
     def __init__(self) -> None:
         self._counts: dict[tuple[str, int], int] = {}
 
-    def increment(self, key: str, window: int) -> int:
+    def increment(self, key: str, window: int, amount: int = 1) -> int:
         for k in [k for k in self._counts if k[1] < window]:
             del self._counts[k]
-        self._counts[(key, window)] = self._counts.get((key, window), 0) + 1
+        self._counts[(key, window)] = self._counts.get((key, window), 0) + amount
         return self._counts[(key, window)]
 
 

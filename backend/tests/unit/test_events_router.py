@@ -143,3 +143,20 @@ def _encode(ts: datetime, event_id: str) -> str:
     from lokilinux.schemas.common import encode_cursor
 
     return encode_cursor(f"{ts.isoformat()}:{event_id}")
+
+
+@pytest.mark.asyncio
+async def test_invalid_json_body_is_400_not_500(client):
+    resp = await client.post(
+        "/api/v1/events", content=b"{not json", headers={"content-type": "application/json"}
+    )
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_disabled_pipeline_rejects_http_ingest(client, fake_cache):
+    from lokilinux.events.publish import _PIPELINE_ENABLED_CACHE_KEY
+
+    await fake_cache.set_cached(_PIPELINE_ENABLED_CACHE_KEY, False)
+    resp = await client.post("/api/v1/events", json={"source": "agent", "type": "x.y"})
+    assert resp.status_code == 503

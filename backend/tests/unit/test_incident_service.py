@@ -200,3 +200,103 @@ async def test_maybe_auto_resolve_true_when_all_signals_quiet(db_session, fake_n
 
     row = await db_session.get(Incident, incident.id)
     assert row.status == "RESOLVED"
+
+
+@pytest.mark.asyncio
+async def test_resolve_resolves_the_incident_alert_and_reopen_clears_resolved_at(db_session, fake_nats):
+    await _make_signal(db_session, host_id="host-7", sig_type="cpu.high")
+    rule = await _make_rule(db_session)
+    candidate = _candidate(rule, host_id="host-7", member_types=["cpu.high"], score=60, root_signal_type="cpu.high")
+    svc = IncidentService(db_session, fake_nats, _FakeCache(), _FakeCH())
+    incident = await svc.open_from_candidate(candidate)
+
+    resolved = await svc.resolve(incident.id)
+    alert = (await db_session.execute(select(Alert).where(Alert.incident_id == incident.id))).scalar_one()
+    await db_session.refresh(alert)
+    assert alert.status == "RESOLVED"
+    assert resolved.resolved_at is not None
+
+    reopened = await svc.reopen(incident.id)
+    assert reopened.resolved_at is None
+
+
+@pytest.mark.asyncio
+async def test_already_resolved_signals_are_not_attached_to_a_new_incident(db_session, fake_nats):
+    live = await _make_signal(db_session, host_id="host-8", sig_type="cpu.high")
+    await _make_signal(db_session, host_id="host-8", sig_type="load.high", status="RESOLVED")
+    rule = await _make_rule(db_session)
+    candidate = _candidate(
+        rule, host_id="host-8", member_types=["cpu.high", "load.high"], score=65, root_signal_type="cpu.high"
+    )
+    incident = await IncidentService(db_session, fake_nats, _FakeCache(), _FakeCH()).open_from_candidate(candidate)
+
+    links = (await db_session.execute(select(IncidentSignal).where(IncidentSignal.incident_id == incident.id))).scalars().all()
+    assert [link.signal_id for link in links] == [live.id]
+
+
+@pytest.mark.asyncio
+async def test_a_suppressed_signal_counts_as_done_for_auto_resolve(db_session, fake_nats):
+    host_id = "host-9"
+    quiet = datetime.now(timezone.utc) - timedelta(seconds=700)
+    sig = await _make_signal(db_session, host_id=host_id, sig_type="cpu.high", status="SUPPRESSED", last_seen=quiet)
+    rule = await _make_rule(db_session)
+    svc = IncidentService(db_session, fake_nats, _FakeCache(), _FakeCH())
+    incident = await svc.open_from_candidate(
+        _candidate(rule, host_id=host_id, member_types=["cpu.high"], score=60, root_signal_type="cpu.high")
+    )
+    assert sig.id is not None
+
+    assert await svc.maybe_auto_resolve(incident.id) is True
+
+
+@pytest.mark.asyncio
+async def test_reattach_writes_evidence_only_for_newly_linked_signals(db_session, fake_nats):
+    host_id = "host-10"
+    await _make_signal(db_session, host_id=host_id, sig_type="cpu.high")
+    rule = await _make_rule(db_session)
+    ch = _FakeCH()
+    svc = IncidentService(db_session, fake_nats, _FakeCache(), ch)
+    candidate = _candidate(
+        rule, host_id=host_id, member_types=["cpu.high"], score=60, root_signal_type="cpu.high", group_key="g-10"
+    )
+    await svc.open_from_candidate(candidate)
+    assert len(ch.inserted) == 1  # created: one batched insert for its signals
+
+    await svc.open_from_candidate(candidate)  # window re-fires, nothing new to link
+    assert len(ch.inserted) == 1
+
+    await _make_signal(db_session, host_id=host_id, sig_type="load.high")
+    both = _candidate(
+        rule, host_id=host_id, member_types=["cpu.high", "load.high"], score=65,
+        root_signal_type="cpu.high", group_key="g-10",
+    )
+    await svc.open_from_candidate(both)
+    assert len(ch.inserted) == 2
+    assert [row[4] for row in ch.inserted[1][1]] == [fingerprint("default", host_id, "load.high", None)]
+
+
+@pytest.mark.asyncio
+async def test_member_lookup_finds_a_signal_whose_fingerprint_carries_a_resource(db_session, fake_nats):
+    from lokilinux.models.agent import Agent, AgentStatus
+
+    agent = Agent(agent_id=str(uuid4()), status=AgentStatus.ACTIVE, hostname="web-01")
+    db_session.add(agent)
+    await db_session.flush()
+    now = datetime.now(timezone.utc)
+    # job.failed keyed on its service: the fingerprint differs from fingerprint(tenant, host, type, None)
+    sig = Signal(
+        tenant_id="default", type="job.failed", severity="HIGH", status="OPEN", host_id=agent.id,
+        service="backup", fingerprint=fingerprint("default", str(agent.id), "job.failed", "backup"),
+        first_seen=now, last_seen=now,
+    )
+    db_session.add(sig)
+    await db_session.flush()
+    rule = await _make_rule(db_session, conditions=[{"signal": "job.failed", "weight": 60}])
+    candidate = _candidate(
+        rule, host_id=str(agent.id), member_types=["job.failed"], score=60, root_signal_type="job.failed"
+    )
+
+    incident = await IncidentService(db_session, fake_nats, _FakeCache(), _FakeCH()).open_from_candidate(candidate)
+
+    links = (await db_session.execute(select(IncidentSignal).where(IncidentSignal.incident_id == incident.id))).scalars().all()
+    assert [link.signal_id for link in links] == [sig.id]

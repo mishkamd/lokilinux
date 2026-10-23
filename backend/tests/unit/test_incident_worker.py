@@ -109,3 +109,26 @@ async def test_signal_resolved_for_unknown_fingerprint_is_a_noop(db_session, fak
 async def test_malformed_json_does_not_raise(db_session, fake_nats):
     worker = IncidentWorker(fake_nats, _db_factory(db_session), _FakeCache(), _FakeCH(), None)
     await worker._handle_signal_resolved(SimpleNamespace(data=b"{not-json"))
+
+
+@pytest.mark.asyncio
+async def test_sweep_keeps_going_after_one_incident_fails(db_session, fake_nats, monkeypatch):
+    from lokilinux.incidents.service import IncidentService
+
+    bad, _ = await _make_open_incident_with_signal(db_session, host_id="host-b", sig_type="cpu.high", quiet=True)
+    good, _ = await _make_open_incident_with_signal(db_session, host_id="host-g", sig_type="load.high", quiet=True)
+    await db_session.commit()  # the failure path rolls back; keep the fixtures out of it
+    bad_id, good_id = bad.id, good.id  # the rollback expires these objects
+    real = IncidentService.maybe_auto_resolve
+
+    async def flaky(self, incident_id):
+        if incident_id == bad_id:
+            raise RuntimeError("boom")
+        return await real(self, incident_id)
+
+    monkeypatch.setattr(IncidentService, "maybe_auto_resolve", flaky)
+    worker = IncidentWorker(fake_nats, _db_factory(db_session), _FakeCache(), _FakeCH(), None)
+
+    await worker._sweep()  # must not raise
+
+    assert (await db_session.get(Incident, good_id)).status == "RESOLVED"

@@ -130,3 +130,85 @@ async def test_backpressure_drops_debug_before_an_older_warning():
     assert len(remaining) == repo_module.EVENT_BUFFER_MAX
     assert remaining.count("WARNING") == 2  # both WARNING rows survive
     assert remaining.count("DEBUG") == 3    # the oldest DEBUG was dropped
+
+
+@pytest.mark.asyncio
+async def test_add_does_not_retrigger_flush_during_backoff():
+    ch = FakeCH(fail_times=999)
+    repo = EventRepository(ch)
+    for _ in range(3):  # reaching the batch size triggers the one failing flush
+        await repo.add(_mk_event())
+    assert repo._retry_after > 0
+    calls = {"n": 0}
+    real_insert = ch.insert
+
+    async def counting_insert(*args, **kwargs):
+        calls["n"] += 1
+        return await real_insert(*args, **kwargs)
+
+    ch.insert = counting_insert
+    for _ in range(3):  # buffer is over the batch size, but the backoff window is open
+        await repo.add(_mk_event())
+    assert calls["n"] == 0
+
+
+@pytest.mark.asyncio
+async def test_add_caps_the_buffer_even_when_clickhouse_is_slow_not_failing(monkeypatch):
+    monkeypatch.setattr(repo_module, "EVENT_INSERT_BATCH", 999)  # never flush by size
+    repo = EventRepository(FakeCH())
+    for _ in range(repo_module.EVENT_BUFFER_MAX + 3):
+        await repo.add(_mk_event(severity="DEBUG"))
+    assert len(repo._buffer) == repo_module.EVENT_BUFFER_MAX
+
+
+@pytest.mark.asyncio
+async def test_hard_ceiling_drops_even_error_rows(monkeypatch):
+    monkeypatch.setattr(repo_module, "EVENT_INSERT_BATCH", 999)
+    repo = EventRepository(FakeCH())
+    for _ in range(repo_module.EVENT_BUFFER_MAX * 2 + 4):
+        await repo.add(_mk_event(severity="ERROR"))
+    assert len(repo._buffer) == repo_module.EVENT_BUFFER_MAX * 2
+
+
+class _WindowCH:
+    """Answers each query() from a queue and remembers the parameters it was sent."""
+
+    def __init__(self, *answers: int) -> None:
+        self.answers = list(answers)
+        self.params: list[dict] = []
+
+    async def query(self, sql, parameters=None):
+        from types import SimpleNamespace
+
+        self.params.append(parameters)
+        n = self.answers.pop(0)
+        rows = [[datetime.now(timezone.utc), str(uuid4())] + [""] * 9 for _ in range(n)]
+        return SimpleNamespace(result_rows=rows, column_names=repo_module._COLUMNS)
+
+
+@pytest.mark.asyncio
+async def test_list_widens_the_time_window_only_while_the_page_is_not_full():
+    ch = _WindowCH(0, 0, 3)  # nothing in 1 day, nothing in 7 days, rows only when unbounded
+    result = await EventRepository(ch).query("default", limit=2)
+
+    assert len(ch.params) == 3
+    assert "window_start" in ch.params[0] and "window_start" in ch.params[1]
+    assert "window_start" not in ch.params[2]
+    assert len(result["items"]) == 2 and result["next_before"] is not None
+
+
+@pytest.mark.asyncio
+async def test_list_stops_at_the_first_window_that_fills_the_page():
+    ch = _WindowCH(3)
+    await EventRepository(ch).query("default", limit=2)
+    assert len(ch.params) == 1
+
+
+@pytest.mark.asyncio
+async def test_list_window_is_anchored_on_the_cursor_not_on_now():
+    from datetime import timedelta
+
+    before = datetime(2026, 1, 10, tzinfo=timezone.utc)
+    ch = _WindowCH(5)
+    await EventRepository(ch).query("default", limit=2, before=(before, "evt"))
+    assert ch.params[0]["window_start"] == before - timedelta(days=1)

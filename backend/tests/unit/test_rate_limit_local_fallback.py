@@ -23,7 +23,7 @@ _HEADERS = {"content-type": "application/x-protobuf"}
 def redis_down(fake_cache, monkeypatch):
     """Redis errors: incr_checked returns None and incr keeps its fail-open 0."""
 
-    async def incr_checked(key, ttl):
+    async def incr_checked(key, ttl, amount=1):
         return None
 
     async def incr_fail_open(key, ttl):
@@ -71,3 +71,10 @@ async def test_events_and_otlp_share_one_bucket_per_principal(
     # Another principal has its own bucket. The client's auth override returns this same dict.
     current_user["id"] = str(uuid4())
     assert (await client.post("/api/v1/events", json=_EVENT)).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_a_batch_costs_one_unit_per_event(client, redis_down, small_limit):
+    # Limit is 2 events/min; a 3-event batch must already trip it (it used to cost 1).
+    resp = await client.post("/api/v1/events", json={"events": [_EVENT] * (_LIMIT + 1)})
+    assert resp.status_code == 429

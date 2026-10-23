@@ -13,11 +13,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import structlog
 
 from lokilinux.auth.dependencies import get_current_user, require_role
-from lokilinux.dependencies import get_db, get_nats
+from lokilinux.ch import ClickHouseStore
+from lokilinux.dependencies import get_ch, get_db, get_nats
 from lokilinux.models.agent import Agent
 from lokilinux.nats_topics import SIGNAL_RESOLVED
 from lokilinux.schemas.common import decode_cursor, encode_cursor
 from lokilinux.signals.models import Signal
+from lokilinux.signals.repository import SignalOccurrenceRepository
 from lokilinux.signals.schemas import SignalListResponse, SignalResponse
 
 logger = structlog.get_logger()
@@ -100,9 +102,23 @@ async def list_signals(
 
 async def _get_or_404(db: AsyncSession, signal_id: UUID) -> Signal:
     signal = await db.get(Signal, signal_id)
-    if signal is None:
+    if signal is None or signal.tenant_id != _TENANT_ID:
         raise HTTPException(status_code=404, detail="Signal not found")
     return signal
+
+
+@router.get("/{signal_id}/occurrences")
+async def signal_occurrences(
+    signal_id: UUID,
+    limit: int = Query(100, ge=1, le=500),
+    db: AsyncSession = Depends(get_db),
+    ch: ClickHouseStore = Depends(get_ch),
+    _: dict[str, Any] = Depends(get_current_user),
+) -> dict[str, Any]:
+    """Recent detections of this signal (newest first), from ClickHouse signal_occurrences."""
+    signal = await _get_or_404(db, signal_id)
+    items = await SignalOccurrenceRepository(ch).query(signal.tenant_id, signal.fingerprint, limit)
+    return {"items": items}
 
 
 @router.post("/{signal_id}/resolve", response_model=SignalResponse)

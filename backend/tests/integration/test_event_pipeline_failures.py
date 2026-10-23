@@ -55,6 +55,9 @@ class _DedupCache:
         self._keys.add(key)
         return True
 
+    async def set_nx_checked(self, key: str, ttl: int) -> bool | None:
+        return await self.set_nx(key, ttl)
+
 
 class _InsertingFakeCH:
     def __init__(self) -> None:

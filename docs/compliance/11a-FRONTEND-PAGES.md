@@ -19,7 +19,9 @@ document is the operator-facing page map, confirmed by exploration of the live s
   remediation). The UI role check is a convenience mirror — the backend is the authority.
 - **Pagination**: all list endpoints return `CursorPage[T]` (`{items, next_cursor, total}`).
   Pages render 25 rows and a "Load more" button; the store's shared `fetchCursorPage`
-  helper appends or replaces.
+  helper appends or replaces. It requests `limit=100` for every list — the API default
+  (20) was smaller than the table's page size, so the pager never appeared and
+  "Load more" was the only way past the first screen.
 - **Store**: one Pinia setup store, `stores/compliance.ts`, wraps every endpoint below.
   Pages never call `useApi()` for compliance data directly (two deliberate one-off
   exceptions are flagged inline).
@@ -29,10 +31,27 @@ document is the operator-facing page map, confirmed by exploration of the live s
 
 ## 1. Navigation map
 
-From the `navSections` computed in `layouts/default.vue`: a single `Compliance` section
-(four top-level rows + one group), replacing the earlier split between a `Configuration`
-section and a `Compliance` section — both lived under `/compliance/*` regardless, so the
-merge is nav-only, no route or engine changes.
+Two nav surfaces, one source of truth (`utils/nav.ts`):
+
+**Sidebar** — `Guard` section, two groups. *Compliance* (`/compliance`) and *Configuration*
+(`/compliance/baselines` ▸ Baselines, Drift, File Integrity). They stay separate products:
+Configuration is "what should this host look like, and did it drift", Compliance is "does it
+satisfy a rule/standard".
+
+**Tab bar** — `pages/compliance.vue` picks one of two tab sets by route, so every compliance
+route has a tab bar. Previously the Configuration pages had none at all (the shell hid the
+compliance tabs on those routes), which left an operator who landed on `/compliance/drift`
+unable to reach its neighbours without going back through the sidebar.
+
+| Tab set | Tabs |
+|---|---|
+| `COMPLIANCE_TABS` | Overview, **Policy Sets**, **Rules**, **Standards**, Findings, Remediation, Exceptions, Reports |
+| `CONFIGURATION_TABS` | Baselines, Drift, File Integrity |
+
+The compliance tabs are ordered by the operator's workflow, not alphabetically: pick a policy
+profile → pick the rules it uses → see which standard it maps to → review what failed → fix it
+→ waive what is intentional → report. The same order Wazuh, CIS-CAT and Tenable walk their
+users through.
 
 | Menu label | Route | Page file | Group |
 |---|---|---|---|
@@ -61,8 +80,8 @@ Route protection is global (`middleware/auth.global.ts`) — no `definePageMeta`
 |---|---|---|
 | Dashboard widgets | `overview`, `trend`, `trendRange`, `topViolations`, `topChangedFiles`, `assessments` | `fetchOverview` → GET `/compliance/overview`; `fetchTrend` → GET `/compliance/trend?range=`; `fetchTopViolations` → GET `/compliance/dashboard/top-violations`; `fetchTopChangedFiles` → GET `/compliance/dashboard/top-changed-files`; `fetchAssessments` → GET `/compliance/assessments?limit=5`; `createAssessment` → POST `/compliance/assessments` |
 | Baselines | `baselines*`, `baselineFilters{scope_type}`, `selectedBaseline`, `versions*` | `fetchBaselines` → GET `/compliance/baselines?scope_type=`; `createBaseline` → POST; `fetchBaseline` → GET `/{id}`; `fetchVersions` → GET `/{id}/versions`; `createVersion` → POST `/{id}/versions`; `submitVersion`/`approveVersion`/`publishVersion`/`rollbackVersion` → POST `/{id}/versions/{vid}/submit\|approve\|publish\|rollback` |
-| Rules | `rules*`, `ruleFilters{domain,check_source,severity,search,framework,platform,status,rule_status}`, `selectedRule` | `fetchRules` → GET `/compliance/rules` (8 filter params); `fetchRule` → GET `/compliance/rules/{id}` (detail incl. `framework_mappings`, `coverage`, `failing_agents`) |
-| Policy sets | `policySets*`, `selectedPolicySet`, `policySetRules`, `policySetCoverage` | `fetchPolicySets` → GET `/compliance/policy-sets`; `createPolicySet` → POST; `fetchPolicySet` → GET `/{id}`; `fetchPolicySetRules` → GET `/{id}/rules`; `addPolicySetRule` → POST `/{id}/rules`; `fetchPolicySetCoverage` → GET `/{id}/coverage`; `importPolicySet` → POST `/compliance/policy-sets/import` (202 `{job_id,status}`); `publishPolicySet`/`archivePolicySet` → POST `/{id}/publish\|archive`; `newPolicySetVersion` → POST `/{id}/new-version`; `setPolicySetRemediation` → PATCH `/{id}/remediation`; `createPolicyAssignment` → POST `/compliance/policy-assignments` |
+| Rules | `rules*`, `ruleFilters{domain,check_source,severity,search,framework,platform,status,rule_status}`, `selectedRule`, `ruleFacets` | `fetchRules` → GET `/compliance/rules` (8 filter params); `fetchRule` → GET `/compliance/rules/{id}` (detail incl. `framework_mappings`, `coverage`, `failing_agents`); `fetchRuleFacets` → GET `/compliance/rules/facets` (distinct filter values + counts) |
+| Policy sets | `policySets*`, `selectedPolicySet`, `policySetRules`, `policySetCoverage`, `policyTemplates*`, `policyAssignments` | `fetchPolicySets` → GET `/compliance/policy-sets`; `createPolicySet` → POST; `fetchPolicyTemplates` → GET `/compliance/policy-templates`; `createPolicySetFromTemplate` → POST `/compliance/policy-sets/from-template` (one call: set + rules + scope); `fetchPolicySet` → GET `/{id}`; `fetchPolicySetRules` → GET `/{id}/rules`; `addPolicySetRule` → POST `/{id}/rules`; `fetchPolicySetCoverage` → GET `/{id}/coverage`; `fetchPolicyAssignments` → GET `/compliance/policy-assignments?policy_set_id=`; `importPolicySet` → POST `/compliance/policy-sets/import` (202 `{job_id,status}`); `publishPolicySet`/`archivePolicySet` → POST `/{id}/publish\|archive`; `newPolicySetVersion` → POST `/{id}/new-version`; `setPolicySetRemediation` → PATCH `/{id}/remediation`; `createPolicyAssignment` → POST `/compliance/policy-assignments` |
 | Drift | `driftEvents*`, `driftFilters{severity,domain,acknowledged,status}`, `selectedDriftEvent`, `driftDetails` | `fetchDriftEvents` → GET `/compliance/drift-events`; `fetchDriftEvent` → GET `/{id}`; `fetchDriftDetails` → GET `/{id}/details`; `acknowledgeDrift`/`suppressDrift(reason)`/`resolveDrift` → POST `/{id}/acknowledge\|suppress\|resolve` |
 | Findings | `findings*`, `findingFilters{severity,domain,agent_id,result(=FAIL)}`, `selectedFinding` | `fetchFindings` → GET `/compliance/findings`; `fetchFinding` → GET `/{id}` (detail incl. expected/actual, `evidence` + `evidence_hash`, snapshot, `open_drift_event_id`); `acknowledgeFinding` → POST `/{id}/acknowledge` |
 | Standards | `standards*`, `selectedStandard` | `fetchStandards` → GET `/compliance/standards`; `fetchStandard(key, version)` → GET `/compliance/standards/{key}/{version}` |
@@ -94,13 +113,17 @@ operational KPIs, trend, and triage shortcuts.
 
 **UI.**
 - Hero card "Fleet compliance (weighted)" (source: GET `/compliance/fleet-compliance`,
-  60s-cached endpoint): big `weighted_score` %, open findings split C/H/M/L, open drift,
+  60s-cached endpoint): big `weighted_score` %, open findings split C/H/M/L (tile links to
+  `/compliance/findings`), open drift (tile links to `/compliance/drift`),
   scored agents 24h/active, and an amber "Unknown basis" counter — agents with no score
   are explicitly *not* counted as compliant. Per-category weighted bars.
   "Standards coverage (CEL-executable / total)" progress cards.
-- 9 `MetricCard` KPIs: Compliance %, Critical violations, High violations, Baselines
-  (active), Policies (published+enabled), Open drift, Servers evaluated, Non-compliant,
-  Exceptions (active). Each links to its page.
+- 5 `MetricCard` KPIs: Baselines (active), Policy sets (published+enabled),
+  Servers evaluated, Non-compliant, Exceptions (active). Each links to its page.
+  The hero is the single place that reports the fleet score, open findings and open
+  drift — a second card for any of those read as a contradiction, because
+  `overall_compliance_pct` (unweighted pass rate) and `weighted_score` are different
+  measures over different denominators.
 - `<ComplianceTrendChart>` with range switcher.
 - "Top violations": two tables — top-5 failing rules, top-5 recent drift (rows clickable).
 - "Top changed files" (top 8; click → File Integrity deep-link `?path=`).
@@ -114,7 +137,7 @@ overview, trend, top-violations, top-changed-files, baselines, assessments, poli
 **Actions.** Refresh (hero); "Run assessment" → POST `/compliance/assessments`
 (202; UI `canEdit`, API `require_role("ADMIN","OPERATOR")`).
 
-**Links.** KPI cards → rules/drift/baselines/policies/exceptions/servers; "View all" →
+**Links.** KPI cards → baselines/policies/exceptions/servers; "View all" →
 drift, file-integrity, baselines; rows → drift detail, file-integrity `?path=`, baseline
 detail.
 
@@ -238,24 +261,39 @@ Header actions: **Acknowledge** (`canEdit`), **View configuration drift** (only 
 **API.** `/compliance/findings[/{id}][/acknowledge]`.
 
 **Links.** Drift detail; back → list.
-
 ### 3.7 `/compliance/policies` (+ `[id]`) — Policy Sets
 
-**Purpose.** Rule packages that apply to scopes — CIS/STIG/NIST/PCI bundles, built
-manually, via wizard, or imported from ComplianceAsCode.
+**Purpose.** Rule packages that apply to scopes — CIS/STIG/NIST/PCI bundles, built from a
+template, by hand, or imported from ComplianceAsCode.
 
-**List.** Three creation entry points: **Import from ComplianceAsCode** (`isAdmin`; API
-`require_permission("compliance.policies.manage")` — dialog: datastream URL (XCCDF 1.2),
-content version (stored as `compliance_rules.source_version`), optional profile ID;
-toast surfaces the background `job_id`), **New policy set** (`canEdit` — name, slug,
-framework Select, version, description), **New via wizard** (`ComplianceWizard`,
-emits `saved` → refetch). Columns: Name (slug subtitle), Framework, Version, Status,
-Created.
+**List.** Two creation entry points, split by concern:
+- **New policy set** (`canEdit`) — one dialog, two starting points. *From a template* (default)
+  lists the ready-made profiles with their **live rule counts** and severity breakdown
+  (`GET /compliance/policy-templates`); picking one prefills name + description, and the scope
+  selector creates the policy assignment in the same call — one request creates the set, its
+  rules and its scope, so a policy set never exists half-built. *Start empty* creates a bare
+  `INTERNAL` set (slug auto-generated from the name) to fill from the catalog by hand.
+- **Import content** (`isAdmin`) — pulls a ComplianceAsCode profile into the *catalog*:
+  datastream URL (XCCDF 1.2), content version (stored as `compliance_rules.source_version`),
+  optional profile ID; toast surfaces the background `job_id`. Importing is content
+  installation, not profile creation — the two are separate because they are separate things.
+
+Columns: Name (slug subtitle), Framework, Version, Status, Created.
 
 **Detail.** Lineage line when `parent_policy_set_id` ("New version of a previously
 published set"). `AppTabs`:
-- **Rules**: columns Rule, Domain, Severity, Coverage (CEL badge). Amber alert when the
-  set is empty — "has no rules and cannot be published", with a link back to the list.
+- **Rules**: columns Rule, Domain, Severity, Coverage (CEL badge), actions. Amber alert when
+  the set is empty — "has no rules and cannot be published", with a link back to the list. On
+  a DRAFT, an **Add rules from the catalog** panel (search + domain + severity filters over
+  `GET /compliance/rules?limit=100`, one Add button per row) and a per-row **Remove**
+  (`DELETE /compliance/policy-sets/{id}/rules/{rule_id}`, DRAFT only) — a published set is
+  immutable by design, editing it means creating a new version.
+- **Remediation**: besides the mode, a **Commands that would run** list — the per-rule
+  remediation (script + rollback) from `GET /compliance/policy-sets/{id}/remediation`, so the
+  AUTOMATIC choice is reviewable before anything is dispatched. The body is only present for
+  the roles that can act on a host; other roles see which rules have one.
+- **Scope**: the fleet scopes this set is applied to (`GET /policy-assignments?policy_set_id=`),
+  plus an **Apply to scope** control (scope type Select).
 - **Coverage**: 3 stat cards — CEL-mapped (evaluable), Unmapped, Coverage %.
 - **Remediation**: mode Select **MONITOR / ASSISTED / AUTOMATIC** (ASSISTED matches a
   NULL backend value); at AUTOMATIC: Allowed/Forbidden domains `MultiSelect` (options =
@@ -268,8 +306,9 @@ clones via `new-version` and navigates), **Archive** (`isAdmin` + PUBLISHED, `co
 API `compliance.policies.archive`).
 
 **API.** `/compliance/policy-sets[/{id}][/rules|coverage|publish|archive|new-version|remediation]`,
-`/policy-sets/import` (202), `/policy-assignments` (create; list endpoint exists for
-API consumers, the UI creates inline from the wizard/detail flows).
+`/policy-sets/from-template` (201), `/policy-templates`,
+`/policy-sets/import` (202), `/policy-assignments` (create + list, filtered by
+`policy_set_id`).
 
 ### 3.8 `/compliance/rules` (+ `[id]`) — Rule Catalog (read-only)
 
@@ -279,6 +318,15 @@ checks are CEL-executable and which are reference-only.
 **List.** Eight filters: search (rule ID, title, CCE/NIST/STIG/CIS refs), domain,
 Coverage (CEL / OVAL_UNMAPPED / OSCAP_FALLBACK), Severity, Framework, Platform,
 Status (enabled/disabled), Lifecycle (ACTIVE/DISABLED/REFERENCE_ONLY/DEPRECATED).
+Domain, Framework and Platform are `Select`s fed by `GET /compliance/rules/facets` — the
+distinct values the catalog actually has, with counts — instead of free-text inputs that
+silently returned nothing when the spelling was off ("ssh" vs "sshd").
+
+**Domain filters everywhere.** Findings and Drift use the same treatment, off
+`GET /compliance/domains` — the canonical vocabulary (`lokilinux/compliance_domains.py`,
+which mirrors the agent's 24 collectors), not the rule catalog. Drift events come from
+collectors that have no rule at all (cron, processes, open_ports, container_runtime), so a
+filter offering only the rule domains would make those unreachable.
 Columns: Rule (title + lifecycle badge + mono `rule_key`), Domain, Severity, Coverage,
 Source.
 
@@ -290,8 +338,8 @@ badges, `source · source_version`, the CEL `check_expr` pre, `expected_value` J
 **Coverage** (PASS green / FAIL,ERROR red counts) + **Failing servers (N)** — first 20
 as links to `/servers/{agent_id}`.
 
-**API.** `/compliance/rules` (8 filter params), `/compliance/rules/{id}`
-(`RuleDetailResponse`). Zero mutations.
+**API.** `/compliance/rules` (8 filter params), `/compliance/rules/facets`,
+`/compliance/rules/{id}` (`RuleDetailResponse`). Zero mutations.
 
 ### 3.9 `/compliance/remediation` (+ `[id]`) — Remediation Engine
 

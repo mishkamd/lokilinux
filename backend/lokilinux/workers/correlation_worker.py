@@ -16,7 +16,8 @@ import structlog
 from lokilinux.correlation.evaluator import CorrelationEvaluator, IncidentCandidate
 from lokilinux.correlation.rules import RuleCache
 from lokilinux.incidents.service import IncidentService
-from lokilinux.nats_topics import SIGNAL_DETECTED
+from lokilinux.nats_topics import SIGNAL_DETECTED, SIGNAL_RESOLVED
+from lokilinux.utils import liveness
 
 logger = structlog.get_logger()
 
@@ -44,7 +45,10 @@ class IncidentServiceSink(IncidentSink):
         self.ch = ch
 
     async def open(self, db, candidate: IncidentCandidate) -> None:
-        await IncidentService(db, self.nats, self.cache, self.ch).open_from_candidate(candidate)
+        # The rule was loaded for one tenant, so its tenant is the incident's tenant.
+        await IncidentService(db, self.nats, self.cache, self.ch).open_from_candidate(
+            candidate, tenant_id=candidate.rule.tenant_id
+        )
 
 
 class CorrelationWorker:
@@ -57,21 +61,39 @@ class CorrelationWorker:
 
     async def start(self) -> None:
         await self.nats.subscribe(SIGNAL_DETECTED, cb=self._handle_signal)
+        await self.nats.subscribe(SIGNAL_RESOLVED, cb=self._handle_resolved)
         logger.info("CorrelationWorker started")
 
-    async def _handle_signal(self, msg) -> None:
+    async def _handle_resolved(self, msg) -> None:
         try:
             data = json.loads(msg.data)
         except Exception:
             logger.error("correlation_worker.malformed_json", exc_info=True)
             return
+        tenant_id = data.get("tenant_id") or "default"
+        signal = SimpleNamespace(type=data.get("type"), host_id=data.get("host_id"))
+        try:
+            async with self.db_factory() as db:
+                rules = await self.rule_cache.get_enabled_rules(db, tenant_id)
+            await self.evaluator.on_signal_resolved(rules, signal, tenant_id=tenant_id)
+        except Exception:
+            logger.error("correlation_worker.resolve_failed", exc_info=True)
+
+    async def _handle_signal(self, msg) -> None:
+        liveness.beat("correlation_worker")  # no timer loop here: last signal handled is its pulse
+        try:
+            data = json.loads(msg.data)
+        except Exception:
+            logger.error("correlation_worker.malformed_json", exc_info=True)
+            return
+        tenant_id = data.get("tenant_id") or "default"
         signal = SimpleNamespace(
             type=data.get("type"), host_id=data.get("host_id"), severity=data.get("severity")
         )
         try:
             async with self.db_factory() as db:
-                rules = await self.rule_cache.get_enabled_rules(db)
-                candidates = await self.evaluator.on_signal(rules, signal)
+                rules = await self.rule_cache.get_enabled_rules(db, tenant_id)
+                candidates = await self.evaluator.on_signal(rules, signal, tenant_id=tenant_id)
                 for candidate in candidates:
                     await self.sink.open(db, candidate)
         except Exception:

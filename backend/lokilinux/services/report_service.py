@@ -37,31 +37,12 @@ from lokilinux.models.compliance_exception import ComplianceException
 from lokilinux.utils.csv_safe import csv_cell
 from lokilinux.models.compliance_report import ComplianceReport
 from lokilinux.models.compliance_rule import ComplianceRule, PolicySetRule
+from lokilinux.compliance_domains import CATEGORY_BY_DOMAIN
 from lokilinux.models.rule_evaluation import RuleEvaluation
 from lokilinux.object_storage import ObjectStorage
 from lokilinux.services.storage_service import StorageService
 from lokilinux.settings_schema import get_setting_value
 
-CATEGORY_BY_DOMAIN = {
-    "sshd": "security",
-    "pam": "security",
-    "auditd": "security",
-    "sudo": "security",
-    "selinux": "security",
-    "firewall": "security",
-    "sysctl": "configuration",
-    "systemd_services": "configuration",
-    "cron": "configuration",
-    "login_defs": "configuration",
-    "password_policy": "configuration",
-    "network": "configuration",
-    "time_sync": "configuration",
-    "mounts": "filesystem",
-    "file_integrity": "filesystem",
-    "repositories": "filesystem",
-    "kernel": "kernel",
-    "kernel_modules": "kernel",
-}
 
 
 async def _latest_evaluations(

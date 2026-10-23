@@ -11,7 +11,7 @@ import asyncio
 from datetime import datetime, timedelta, timezone
 
 import structlog
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from lokilinux.models.audit import AuditLog
 from lokilinux.settings_schema import get_setting_value
@@ -19,6 +19,8 @@ from lokilinux.settings_schema import get_setting_value
 logger = structlog.get_logger()
 
 _SWEEP_INTERVAL_SECONDS = 3600
+_PURGE_BATCH = 5000
+_PURGE_PAUSE_SECONDS = 0.5
 
 
 class RetentionCleanupWorker:
@@ -46,7 +48,21 @@ class RetentionCleanupWorker:
         async with self.db_factory() as db:
             retention_days = await get_setting_value(db, "security.audit_log_retention_days")
             cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
-            result = await db.execute(delete(AuditLog).where(AuditLog.timestamp < cutoff))
-            await db.commit()
-            if result.rowcount:
-                logger.info("audit_log.purged", rows=result.rowcount, cutoff=str(cutoff))
+            total = 0
+            while True:
+                # Bounded DELETEs: one unbounded statement over a big backlog holds locks
+                # and bloats WAL/vacuum on the audit table for its whole duration.
+                oldest = (
+                    select(AuditLog.id)
+                    .where(AuditLog.timestamp < cutoff)
+                    .limit(_PURGE_BATCH)
+                    .scalar_subquery()
+                )
+                result = await db.execute(delete(AuditLog).where(AuditLog.id.in_(oldest)))
+                await db.commit()
+                total += result.rowcount
+                if result.rowcount < _PURGE_BATCH:
+                    break
+                await asyncio.sleep(_PURGE_PAUSE_SECONDS)
+            if total:
+                logger.info("audit_log.purged", rows=total, cutoff=str(cutoff))

@@ -18,6 +18,7 @@ import structlog
 
 from lokilinux.ch import ClickHouseStore
 from lokilinux.metrics import clickhouse_insert_errors_total, event_buffer_depth
+from lokilinux.utils import liveness
 
 logger = structlog.get_logger()
 
@@ -56,6 +57,18 @@ class SignalOccurrenceRepository:
         if should_flush:
             await self.flush()
 
+    async def query(
+        self, tenant_id: str, fingerprint: str, limit: int = 100
+    ) -> list[dict[str, Any]]:
+        limit = max(1, min(limit, 500))
+        result = await self.ch.query(
+            f"SELECT {', '.join(_COLUMNS)} FROM signal_occurrences "
+            "WHERE tenant = %(tenant)s AND fingerprint = %(fingerprint)s "
+            f"ORDER BY timestamp DESC LIMIT {limit}",
+            parameters={"tenant": tenant_id, "fingerprint": fingerprint},
+        )
+        return [dict(zip(result.column_names, row)) for row in result.result_rows]
+
     async def flush(self) -> None:
         async with self._lock:
             if not self._buffer:
@@ -65,6 +78,7 @@ class SignalOccurrenceRepository:
             event_buffer_depth.labels(buffer="signal_occurrences").set(0)
         try:
             await self.ch.insert("signal_occurrences", batch, column_names=_COLUMNS)
+            liveness.beat("signal_occurrences_flush")
         except Exception:
             logger.error("signal_occurrences.flush_failed", batch_size=len(batch), exc_info=True)
             clickhouse_insert_errors_total.labels(table="signal_occurrences").inc()

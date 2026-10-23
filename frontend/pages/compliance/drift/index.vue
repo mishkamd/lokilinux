@@ -3,11 +3,20 @@ import { SEVERITY_COLORS, DRIFT_STATUS_COLORS } from '~/utils/complianceColors'
 import { RefreshCw } from 'lucide-vue-next'
 
 const store = useComplianceStore()
-const { driftEvents, driftTotal, driftLoading, driftNextCursor, driftFilters } = storeToRefs(store)
+const { driftEvents, driftTotal, driftLoading, driftNextCursor, driftFilters, complianceDomains } = storeToRefs(store)
 const { canEdit } = useCurrentUser()
 const { format: fmtDateTime } = useDateTime()
 
-onMounted(() => store.fetchDriftEvents())
+onMounted(async () => {
+  await Promise.all([store.fetchDriftEvents(), store.fetchComplianceDomains()])
+})
+
+// The domain vocabulary from the API — a free-text box here matched nothing
+// whenever the spelling was off ("ssh" vs "sshd"), with no message.
+const domainOptions = computed(() => [
+  { label: 'All domains', value: '' },
+  ...complianceDomains.value.map((d) => ({ label: d.value, value: d.value })),
+])
 
 
 
@@ -32,8 +41,8 @@ async function onSuppress(id: string) {
       <div class="flex flex-wrap items-center gap-3">
         <Select v-model="driftFilters.severity" :options="['', 'CRITICAL', 'HIGH', 'MEDIUM', 'LOW']"
                 placeholder="Severity" class="w-36" @change="store.fetchDriftEvents()" />
-        <Input v-model="driftFilters.domain" placeholder="Filter by domain" class="w-48"
-               @keyup.enter="store.fetchDriftEvents()" />
+        <Select v-model="driftFilters.domain" :options="domainOptions" placeholder="All domains" class="w-48"
+                @change="store.fetchDriftEvents()" />
         <Select v-model="driftFilters.status"
                 :options="[{ label: 'All', value: '' }, { label: 'Open', value: 'OPEN' }, { label: 'Acknowledged', value: 'ACKNOWLEDGED' }, { label: 'Resolved', value: 'RESOLVED' }, { label: 'Suppressed', value: 'SUPPRESSED' }]"
                 placeholder="Status" class="w-44" @change="store.fetchDriftEvents()" />

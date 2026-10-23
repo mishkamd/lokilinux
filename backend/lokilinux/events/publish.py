@@ -21,6 +21,7 @@ import json
 
 import structlog
 
+from lokilinux.metrics import events_dropped_total
 from lokilinux.nats_topics import EVENT_RAW
 from lokilinux.settings_schema import SETTINGS_SCHEMA, get_setting_value
 
@@ -62,6 +63,7 @@ async def emit(
         await nats.publish(f"{EVENT_RAW}.{source}", json.dumps(event).encode())
     except Exception:
         logger.error("events.emit_failed", source=source, type=type_, exc_info=True)
+        events_dropped_total.labels(reason="publish_failed").inc()
 
 
 async def is_pipeline_enabled(cache: Any, db: Any) -> bool:

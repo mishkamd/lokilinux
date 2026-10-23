@@ -128,7 +128,8 @@ async def test_get_timeline(client, db_session):
     incident, _ = await _make_incident_with_signal(db_session)
     resp = await client.get(f"/api/v1/incidents/{incident.id}/timeline")
     assert resp.status_code == 200
-    assert len(resp.json()) == 1
+    assert len(resp.json()["items"]) == 1
+    assert resp.json()["next_cursor"] is None
 
 
 @pytest.mark.asyncio

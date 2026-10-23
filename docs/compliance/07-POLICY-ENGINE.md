@@ -143,6 +143,21 @@ the same JSON/YAML shape the importer consumes, so a policy set edited in the UI
 git-committed and re-imported elsewhere — one format, both directions, matching how
 `playbooks`/`ansible_projects` already integrate with git in this codebase.
 
+Concretely:
+
+- `DELETE /policy-sets/{id}/rules/{rule_id}` — removes a rule. **DRAFT only**: a published
+  set is immutable, so changing it means creating a new version
+  (`POST /policy-sets/{id}/new-version`), never mutating the rules under a version that is
+  already live for the fleet.
+- `GET /policy-sets/{id}/export` — a **portable profile**: rule references by `rule_key`,
+  not by UUID. The artifact is meant to be a diff a human reads, so it names rules the way
+  a human knows them (`SSH-001`), not by surrogate key. `?format=yaml` for the
+  git-committed shape.
+- `POST /policy-sets/import-profile` — the other direction. Rules are matched by `rule_key`
+  against the **local** catalog; a profile carries no rule bodies, so importing onto an
+  instance that lacks the content imports what it can and reports the rest in
+  `missing_rules` — an imported policy set must never have invisible holes in it.
+
 ## 6. Relationship to the existing `Policy` model
 
 The existing `policies` table (`backend/lokilinux/models/policy.py`) already has a
@@ -153,3 +168,56 @@ module does **not** repurpose that table for structured compliance rules — `co
 `policy_sets` are new, purpose-built tables with the CEL/framework-mapping structure compliance
 needs. The existing `policies` table remains exactly what it is today for its existing use
 cases; this module simply stops being a phantom `policy_type` value with nothing behind it.
+
+## 7. Policy templates — one rule body, many named profiles
+
+The catalog is one body of rules; a **profile** is a named *selection* over it. This is the
+pattern every enterprise tool converged on: ComplianceAsCode ships one XCCDF body and many named
+profiles (`cis_level1_server`, `cis_level2_server`, STIG profiles), CIS ships Benchmarks with
+Level 1 / Level 2 selections, Wazuh ships "CIS Distribution" policy files, Tenable ships
+baselines that select plugins. Nobody ships a second copy of a check per profile.
+
+A template in LokiLinux is exactly that — a selector
+(`services/policy_templates.py`), resolved against `compliance_rules` at creation time:
+
+| Field | Meaning |
+|---|---|
+| `standard_ref` | key looked up in the rule's `standard_refs` JSONB (`cis`, `nist`, `stig`, `pci-dss`) |
+| `sources` | matches the rule's `source` column (e.g. `lokilinux-curated`) |
+| `min_severity` / `max_severity` | inclusive band over `LOW < MEDIUM < HIGH < CRITICAL` |
+
+Built-in templates: `loki-linux-curated` (the hand-verified CEL set),
+`essential` (MEDIUM+), `strict` (HIGH+), `cis`, `nist`, `stig`, `pci-dss`.
+
+Two honest limits, surfaced by the API rather than hidden:
+
+- A template is a selection over the rules **in this catalog**, not an official certified
+  benchmark. "CIS" here means "every local rule carrying a `cis` reference" — it is not CIS's
+  copyrighted Benchmark text and does not claim to be.
+- Non-executable rules (`check_source != CEL`) are excluded by default: they carry no expression
+  the Go evaluator can run, so including them would inflate the rule count while producing no
+  verdicts. `include_unmapped=True` opts in when reference coverage is wanted.
+
+**One rule body, many profiles** also means a rule fix propagates everywhere: a template
+re-resolves against the current catalog, it is never a stale copy of the rules.
+
+### API
+
+```
+GET  /compliance/policy-templates      # templates + live rule counts + severity breakdown
+POST /compliance/policy-sets/from-template
+```
+
+`POST .../from-template` creates the policy set, links the selected rules **and** the optional
+scope assignment in one transaction, so a policy set never exists half-built (the old path was
+"create empty set → POST rules one by one → publish", which left an empty policy set behind
+whenever a step was missed). The set is still a `DRAFT` — publishing stays a separate, explicit
+step, because publishing makes the set live for the fleet.
+
+A template that matches zero rules is a `409`, not a silent empty policy set.
+
+### Per-profile severity overrides
+
+`policy_set_rules.severity_override` re-maps a rule's severity **within one policy set** — the
+rule's own severity is untouched. This is how CIS re-maps severity per profile, and it is the
+supported way to say "this profile treats SSH-004 as low risk without changing the catalog".

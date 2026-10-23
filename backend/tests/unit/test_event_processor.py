@@ -18,7 +18,7 @@ class _FakeCache:
     async def set_cached(self, key: str, value, ttl=None) -> None:
         self._store[key] = value
 
-    async def set_nx(self, key: str, ttl: int) -> bool:
+    async def set_nx_checked(self, key: str, ttl: int) -> bool | None:
         if key in self._store:
             return False
         self._store[key] = True
@@ -112,3 +112,47 @@ async def test_server_stamps_timestamp_when_producer_omits_it():
     body = json.loads(payload)
     ts = datetime.fromisoformat(body["timestamp"])
     assert abs((datetime.now(timezone.utc) - ts).total_seconds()) < 5
+
+
+@pytest.mark.asyncio
+async def test_non_object_payload_is_dropped_not_raised():
+    cache, ch, nats = _FakeCache(), _FakeCH(), _FakeNats()
+    worker = EventProcessorWorker(nats, cache, ch)
+    await worker._handle_raw(SimpleNamespace(data=b"[1, 2]"))  # valid JSON, not a dict
+    assert nats.published == []
+
+
+@pytest.mark.asyncio
+async def test_invalid_event_id_is_dropped_before_dedup():
+    cache, ch, nats = _FakeCache(), _FakeCH(), _FakeNats()
+    worker = EventProcessorWorker(nats, cache, ch)
+    await worker._handle_raw(_msg(_raw_event(event_id="not-a-uuid")))
+    assert nats.published == []
+    assert cache._store == {}  # no dedup key was claimed for a dropped event
+
+
+@pytest.mark.asyncio
+async def test_redis_outage_keeps_the_event_instead_of_dropping_it():
+    class _DownCache(_FakeCache):
+        async def set_nx_checked(self, key: str, ttl: int):
+            return None  # Redis error
+
+    cache, ch, nats = _DownCache(), _FakeCH(), _FakeNats()
+    worker = EventProcessorWorker(nats, cache, ch)
+    await worker._handle_raw(_msg(_raw_event()))
+    assert len(nats.published) == 1
+
+
+@pytest.mark.asyncio
+async def test_normalized_publish_failure_is_counted():
+    from lokilinux.metrics import events_dropped_total
+
+    class _FailingNats(_FakeNats):
+        async def publish(self, subject: str, payload: bytes) -> None:
+            raise RuntimeError("nats down")
+
+    child = events_dropped_total.labels(reason="normalized_publish_failed")
+    before = child._value.get()
+    worker = EventProcessorWorker(_FailingNats(), _FakeCache(), _FakeCH())
+    await worker._handle_raw(_msg(_raw_event()))
+    assert child._value.get() == before + 1
