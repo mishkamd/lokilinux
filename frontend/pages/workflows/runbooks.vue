@@ -123,7 +123,7 @@ onMounted(() => {
       empty-description="Create a runbook to automate incident response."
      caption="Runbooks" preferences-key="runbooks">
       <template #name-data="{ row }">
-        <button class="focus-ring font-medium hover:underline" @click="openEdit(row as Runbook)">{{ row.name }}</button>
+        <button class="focus-ring font-medium hover:underline py-1 -my-1" @click="openEdit(row as Runbook)">{{ row.name }}</button>
       </template>
       <template #incident_type-data="{ row }">
         <span class="font-mono text-xs">{{ row.incident_type }}</span>

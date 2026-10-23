@@ -143,7 +143,7 @@ async function rescan() {
           <ul class="space-y-1 text-xs">
             <li v-if="selectedCve.published_date">Published: <span class="font-mono">{{ new Date(selectedCve.published_date).toLocaleDateString() }}</span></li>
             <li>
-              <a :href="`https://nvd.nist.gov/vuln/detail/${selectedCve.cve_id}`" target="_blank" rel="noopener" class="focus-ring text-primary-text hover:underline">
+              <a :href="`https://nvd.nist.gov/vuln/detail/${selectedCve.cve_id}`" target="_blank" rel="noopener" class="focus-ring text-primary-text hover:underline inline-block py-1 -my-1">
                 NVD detail page
               </a>
             </li>
@@ -177,7 +177,7 @@ async function rescan() {
           :selectable="canEdit" :selected="selected" @update:selected="selected = $event"
          caption="Affected hosts">
           <template #hostname-data="{ row }">
-            <NuxtLink :to="`/servers/${row.agent_id}`" class="focus-ring font-mono text-xs text-primary-text hover:underline">
+            <NuxtLink :to="`/servers/${row.agent_id}`" class="focus-ring font-mono text-xs text-primary-text hover:underline inline-block py-1 -my-1">
               {{ row.hostname || row.agent_id }}
             </NuxtLink>
           </template>

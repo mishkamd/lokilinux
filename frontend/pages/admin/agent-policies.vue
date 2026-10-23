@@ -271,7 +271,7 @@ async function createGroup() {
         <Input v-model="searchQuery" placeholder="Search policies..." class="w-full sm:w-64" />
       </template>
       <template #name-data="{ row }">
-        <button class="focus-ring font-medium hover:underline" @click="openEdit(row as PolicyRow)">{{ row.name }}</button>
+        <button class="focus-ring font-medium hover:underline py-1 -my-1" @click="openEdit(row as PolicyRow)">{{ row.name }}</button>
         <p v-if="row.description" class="text-xs text-muted-foreground">{{ row.description }}</p>
       </template>
       <template #status-data="{ row }">

@@ -48,7 +48,7 @@ async function apply(viewName: string) {
       v-for="view in views"
       :key="view.name"
       type="button"
-      class="focus-ring group inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-0.5 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+      class="focus-ring group inline-flex items-center gap-1 rounded-full border border-border px-2.5 py-0.5 min-h-6 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
       @click="apply(view.name)"
     >
       {{ view.name }}
@@ -72,7 +72,7 @@ async function apply(viewName: string) {
         @keyup.enter="confirm"
         @keyup.esc="naming = false"
       >
-      <button type="button" class="focus-ring text-xs text-primary-text hover:underline" @click="confirm">Save</button>
+      <button type="button" class="focus-ring text-xs text-primary-text hover:underline py-1 -my-1" @click="confirm">Save</button>
     </template>
     <button
       v-else

@@ -169,7 +169,7 @@ onMounted(() => store.fetchRules())
       <template #name-data="{ row }">
         <button
           v-if="canEdit"
-          class="focus-ring font-medium hover:underline"
+          class="focus-ring font-medium hover:underline py-1 -my-1"
           @click="openEdit(row as CorrelationRule)"
         >
           {{ row.name }}

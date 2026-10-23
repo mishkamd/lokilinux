@@ -223,16 +223,28 @@ for (const [theme, tokens] of Object.entries(themes)) {
   }
 }
 
-// ── 8-10: size contract, target size, rem-only type scale ───────────────────
+// ── 8-11: size contract, target size, rem-only type scale ──────────────────
 // Independent pass: unlike rule 6 this applies to the primitives too, since
 // a hand-rolled button in a primitive file still has to respect the contract.
 const TINY_HEIGHT = /\bh-[0-5]\b/
 const BIG_ICON = /\bsize-(?:9|1[0-2])\b/
 const PX_FONT = /font-size:\s*\d+(?:\.\d+)?px|fontSize:\s*['"]\d+(?:\.\d+)?px['"]/
+// A text-xs link or button that declares no size at all renders at the line
+// box (~17px) — under the 24px target floor. `py-1 -my-1` grows the hit area
+// to 24px without moving the text, `min-h-6` when the box may grow.
+const SMALL_TEXT = /\btext-xs\b/
+const SIZE_CLASS = /\b(?:min-h|size|h|py|p)-(?:\d|\[)/
+// Files owned by an in-flight change — the entry goes away with that change.
+const TARGET_FLOOR_EXCEPTIONS = [
+  // MIS-252 — the compliance rework owns this file; remove this entry when
+  // that work lands.
+  'pages/compliance/rules/[id].vue',
+]
 
 for (const file of files) {
   const raw = readFileSync(file, 'utf8')
   const joined = raw.replace(/(^|[^:])\/\/.*$/gm, '$1')
+  const rel = relative(ROOT, file)
   const tagRe = /<(button|a|NuxtLink|input|select|textarea)\b((?:"[^"]*"|'[^']*'|[^>"'])*)>/g
   let m
   while ((m = tagRe.exec(joined))) {
@@ -240,6 +252,14 @@ for (const file of files) {
     const line = joined.slice(0, m.index).split('\n').length
     if (TINY_HEIGHT.test(attrs) && !/min-h-6/.test(attrs)) {
       report(file, line, 'target', `<${m[1]}> is under the 24px target floor — use min-h-6 (or the primitive)`)
+    }
+    if (
+      (m[1] === 'button' || m[1] === 'a' || m[1] === 'NuxtLink') &&
+      SMALL_TEXT.test(attrs) &&
+      !SIZE_CLASS.test(attrs) &&
+      !TARGET_FLOOR_EXCEPTIONS.includes(rel)
+    ) {
+      report(file, line, 'target', `<${m[1]}> is text-xs with no size class — under the 24px target floor; use py-1 -my-1 (or min-h-6)`)
     }
     if (BIG_ICON.test(attrs)) {
       report(file, line, 'size', `<${m[1]}> icon box outside the 32px contract — use size-8`)

@@ -24,7 +24,7 @@ function worstSeverity(r: TopVulnerableResource): { label: string; color: string
         </span>
         <h2 class="label-caps">Top Vulnerable Servers</h2>
       </div>
-      <NuxtLink to="/vulnerabilities" class="focus-ring flex items-center gap-1 text-xs font-medium text-primary-text dark:text-primary-active shrink-0">
+      <NuxtLink to="/vulnerabilities" class="focus-ring flex items-center gap-1 text-xs font-medium text-primary-text dark:text-primary-active shrink-0 py-1 -my-1">
         View all
         <ArrowRight class="size-3" />
       </NuxtLink>

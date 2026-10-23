@@ -83,7 +83,7 @@ function onFailureChange(v: string) {
         <p class="truncate text-field font-medium">{{ def.label }}</p>
         <p class="label-caps text-micro text-muted-foreground">{{ node.id }}</p>
       </div>
-      <button type="button" class="focus-ring rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="Close" @click="emit('close')">
+      <button type="button" class="focus-ring inline-flex min-h-6 min-w-6 items-center justify-center rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="Close" @click="emit('close')">
         <X class="size-4" />
       </button>
     </div>
