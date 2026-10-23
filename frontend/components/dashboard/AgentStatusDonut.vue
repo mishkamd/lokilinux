@@ -44,7 +44,7 @@ const triggers = { [VisDonutSelectors.segment]: template }
       </span>
       <h2 class="label-caps">Agent Status</h2>
     </div>
-    <div v-if="total === 0" class="text-xs text-muted-foreground py-4 text-center">No agents registered.</div>
+    <EmptyState v-if="total === 0" class="py-4">No agents registered.</EmptyState>
     <div v-else class="flex flex-col sm:flex-row items-center gap-3">
       <div class="relative shrink-0 size-24">
         <VisSingleContainer :data="segments" :height="96" :width="96">

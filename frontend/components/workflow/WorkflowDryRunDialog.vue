@@ -17,7 +17,7 @@ const approvalSet = computed(() => new Set(props.result?.requires_approval_at ??
 <template>
   <Dialog :model-value="modelValue" title="Dry Run" size="lg" @update:model-value="$emit('update:modelValue', $event)">
     <template #body>
-      <div v-if="!result" class="py-6 text-center text-sm text-muted-foreground">No result yet.</div>
+      <EmptyState v-if="!result">No result yet.</EmptyState>
       <div v-else class="space-y-4">
         <div class="grid grid-cols-2 gap-3">
           <div class="surface-card rounded-[var(--radius-md)] p-3">

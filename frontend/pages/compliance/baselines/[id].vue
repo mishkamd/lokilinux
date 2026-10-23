@@ -10,10 +10,19 @@ const { selectedBaseline, versions, versionsLoading } = storeToRefs(store)
 const { canEdit, isAdmin } = useCurrentUser()
 const toast = useToast()
 
-onMounted(async () => {
-  await store.fetchBaseline(baselineId)
-  await store.fetchVersions(baselineId)
-})
+const loadError = ref<string | null>(null)
+
+async function load() {
+  loadError.value = null
+  try {
+    await store.fetchBaseline(baselineId)
+    await store.fetchVersions(baselineId)
+  } catch {
+    loadError.value = 'Failed to load baseline.'
+  }
+}
+
+onMounted(load)
 
 const STATUS_COLOR: Record<BaselineVersionStatus, string> = {
   DRAFT: 'gray',
@@ -166,6 +175,10 @@ async function runAction(action: 'submit' | 'approve' | 'publish' | 'rollback', 
         <Button :loading="savingVersion" @click="submitNewVersion">Create draft</Button>
       </template>
     </Dialog>
+  </div>
+  <div v-else-if="loadError" class="space-y-3">
+    <Alert color="red" :title="loadError" />
+    <Button variant="outline" @click="load">Retry</Button>
   </div>
   <Skeleton v-else class="h-64 w-full" />
 </template>

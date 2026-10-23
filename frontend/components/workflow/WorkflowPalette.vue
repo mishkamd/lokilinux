@@ -51,7 +51,7 @@ function onActivate(def: NodeDefinition) {
     </div>
 
     <div class="min-h-0 flex-1 overflow-y-auto px-3 pb-3">
-      <div v-if="!groups.length" class="pt-6 text-center text-xs text-muted-foreground">No steps match “{{ search }}”.</div>
+      <EmptyState v-if="!groups.length">No steps match “{{ search }}”.</EmptyState>
       <div v-for="group in groups" :key="group.category" class="mb-4">
         <p class="mb-1.5 text-label font-medium text-muted-foreground">{{ CATEGORY_LABEL[group.category] }}</p>
         <div class="space-y-1">

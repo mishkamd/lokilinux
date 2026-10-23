@@ -237,7 +237,7 @@ async function submitWindow() {
                           class="flex w-full rounded-lg border border-input bg-card px-2.5 py-1.5 text-field font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-primary" />
               </FormField>
             </div>
-            <p v-if="createForm.actions.length === 0" class="text-sm text-muted-foreground">No actions yet. Click "Add action" to define what this plan will execute.</p>
+            <EmptyState v-if="createForm.actions.length === 0">No actions yet. Click "Add action" to define what this plan will execute.</EmptyState>
           </div>
 
           <Alert v-if="createError" color="red">{{ createError }}</Alert>

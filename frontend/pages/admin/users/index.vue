@@ -13,7 +13,7 @@ interface User {
 const api = useApi()
 const toast = useToast()
 
-const { data, refresh, pending } = await useAsyncData('admin-users', () =>
+const { data, refresh, pending, error } = await useAsyncData('admin-users', () =>
   api.get<{ items: User[]; total: number }>('/admin/users'),
 )
 
@@ -132,7 +132,9 @@ const filteredUsers = computed(() => {
       </div>
     </PageHeader>
 
+    <Alert v-if="error" color="red" title="Failed to load users." class="mb-4" />
     <DataTable
+      v-else
       :rows="filteredUsers"
       :columns="columns"
       :loading="pending"

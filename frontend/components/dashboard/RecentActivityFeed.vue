@@ -13,7 +13,7 @@ interface AuditLog {
 
 const api = useApi()
 
-const { data, pending, error } = await useAsyncData('dashboard-recent-activity', () =>
+const { data, pending, error, refresh } = await useAsyncData('dashboard-recent-activity', () =>
   api.get<{ items: AuditLog[]; next_cursor: number | null; total: number }>(
     '/admin/audit',
     { params: { limit: 6 } },
@@ -52,13 +52,17 @@ function relativeTime(iso: string): string {
       </NuxtLink>
     </div>
 
-    <div v-if="error" class="text-xs text-destructive">Failed to load recent activity.</div>
-    <div v-else-if="pending" class="space-y-1.5">
-      <Skeleton v-for="i in 4" :key="i" class="h-7 rounded-md" />
-    </div>
-    <div v-else-if="!data?.items.length" class="text-xs text-muted-foreground py-2 text-center">
+    <WidgetState
+      v-if="error || pending"
+      :error="error ? 'Failed to load recent activity.' : null"
+      :loading="pending"
+      :rows="4"
+      row-class="h-7 rounded-md"
+      :retry="refresh"
+    />
+    <EmptyState v-else-if="!data?.items.length" class="py-2">
       No activity recorded.
-    </div>
+    </EmptyState>
     <div v-else class="relative">
       <div class="absolute left-[7px] top-1 bottom-1 w-px bg-border" />
       <div

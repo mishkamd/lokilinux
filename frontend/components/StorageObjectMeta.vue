@@ -39,8 +39,8 @@ onMounted(async () => {
 </script>
 
 <template>
-  <p v-if="loading" class="text-sm text-muted-foreground">Loading storage metadata…</p>
-  <p v-else-if="error || !object" class="text-sm text-destructive">Storage metadata unavailable.</p>
+  <Skeleton v-if="loading" class="h-4 w-48" />
+  <Alert v-else-if="error || !object" color="red" title="Storage metadata unavailable." />
   <dl v-else class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 text-sm">
     <dt class="text-muted-foreground">Storage</dt>
     <dd class="font-mono text-xs uppercase">{{ object.storage_provider }}</dd>

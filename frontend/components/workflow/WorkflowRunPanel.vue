@@ -48,9 +48,9 @@ const ACTIVE = ['PENDING', 'RUNNING', 'WAITING_APPROVAL']
 
 <template>
   <div class="h-full overflow-y-auto p-3 sm:p-4">
-    <div v-if="!run" class="flex h-full items-center justify-center text-sm text-muted-foreground">
+    <EmptyState v-if="!run" class="flex h-full items-center justify-center">
       No runs yet — use Run in the toolbar to start one.
-    </div>
+    </EmptyState>
     <template v-else>
       <div class="surface-card mb-3 flex items-center gap-3 rounded-[var(--radius-md)] p-3">
         <Badge size="sm" :color="RUN_STATUS_COLOR[run.status] ?? 'gray'">{{ run.status }}</Badge>

@@ -276,12 +276,14 @@ async function onSaveSchedule() {
     </PageHeader>
 
     <DashboardError v-if="error" @retry="store.load(workflowId)" />
-    <div v-else-if="loading" class="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-      Loading workflow…
+    <div v-else-if="loading" class="flex flex-1 flex-col gap-3">
+      <Skeleton class="h-8 w-64" />
+      <Skeleton class="h-4 w-48" />
+      <Skeleton class="h-64 w-full" />
     </div>
-    <div v-else-if="!workflow?.current_version_id && !nodes.length" class="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+    <EmptyState v-else-if="!workflow?.current_version_id && !nodes.length" class="flex flex-1 items-center justify-center">
       This workflow has no published version yet.
-    </div>
+    </EmptyState>
     <AppTabs v-else :items="tabs" class="flex min-h-0 flex-1 flex-col [&>[role=tabpanel]]:min-h-0 [&>[role=tabpanel]]:flex-1">
       <template #visual>
         <div class="flex size-full">

@@ -47,9 +47,9 @@ const latest = computed(() => props.points.at(-1)?.compliance_pct ?? null)
       </div>
     </div>
     <Skeleton v-if="loading" class="h-24 w-full" />
-    <p v-else-if="points.length < 2" class="text-xs text-muted-foreground py-8 text-center">
+    <EmptyState v-else-if="points.length < 2" class="py-8">
       Not enough history yet — trend appears once compliance scores accumulate.
-    </p>
+    </EmptyState>
     <ChartContainer v-else :config="chartConfig" :data="props.points" :height="96">
       <VisArea :x="x" :y="y" color="var(--chart-1)" :opacity="0.12" :line="true" line-color="var(--chart-1)" :line-width="2" :curve-type="CurveType.Natural" />
       <ChartTooltip :x="x" label-key="day" :value-formatter="(v) => `${v.toFixed(1)}%`" />

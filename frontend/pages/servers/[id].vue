@@ -711,7 +711,7 @@ const VULN_FILTER_OPTIONS = [
             </Button>
           </div>
 
-          <p v-if="policyLoading && !policyState" class="text-sm text-muted-foreground">Loading…</p>
+          <Skeleton v-if="policyLoading && !policyState" class="h-24 w-full" />
 
           <template v-else-if="policyState">
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -723,7 +723,7 @@ const VULN_FILTER_OPTIONS = [
                     v{{ policyState.desired.version }} · {{ policyState.desired.hash.slice(0, 16) }}…
                   </p>
                 </div>
-                <p v-else class="text-sm text-muted-foreground">No policy assigned.</p>
+                <EmptyState v-else class="py-3">No policy assigned.</EmptyState>
               </Card>
               <Card>
                 <template #header><p class="label-caps">Actual (applied on agent)</p></template>
@@ -733,7 +733,7 @@ const VULN_FILTER_OPTIONS = [
                     v{{ policyState.actual.version }} · {{ policyState.actual.hash.slice(0, 16) }}…
                   </p>
                 </div>
-                <p v-else class="text-sm text-muted-foreground">Nothing applied yet — waiting for first reconcile.</p>
+                <EmptyState v-else class="py-3">Nothing applied yet — waiting for first reconcile.</EmptyState>
               </Card>
             </div>
 
@@ -781,9 +781,9 @@ const VULN_FILTER_OPTIONS = [
           <ul v-if="server.system_users?.length" class="space-y-1">
             <li v-for="u in server.system_users" :key="u" class="text-field font-mono">{{ u }}</li>
           </ul>
-          <p v-else class="text-xs text-muted-foreground">
+          <EmptyState v-else class="py-3">
             No users reported yet. This appears after the first heartbeat from the agent.
-          </p>
+          </EmptyState>
         </Card>
       </template>
 
@@ -810,9 +810,9 @@ const VULN_FILTER_OPTIONS = [
               class="text-xs font-mono bg-muted rounded-md p-3 max-h-96 overflow-y-auto whitespace-pre-wrap"
             >{{ server.recent_logs.lines.join('\n') }}</pre>
           </div>
-          <p v-else class="text-xs text-muted-foreground">
+          <EmptyState v-else class="py-3">
             No logs reported yet. This appears after the first heartbeat from the agent.
-          </p>
+          </EmptyState>
         </Card>
       </template>
 
@@ -842,13 +842,11 @@ const VULN_FILTER_OPTIONS = [
     </AppTabs>
   </div>
 
-  <div v-else-if="store.selectedServerError" class="rounded-md border border-destructive p-4 text-sm text-destructive">
-    Failed to load server: {{ store.selectedServerError }}
-  </div>
+  <Alert v-else-if="store.selectedServerError" color="red" title="Failed to load server" :description="store.selectedServerError" />
 
-  <div v-else class="flex items-center justify-center h-64 text-muted-foreground">
+  <EmptyState v-else class="h-64 flex items-center justify-center">
     Server not found.
-  </div>
+  </EmptyState>
 
   <JobDetail :job="selectedJob" @close="selectedJob = null" />
 </template>

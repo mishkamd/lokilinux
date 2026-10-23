@@ -12,6 +12,7 @@ const toast = useToast()
 
 const policy = ref<Policy | null>(null)
 const loading = ref(true)
+const loadError = ref<string | null>(null)
 
 const tabs = [
   { label: 'Overview', slot: 'overview' },
@@ -55,8 +56,11 @@ function onTabChange(index: number) {
 
 async function load() {
   loading.value = true
+  loadError.value = null
   try {
     policy.value = await store.fetchPolicy(String(route.params.id))
+  } catch {
+    loadError.value = 'Failed to load policy.'
   } finally {
     loading.value = false
   }
@@ -106,7 +110,11 @@ function fmtDate(v: string | null | undefined): string {
 <template>
   <div>
     <Skeleton v-if="loading" class="h-64 w-full rounded-xl" />
-    <div v-else-if="!policy" class="text-sm text-muted-foreground">Policy not found.</div>
+    <div v-else-if="loadError" class="space-y-3">
+      <Alert color="red" :title="loadError" />
+      <Button variant="outline" @click="load()">Retry</Button>
+    </div>
+    <EmptyState v-else-if="!policy">Policy not found.</EmptyState>
 
     <div v-else class="space-y-4">
       <PageHeader :title="policy.name" :back="{ to: '/policies', label: 'Back to policies' }">
@@ -154,7 +162,7 @@ function fmtDate(v: string | null | undefined): string {
         </template>
 
         <template #executions>
-          <div v-if="executionsLoading" class="text-sm text-muted-foreground">Loading…</div>
+          <Skeleton v-if="executionsLoading" class="h-10 w-full" />
           <EmptyState v-else-if="!executions.length">
             No executions yet — press "Run now" or wait for next scheduled trigger.
           </EmptyState>
@@ -174,7 +182,7 @@ function fmtDate(v: string | null | undefined): string {
         </template>
 
         <template #audit>
-          <div v-if="auditLoading" class="text-sm text-muted-foreground">Loading…</div>
+          <Skeleton v-if="auditLoading" class="h-10 w-full" />
           <EmptyState v-else-if="!auditRows.length">No history.</EmptyState>
           <div v-else class="space-y-1">
             <div v-for="row in auditRows" :key="row.id" class="rounded-lg border border-border p-2.5 text-sm">

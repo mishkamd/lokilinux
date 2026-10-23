@@ -247,7 +247,7 @@ async function openHistory(template: PlaybookTemplate) {
     <Sheet :model-value="!!historyTemplate" @update:model-value="(v: boolean) => { if (!v) historyTemplate = null }">
       <div v-if="historyTemplate" class="p-6 space-y-4 pt-12">
         <h2 class="text-lg font-bold">{{ historyTemplate.name }} — history</h2>
-        <p v-if="historyLoading" class="text-sm text-muted-foreground">Loading…</p>
+        <Skeleton v-if="historyLoading" class="h-10 w-full" />
         <EmptyState v-else-if="!history.length">No launches yet.</EmptyState>
         <div v-else class="space-y-1">
           <div v-for="job in history" :key="job.id" class="rounded border border-border p-2 text-sm flex items-center gap-2">

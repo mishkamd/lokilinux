@@ -41,9 +41,9 @@ function tickFormat(i: number) {
     </div>
 
     <Skeleton v-if="props.loading" class="h-40 w-full" />
-    <p v-else-if="points.length < 2" class="text-xs text-muted-foreground py-8 text-center">
+    <EmptyState v-else-if="points.length < 2" class="py-8">
       Not enough history yet — trend appears once jobs run.
-    </p>
+    </EmptyState>
     <template v-else>
       <ChartContainer :config="chartConfig" :data="props.points" :height="220" class="mb-3">
         <VisLine :x="x" :y="ySuccessful" color="var(--chart-1)" :curve-type="CurveType.MonotoneX" :line-width="2" />

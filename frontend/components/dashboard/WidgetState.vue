@@ -26,7 +26,7 @@ withDefaults(
 
 <template>
   <div v-if="error" class="flex flex-col items-center gap-2 py-6 text-center">
-    <p class="text-xs text-destructive">{{ error }}</p>
+    <Alert color="red" :title="error" />
     <button
       v-if="retry"
       type="button"

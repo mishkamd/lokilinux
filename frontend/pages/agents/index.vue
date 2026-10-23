@@ -199,7 +199,7 @@ async function copy(text: string) {
       </div>
 
       <!-- Download cards -->
-      <div v-if="packagesError" class="text-sm text-destructive">Failed to load package URLs.</div>
+      <Alert v-if="packagesError" color="red" title="Failed to load package URLs." class="mb-4" />
       <div v-else-if="!packages" class="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Skeleton v-for="i in 3" :key="i" class="h-36 rounded-lg" />
       </div>

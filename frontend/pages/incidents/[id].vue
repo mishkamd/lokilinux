@@ -141,8 +141,8 @@ async function executeRunbook(runbookId: string) {
 
 <template>
   <div>
-    <p v-if="loading" class="text-sm text-muted-foreground">Loading…</p>
-    <p v-else-if="!incident" class="text-sm text-muted-foreground">Incident not found.</p>
+    <Skeleton v-if="loading" class="h-8 w-64" />
+    <EmptyState v-else-if="!incident">Incident not found.</EmptyState>
     <div v-else class="space-y-4">
       <PageHeader
         :title="incident.title"
@@ -251,7 +251,7 @@ async function executeRunbook(runbookId: string) {
             <span class="font-mono text-muted-foreground">×{{ s.occurrence_count }}</span>
           </div>
         </div>
-        <p v-else class="text-sm text-muted-foreground">No linked signals.</p>
+        <EmptyState v-else>No linked signals.</EmptyState>
       </div>
 
       <div class="surface-card rounded-[var(--radius-md)] p-3">
@@ -265,17 +265,17 @@ async function executeRunbook(runbookId: string) {
             </div>
           </li>
         </ol>
-        <p v-else class="text-sm text-muted-foreground">No timeline entries.</p>
+        <EmptyState v-else>No timeline entries.</EmptyState>
       </div>
 
       <div class="surface-card rounded-[var(--radius-md)] p-3">
         <details>
           <summary class="section-title cursor-pointer">Evidence</summary>
           <div class="mt-2.5">
-            <p v-if="evidenceLoading" class="text-sm text-muted-foreground">Loading…</p>
-            <p v-else-if="evidence && !evidence.length" class="text-sm text-muted-foreground">
+            <Skeleton v-if="evidenceLoading" class="h-8 w-full" />
+            <EmptyState v-else-if="evidence && !evidence.length">
               No evidence recorded.
-            </p>
+            </EmptyState>
             <ul v-else-if="evidence" class="space-y-1.5">
               <li v-for="(e, i) in evidence" :key="i" class="text-xs font-mono bg-muted rounded p-2">
                 <span class="text-muted-foreground">[{{ e.kind }}]</span> {{ e.summary }}

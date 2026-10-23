@@ -138,9 +138,7 @@ const packageNames = computed<string[] | null>(() => {
               <span class="text-xs text-muted-foreground font-mono">{{ doneCount }} / {{ totalCount }} servers</span>
             </div>
             <Progress :model-value="doneCount" :max="totalCount || 1" />
-            <p v-if="liveJob.status === 'QUEUED' || liveJob.status === 'SCHEDULED'" class="text-xs text-muted-foreground mt-1.5">
-              Waiting for the agent to pick this up — checks in about every 60s.
-            </p>
+            <Alert v-if="liveJob.status === 'QUEUED' || liveJob.status === 'SCHEDULED'" color="blue" title="Waiting for the agent to pick this up — checks in about every 60s." />
           </div>
         </template>
 
@@ -185,8 +183,8 @@ const packageNames = computed<string[] | null>(() => {
               </Badge>
             </div>
           </div>
-          <p v-if="resultsLoading" class="text-sm text-muted-foreground">Loading…</p>
-          <p v-else-if="!results.length" class="text-sm text-muted-foreground">No results yet.</p>
+          <Skeleton v-if="resultsLoading" class="h-10 w-full" />
+          <EmptyState v-else-if="!results.length">No results yet.</EmptyState>
           <div v-else class="space-y-1">
             <details v-for="r in results" :key="r.agent_id" class="rounded border border-border p-2 text-sm" open>
               <summary class="cursor-pointer flex items-center gap-2 flex-wrap">

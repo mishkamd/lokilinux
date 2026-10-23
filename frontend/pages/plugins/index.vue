@@ -26,11 +26,9 @@ onUnmounted(() => clearInterval(poll))
       </div>
     </PageHeader>
 
-    <div v-if="store.error" class="rounded-md border border-destructive p-4 text-sm text-destructive mb-4">
-      Failed to load plugins: {{ store.error }}
-    </div>
+    <Alert v-if="store.error" color="red" title="Failed to load plugins" :description="store.error" class="mb-4" />
 
-    <Alert v-else-if="!store.plugins.length && !store.loading" title="No plugins available" color="gray" class="mb-4" />
+    <EmptyState v-else-if="!store.plugins.length && !store.loading" class="mb-4">No plugins available</EmptyState>
 
     <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
       <Card v-for="plugin in store.plugins" :key="plugin.id">
@@ -49,12 +47,8 @@ onUnmounted(() => clearInterval(poll))
         <p class="text-sm text-muted-foreground">{{ plugin.description }}</p>
         <p class="text-xs text-muted-foreground mt-1">by {{ plugin.author }} · v{{ plugin.version }}</p>
 
-        <p v-if="plugin.installation_status === 'INSTALLING'" class="text-xs text-muted-foreground mt-2">
-          Installing on agents — completes on their next heartbeat…
-        </p>
-        <p v-else-if="plugin.installation_status === 'INSTALLING_FAILED'" class="text-xs text-destructive mt-2">
-          Installation failed on one or more agents — check job results, then retry.
-        </p>
+        <Alert v-if="plugin.installation_status === 'INSTALLING'" color="blue" title="Installing on agents — completes on their next heartbeat…" />
+        <Alert v-else-if="plugin.installation_status === 'INSTALLING_FAILED'" color="red" title="Installation failed on one or more agents — check job results, then retry." />
 
         <template #footer>
           <div class="flex gap-2">

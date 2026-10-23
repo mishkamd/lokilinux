@@ -114,6 +114,6 @@ function onListUpdate(key: string, value: string[]) {
         @update:model-value="(v) => onListUpdate(field.key, v)"
       />
     </FormField>
-    <p v-if="!visibleFields.length" class="text-xs text-muted-foreground">This step type has no configuration.</p>
+    <EmptyState v-if="!visibleFields.length" class="py-3">This step type has no configuration.</EmptyState>
   </div>
 </template>

@@ -372,9 +372,9 @@ const changeColumns = [
 
           <div>
             <p class="label-caps mb-1">Related rules</p>
-            <p v-if="fileChangePathDetail.related_rules.length === 0" class="text-sm text-muted-foreground">
+            <EmptyState v-if="fileChangePathDetail.related_rules.length === 0" class="py-3">
               No compliance rules depend on this exact path.
-            </p>
+            </EmptyState>
             <div v-else class="flex flex-wrap gap-1">
               <NuxtLink
                 v-for="r in fileChangePathDetail.related_rules" :key="r.rule_id"
@@ -387,9 +387,9 @@ const changeColumns = [
 
           <div>
             <p class="label-caps mb-1">Related open drift</p>
-            <p v-if="fileChangePathDetail.related_drift.length === 0" class="text-sm text-muted-foreground">
+            <EmptyState v-if="fileChangePathDetail.related_drift.length === 0" class="py-3">
               No open drift on the domains this file feeds.
-            </p>
+            </EmptyState>
             <ul v-else class="divide-y divide-border">
               <li v-for="d in fileChangePathDetail.related_drift" :key="String(d.id)" class="py-1.5 flex items-center justify-between gap-2">
                 <span class="text-xs truncate">{{ d.summary }}</span>
@@ -406,7 +406,7 @@ const changeColumns = [
                 <Badge :color="CHANGE_KIND_COLORS[c.change_kind] ?? 'gray'" size="xs">{{ c.change_kind }}</Badge>
               </li>
             </ul>
-            <p v-if="fileChangePathDetail.timeline.length === 0" class="text-sm text-muted-foreground">No changes recorded.</p>
+            <EmptyState v-if="fileChangePathDetail.timeline.length === 0">No changes recorded.</EmptyState>
           </div>
         </div>
       </template>

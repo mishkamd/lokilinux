@@ -47,7 +47,7 @@ const form = reactive<AllSettings>({
 
 const saving = reactive<Record<string, boolean>>({})
 
-const { pending } = await useAsyncData('platform-settings', async () => {
+const { pending, error, refresh } = await useAsyncData('platform-settings', async () => {
   const cfg = await api.get<AllSettings>('/admin/settings')
   Object.assign(form.agent, cfg.agent)
   Object.assign(form.security, cfg.security)
@@ -91,8 +91,15 @@ async function saveGroups(...groups: (keyof AllSettings)[]) {
   <div class="w-full space-y-8">
     <PageHeader title="Platform Settings" />
 
-    <div v-if="pending" class="flex justify-center py-8">
-      <span class="size-5 animate-spin rounded-full border-2 border-primary border-t-transparent inline-block" />
+    <div v-if="pending" class="space-y-3 py-8">
+      <Skeleton class="h-8 w-64" />
+      <Skeleton class="h-4 w-96" />
+      <Skeleton class="h-48 w-full" />
+    </div>
+
+    <div v-else-if="error" class="space-y-3">
+      <Alert color="red" title="Failed to load platform settings." />
+      <Button variant="outline" @click="refresh()">Retry</Button>
     </div>
 
     <div v-else class="space-y-8">

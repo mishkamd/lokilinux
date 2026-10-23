@@ -14,7 +14,7 @@ interface PolicyRow {
   current_version: number | null
 }
 
-const { data, refresh, pending } = await useAsyncData('agent-policies', () =>
+const { data, refresh, pending, error } = await useAsyncData('agent-policies', () =>
   api.get<{ items: PolicyRow[]; total: number }>('/agent-policies?limit=200'),
 )
 
@@ -261,7 +261,9 @@ async function createGroup() {
       </div>
     </PageHeader>
 
+    <Alert v-if="error" color="red" title="Failed to load agent policies." class="mb-4" />
     <DataTable
+      v-else
       :rows="filtered"
       :columns="columns"
       :loading="pending"
@@ -372,8 +374,8 @@ async function createGroup() {
 
     <Dialog v-model="showAudit" :title="`Audit — ${auditFor?.name ?? ''}`" size="lg">
       <template #body>
-        <p v-if="auditLoading" class="text-sm text-muted-foreground">Loading…</p>
-        <p v-else-if="!auditRows.length" class="text-sm text-muted-foreground">No audit entries yet.</p>
+        <Skeleton v-if="auditLoading" class="h-10 w-full" />
+        <EmptyState v-else-if="!auditRows.length">No audit entries yet.</EmptyState>
         <ul v-else class="divide-y divide-border text-sm">
           <li v-for="(r, i) in auditRows" :key="i" class="py-2 flex items-center justify-between gap-3">
             <div>
@@ -400,7 +402,7 @@ async function createGroup() {
             </FormField>
             <Button size="sm" :loading="groupSaving" @click="createGroup">Add</Button>
           </div>
-          <p v-if="!groups.length" class="text-sm text-muted-foreground">No groups yet.</p>
+          <EmptyState v-if="!groups.length">No groups yet.</EmptyState>
           <ul v-else class="divide-y divide-border text-sm">
             <li v-for="g in groups" :key="g.id" class="py-1.5">{{ g.name }}</li>
           </ul>

@@ -174,15 +174,13 @@ function pctOfFleet(count: number): string {
             <span class="shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5">→</span>
           </NuxtLink>
         </div>
-        <p
+        <Skeleton
           v-else-if="!dashboard.summary && !compliance.overview"
-          class="rounded-[var(--radius-lg)] border border-border bg-card px-4 py-3 text-sm text-muted-foreground"
-        >
-          Checking the fleet…
-        </p>
-        <p v-else class="rounded-[var(--radius-lg)] border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
+          class="h-12 w-full rounded-[var(--radius-lg)]"
+        />
+        <EmptyState v-else class="rounded-[var(--radius-lg)] border border-border bg-card">
           Nothing needs attention right now.
-        </p>
+        </EmptyState>
       </section>
 
       <!-- Operational health: the KPI row. Eight equal cells — each carries

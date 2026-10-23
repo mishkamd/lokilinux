@@ -40,7 +40,7 @@ const segments = computed<Segment[]>(() => {
       </span>
       <h2 class="label-caps">OS Distribution</h2>
     </div>
-    <div v-if="total === 0" class="flex-1 flex items-center justify-center text-xs text-muted-foreground">No servers registered.</div>
+    <EmptyState v-if="total === 0">No servers registered.</EmptyState>
     <div v-else class="flex flex-col sm:flex-row items-center gap-3">
       <div class="relative shrink-0 size-24">
         <svg viewBox="0 0 160 160" class="size-24 -rotate-90">

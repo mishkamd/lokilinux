@@ -8,7 +8,18 @@ const version = String(route.params.version)
 const store = useComplianceStore()
 const { selectedStandard } = storeToRefs(store)
 
-onMounted(() => store.fetchStandard(key, version))
+const loadError = ref<string | null>(null)
+
+async function load() {
+  loadError.value = null
+  try {
+    await store.fetchStandard(key, version)
+  } catch {
+    loadError.value = 'Failed to load standard.'
+  }
+}
+
+onMounted(load)
 </script>
 
 <template>
@@ -52,6 +63,10 @@ onMounted(() => store.fetchStandard(key, version))
         No controls mapped for this standard version.
       </EmptyState>
     </div>
+  </div>
+  <div v-else-if="loadError" class="space-y-3">
+    <Alert color="red" :title="loadError" />
+    <Button variant="outline" @click="load">Retry</Button>
   </div>
   <Skeleton v-else class="h-64 w-full" />
 </template>
