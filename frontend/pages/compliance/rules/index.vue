@@ -25,7 +25,7 @@ const columns = [
     <PageHeader>
       <div class="flex flex-wrap items-center gap-3">
         <Input v-model="ruleFilters.search" placeholder="Search rule ID, title, CCE/NIST/STIG/CIS…" class="w-64"
-               @keyup.enter="store.fetchRules()" />
+               aria-label="Search rules" @keyup.enter="store.fetchRules()" />
         <Input v-model="ruleFilters.domain" placeholder="Filter by domain (e.g. sshd)" class="w-48"
                @keyup.enter="store.fetchRules()" />
         <Select v-model="ruleFilters.check_source" :options="['', ...CHECK_SOURCES]" placeholder="Coverage" class="w-44"

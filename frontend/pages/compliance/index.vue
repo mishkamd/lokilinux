@@ -327,8 +327,10 @@ async function submitRunAssessment() {
             :rows="topViolations.top_rules.slice(0, 5)" :columns="ruleViolationColumns" row-key="rule_id"
            caption="Top violating rules">
             <template #title-data="{ row }">
-              <p class="text-sm font-medium truncate" :title="row.title">{{ row.title }}</p>
-              <p class="text-xs text-muted-foreground font-mono truncate">{{ row.rule_key }} · {{ row.domain }}</p>
+              <div class="min-w-0">
+                <p class="text-sm font-medium min-[768px]:truncate" :title="row.title">{{ row.title }}</p>
+                <p class="text-xs text-muted-foreground font-mono min-[768px]:truncate">{{ row.rule_key }} · {{ row.domain }}</p>
+              </div>
             </template>
             <template #severity-data="{ row }"><Badge :color="SEVERITY_COLORS[row.severity] ?? 'gray'" size="xs">{{ row.severity }}</Badge></template>
             <template #fail_count-data="{ row }"><Badge color="gray" size="xs">{{ row.fail_count }}×</Badge></template>
@@ -340,10 +342,12 @@ async function submitRunAssessment() {
             @row-click="(row) => navigateTo(`/compliance/drift/${row.id}`)"
            caption="Recent drift">
             <template #summary-data="{ row }">
-              <p class="text-sm font-medium truncate">{{ row.summary }}</p>
-              <p class="text-xs text-muted-foreground font-mono truncate">
-                {{ new Date(String(row.time)).toLocaleString() }} · {{ row.domain }} · {{ row.compared_against }}
-              </p>
+              <div class="min-w-0">
+                <p class="text-sm font-medium min-[768px]:truncate">{{ row.summary }}</p>
+                <p class="text-xs text-muted-foreground font-mono min-[768px]:truncate">
+                  {{ new Date(String(row.time)).toLocaleString() }} · {{ row.domain }} · {{ row.compared_against }}
+                </p>
+              </div>
             </template>
             <template #severity-data="{ row }"><Badge :color="SEVERITY_COLORS[String(row.severity)] ?? 'gray'" size="xs">{{ row.severity }}</Badge></template>
           </DataTable>
@@ -365,8 +369,8 @@ async function submitRunAssessment() {
           v-else
           :rows="topChangedFiles.slice(0, 8)" :columns="changedFilesColumns" row-key="path" rows-clickable
           @row-click="(row) => navigateTo(`/compliance/file-integrity?path=${encodeURIComponent(String(row.path))}`)"
-         caption="Standards coverage">
-          <template #path-data="{ row }"><span class="font-mono text-xs truncate" :title="row.path">{{ row.path }}</span></template>
+         caption="Top changed files">
+          <template #path-data="{ row }"><p class="font-mono text-xs min-[768px]:truncate" :title="row.path">{{ row.path }}</p></template>
           <template #change_count-data="{ row }"><Badge color="gray" size="xs">{{ row.change_count }}×</Badge></template>
         </DataTable>
       </Card>
@@ -388,7 +392,7 @@ async function submitRunAssessment() {
           v-else
           :rows="baselines.slice(0, 5)" :columns="baselineColumns" row-key="id" rows-clickable
           @row-click="(row) => navigateTo(`/compliance/baselines/${row.id}`)"
-         caption="Policy sets">
+         caption="Recent baselines">
           <template #name-data="{ row }"><p class="text-sm font-medium">{{ row.name }}</p></template>
           <template #scope_type-data="{ row }"><span class="text-xs text-muted-foreground font-mono">{{ row.scope_type }}</span></template>
           <template #is_enabled-data="{ row }">
