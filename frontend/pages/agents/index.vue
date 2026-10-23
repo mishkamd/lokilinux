@@ -153,137 +153,141 @@ async function copy(text: string) {
 </script>
 
 <template>
-  <div class="space-y-8">
-    <!-- Platform URL bar -->
-    <div v-if="packages?.platform_url" class="flex items-center gap-3 p-3 rounded-lg bg-muted text-sm">
-      <Server class="size-4 text-muted-foreground shrink-0" />
-      <span class="text-muted-foreground">Server URL:</span>
-      <code class="font-mono font-medium flex-1">{{ packages.platform_url }}</code>
-      <Button size="xs" variant="ghost" aria-label="Copy server URL" @click="copy(packages!.platform_url)">
-        <Clipboard class="size-4" />
-      </Button>
-    </div>
-
-    <!-- Admin config -->
-    <div v-if="isAdmin">
-      <div class="flex items-center justify-between mb-3">
-        <h2 class="text-lg font-semibold">Agent packages</h2>
-        <Button size="sm" variant="outline" @click="showConfig = !showConfig">
+  <div>
+    <PageHeader
+      title="Agent packages"
+      description="Download the agent binary or enroll a new server."
+    >
+      <template #actions>
+        <Button v-if="isAdmin" size="sm" variant="outline" @click="showConfig = !showConfig">
           <component :is="showConfig ? ChevronUp : Settings" class="size-4" />
           Configure URLs
         </Button>
+      </template>
+    </PageHeader>
+
+    <div class="space-y-8">
+      <!-- Platform URL bar -->
+      <div v-if="packages?.platform_url" class="flex items-center gap-3 p-3 rounded-lg bg-muted text-sm">
+        <Server class="size-4 text-muted-foreground shrink-0" />
+        <span class="text-muted-foreground">Server URL:</span>
+        <code class="font-mono font-medium flex-1">{{ packages.platform_url }}</code>
+        <Button size="xs" variant="ghost" aria-label="Copy server URL" @click="copy(packages!.platform_url)">
+          <Clipboard class="size-4" />
+        </Button>
       </div>
-      <Card v-if="showConfig" class="mb-4">
-        <div class="space-y-4">
-          <FormField label="Server URL (platform)" name="platform_url">
-            <Input v-model="cfg.platform_url" placeholder="http://lokilinux.example.com:8000" />
-          </FormField>
-          <FormField label="Download Base URL" name="download_base">
-            <Input v-model="cfg.download_base" placeholder="https://github.com/lokilinux/releases/download/v0.1.0" />
-          </FormField>
-          <FormField label="Agent version" name="version">
-            <Input v-model="cfg.version" placeholder="0.1.0" class="max-w-xs" />
-          </FormField>
-          <div class="flex gap-2">
-            <Button :loading="cfgPending" @click="saveConfig">Save</Button>
-            <Button variant="ghost" @click="showConfig = false">Cancel</Button>
-          </div>
-        </div>
-      </Card>
-    </div>
-    <div v-else>
-      <h2 class="text-lg font-semibold mb-3">Agent packages</h2>
-    </div>
 
-    <!-- Download cards -->
-    <div v-if="packagesError" class="text-sm text-destructive">Failed to load package URLs.</div>
-    <div v-else-if="!packages" class="grid grid-cols-1 md:grid-cols-3 gap-4">
-      <Skeleton v-for="i in 3" :key="i" class="h-36 rounded-lg" />
-    </div>
-    <div v-else class="grid grid-cols-1 md:grid-cols-3 gap-4">
-      <Card v-for="card in packageCards" :key="card.type">
-        <template #header>
-          <div class="flex items-center gap-2">
-            <Download class="size-5 text-primary-text" />
-            <span class="font-semibold">{{ card.type }}</span>
-            <Badge size="xs">v{{ packages.version }}</Badge>
+      <!-- Admin config -->
+      <div v-if="isAdmin">
+        <Card v-if="showConfig" class="mb-4">
+          <div class="space-y-4">
+            <FormField label="Server URL (platform)" name="platform_url">
+              <Input v-model="cfg.platform_url" placeholder="http://lokilinux.example.com:8000" />
+            </FormField>
+            <FormField label="Download Base URL" name="download_base">
+              <Input v-model="cfg.download_base" placeholder="https://github.com/lokilinux/releases/download/v0.1.0" />
+            </FormField>
+            <FormField label="Agent version" name="version">
+              <Input v-model="cfg.version" placeholder="0.1.0" class="max-w-xs" />
+            </FormField>
+            <div class="flex gap-2">
+              <Button :loading="cfgPending" @click="saveConfig">Save</Button>
+              <Button variant="ghost" @click="showConfig = false">Cancel</Button>
+            </div>
           </div>
-          <p class="text-xs text-muted-foreground mt-1">{{ card.description }}</p>
-        </template>
-        <div class="space-y-2">
-          <template v-for="link in card.links" :key="link.arch">
-            <!-- Generated directly by platform (local build) -->
-            <Button
-              v-if="link.available"
-              :loading="downloading === `${link.os}-${link.arch}`"
-              variant="default"
-              size="sm"
-              class="w-full"
-              @click="downloadDirect(link)"
-            >
-              <Download class="size-4" />
-              {{ link.label }}
-            </Button>
-            <!-- Fallback: configured external URL -->
-            <Button v-else-if="link.external" :to="link.external" target="_blank" variant="outline" size="sm" class="w-full">
-              <Download class="size-4" />
-              {{ link.label }} (external)
-            </Button>
-            <Button v-else disabled variant="secondary" size="sm" class="w-full">
-              {{ link.label }} — unavailable
-            </Button>
+        </Card>
+      </div>
+
+      <!-- Download cards -->
+      <div v-if="packagesError" class="text-sm text-destructive">Failed to load package URLs.</div>
+      <div v-else-if="!packages" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Skeleton v-for="i in 3" :key="i" class="h-36 rounded-lg" />
+      </div>
+      <div v-else class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card v-for="card in packageCards" :key="card.type">
+          <template #header>
+            <div class="flex items-center gap-2">
+              <Download class="size-5 text-primary-text" />
+              <span class="font-semibold">{{ card.type }}</span>
+              <Badge size="xs">v{{ packages.version }}</Badge>
+            </div>
+            <p class="text-xs text-muted-foreground mt-1">{{ card.description }}</p>
           </template>
-        </div>
-      </Card>
+          <div class="space-y-2">
+            <template v-for="link in card.links" :key="link.arch">
+              <!-- Generated directly by platform (local build) -->
+              <Button
+                v-if="link.available"
+                :loading="downloading === `${link.os}-${link.arch}`"
+                variant="default"
+                size="sm"
+                class="w-full"
+                @click="downloadDirect(link)"
+              >
+                <Download class="size-4" />
+                {{ link.label }}
+              </Button>
+              <!-- Fallback: configured external URL -->
+              <Button v-else-if="link.external" :to="link.external" target="_blank" variant="outline" size="sm" class="w-full">
+                <Download class="size-4" />
+                {{ link.label }} (external)
+              </Button>
+              <Button v-else disabled variant="secondary" size="sm" class="w-full">
+                {{ link.label }} — unavailable
+              </Button>
+            </template>
+          </div>
+        </Card>
+      </div>
+
+      <!-- Enrollment token -->
+      <section v-if="canEdit">
+        <h2 class="text-lg font-semibold mb-1">Install agent on new server</h2>
+        <p class="text-sm text-muted-foreground mb-4">Token valid 24h · single-use · run command on target server as root</p>
+
+        <Card class="max-w-2xl">
+          <div class="space-y-4">
+            <div class="flex gap-3 items-end">
+              <FormField label="Label (optional)" name="label" class="flex-1">
+                <Input v-model="tokenLabel" placeholder="e.g. prod-web-01" :disabled="tokenPending" />
+              </FormField>
+              <FormField v-if="groups.length" label="Group (optional)" name="group" class="w-48">
+                <Select v-model="tokenGroup" :options="[{ label: 'No group', value: '' }, ...groups.map((g) => ({ label: g.name, value: g.id }))]" :disabled="tokenPending" />
+              </FormField>
+              <Button :loading="tokenPending" @click="generateToken">
+                <Key class="size-4" />
+                Generate token
+              </Button>
+            </div>
+
+            <div v-if="enrollResult" class="space-y-3">
+              <Alert color="green" title="Token generated — valid 24h" />
+
+              <FormField label="Token">
+                <div class="flex gap-2">
+                  <Input :model-value="enrollResult.token" readonly class="font-mono text-xs flex-1" />
+                  <Button variant="outline" aria-label="Copy token" @click="copy(enrollResult.token)">
+                    <Clipboard class="size-4" />
+                  </Button>
+                </div>
+              </FormField>
+
+              <FormField label="Install command (run as root on target server)">
+                <div class="flex gap-2">
+                  <Input :model-value="enrollResult.install_command" readonly class="font-mono text-xs flex-1" />
+                  <Button variant="outline" aria-label="Copy install command" @click="copy(enrollResult.install_command)">
+                    <Clipboard class="size-4" />
+                  </Button>
+                </div>
+              </FormField>
+
+              <Button variant="ghost" size="sm" @click="enrollResult = null; tokenLabel = ''; tokenGroup = ''">
+                Generate another token
+              </Button>
+            </div>
+          </div>
+        </Card>
+      </section>
     </div>
-
-    <!-- Enrollment token -->
-    <section v-if="canEdit">
-      <h2 class="text-lg font-semibold mb-1">Install agent on new server</h2>
-      <p class="text-sm text-muted-foreground mb-4">Token valid 24h · single-use · run command on target server as root</p>
-
-      <Card class="max-w-2xl">
-        <div class="space-y-4">
-          <div class="flex gap-3 items-end">
-            <FormField label="Label (optional)" name="label" class="flex-1">
-              <Input v-model="tokenLabel" placeholder="e.g. prod-web-01" :disabled="tokenPending" />
-            </FormField>
-            <FormField v-if="groups.length" label="Group (optional)" name="group" class="w-48">
-              <Select v-model="tokenGroup" :options="[{ label: 'No group', value: '' }, ...groups.map((g) => ({ label: g.name, value: g.id }))]" :disabled="tokenPending" />
-            </FormField>
-            <Button :loading="tokenPending" @click="generateToken">
-              <Key class="size-4" />
-              Generate token
-            </Button>
-          </div>
-
-          <div v-if="enrollResult" class="space-y-3">
-            <Alert color="green" title="Token generated — valid 24h" />
-
-            <FormField label="Token">
-              <div class="flex gap-2">
-                <Input :model-value="enrollResult.token" readonly class="font-mono text-xs flex-1" />
-                <Button variant="outline" aria-label="Copy token" @click="copy(enrollResult.token)">
-                  <Clipboard class="size-4" />
-                </Button>
-              </div>
-            </FormField>
-
-            <FormField label="Install command (run as root on target server)">
-              <div class="flex gap-2">
-                <Input :model-value="enrollResult.install_command" readonly class="font-mono text-xs flex-1" />
-                <Button variant="outline" aria-label="Copy install command" @click="copy(enrollResult.install_command)">
-                  <Clipboard class="size-4" />
-                </Button>
-              </div>
-            </FormField>
-
-            <Button variant="ghost" size="sm" @click="enrollResult = null; tokenLabel = ''; tokenGroup = ''">
-              Generate another token
-            </Button>
-          </div>
-        </div>
-      </Card>
-    </section>
   </div>
 </template>

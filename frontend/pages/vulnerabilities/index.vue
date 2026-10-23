@@ -58,6 +58,8 @@ const topVulnerabilities = computed(() => [...cves.value].slice(0, 10))
 
 <template>
   <div>
+    <PageHeader description="Open exposure on the fleet — critical findings, affected resources and what is patchable." />
+
     <!-- KPI cards -->
     <div class="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-4">
       <Card>

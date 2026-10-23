@@ -43,6 +43,8 @@ const criticalSignals = computed(() =>
 
 <template>
   <div>
+    <PageHeader description="Fleet-wide security posture — open CVEs, critical signals and scan coverage." />
+
     <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 mb-4">
       <MetricCard
         :icon="Bug"

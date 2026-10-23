@@ -120,13 +120,16 @@ const filteredUsers = computed(() => {
 
 <template>
   <div class="space-y-4">
-    <PageHeader >
-      <template #actions>
+    <PageHeader>
+      <div class="flex flex-wrap items-center gap-3">
+        <Badge color="gray">{{ filteredUsers.length }} users</Badge>
+      </div>
+      <div class="flex items-center gap-1.5">
         <Button @click="showModal = true">
           <Plus class="size-4" />
           Add User
         </Button>
-      </template>
+      </div>
     </PageHeader>
 
     <DataTable

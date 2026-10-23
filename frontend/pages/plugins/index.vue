@@ -20,10 +20,10 @@ onUnmounted(() => clearInterval(poll))
 
 <template>
   <div>
-    <PageHeader :description="'Agent-side plugins reported via heartbeat.'">
-      <template #actions>
+    <PageHeader description="Agent-side plugins reported via heartbeat.">
+      <div class="flex flex-wrap items-center gap-3">
         <Badge color="gray">{{ store.total }} plugins</Badge>
-      </template>
+      </div>
     </PageHeader>
 
     <div v-if="store.error" class="rounded-md border border-destructive p-4 text-sm text-destructive mb-4">

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, ZoomIn, ZoomOut, Maximize, Save, Upload, AlertTriangle, Play, FlaskConical, Undo2, Redo2, Clock } from 'lucide-vue-next'
+import { ZoomIn, ZoomOut, Maximize, Save, Upload, AlertTriangle, Play, FlaskConical, Undo2, Redo2, Clock } from 'lucide-vue-next'
 import type { WorkflowNodeType, WorkflowEdge, WorkflowHandleSide } from '~/types/workflow'
 
 const route = useRoute()
@@ -213,65 +213,67 @@ async function onSaveSchedule() {
 
 <template>
   <div class="relative -m-3 sm:-m-4 flex h-[calc(100vh-4rem)] flex-col overflow-hidden">
-    <div class="flex shrink-0 items-center gap-3 border-b border-border bg-card px-3 py-2 sm:px-4">
-      <NuxtLink to="/workflows" aria-label="Back to workflows" class="focus-ring flex items-center justify-center rounded-lg p-1.5 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors">
-        <ArrowLeft class="size-4" />
-      </NuxtLink>
-      <div class="min-w-0 flex-1">
-        <p class="truncate text-sm font-medium">{{ workflow?.name ?? '…' }}</p>
-        <p v-if="workflow" class="truncate text-label text-muted-foreground">{{ workflow.slug }}</p>
-      </div>
-      <Badge v-if="!yamlValid" size="xs" color="red">Invalid YAML</Badge>
-      <Badge v-else-if="isDirty" size="xs" color="amber">Unsaved</Badge>
-      <Badge v-else-if="workflow" size="xs" :color="workflow.current_version_id ? 'green' : 'gray'">
-        {{ workflow.current_version_id ? `v${workflow.current_version?.version} published` : 'Draft only' }}
-      </Badge>
-      <Button size="xs" :loading="saving" :disabled="!isDirty || !yamlValid" @click="onSave">
-        <Save class="size-3.5" />
-        Save
-      </Button>
-      <Button
-        v-if="canEdit" size="xs" variant="outline" :loading="publishing"
-        :disabled="versionStatus !== 'DRAFT' || isDirty"
-        @click="onPublish"
-      >
-        <Upload class="size-3.5" />
-        Publish
-      </Button>
-      <Button size="xs" variant="outline" :loading="dryRunning" :disabled="!workflow?.current_version_id" @click="onDryRun">
-        <FlaskConical class="size-3.5" />
-        Dry Run
-      </Button>
-      <Button v-if="canEdit" size="xs" variant="ghost" @click="openSchedule">
-        <Clock class="size-3.5" />
-        {{ workflow?.trigger_type === 'SCHEDULE' ? workflow.cron_expr : 'Manual' }}
-      </Button>
-      <Button
-        v-if="canEdit" size="xs" :loading="runStarting"
-        :disabled="!workflow?.current_version_id || runIsActive"
-        @click="onRun"
-      >
-        <Play class="size-3.5" />
-        {{ runIsActive ? 'Running…' : 'Run' }}
-      </Button>
-      <div class="flex items-center gap-1">
-        <Button size="xs" variant="ghost" aria-label="Undo" :disabled="!canUndo" @click="onUndo">
-          <Undo2 class="size-4" />
+    <PageHeader
+      class="shrink-0"
+      :title="workflow?.name ?? '…'"
+      :description="workflow?.slug"
+      :back="{ to: '/workflows', label: 'Back to workflows' }"
+    >
+      <template #badges>
+        <Badge v-if="!yamlValid" size="xs" color="red">Invalid YAML</Badge>
+        <Badge v-else-if="isDirty" size="xs" color="amber">Unsaved</Badge>
+        <Badge v-else-if="workflow" size="xs" :color="workflow.current_version_id ? 'green' : 'gray'">
+          {{ workflow.current_version_id ? `v${workflow.current_version?.version} published` : 'Draft only' }}
+        </Badge>
+      </template>
+      <template #actions>
+        <Button size="xs" :loading="saving" :disabled="!isDirty || !yamlValid" @click="onSave">
+          <Save class="size-3.5" />
+          Save
         </Button>
-        <Button size="xs" variant="ghost" aria-label="Redo" :disabled="!canRedo" @click="onRedo">
-          <Redo2 class="size-4" />
+        <Button
+          v-if="canEdit" size="xs" variant="outline" :loading="publishing"
+          :disabled="versionStatus !== 'DRAFT' || isDirty"
+          @click="onPublish"
+        >
+          <Upload class="size-3.5" />
+          Publish
         </Button>
-        <Button size="xs" variant="ghost" aria-label="Zoom out" @click="canvasRef?.zoomOut()">
-          <ZoomOut class="size-4" />
+        <Button size="xs" variant="outline" :loading="dryRunning" :disabled="!workflow?.current_version_id" @click="onDryRun">
+          <FlaskConical class="size-3.5" />
+          Dry Run
         </Button>
-        <Button size="xs" variant="ghost" aria-label="Zoom in" @click="canvasRef?.zoomIn()">
-          <ZoomIn class="size-4" />
+        <Button v-if="canEdit" size="xs" variant="ghost" @click="openSchedule">
+          <Clock class="size-3.5" />
+          {{ workflow?.trigger_type === 'SCHEDULE' ? workflow.cron_expr : 'Manual' }}
         </Button>
-        <Button size="xs" variant="ghost" aria-label="Fit view" @click="canvasRef?.fitView({ padding: 0.2 })">
-          <Maximize class="size-4" />
+        <Button
+          v-if="canEdit" size="xs" :loading="runStarting"
+          :disabled="!workflow?.current_version_id || runIsActive"
+          @click="onRun"
+        >
+          <Play class="size-3.5" />
+          {{ runIsActive ? 'Running…' : 'Run' }}
         </Button>
-      </div>
-    </div>
+        <div class="flex items-center gap-1">
+          <Button size="xs" variant="ghost" aria-label="Undo" :disabled="!canUndo" @click="onUndo">
+            <Undo2 class="size-4" />
+          </Button>
+          <Button size="xs" variant="ghost" aria-label="Redo" :disabled="!canRedo" @click="onRedo">
+            <Redo2 class="size-4" />
+          </Button>
+          <Button size="xs" variant="ghost" aria-label="Zoom out" @click="canvasRef?.zoomOut()">
+            <ZoomOut class="size-4" />
+          </Button>
+          <Button size="xs" variant="ghost" aria-label="Zoom in" @click="canvasRef?.zoomIn()">
+            <ZoomIn class="size-4" />
+          </Button>
+          <Button size="xs" variant="ghost" aria-label="Fit view" @click="canvasRef?.fitView({ padding: 0.2 })">
+            <Maximize class="size-4" />
+          </Button>
+        </div>
+      </template>
+    </PageHeader>
 
     <DashboardError v-if="error" @retry="store.load(workflowId)" />
     <div v-else-if="loading" class="flex flex-1 items-center justify-center text-sm text-muted-foreground">

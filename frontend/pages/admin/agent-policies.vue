@@ -246,7 +246,10 @@ async function createGroup() {
 <template>
   <div class="space-y-4">
     <PageHeader description="Desired-state configuration for the fleet — signed, versioned, applied autonomously.">
-      <template #actions>
+      <div class="flex flex-wrap items-center gap-3">
+        <Badge color="gray">{{ filtered.length }} policies</Badge>
+      </div>
+      <div class="flex items-center gap-1.5">
         <Button variant="outline" @click="openGroups">
           <Users class="size-4" />
           Groups
@@ -255,7 +258,7 @@ async function createGroup() {
           <Plus class="size-4" />
           New Policy
         </Button>
-      </template>
+      </div>
     </PageHeader>
 
     <DataTable

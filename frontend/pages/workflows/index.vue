@@ -74,12 +74,14 @@ async function remove(workflow: Workflow) {
 
 <template>
   <div>
-    <div class="flex items-center justify-end mb-3">
-      <Button v-if="canEdit" size="sm" @click="openCreate">
-        <Plus class="size-4" />
-        New Workflow
-      </Button>
-    </div>
+    <PageHeader>
+      <div class="ml-auto flex items-center gap-1.5">
+        <Button v-if="canEdit" size="sm" @click="openCreate">
+          <Plus class="size-4" />
+          New Workflow
+        </Button>
+      </div>
+    </PageHeader>
 
     <DataTable
       :rows="workflows"
