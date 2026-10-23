@@ -49,7 +49,7 @@ function removeAt(index: number) {
   >
     <span
       v-for="(item, index) in modelValue ?? []" :key="item"
-      class="inline-flex items-center gap-1 rounded bg-muted px-2 py-0.5 text-xs"
+      class="inline-flex items-center gap-1 rounded-[var(--radius-sm)] bg-muted px-2 py-0.5 text-xs"
     >
       <span>{{ item }}</span>
       <button type="button" class="focus-ring -m-1 inline-flex min-h-6 min-w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground" @click="removeAt(index)">

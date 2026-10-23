@@ -127,7 +127,7 @@ async function runAction(action: 'submit' | 'approve' | 'publish' | 'rollback', 
                           :loading="busyVersionId === v.id" @click="runAction('publish', v.id)">
                     Publish
                   </Button>
-                  <Button v-if="isAdmin && v.status === 'DEPRECATED'" size="xs" variant="outline"
+                  <Button v-if="isAdmin && v.status === 'DEPRECATED'" size="xs" variant="destructive"
                           :loading="busyVersionId === v.id" @click="runAction('rollback', v.id)">
                     Roll back to this
                   </Button>
@@ -140,7 +140,7 @@ async function runAction(action: 'submit' | 'approve' | 'publish' | 'rollback', 
       </template>
 
       <template #details>
-        <dl class="grid grid-cols-2 gap-3 text-sm">
+        <dl class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
           <div><dt class="text-muted-foreground">Scope selector</dt>
                <dd class="font-mono text-xs">{{ JSON.stringify(selectedBaseline.scope_selector) }}</dd></div>
           <div><dt class="text-muted-foreground">Status</dt>

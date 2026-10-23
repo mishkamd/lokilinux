@@ -714,7 +714,7 @@ const VULN_FILTER_OPTIONS = [
           <Skeleton v-if="policyLoading && !policyState" class="h-24 w-full" />
 
           <template v-else-if="policyState">
-            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
               <Card>
                 <template #header><p class="label-caps">Desired</p></template>
                 <div v-if="policyState.desired" class="text-sm space-y-1">

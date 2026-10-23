@@ -15,7 +15,7 @@ const columns = [
   { key: 'playbook_id', label: 'Playbook' },
   { key: 'agent_ids', label: 'Agents' },
   { key: 'updated_at', label: 'Updated' },
-  { key: 'actions', label: '' },
+  { key: 'actions', label: '', noSort: true },
 ]
 
 await Promise.all([store.fetchTemplates(), playbooksStore.fetchPlaybooks()])
@@ -154,7 +154,7 @@ async function openHistory(template: PlaybookTemplate) {
 
     <Alert
       color="blue"
-      class="mb-4"
+      class="mb-3"
       title="Job Templates"
       description="A saved playbook + agents + extra_vars combo — launch it repeatedly with one click. Every launch still requires admin approval on the Jobs page before it reaches agents."
     />
@@ -179,7 +179,7 @@ async function openHistory(template: PlaybookTemplate) {
       <template #actions-data="{ row }">
         <div class="flex items-center justify-end gap-1">
           <Tooltip text="Launch template">
-            <Button size="xs" variant="ghost" class="text-success" aria-label="Launch template" :loading="launching === (row as PlaybookTemplate).id" @click="launch(row as PlaybookTemplate)">
+            <Button size="xs" variant="ghost" aria-label="Launch template" :loading="launching === (row as PlaybookTemplate).id" @click="launch(row as PlaybookTemplate)">
               <Play class="size-3.5" />
             </Button>
           </Tooltip>

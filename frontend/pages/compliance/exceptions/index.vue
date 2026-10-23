@@ -147,7 +147,7 @@ async function revoke(id: string) {
           <Button v-if="isAdmin && row.status === 'PENDING'" size="xs" variant="ghost" @click="approve(String(row.id))">
             Approve
           </Button>
-          <Button v-if="canEdit && ['PENDING', 'ACTIVE'].includes(String(row.status))" size="xs" variant="ghost" @click="revoke(String(row.id))">
+          <Button v-if="canEdit && ['PENDING', 'ACTIVE'].includes(String(row.status))" size="xs" variant="destructive" @click="revoke(String(row.id))">
             Revoke
           </Button>
         </div>

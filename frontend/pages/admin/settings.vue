@@ -114,7 +114,7 @@ async function saveGroups(...groups: (keyof AllSettings)[]) {
               <span class="text-sm">Enable LDAP authentication</span>
               <Switch v-model="form.security.ldap_enabled" />
             </div>
-            <div class="grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <FormField label="Host">
                 <Input v-model="form.security.ldap_host" placeholder="ldap.example.com" />
               </FormField>
@@ -159,7 +159,7 @@ async function saveGroups(...groups: (keyof AllSettings)[]) {
               <span class="text-sm">Rate limiting enabled</span>
               <Switch v-model="form.security.rate_limit_enabled" />
             </div>
-            <div class="grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <FormField label="Session duration (days)">
                 <Input v-model.number="form.security.session_expiry_days" type="number" />
               </FormField>
@@ -188,7 +188,7 @@ async function saveGroups(...groups: (keyof AllSettings)[]) {
         <Card>
           <template #header>Agent Distribution</template>
           <div class="space-y-4">
-            <div class="grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <FormField label="Platform URL" help="Base URL of this control plane">
                 <Input v-model="form.agent.platform_url" placeholder="https://lokilinux.example.com" />
               </FormField>
@@ -208,7 +208,7 @@ async function saveGroups(...groups: (keyof AllSettings)[]) {
         <Card>
           <template #header>Notifications (SMTP / Slack)</template>
           <div class="space-y-4">
-            <div class="grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <FormField label="SMTP Host">
                 <Input v-model="form.notifications.smtp_host" placeholder="smtp.example.com" />
               </FormField>
@@ -237,7 +237,7 @@ async function saveGroups(...groups: (keyof AllSettings)[]) {
         <Card>
           <template #header>Retention & CVE Feed</template>
           <div class="space-y-4">
-            <div class="grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-4">
+            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <FormField label="Audit log retention (days)">
                 <Input v-model.number="form.security.audit_log_retention_days" type="number" />
               </FormField>
@@ -263,7 +263,7 @@ async function saveGroups(...groups: (keyof AllSettings)[]) {
         <Card>
           <template #header>Fleet Defaults</template>
           <div class="space-y-4">
-            <div class="grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <FormField label="Heartbeat timeout (minutes)" help="Agent becomes INACTIVE after this many minutes without heartbeat">
                 <Input v-model.number="form.fleet.heartbeat_timeout_minutes" type="number" />
               </FormField>
@@ -280,7 +280,7 @@ async function saveGroups(...groups: (keyof AllSettings)[]) {
         <Card>
           <template #header>Branding</template>
           <div class="space-y-4">
-            <div class="grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <FormField label="Company name">
                 <Input v-model="form.branding.company_name" placeholder="LokiLinux" />
               </FormField>
@@ -313,7 +313,7 @@ async function saveGroups(...groups: (keyof AllSettings)[]) {
         <Card>
           <template #header>Plugins & Repositories</template>
           <div class="space-y-4">
-            <div class="grid gap-x-6 gap-y-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               <FormField label="Plugin marketplace URL" help="Reserved — no discovery yet">
                 <Input v-model="form.plugins.marketplace_url" />
               </FormField>

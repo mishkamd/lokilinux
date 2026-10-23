@@ -43,7 +43,7 @@ function relativeTime(iso: string | null): string {
       <NuxtLink
         v-for="job in props.jobs.slice(0, 5)" :key="job.id"
         to="/jobs"
-        class="focus-ring flex items-center gap-2.5 rounded-[var(--radius-sm)] border border-border/60 p-2 text-xs group"
+        class="focus-ring flex items-center gap-2.5 rounded-[var(--radius-sm)] border border-border p-2 text-xs group"
       >
         <span class="flex size-7 shrink-0 items-center justify-center rounded-full bg-[color-mix(in_oklch,var(--destructive)_15%,transparent)] text-destructive">
           <XCircle class="size-3.5" />

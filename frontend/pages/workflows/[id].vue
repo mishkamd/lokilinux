@@ -16,6 +16,7 @@ const {
 
 const toast = useToast()
 const { canEdit } = useCurrentUser()
+const { workflowStatusColor } = useWorkflowStatus()
 
 onMounted(() => store.load(workflowId))
 onUnmounted(() => {
@@ -222,7 +223,7 @@ async function onSaveSchedule() {
       <template #badges>
         <Badge v-if="!yamlValid" size="xs" color="red">Invalid YAML</Badge>
         <Badge v-else-if="isDirty" size="xs" color="amber">Unsaved</Badge>
-        <Badge v-else-if="workflow" size="xs" :color="workflow.current_version_id ? 'green' : 'gray'">
+        <Badge v-else-if="workflow" size="xs" :color="workflowStatusColor(workflow.current_version_id ? 'PUBLISHED' : 'DRAFT')">
           {{ workflow.current_version_id ? `v${workflow.current_version?.version} published` : 'Draft only' }}
         </Badge>
       </template>

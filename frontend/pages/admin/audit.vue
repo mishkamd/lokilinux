@@ -40,7 +40,7 @@ const columns = [
 </script>
 
 <template>
-  <div class="space-y-4">
+  <div class="space-y-3">
     <PageHeader />
 
     <div v-if="error" class="rounded-md border border-destructive p-4 text-sm text-destructive">

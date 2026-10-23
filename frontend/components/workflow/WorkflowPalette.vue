@@ -40,12 +40,12 @@ function onActivate(def: NodeDefinition) {
     <div class="shrink-0 p-3 pb-2">
       <p class="label-caps mb-2 text-muted-foreground">Add step</p>
       <div class="relative">
-        <Search class="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-        <input
+        <Search class="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+        <Input
           v-model="search"
           type="text"
           placeholder="Search steps…"
-          class="focus-ring w-full rounded-[var(--radius-sm)] border border-border bg-background py-1.5 pl-7 pr-2 text-xs outline-none transition-colors placeholder:text-muted-foreground focus:border-primary-active"
+          class="pl-7"
         >
       </div>
     </div>
@@ -60,7 +60,7 @@ function onActivate(def: NodeDefinition) {
             type="button"
             draggable="true"
             :title="def.description"
-            class="flex w-full cursor-grab items-center gap-2 rounded-[var(--radius-sm)] border border-border/60 px-2 py-1.5 text-left text-xs transition-colors hover:border-primary-active/50 hover:bg-accent focus-visible:border-primary-active focus-visible:outline-none active:cursor-grabbing"
+            class="flex w-full cursor-grab items-center gap-2 rounded-[var(--radius-sm)] border border-border/60 px-2 py-1.5 text-left text-xs transition-colors hover:border-primary-active/50 hover:bg-accent focus-visible:border-primary-active focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring active:cursor-grabbing"
             @dragstart="onDragStart($event, def.type)"
             @click="onActivate(def)"
           >

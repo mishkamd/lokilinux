@@ -136,7 +136,7 @@ function fmtDate(v: string | null | undefined): string {
       <AppTabs :items="tabs" @change="onTabChange">
         <template #overview>
           <div class="space-y-4">
-            <dl class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
+            <dl class="grid grid-cols-2 gap-3 text-sm sm:grid-cols-3">
               <div><dt class="text-muted-foreground">Category</dt><dd>{{ policy.policy_type || '—' }}</dd></div>
               <div><dt class="text-muted-foreground">Severity</dt><dd>{{ policy.severity || '—' }}</dd></div>
               <div><dt class="text-muted-foreground">Priority</dt><dd class="tabular-nums">{{ policy.priority }}</dd></div>
@@ -171,7 +171,7 @@ function fmtDate(v: string | null | undefined): string {
               v-for="job in executions"
               :key="job.id"
               type="button"
-              class="focus-ring w-full flex items-center gap-3 rounded-lg border border-border p-2.5 text-left text-sm hover:border-primary-active/40"
+              class="focus-ring w-full flex items-center gap-3 rounded-lg border border-border p-2.5 text-left text-sm cursor-pointer hover:bg-accent"
               @click="selectedJob = job"
             >
               <Badge :color="statusColor(String(job.status))" size="xs">{{ job.status }}</Badge>

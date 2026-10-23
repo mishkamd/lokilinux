@@ -124,7 +124,7 @@ async function rescan() {
         </template>
       </PageHeader>
 
-      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-3 mb-4">
         <Card class="lg:col-span-2">
           <template #header><p class="label-caps">Detection Timeline</p></template>
           <div class="flex items-center gap-2 overflow-x-auto py-2">

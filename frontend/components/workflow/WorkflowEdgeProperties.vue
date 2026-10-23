@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { watchDebounced } from '@vueuse/core'
-import { X, Trash2 } from 'lucide-vue-next'
+import { Trash2 } from 'lucide-vue-next'
 import type { WorkflowEdge } from '~/types/workflow'
 
 // Faza B §D5 — without this panel the 4 handles added in WorkflowNodeBase.vue
@@ -42,9 +42,7 @@ function onOnChange(v: string) {
         <p class="truncate text-field font-medium">Edge</p>
         <p class="label-caps truncate text-micro text-muted-foreground">{{ edge.from }} → {{ edge.to }}</p>
       </div>
-      <button type="button" class="focus-ring inline-flex min-h-6 min-w-6 items-center justify-center rounded-md p-1 text-muted-foreground hover:bg-accent hover:text-foreground" aria-label="Close" @click="emit('close')">
-        <X class="size-4" />
-      </button>
+      <WorkflowPanelClose @close="emit('close')" />
     </div>
 
     <div class="min-h-0 flex-1 space-y-4 overflow-y-auto p-3">

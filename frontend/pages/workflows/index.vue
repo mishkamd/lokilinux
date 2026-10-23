@@ -15,7 +15,7 @@ const columns = [
   { key: 'severity', label: 'Severity' },
   { key: 'current_version_id', label: 'Status' },
   { key: 'last_run_at', label: 'Last run' },
-  { key: 'actions', label: '' },
+  { key: 'actions', label: '', noSort: true },
 ]
 
 function fmtDate(v: string | null): string {
@@ -23,6 +23,7 @@ function fmtDate(v: string | null): string {
 }
 
 const { severityColor } = useSeverity()
+const { workflowStatusColor } = useWorkflowStatus()
 
 const showCreate = ref(false)
 const createForm = ref({ name: '', yaml: '' })
@@ -76,7 +77,7 @@ async function remove(workflow: Workflow) {
   <div>
     <PageHeader>
       <div class="ml-auto flex items-center gap-1.5">
-        <Button v-if="canEdit" size="sm" @click="openCreate">
+        <Button v-if="canEdit" @click="openCreate">
           <Plus class="size-4" />
           New Workflow
         </Button>
@@ -96,7 +97,7 @@ async function remove(workflow: Workflow) {
      caption="Workflows" preferences-key="workflows">
       <template #name-data="{ row }">
         <div class="flex items-center gap-2">
-          <span class="flex size-7 shrink-0 items-center justify-center rounded-md bg-[color-mix(in_oklch,var(--info)_15%,transparent)] text-info">
+          <span class="flex size-7 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
             <WorkflowIcon class="size-3.5" />
           </span>
           <div class="min-w-0">
@@ -113,7 +114,7 @@ async function remove(workflow: Workflow) {
         <span v-else class="text-xs text-muted-foreground">—</span>
       </template>
       <template #current_version_id-data="{ row }">
-        <Badge size="xs" :color="row.current_version_id ? 'green' : 'gray'">{{ row.current_version_id ? 'Published' : 'Draft only' }}</Badge>
+        <Badge size="xs" :color="workflowStatusColor(row.current_version_id ? 'PUBLISHED' : 'DRAFT')">{{ row.current_version_id ? 'Published' : 'Draft only' }}</Badge>
       </template>
       <template #last_run_at-data="{ row }">
         <span class="text-xs text-muted-foreground font-mono">{{ fmtDate(row.last_run_at as string | null) }}</span>

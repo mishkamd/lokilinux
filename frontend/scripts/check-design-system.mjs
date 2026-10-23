@@ -15,6 +15,11 @@
  *   5. no window.confirm / alert / prompt (use ConfirmDeleteDialog)
  *   6. every interactive element carries a focus ring
  *   7. the token pairs in global.css pass WCAG AA in both themes
+ *   8. the size contract (32px controls), the 24px target floor, rem-only type
+ *   9. no sub-minimum type — the smallest step is badge-micro (0.625rem / 10px)
+ *  10. no 32px section rhythm (space-y-8) — the band is 12–16px
+ *  11. no faded borders on chrome (border-border/40, border-border/60)
+ *  12. no unsanctioned display sizes (text-4xl and up; auth wordmark excepted)
  *
  * Usage: node scripts/check-design-system.mjs
  */
@@ -268,6 +273,43 @@ for (const file of files) {
   raw.split('\n').forEach((l, i) => {
     if (PX_FONT.test(l)) {
       report(file, i + 1, 'type-scale', `px font size — the type scale is rem-only (${l.trim().slice(0, 60)})`)
+    }
+  })
+}
+
+// ── 12-15: size floors and the display-size cap ─────────────────────────────
+// Four rules, one regex each. They are the mechanical half of four rules that
+// until now existed only as prose in DESIGN.md.
+const SUB_MIN_FONT = /\btext-\[(\d+(?:\.\d+)?)(px|rem)\]/
+// The vertical rhythm is the 12–16px band (space-y-3 / space-y-4).
+const BIG_RHYTHM = /(?<![\w.-])space-y-8(?![\w.-])/
+// Chrome borders are the hairline (border-border) — not a faded one.
+const FADED_BORDER = /\bborder-border\/(?:40|60)\b/
+// The type scale tops out at text-3xl (1.875rem) for numbers.
+const BIG_DISPLAY = /\btext-(?:4xl|5xl|6xl|7xl|8xl|9xl)\b/
+// The auth wordmark is the one sanctioned exception to the display-size cap.
+const DISPLAY_EXCEPTIONS = ['layouts/auth.vue']
+
+for (const file of files) {
+  const raw = readFileSync(file, 'utf8')
+  const rel = relative(ROOT, file)
+  raw.split('\n').forEach((l, i) => {
+    const font = SUB_MIN_FONT.exec(l)
+    if (font) {
+      const v = parseFloat(font[1])
+      const below = font[2] === 'px' ? v <= 9 : v < 0.625
+      if (below) {
+        report(file, i + 1, 'min-font', `sub-minimum font size (${font[0]}) — the smallest step is badge-micro (0.625rem / 10px)`)
+      }
+    }
+    if (BIG_RHYTHM.test(l)) {
+      report(file, i + 1, 'rhythm', `space-y-8 (32px) — the vertical rhythm is the 12–16px band (space-y-3 / space-y-4)`)
+    }
+    if (FADED_BORDER.test(l)) {
+      report(file, i + 1, 'border', `faded border — chrome borders are the hairline (border-border), not border-border/40 or /60`)
+    }
+    if (BIG_DISPLAY.test(l) && !DISPLAY_EXCEPTIONS.includes(rel)) {
+      report(file, i + 1, 'display-size', `unsanctioned display size — the scale tops out at text-3xl (the auth wordmark excepted)`)
     }
   })
 }

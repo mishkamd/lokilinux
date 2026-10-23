@@ -1,13 +1,12 @@
 <script setup lang="ts">
 import { PieChart } from 'lucide-vue-next'
+import { VisDonut, VisSingleContainer, VisTooltip } from '@unovis/vue'
+import { VisDonutSelectors } from '@unovis/vue/components/donut'
+import { donutTooltipTemplate, type DonutSegment } from './donutTooltip'
 
 const props = defineProps<{ distribution: Record<string, number> }>()
 
-const RADIUS = 60
-const STROKE = 20
-const CIRCUMFERENCE = 2 * Math.PI * RADIUS
-
-interface Segment { name: string; count: number; pct: number; color: string; dashArray: string; dashOffset: number }
+interface Segment extends DonutSegment { color: string }
 
 const total = computed(() => Object.values(props.distribution).reduce((a, b) => a + b, 0))
 
@@ -17,19 +16,18 @@ const segments = computed<Segment[]>(() => {
   // keeps real OS diversity readable instead of blending into the color cycle.
   entries.sort((a, b) => (a[0] === 'Unknown' ? 1 : b[0] === 'Unknown' ? -1 : b[1] - a[1]))
 
-  let cumulative = 0
-  return entries.map(([name, count], i) => {
-    const pct = total.value > 0 ? count / total.value : 0
-    const dashArray = `${pct * CIRCUMFERENCE} ${CIRCUMFERENCE}`
-    const dashOffset = -cumulative * CIRCUMFERENCE
-    cumulative += pct
-    return {
-      name, count, pct,
-      color: name === 'Unknown' ? 'var(--muted-foreground)' : `var(--chart-${(i % 5) + 1})`,
-      dashArray, dashOffset,
-    }
-  })
+  return entries.map(([name, count], i) => ({
+    name,
+    count,
+    pct: total.value > 0 ? Math.round((count / total.value) * 100) : 0,
+    color: name === 'Unknown' ? 'var(--muted-foreground)' : `var(--chart-${(i % 5) + 1})`,
+  }))
 })
+
+const value = (d: Segment) => d.count
+const color = (d: Segment) => d.color
+
+const triggers = { [VisDonutSelectors.segment]: donutTooltipTemplate }
 </script>
 
 <template>
@@ -42,23 +40,11 @@ const segments = computed<Segment[]>(() => {
     </div>
     <EmptyState v-if="total === 0">No servers registered.</EmptyState>
     <div v-else class="flex flex-col sm:flex-row items-center gap-3">
-      <div class="relative shrink-0 size-24">
-        <svg viewBox="0 0 160 160" class="size-24 -rotate-90">
-          <circle cx="80" cy="80" :r="RADIUS" fill="none" stroke="var(--border)" :stroke-width="STROKE" />
-          <circle
-            v-for="seg in segments"
-            :key="seg.name"
-            cx="80" cy="80" :r="RADIUS" fill="none"
-            :stroke="seg.color"
-            :stroke-width="STROKE"
-            :stroke-dasharray="seg.dashArray"
-            :stroke-dashoffset="seg.dashOffset"
-            stroke-linecap="butt"
-          />
-        </svg>
-        <div class="absolute inset-0 flex flex-col items-center justify-center">
-          <span class="text-xs font-bold leading-none">{{ total }}</span>
-        </div>
+      <div class="donut-center relative shrink-0 size-24">
+        <VisSingleContainer :data="segments" :height="96" :width="96">
+          <VisDonut :value="value" :color="color" :arc-width="16" :corner-radius="2" :central-label="String(total)" />
+          <VisTooltip :triggers="triggers" />
+        </VisSingleContainer>
       </div>
       <div class="flex-1 w-full space-y-1">
         <div v-for="seg in segments" :key="seg.name" class="flex items-center justify-between text-xs">
@@ -67,11 +53,24 @@ const segments = computed<Segment[]>(() => {
             <span class="truncate">{{ seg.name }}</span>
           </div>
           <div class="flex items-center gap-2 text-muted-foreground shrink-0">
-            <span>{{ seg.count }}</span>
-            <span class="text-label w-8 text-right">{{ Math.round(seg.pct * 100) }}%</span>
+            <span class="font-medium tabular-nums">{{ seg.count }}</span>
+            <span class="text-label w-8 text-right tabular-nums">{{ seg.pct }}%</span>
           </div>
         </div>
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+/* The donut's centre total is a widget stat (DESIGN.md §Widget Stat: 18px/700)
+   and the app's data font is mono with tabular digits (The Tabular Numerals
+   Rule). Unovis draws the centre as SVG <text>, so its typography comes from
+   Unovis's CSS variables — not from a Tailwind class. */
+.donut-center {
+  --vis-donut-central-label-font-size: 1.125rem;
+  --vis-donut-central-label-font-weight: 700;
+  --vis-donut-central-label-font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+</style>

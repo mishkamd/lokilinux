@@ -38,7 +38,7 @@ const color = (d: Segment) => d.name === 'Compliant' ? 'var(--success)' : 'var(-
       <Skeleton class="h-16 w-full" />
     </div>
     <div v-else class="flex flex-col sm:flex-row items-center gap-3">
-      <div class="relative shrink-0 size-24">
+      <div class="donut-center relative shrink-0 size-24">
         <VisSingleContainer :data="segments" :height="96" :width="96">
           <VisDonut :value="value" :color="color" :arc-width="16" :corner-radius="2" :central-label="`${Math.round(overview.overall_compliance_pct)}%`" />
         </VisSingleContainer>
@@ -64,3 +64,16 @@ const color = (d: Segment) => d.name === 'Compliant' ? 'var(--success)' : 'var(-
     </div>
   </div>
 </template>
+
+<style scoped>
+/* The donut's centre percentage is a widget stat (DESIGN.md §Widget Stat:
+   18px/700) and the app's data font is mono with tabular digits (The Tabular
+   Numerals Rule). Unovis draws the centre as SVG <text>, so its typography
+   comes from Unovis's CSS variables — not from a Tailwind class. */
+.donut-center {
+  --vis-donut-central-label-font-size: 1.125rem;
+  --vis-donut-central-label-font-weight: 700;
+  --vis-donut-central-label-font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+</style>

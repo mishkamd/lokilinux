@@ -36,21 +36,21 @@ const latest = computed(() => props.points.at(-1)?.compliance_pct ?? null)
         <span v-if="latest !== null" class="text-xs font-mono text-foreground ml-1">{{ latest.toFixed(1) }}%</span>
       </div>
       <div class="flex items-center gap-1">
-        <button
+        <Button
           v-for="r in RANGES" :key="r.value"
-          class="focus-ring px-2 py-0.5 min-h-6 text-xs rounded-md transition-colors"
-          :class="range === r.value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'"
+          size="xs"
+          :variant="range === r.value ? 'default' : 'ghost'"
           @click="emit('update:range', r.value)"
         >
           {{ r.label }}
-        </button>
+        </Button>
       </div>
     </div>
-    <Skeleton v-if="loading" class="h-24 w-full" />
+    <Skeleton v-if="loading" class="h-28 w-full" />
     <EmptyState v-else-if="points.length < 2" class="py-8">
       Not enough history yet — trend appears once compliance scores accumulate.
     </EmptyState>
-    <ChartContainer v-else :config="chartConfig" :data="props.points" :height="96">
+    <ChartContainer v-else :config="chartConfig" :data="props.points" :height="200">
       <VisArea :x="x" :y="y" color="var(--chart-1)" :opacity="0.12" :line="true" line-color="var(--chart-1)" :line-width="2" :curve-type="CurveType.Natural" />
       <ChartTooltip :x="x" label-key="day" :value-formatter="(v) => `${v.toFixed(1)}%`" />
     </ChartContainer>

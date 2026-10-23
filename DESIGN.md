@@ -83,12 +83,19 @@ typography:
     fontWeight: 700
     lineHeight: 1.2
 rounded:
+  # Tier 1 — the token family. Every value is calc(var(--radius) ± Npx) from
+  # the single --radius base. The names are Tailwind utilities too (the
+  # project redefines --radius-sm/md/lg/xl/2xl/full in @theme inline), so
+  # `rounded-md` and `rounded-[var(--radius-md)]` are the same 12px.
   sm: "10px"
   md: "12px"
   lg: "16px"
   xl: "20px"
   2xl: "24px"
   full: "9999px"
+  # Tier 2 — the base step for small chrome (inline code blocks, result rows,
+  # icon buttons). Tailwind's `rounded`; the only radius outside the family.
+  base: "4px"
 spacing:
   # Tailwind's 4px base scale — the code uses it as-is, so the ramp IS the
   # contract: gap-1.5 = 6px, gap-2.5 = 10px. No arbitrary px spacing
@@ -222,7 +229,8 @@ A parallel light-mode palette exists (`:root`, unprefixed) built from Tailwind's
 - **Widget Body** (400, 0.75rem, `text-xs`): the dominant body size *inside* dashboard widgets — row labels, list values, stat breakdowns (`OsDistributionDonut`, `AgentStatusDonut`, `TopVulnerableServers`, `SecurityOverview`, `ComplianceOverviewCard`, and others). Distinct from the Body role: Body is for standalone UI controls (buttons, inputs, table cells); Widget Body is specifically the denser size a `.surface-card` dashboard widget uses for its own internal rows — confirmed consistent across 10+ files, not a single-widget one-off.
 - **Metadata** (400, 0.6875rem, no tracking, no uppercase): plain secondary text — percentages, timestamps, sub-captions (`text-label` in `OsDistributionDonut`, `AgentStatusDonut`, `RecentActivityFeed`, `SecurityOverview`'s trend delta). Easy to confuse with Label at a glance since both sit at the same step, but Metadata is never uppercase/tracked/bold — it's a quieter, plainer register than Label's eyebrow treatment.
 - **Widget Link** (500, 0.75rem, `text-primary dark:text-primary-active`): the "View All →" / "View full report →" pattern, reused verbatim across 6 dashboard widgets (`MetricCard`, `JobsTrendChart`, `RecentActivityFeed`, `TopVulnerableServers`, `SecurityOverview`, `ComplianceOverviewCard`) plus 5 sites in `pages/index.vue` — one consistent role, not restated per-widget by accident. Theme-conditional color, see The Text-Contrast Rule below.
-- **Widget Stat** (700, 1.125rem): the secondary-tier headline number/label inside the bottom "system status" grid (`SecurityOverview`'s risk-level word, `ComplianceOverviewCard`'s compliance percentage) — deliberately smaller than a top-row `MetricCard`'s 1.875rem headline (that row is the primary KPI tier; this grid is the secondary status tier, per the layout pass's rhythm work), but large enough to read as a real stat, not buried body text.
+- **KPI Headline** (700, 1.875rem, `text-3xl`, mono, tabular-nums): the primary numeral on the dashboard's KPI row — `MetricCard`'s value. The largest number the system renders on a dashboard surface and the one tier that reads as a headline figure.
+- **Widget Stat** (700, 1.125rem): the sanctioned *secondary*-tier stat — one step below the KPI headline, large enough to read as a real stat, not buried body text. The step is reserved but currently carries no component: the dashboard widgets that used to hold a secondary headline number now show their figures as widget-body numerals (`text-xs`, `font-medium tabular-nums`), while the page-level secondary KPIs use `text-2xl` (1.5rem/24px, weight 600) on `/compliance` and `text-xl` (1.25rem/20px, weight 700) in the severity cards. The target is one scale — primary `text-3xl font-bold`, secondary 18px/700 — and the mix in between is what MIS-119 tracks.
 
 ### Named Rules
 **The Rem-Only Scale Rule.** Every step of the type scale is expressed in `rem` (`--text-label: 0.6875rem`, `--text-field: 0.8125rem`, `--text-micro: 0.625rem`; Tailwind's own `text-xs`/`text-sm` cover 0.75rem/0.875rem). `html { font-size: 106% }` sets the base, so 1rem = 16.96px in a default browser — a px figure anywhere in the scale would be the only step that ignores the user's browser font-size, and would silently drift from every other step. The px values quoted in the frontmatter are the @100%-root equivalents.
@@ -233,7 +241,7 @@ A parallel light-mode palette exists (`:root`, unprefixed) built from Tailwind's
 
 ## Layout
 
-The shell is a fixed 232px sidebar plus a fluid content column (`flex h-screen`, sidebar `fixed lg:static` — an overlay drawer under the `lg` breakpoint, a static rail above it). The content header is a flush 64px bar (`h-16`) holding the page title, a centered search field, and utility icons. Below it, pages default to `p-3 sm:p-4` and a `space-y-3` rhythm between stacked sections — tight, consistent 12–16px gaps rather than generous whitespace.
+The shell is a fixed 232px sidebar plus a fluid content column (`flex h-screen`, sidebar `fixed lg:static` — an overlay drawer under the `lg` breakpoint, a static rail above it). The content header is a flush 64px bar (`h-16`) holding the page title, a centered search field, and utility icons. Below it, the layout's `<main>` carries the page padding (`p-3 sm:p-4`) and pages stack their sections on a 16px rhythm (`space-y-4`, or `mb-4` on a block's own bottom edge) — or `space-y-3` where the stack is denser. The vertical band is 12–16px throughout, never the generous 24px+ of a marketing page.
 
 Dashboard/detail pages compose from a small set of repeating grid shapes: a `grid-cols-1 sm:grid-cols-2 xl:grid-cols-4` row of metric cards, a `grid-cols-1 md:grid-cols-2` pair of donuts/charts, and full-width trend charts and tables beneath. Tables and cards never exceed the content column's width; nothing goes full-bleed. Mobile collapses the sidebar into a `bg-black/60` backdrop-drawer; density does not relax on small screens, the layout just stacks to one column — confirmed live at 390px: a 2-up KPI grid with no `sm` step truncated card labels ("Servers"→"SER…") because the label + "View all" link had no room at half-width on a narrow phone; the `sm:` step is load-bearing, not decorative.
 
@@ -258,7 +266,9 @@ The four shadow tokens are theme-scoped (`:root` + `.dark`, not global) — dark
 
 ## Shapes
 
-Radius scales with what a component *is*, not with arbitrary rounding taste — every value derives from one base (`--radius: 16px`) via `calc()`, so the whole system resizes from one token. Smaller, denser controls get tighter corners; larger, more modal surfaces get looser ones.
+Radius scales with what a component *is*, not with arbitrary rounding taste. There are exactly **two tiers**, and nothing else: the **token family**, whose every value derives from one base (`--radius: 1rem` — 16px at a 100% root) via `calc()`, so the whole system resizes from one token; and the **base step**, one small radius for chrome that is smaller than a card. Smaller, denser controls get tighter corners; larger, more modal surfaces get looser ones.
+
+**Tier 1 — the token family** (`@theme inline` in `assets/css/global.css`):
 
 - **10px** (`--radius-sm`): inputs, selects, checkboxes — the tightest corner, for the smallest interactive controls.
 - **12px** (`--radius-md`): cards, alerts.
@@ -267,10 +277,16 @@ Radius scales with what a component *is*, not with arbitrary rounding taste — 
 - **24px** (`--radius-2xl`): special/large containers (rare).
 - **Full** (`9999px`): badges/pills and the scrollbar thumb — anything that's a capsule, not a box.
 
+The family has two spellings and they are the same value: `rounded-md` and `rounded-[var(--radius-md)]` are both 12px. The project redefines Tailwind's own radius names (`--radius-sm/md/lg/xl/2xl/full`) inside `@theme inline`, so the *named* steps **are** the token family — they are not Tailwind's stock 2/4/6/8/12/16px scale, and `rounded-lg` is 16px, not 8px. Reach for the family by either spelling; never treat the two spellings as two different scales.
+
+**Tier 2 — the base step:** **4px** (`rounded`, Tailwind's `0.25rem`). The one radius outside the token family, reserved for small chrome: inline code blocks and `<pre>` output blocks, result/evidence rows, and the tiny icon buttons that clear a field. Everything that is itself a surface — a card, a panel, a dialog, a table — takes a tier-1 radius instead.
+
+Both tiers are rem-based, so they follow `html { font-size: 106% }` exactly like the type scale; the px figures here are the @100%-root equivalents.
+
 Borders are hairlines, never heavy strokes (see Colors → The Hairline Rule). Nothing in the system uses a hard-edged square corner or an asymmetric radius; every shape is uniformly rounded per its tier.
 
 ### Named Rules
-**The One Radius Family Rule.** Every corner value is `calc(var(--radius) ± Npx)` from the single `--radius` base — never a radius invented in isolation for one component.
+**The One Radius Family Rule.** Every corner value is either `calc(var(--radius) ± Npx)` from the single `--radius` base — the token family — or the one base step, `rounded` (4px), for small chrome. Never a radius invented in isolation for one component, and never a third tier.
 
 ## Components
 
@@ -362,16 +378,21 @@ are the contract between design and code.
 ### Spacing
 - **One scale: 4 / 8 / 12 / 16 / 24.** 12px (`gap-3`, `p-3`) is the workhorse between the controls and their neighbours — it is part of the scale, not a deviation from it. Arbitrary values (`p-[13px]`) are banned by the design-system guard.
 - **Vertical rhythm in a panel:** 16px between blocks, 8px between a label and its control, 12px between a control and its helper text.
+- **The vertical rhythm is the 12–16px band, and both steps are in-contract.** 12px (`space-y-3`, `mb-3`, `gap-3`) and 16px (`space-y-4`, `mb-4`, `gap-4`) are the only two steps the rhythm uses.
+  - **Stacked sections default to 16px** — `space-y-4`, or `mb-4` on a block's own bottom edge. `space-y-3` is the tight variant for a denser stack, not a deviation.
+  - **Rows and grids default to 12px** — `gap-3` is the dominant grid/flex gap in the app by a wide margin; `gap-4` is for columns wide enough to want the extra 4px.
+  - 24px and up (`space-y-6`, `space-y-8`) is *outside* the rhythm — it is the one remaining "generous whitespace" outlier, and the guard rejects the 32px step outright.
 
 ### Type scale
-- **Prefer the Tailwind steps that match the scale**: `text-xs` = 12px, `text-sm` = 14px, `text-lg` = 18px. The 11px (`.label-caps`) and 13px (`.data-value`) steps are the only arbitrary sizes in use; anything else is a new step that needs a token first.
+- **Prefer the Tailwind steps that match the scale**: `text-xs` = 12px, `text-sm` = 14px, `text-lg` = 18px. The 11px (`text-label` / `.label-caps`), 13px (`text-field`) and 10px (`text-micro`) steps are the only sizes outside Tailwind's own scale, and all three are tokens — anything else is a new step that needs a token first.
+- **Numerals ride their own scale**: the KPI headline is `text-3xl` (1.875rem) at weight 700; the secondary stat is 18px/700; widget-internal figures are `text-xs` (0.75rem) with `tabular-nums`. Nothing between the headline and body text renders a numeral at an ad-hoc size — and the guard rejects `text-4xl` and larger outright, the auth wordmark being the one sanctioned exception.
 
 ## Do's and Don'ts
 
 ### Do:
 - **Do** keep the accent color rare — Tactical Forest/Signal Green earns attention because it appears almost nowhere else on screen.
 - **Do** use `font-variant-numeric: tabular-nums` on any number that sits in a column or gets compared to another number.
-- **Do** derive every corner radius from `calc(var(--radius) ± Npx)` — never invent a one-off radius value.
+- **Do** derive every corner radius from `calc(var(--radius) ± Npx)` — or take the one base step, `rounded` (4px), for small chrome. Never invent a one-off radius value.
 - **Do** treat elevation as a state response (hover, open, floating) — a resting surface stays at the barely-there Surface shadow.
 - **Do** use the soft-tint badge style (14–16% status color background) as the default way to show severity/status in a table row; reserve solid badges for real emphasis.
 - **Do** put `.focus-ring` on any new interactive element that isn't a `<Button>`/`<Input>`.

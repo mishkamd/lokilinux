@@ -91,7 +91,7 @@ async function disable2FA() {
 </script>
 
 <template>
-  <div class="max-w-lg space-y-6">
+  <div class="max-w-lg space-y-3">
     <PageHeader />
 
     <Card>

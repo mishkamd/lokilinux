@@ -2,10 +2,11 @@
 import { Server } from 'lucide-vue-next'
 import { VisDonut, VisSingleContainer, VisTooltip } from '@unovis/vue'
 import { VisDonutSelectors } from '@unovis/vue/components/donut'
+import { donutTooltipTemplate, type DonutSegment } from './donutTooltip'
 
 const props = defineProps<{ byStatus: Record<string, number> }>()
 
-interface Segment { name: string; count: number; pct: number; color: string }
+interface Segment extends DonutSegment { color: string }
 
 const total = computed(() => Object.values(props.byStatus).reduce((a, b) => a + b, 0))
 
@@ -21,19 +22,7 @@ const segments = computed<Segment[]>(() => {
 const value = (d: Segment) => d.count
 const color = (d: Segment) => d.color
 
-// Unovis's Donut wraps each datum in a d3 pie-arc object before binding it
-// to the DOM segment (`{ ...pieArc, data: originalDatum, ... }`), so the
-// tooltip trigger receives that wrapper, not the Segment directly.
-function template(arc: { data: Segment }): string {
-  const d = arc.data
-  return `
-    <div style="background:var(--popover);color:var(--popover-foreground);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 8px;box-shadow:var(--shadow-overlay);font-size:0.75rem;">
-      <span style="font-weight:600;">${d.name}</span>: ${d.count} (${d.pct}%)
-    </div>
-  `
-}
-
-const triggers = { [VisDonutSelectors.segment]: template }
+const triggers = { [VisDonutSelectors.segment]: donutTooltipTemplate }
 </script>
 
 <template>
@@ -46,7 +35,7 @@ const triggers = { [VisDonutSelectors.segment]: template }
     </div>
     <EmptyState v-if="total === 0" class="py-4">No agents registered.</EmptyState>
     <div v-else class="flex flex-col sm:flex-row items-center gap-3">
-      <div class="relative shrink-0 size-24">
+      <div class="donut-center relative shrink-0 size-24">
         <VisSingleContainer :data="segments" :height="96" :width="96">
           <VisDonut :value="value" :color="color" :arc-width="16" :corner-radius="2" :central-label="String(total)" />
           <VisTooltip :triggers="triggers" />
@@ -59,11 +48,24 @@ const triggers = { [VisDonutSelectors.segment]: template }
             <span class="truncate">{{ seg.name }}</span>
           </div>
           <div class="flex items-center gap-2 text-muted-foreground shrink-0">
-            <span>{{ seg.count }}</span>
-            <span class="text-label w-8 text-right">{{ seg.pct }}%</span>
+            <span class="font-medium tabular-nums">{{ seg.count }}</span>
+            <span class="text-label w-8 text-right tabular-nums">{{ seg.pct }}%</span>
           </div>
         </div>
       </div>
     </div>
   </div>
 </template>
+
+<style scoped>
+/* The donut's centre total is a widget stat (DESIGN.md §Widget Stat: 18px/700)
+   and the app's data font is mono with tabular digits (The Tabular Numerals
+   Rule). Unovis draws the centre as SVG <text>, so its typography comes from
+   Unovis's CSS variables — not from a Tailwind class. */
+.donut-center {
+  --vis-donut-central-label-font-size: 1.125rem;
+  --vis-donut-central-label-font-weight: 700;
+  --vis-donut-central-label-font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+</style>

@@ -56,7 +56,7 @@ async function acknowledge() {
       </template>
     </PageHeader>
 
-    <dl class="grid grid-cols-2 gap-3 text-sm mb-6">
+    <dl class="grid grid-cols-2 gap-3 text-sm mb-3">
       <div><dt class="text-muted-foreground">Rule</dt><dd class="font-mono text-xs">{{ selectedFinding.rule_key }}</dd></div>
       <div><dt class="text-muted-foreground">Source</dt><dd>{{ selectedFinding.source || '—' }}</dd></div>
       <div v-if="selectedFinding.acknowledged_at"><dt class="text-muted-foreground">Acknowledged</dt><dd class="font-mono">{{ fmtDateTime(selectedFinding.acknowledged_at) }}</dd></div>
@@ -65,7 +65,7 @@ async function acknowledge() {
       <div v-if="selectedFinding.error_message"><dt class="text-muted-foreground">Error</dt><dd class="text-destructive">{{ selectedFinding.error_message }}</dd></div>
     </dl>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
       <Card>
         <p class="text-xs font-semibold text-muted-foreground mb-2">Expected</p>
         <pre class="text-xs font-mono whitespace-pre-wrap">{{ JSON.stringify(selectedFinding.expected_value, null, 2) }}</pre>

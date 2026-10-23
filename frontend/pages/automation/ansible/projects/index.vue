@@ -11,7 +11,7 @@ const columns = [
   { key: 'name', label: 'Name' },
   { key: 'default_agent_ids', label: 'Default Agents' },
   { key: 'updated_at', label: 'Updated' },
-  { key: 'actions', label: '' },
+  { key: 'actions', label: '', noSort: true },
 ]
 
 await store.fetchProjects()
@@ -95,7 +95,7 @@ async function confirmDelete() {
 
     <Alert
       color="blue"
-      class="mb-4"
+      class="mb-3"
       title="Projects"
       description="Groups playbooks the way a real Ansible tree's projects/<name>/ does. Default agents are this project's inventory — playbooks attached to it default to targeting them. Playbooks with no project show under Debug/Uncategorized."
     />

@@ -199,10 +199,7 @@ async function submitWindow() {
             <Input v-model="createForm.name" placeholder="Fix SSH config on web servers" />
           </FormField>
           <div class="flex items-center gap-3">
-            <label class="flex items-center gap-2 text-sm">
-              <input v-model="createForm.is_emergency" type="checkbox" class="rounded" />
-              Emergency (bypass maintenance window)
-            </label>
+            <Checkbox v-model="createForm.is_emergency" label="Emergency (bypass maintenance window)" />
           </div>
           <FormField v-if="maintenanceWindows.length > 0" label="Maintenance window">
             <Select v-model="createForm.maintenance_window_id"
@@ -221,7 +218,7 @@ async function submitWindow() {
               <div class="flex items-center gap-2">
                 <span class="text-xs font-mono text-muted-foreground">#{{ idx }}</span>
                 <Select v-model="action.provider" :options="PROVIDERS" class="w-32" />
-                <Button size="sm" variant="ghost" color="red" @click="removeAction(idx)">Remove</Button>
+                <Button size="sm" variant="destructive" @click="removeAction(idx)">Remove</Button>
               </div>
               <FormField label="Server" required>
                 <Select v-model="action.agent_id"
@@ -254,7 +251,7 @@ async function submitWindow() {
           <FormField label="Name" required>
             <Input v-model="windowForm.name" placeholder="Sunday 2AM maintenance" />
           </FormField>
-          <div class="grid grid-cols-2 gap-3">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <FormField label="Scope type">
               <Select v-model="windowForm.scope_type" :options="SCOPE_TYPES" />
             </FormField>
@@ -265,7 +262,7 @@ async function submitWindow() {
           <FormField label="Scope selector (JSON)">
             <Textarea v-model="windowForm.scope_selector" :rows="2" class="font-mono" />
           </FormField>
-          <div class="grid grid-cols-2 gap-3">
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <FormField label="Cron expression">
               <Input v-model="windowForm.cron_expr" placeholder="0 2 * * 0" />
             </FormField>
@@ -273,10 +270,7 @@ async function submitWindow() {
               <Input v-model.number="windowForm.duration_minutes" type="number" :min="1" :max="1440" />
             </FormField>
           </div>
-          <label class="flex items-center gap-2 text-sm">
-            <input v-model="windowForm.is_enabled" type="checkbox" class="rounded" />
-            Enabled
-          </label>
+          <Checkbox v-model="windowForm.is_enabled" label="Enabled" />
           <Alert v-if="windowError" color="red">{{ windowError }}</Alert>
         </div>
       </template>

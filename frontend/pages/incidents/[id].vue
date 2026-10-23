@@ -143,7 +143,7 @@ async function executeRunbook(runbookId: string) {
   <div>
     <Skeleton v-if="loading" class="h-8 w-64" />
     <EmptyState v-else-if="!incident">Incident not found.</EmptyState>
-    <div v-else class="space-y-4">
+    <div v-else class="space-y-3">
       <PageHeader
         :title="incident.title"
         :description="`${incident.type} · started ${fmtDateTime(incident.started_at)}`"
@@ -241,15 +241,17 @@ async function executeRunbook(runbookId: string) {
       <div class="surface-card rounded-[var(--radius-md)] p-3">
         <h2 class="section-title mb-2.5">Affected signals ({{ incident.signals.length }})</h2>
         <div v-if="incident.signals.length" class="flex flex-wrap gap-2">
-          <div
+          <Badge
             v-for="s in incident.signals"
             :key="s.id"
-            class="inline-flex items-center gap-1.5 rounded-full border border-border px-2.5 py-1 text-xs"
+            color="gray"
+            size="sm"
+            class="gap-1.5"
           >
             <Badge :color="severityColor(s.severity)" size="xs">{{ s.severity }}</Badge>
-            <span class="font-mono">{{ s.type }}</span>
-            <span class="font-mono text-muted-foreground">×{{ s.occurrence_count }}</span>
-          </div>
+            <span class="text-foreground">{{ s.type }}</span>
+            <span class="text-muted-foreground">×{{ s.occurrence_count }}</span>
+          </Badge>
         </div>
         <EmptyState v-else>No linked signals.</EmptyState>
       </div>

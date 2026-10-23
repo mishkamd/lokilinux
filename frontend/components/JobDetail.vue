@@ -113,12 +113,12 @@ const packageNames = computed<string[] | null>(() => {
           <Badge :color="statusColor(String(liveJob.status))">{{ liveJob.status }}</Badge>
         </div>
 
-        <dl class="grid grid-cols-2 gap-x-6 gap-y-3 text-sm">
+        <dl class="grid grid-cols-1 gap-x-6 gap-y-3 text-sm sm:grid-cols-2">
           <div><dt class="text-muted-foreground">Type</dt><dd>{{ liveJob.job_type }}</dd></div>
-          <div v-if="liveJob.description" class="col-span-2">
+          <div v-if="liveJob.description" class="sm:col-span-2">
             <dt class="text-muted-foreground">Description</dt><dd>{{ liveJob.description }}</dd>
           </div>
-          <div class="col-span-2">
+          <div class="sm:col-span-2">
             <dt class="text-muted-foreground">Targets</dt>
             <dd class="font-mono text-xs">
               {{ (liveJob.target_servers?.agent_ids || []).map((id) => hostnameByAgent[id] || id).join(', ') || '—' }}

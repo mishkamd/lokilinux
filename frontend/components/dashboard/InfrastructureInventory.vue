@@ -65,7 +65,7 @@ const hiddenColumns = ['ip_address', 'category_id']
         <h2 class="label-caps truncate">Infrastructure Inventory</h2>
       </div>
       <div class="flex items-center gap-2 shrink-0">
-        <Select v-model="categoryFilter" :options="categoryOptions" class="w-36 h-7 text-xs" />
+        <Select v-model="categoryFilter" :options="categoryOptions" class="w-36" />
         <NuxtLink to="/servers" class="focus-ring flex items-center gap-1 text-xs font-medium text-primary-text dark:text-primary-active shrink-0 py-1 -my-1">
           View all
           <ArrowRight class="size-3" />

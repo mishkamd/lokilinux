@@ -166,7 +166,7 @@ async function copy(text: string) {
       </template>
     </PageHeader>
 
-    <div class="space-y-8">
+    <div class="space-y-3">
       <!-- Platform URL bar -->
       <div v-if="packages?.platform_url" class="flex items-center gap-3 p-3 rounded-lg bg-muted text-sm">
         <Server class="size-4 text-muted-foreground shrink-0" />
@@ -200,10 +200,10 @@ async function copy(text: string) {
 
       <!-- Download cards -->
       <Alert v-if="packagesError" color="red" title="Failed to load package URLs." class="mb-4" />
-      <div v-else-if="!packages" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div v-else-if="!packages" class="grid grid-cols-1 md:grid-cols-3 gap-3">
         <Skeleton v-for="i in 3" :key="i" class="h-36 rounded-lg" />
       </div>
-      <div v-else class="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div v-else class="grid grid-cols-1 md:grid-cols-3 gap-3">
         <Card v-for="card in packageCards" :key="card.type">
           <template #header>
             <div class="flex items-center gap-2">

@@ -15,10 +15,7 @@ const emit = defineEmits<{
   reject: [stepId: string]
 }>()
 
-const RUN_STATUS_COLOR: Record<string, string> = {
-  PENDING: 'gray', RUNNING: 'blue', WAITING_APPROVAL: 'amber',
-  SUCCEEDED: 'green', FAILED: 'red', CANCELLED: 'gray',
-}
+const { workflowStatusColor } = useWorkflowStatus()
 
 const STEP_STATUS_ICON: Record<WorkflowStepRunStatus, { icon: typeof CheckCircle2; class: string; spin?: boolean }> = {
   PENDING: { icon: Clock, class: 'text-muted-foreground' },
@@ -53,7 +50,7 @@ const ACTIVE = ['PENDING', 'RUNNING', 'WAITING_APPROVAL']
     </EmptyState>
     <template v-else>
       <div class="surface-card mb-3 flex items-center gap-3 rounded-[var(--radius-md)] p-3">
-        <Badge size="sm" :color="RUN_STATUS_COLOR[run.status] ?? 'gray'">{{ run.status }}</Badge>
+        <Badge size="sm" :color="workflowStatusColor(run.status)">{{ run.status }}</Badge>
         <div class="min-w-0 flex-1 text-xs text-muted-foreground">
           <span class="font-medium text-foreground">{{ run.trigger_type }}</span>
           · started {{ fmt(run.started_at) }}
@@ -66,9 +63,9 @@ const ACTIVE = ['PENDING', 'RUNNING', 'WAITING_APPROVAL']
         </Button>
       </div>
 
-      <p v-if="run.error" class="mb-3 rounded-[var(--radius-sm)] border border-destructive/30 bg-[color-mix(in_oklch,var(--destructive)_8%,var(--background))] px-2.5 py-1.5 text-xs text-destructive">
+      <Alert v-if="run.error" color="red" class="mb-3">
         {{ run.error }}
-      </p>
+      </Alert>
 
       <div class="space-y-1.5">
         <div
@@ -90,7 +87,7 @@ const ACTIVE = ['PENDING', 'RUNNING', 'WAITING_APPROVAL']
               Approve
             </Button>
           </template>
-          <Badge v-else size="xs" :color="RUN_STATUS_COLOR[sr.status] ?? 'gray'">{{ sr.status }}</Badge>
+          <Badge v-else size="xs" :color="workflowStatusColor(sr.status)">{{ sr.status }}</Badge>
         </div>
       </div>
     </template>

@@ -67,7 +67,7 @@ const columns = [
   { key: 'version', label: 'Version' },
   { key: 'is_enabled', label: 'Status' },
   { key: 'updated_at', label: 'Updated' },
-  { key: 'actions', label: '' },
+  { key: 'actions', label: '', noSort: true },
 ]
 
 await store.fetchRoles()
@@ -122,7 +122,7 @@ async function confirmDelete() {
 
     <Alert
       color="blue"
-      class="mb-4"
+      class="mb-3"
       title="Ansible Roles"
       description="Reusable roles (tasks, defaults, templates, handlers...). Attach roles to a playbook in the playbook editor — at run time they are shipped alongside the playbook and resolved from ./roles/ automatically."
     />

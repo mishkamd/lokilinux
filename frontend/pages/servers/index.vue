@@ -243,7 +243,7 @@ async function saveNewEntity() {
         </div>
       </template>
       <template #last_seen_at-data="{ row }">
-        <span class="font-mono text-xs">{{ row.last_seen_at ? fmtDateTime(String(row.last_seen_at)) : 'Never' }}</span>
+        <span class="font-mono text-xs text-muted-foreground">{{ row.last_seen_at ? fmtDateTime(String(row.last_seen_at)) : 'Never' }}</span>
       </template>
       <template #actions-data="{ row }">
         <div class="flex items-center justify-end">

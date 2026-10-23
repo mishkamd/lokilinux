@@ -244,7 +244,7 @@ async function createGroup() {
 </script>
 
 <template>
-  <div class="space-y-4">
+  <div class="space-y-3">
     <PageHeader description="Desired-state configuration for the fleet — signed, versioned, applied autonomously.">
       <div class="flex flex-wrap items-center gap-3">
         <Badge color="gray">{{ filtered.length }} policies</Badge>
@@ -276,7 +276,7 @@ async function createGroup() {
         <Input v-model="searchQuery" placeholder="Search policies..." aria-label="Search agent policies" class="w-full sm:w-64" />
       </template>
       <template #name-data="{ row }">
-        <button class="focus-ring font-medium hover:underline py-1 -my-1" @click="openEdit(row as PolicyRow)">{{ row.name }}</button>
+        <Button variant="link" size="xs" class="font-medium px-0 whitespace-normal" @click="openEdit(row as PolicyRow)">{{ row.name }}</Button>
         <p v-if="row.description" class="text-xs text-muted-foreground">{{ row.description }}</p>
       </template>
       <template #status-data="{ row }">

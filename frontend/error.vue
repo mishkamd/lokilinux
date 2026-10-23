@@ -25,7 +25,7 @@ function goHome() {
         </span>
       </div>
       <p class="label-caps text-muted-foreground">{{ error.statusCode }}</p>
-      <h1 class="text-3xl font-display font-light text-foreground tracking-tight mt-2">
+      <h1 class="text-xl font-display font-light text-foreground tracking-tight mt-2">
         {{ error.statusCode === 404 ? 'Page not found' : 'Something went wrong' }}
       </h1>
       <p v-if="error.statusMessage" class="text-sm text-muted-foreground mt-2">{{ error.statusMessage }}</p>

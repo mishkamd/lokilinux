@@ -119,7 +119,7 @@ const filteredUsers = computed(() => {
 </script>
 
 <template>
-  <div class="space-y-4">
+  <div class="space-y-3">
     <PageHeader>
       <div class="flex flex-wrap items-center gap-3">
         <Badge color="gray">{{ filteredUsers.length }} users</Badge>
@@ -147,7 +147,7 @@ const filteredUsers = computed(() => {
         <Input v-model="searchQuery" placeholder="Search name, email or role..." aria-label="Search users" class="w-full sm:w-64" />
       </template>
       <template #role-data="{ row }">
-        <Badge color="gray">{{ String(row.role).toUpperCase() }}</Badge>
+        <Badge color="gray" size="xs">{{ String(row.role).toUpperCase() }}</Badge>
       </template>
       <template #actions-data="{ row }">
         <div class="flex items-center justify-end gap-1">

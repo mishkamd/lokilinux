@@ -112,7 +112,7 @@ onMounted(() => store.fetchGraph())
 </script>
 
 <template>
-  <div class="space-y-4">
+  <div class="space-y-3">
     <PageHeader>
       <div class="flex items-center gap-3">
         <Badge color="gray">{{ nodes.length }} nodes</Badge>

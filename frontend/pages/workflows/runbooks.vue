@@ -15,7 +15,7 @@ const columns = [
   { key: 'trigger_mode', label: 'Trigger' },
   { key: 'min_severity', label: 'Min severity' },
   { key: 'enabled', label: 'Enabled' },
-  { key: 'actions', label: '' },
+  { key: 'actions', label: '', noSort: true },
 ]
 
 const workflowOptions = computed(() => workflows.value.map((w) => ({ label: w.name, value: w.id })))
@@ -123,7 +123,7 @@ onMounted(() => {
       empty-description="Create a runbook to automate incident response."
      caption="Runbooks" preferences-key="runbooks">
       <template #name-data="{ row }">
-        <button class="focus-ring font-medium hover:underline py-1 -my-1" @click="openEdit(row as Runbook)">{{ row.name }}</button>
+        <Button variant="link" size="xs" class="font-medium px-0 whitespace-normal" @click="openEdit(row as Runbook)">{{ row.name }}</Button>
       </template>
       <template #incident_type-data="{ row }">
         <span class="font-mono text-xs">{{ row.incident_type }}</span>

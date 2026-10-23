@@ -16,7 +16,7 @@
     <!-- Mobile backdrop -->
     <div
       v-if="sidebarOpen"
-      class="fixed inset-0 z-30 bg-black/40 backdrop-blur-sm lg:hidden"
+      class="fixed inset-0 z-30 bg-black/60 lg:hidden"
       @click="closeSidebar"
     />
 
@@ -183,7 +183,7 @@
           <div class="flex-1 hidden md:flex justify-center">
             <button
               type="button"
-              class="focus-ring relative flex w-full max-w-md items-center gap-2.5 h-8 rounded-lg bg-card border border-border pl-3 pr-12 text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+              class="focus-ring relative flex w-full max-w-md items-center gap-2.5 h-8 rounded-[var(--radius-sm)] bg-card border border-input pl-3 pr-12 text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
               aria-label="Open command palette"
               @click="palette.show()"
             >

@@ -221,10 +221,10 @@ onUnmounted(() => clearInterval(poll))
         <Badge :color="statusColor(String(row.status))" size="xs">{{ row.status }}</Badge>
       </template>
       <template #created_at-data="{ row }">
-        <span class="font-mono">{{ fmtDateTime(String(row.created_at)) }}</span>
+        <span class="font-mono text-xs text-muted-foreground">{{ fmtDateTime(String(row.created_at)) }}</span>
       </template>
       <template #completed_at-data="{ row }">
-        <span class="font-mono">{{ row.completed_at ? fmtDateTime(String(row.completed_at)) : '—' }}</span>
+        <span class="font-mono text-xs text-muted-foreground">{{ row.completed_at ? fmtDateTime(String(row.completed_at)) : '—' }}</span>
       </template>
       <template #actions-data="{ row }">
         <div class="flex items-center justify-end gap-1">

@@ -44,7 +44,7 @@ function worstSeverity(r: TopVulnerableResource): { label: string; color: string
       <NuxtLink
         v-for="r in props.resources.slice(0, 5)" :key="r.agent_id"
         :to="`/servers/${r.agent_id}`"
-        class="focus-ring flex items-center gap-2.5 rounded-[var(--radius-sm)] border border-border/60 p-2 group"
+        class="focus-ring flex items-center gap-2.5 rounded-[var(--radius-sm)] border border-border p-2 group"
       >
         <span class="flex size-7 shrink-0 items-center justify-center rounded-md bg-[color-mix(in_oklch,var(--destructive)_15%,transparent)] text-destructive">
           <ServerCog class="size-3.5" />
@@ -53,7 +53,7 @@ function worstSeverity(r: TopVulnerableResource): { label: string; color: string
           <div class="flex items-center justify-between gap-2 text-xs mb-1">
             <span class="min-w-0 truncate font-medium group-hover:text-primary-text dark:group-hover:text-primary-active transition-colors">{{ r.hostname ?? r.agent_id }}</span>
             <span class="flex shrink-0 items-center gap-2">
-              <span class="text-muted-foreground">{{ r.total }} vulnerabilities</span>
+              <span class="text-muted-foreground"><span class="font-medium tabular-nums">{{ r.total }}</span> vulnerabilities</span>
               <Badge size="xs" :color="worstSeverity(r).color">{{ worstSeverity(r).label }}</Badge>
             </span>
           </div>

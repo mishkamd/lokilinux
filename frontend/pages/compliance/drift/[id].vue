@@ -73,7 +73,7 @@ async function suppress() {
       </template>
     </PageHeader>
 
-    <dl class="grid grid-cols-2 gap-3 text-sm mb-6">
+    <dl class="grid grid-cols-2 gap-3 text-sm mb-3">
       <div><dt class="text-muted-foreground">Compared against</dt><dd>{{ selectedDriftEvent.compared_against }}</dd></div>
       <div><dt class="text-muted-foreground">Change type</dt><dd>{{ selectedDriftEvent.change_type }}</dd></div>
       <div><dt class="text-muted-foreground">Occurrences</dt><dd class="font-mono">{{ selectedDriftEvent.occurrences }}×</dd></div>

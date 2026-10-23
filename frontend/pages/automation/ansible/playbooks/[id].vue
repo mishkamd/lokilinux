@@ -133,7 +133,7 @@ async function confirmRun() {
       </template>
     </PageHeader>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+    <div class="grid grid-cols-1 gap-3 mb-3 md:grid-cols-2">
       <FormField label="Name" required>
         <Input v-model="form.name" placeholder="Playbook name..." :disabled="!canEdit" />
       </FormField>

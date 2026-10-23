@@ -19,7 +19,7 @@ const approvalSet = computed(() => new Set(props.result?.requires_approval_at ??
     <template #body>
       <EmptyState v-if="!result">No result yet.</EmptyState>
       <div v-else class="space-y-4">
-        <div class="grid grid-cols-2 gap-3">
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
           <div class="surface-card rounded-[var(--radius-md)] p-3">
             <p class="label-caps text-muted-foreground">Targets matched</p>
             <p class="font-mono text-2xl font-bold">{{ result.targets_matched }}</p>
@@ -33,10 +33,12 @@ const approvalSet = computed(() => new Set(props.result?.requires_approval_at ??
           </div>
         </div>
 
-        <p v-if="result.targets_matched === 0" class="flex items-center gap-2 rounded-[var(--radius-sm)] border border-warning/30 bg-[color-mix(in_oklch,var(--warning)_8%,var(--background))] px-2.5 py-1.5 text-xs text-warning">
-          <AlertTriangle class="size-4 shrink-0" />
-          No agents match this workflow's targets — Run would fail the same way.
-        </p>
+        <Alert v-if="result.targets_matched === 0" color="yellow">
+          <span class="flex items-center gap-2">
+            <AlertTriangle class="size-4 shrink-0" />
+            No agents match this workflow's targets — Run would fail the same way.
+          </span>
+        </Alert>
 
         <div class="space-y-1.5">
           <div v-for="step in result.steps" :key="step.id" class="flex items-center gap-2.5 rounded-[var(--radius-sm)] border border-border/60 px-2.5 py-2 text-xs">

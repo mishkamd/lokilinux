@@ -30,7 +30,7 @@ onUnmounted(() => clearInterval(poll))
 
     <EmptyState v-else-if="!store.plugins.length && !store.loading" class="mb-4">No plugins available</EmptyState>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+    <div class="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3">
       <Card v-for="plugin in store.plugins" :key="plugin.id">
         <template #header>
           <div class="flex items-center justify-between">

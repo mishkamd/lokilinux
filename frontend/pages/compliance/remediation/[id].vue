@@ -161,14 +161,14 @@ const actionColumns = [
           <Button v-if="canEdit && selectedRemediationPlan.status === 'PENDING_APPROVAL'" size="sm" :loading="busy" @click="approve">
             Approve &amp; dispatch
           </Button>
-          <Button v-if="canRollback" size="sm" color="amber" :loading="busy" @click="rollback">
+          <Button v-if="canRollback" size="sm" variant="destructive" :loading="busy" @click="rollback">
             Rollback
           </Button>
         </template>
       </PageHeader>
 
       <!-- Execution status -->
-      <div v-if="remediationExecution?.job_id" class="mb-6 rounded-lg border p-4">
+      <div v-if="remediationExecution?.job_id" class="mb-4 rounded-lg border p-4">
         <div class="flex items-center justify-between mb-3">
           <h3 class="section-title">Execution</h3>
           <Button size="sm" variant="ghost" @click="refreshExecution">

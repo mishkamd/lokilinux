@@ -96,7 +96,7 @@ async function save() {
       </template>
     </PageHeader>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+    <div class="grid grid-cols-1 gap-3 mb-3 md:grid-cols-2">
       <FormField label="Name" required>
         <Input v-model="name" placeholder="Role name (e.g. autoInstall)..." :disabled="!canEdit" />
       </FormField>
@@ -105,7 +105,7 @@ async function save() {
       </FormField>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-[240px_1fr] gap-4">
+    <div class="grid grid-cols-1 gap-3 md:grid-cols-[240px_1fr]">
       <!-- File tree -->
       <div class="rounded-lg border border-border bg-card p-2 space-y-1 self-start">
         <p class="label-caps px-2 py-1">Files</p>
@@ -129,7 +129,7 @@ async function save() {
           <Input
             v-model="newFilePath"
             placeholder="defaults/main.yml"
-            class="text-xs font-mono h-7"
+            class="font-mono"
             @keyup.enter="addFile"
           />
           <Button size="xs" variant="ghost" aria-label="Add file" @click="addFile">

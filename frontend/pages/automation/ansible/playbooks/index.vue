@@ -15,7 +15,7 @@ const columns = [
   { key: 'version', label: 'Version' },
   { key: 'is_enabled', label: 'Status' },
   { key: 'updated_at', label: 'Updated' },
-  { key: 'actions', label: '' },
+  { key: 'actions', label: '', noSort: true },
 ]
 
 await Promise.all([store.fetchPlaybooks(), projectsStore.fetchProjects()])
@@ -161,7 +161,7 @@ async function confirmExecute() {
 
     <Alert
       color="blue"
-      class="mb-4"
+      class="mb-3"
       title="Local execution only"
       description="Playbooks run locally on each selected agent (ansible-playbook --connection=local) — no SSH, no external inventory. Execution always requires admin approval on the Jobs page before it reaches agents."
     />

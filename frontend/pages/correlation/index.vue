@@ -167,13 +167,15 @@ onMounted(() => store.fetchRules())
         <Input v-model="view.q" placeholder="Search rules..." class="w-full sm:w-64" aria-label="Search rules" />
       </template>
       <template #name-data="{ row }">
-        <button
+        <Button
           v-if="canEdit"
-          class="focus-ring font-medium hover:underline py-1 -my-1"
+          variant="link"
+          size="xs"
+          class="font-medium px-0 whitespace-normal"
           @click="openEdit(row as CorrelationRule)"
         >
           {{ row.name }}
-        </button>
+        </Button>
         <span v-else class="font-medium">{{ row.name }}</span>
       </template>
       <template #incident_type-data="{ row }">
@@ -191,7 +193,7 @@ onMounted(() => store.fetchRules())
         <span class="font-mono text-xs tabular-nums">{{ row.threshold_score }}</span>
       </template>
       <template #window_seconds-data="{ row }">
-        <span class="font-mono text-xs">{{ row.window_seconds }}s</span>
+        <span class="font-mono text-xs tabular-nums">{{ row.window_seconds }}s</span>
       </template>
       <template #enabled-data="{ row }">
         <Switch

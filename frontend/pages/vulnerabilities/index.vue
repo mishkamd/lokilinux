@@ -108,7 +108,7 @@ const topVulnerabilities = computed(() => [...cves.value].slice(0, 10))
     </div>
 
     <!-- Top resources / patchable -->
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 mb-4">
       <Card>
         <template #header>
           <div class="flex items-center justify-between">
