@@ -170,7 +170,7 @@ const actionColumns = [
       <!-- Execution status -->
       <div v-if="remediationExecution?.job_id" class="mb-6 rounded-lg border p-4">
         <div class="flex items-center justify-between mb-3">
-          <h3 class="text-sm font-semibold">Execution</h3>
+          <h3 class="section-title">Execution</h3>
           <Button size="sm" variant="ghost" @click="refreshExecution">
             <RefreshCw class="size-3" /> Refresh
           </Button>
@@ -203,7 +203,7 @@ const actionColumns = [
       </div>
 
       <!-- Actions table -->
-      <h3 class="text-sm font-semibold mb-2">Actions</h3>
+      <h3 class="section-title mb-2">Actions</h3>
       <DataTable
         :rows="remediationActions"
         :columns="actionColumns"

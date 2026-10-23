@@ -82,7 +82,7 @@ async function suppress() {
       <div v-if="selectedDriftEvent.resolved_at"><dt class="text-muted-foreground">Resolved at</dt><dd class="font-mono">{{ new Date(selectedDriftEvent.resolved_at).toLocaleString() }}</dd></div>
     </dl>
 
-    <h3 class="text-sm font-semibold mb-2">Field-level diff</h3>
+    <h3 class="section-title mb-2">Field-level diff</h3>
     <div class="space-y-2">
       <Card v-for="d in driftDetails" :key="d.field_path">
         <p class="font-mono text-xs font-semibold mb-2">{{ d.field_path }}</p>

@@ -450,7 +450,7 @@ const VULN_FILTER_OPTIONS = [
       <template #hardware>
         <div class="mt-4 space-y-6">
           <div>
-            <h3 class="text-sm font-medium mb-2">Disks</h3>
+            <h3 class="section-title mb-2">Disks</h3>
             <DataTable :rows="server.disks ?? []" :columns="diskColumns" sortable empty-title="No disks reported" caption="Server disks">
               <template #usage-data="{ row }">
                 {{ formatBytes(row.used_size) }} / {{ formatBytes(row.total_size) }}
@@ -464,7 +464,7 @@ const VULN_FILTER_OPTIONS = [
           </div>
 
           <div>
-            <h3 class="text-sm font-medium mb-2">Network Interfaces</h3>
+            <h3 class="section-title mb-2">Network Interfaces</h3>
             <DataTable :rows="server.network_interfaces ?? []" :columns="networkColumns" sortable empty-title="No interfaces reported" caption="Server network interfaces">
               <template #ip_addresses-data="{ row }">
                 {{ row.ip_addresses?.join(', ') || '—' }}
@@ -476,7 +476,7 @@ const VULN_FILTER_OPTIONS = [
           </div>
 
           <div>
-            <h3 class="text-sm font-medium mb-2">Block Devices</h3>
+            <h3 class="section-title mb-2">Block Devices</h3>
             <DataTable :rows="server.block_devices ?? []" :columns="blockDeviceColumns" sortable empty-title="No block devices reported" caption="Server block devices">
               <template #name-data="{ row }">
                 <span :class="row.parent_name ? 'pl-4' : ''">{{ row.parent_name ? '└─ ' : '' }}{{ row.name }}</span>
@@ -486,7 +486,7 @@ const VULN_FILTER_OPTIONS = [
           </div>
 
           <div>
-            <h3 class="text-sm font-medium mb-2">Listening Ports</h3>
+            <h3 class="section-title mb-2">Listening Ports</h3>
             <DataTable :rows="server.listening_ports ?? []" :columns="listeningPortColumns" sortable empty-title="No listening ports reported" caption="Server listening ports">
               <template #protocol-data="{ row }">
                 <Badge color="gray" size="xs">{{ row.protocol }}</Badge>
@@ -681,7 +681,7 @@ const VULN_FILTER_OPTIONS = [
       <template #policy>
         <div class="mt-4 space-y-4">
           <div class="flex items-center justify-between">
-            <h3 class="text-sm font-semibold">Desired-state policy</h3>
+            <h3 class="section-title">Desired-state policy</h3>
             <div class="flex items-center gap-2">
               <Button variant="outline" size="xs" :loading="policyLoading" @click="loadPolicyState">
                 <RefreshCw class="size-3.5" />

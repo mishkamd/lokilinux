@@ -147,7 +147,7 @@ function fmtDate(v: string | null | undefined): string {
             <Separator />
 
             <div>
-              <h3 class="text-sm font-medium mb-2">Action</h3>
+              <h3 class="section-title mb-2">Action</h3>
               <pre class="text-xs bg-muted rounded p-2 overflow-auto max-h-40">{{ JSON.stringify(policy.actions, null, 2) }}</pre>
             </div>
           </div>

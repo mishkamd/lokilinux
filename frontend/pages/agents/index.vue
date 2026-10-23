@@ -242,7 +242,7 @@ async function copy(text: string) {
 
       <!-- Enrollment token -->
       <section v-if="canEdit">
-        <h2 class="text-lg font-semibold mb-1">Install agent on new server</h2>
+        <h2 class="section-title mb-1">Install agent on new server</h2>
         <p class="text-sm text-muted-foreground mb-4">Token valid 24h · single-use · run command on target server as root</p>
 
         <Card class="max-w-2xl">

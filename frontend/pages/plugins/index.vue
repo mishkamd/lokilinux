@@ -36,7 +36,7 @@ onUnmounted(() => clearInterval(poll))
       <Card v-for="plugin in store.plugins" :key="plugin.id">
         <template #header>
           <div class="flex items-center justify-between">
-            <h3 class="font-semibold">{{ plugin.display_name ?? plugin.name }}</h3>
+            <h3 class="section-title">{{ plugin.display_name ?? plugin.name }}</h3>
             <Badge
               :color="statusColor(plugin.installation_status)"
               :class="plugin.installation_status === 'INSTALLING' ? 'animate-pulse' : ''"
