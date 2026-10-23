@@ -41,7 +41,7 @@ function template(datum: Datum): string {
   const rows = Object.entries(config)
     .filter(([key]) => row[key] !== undefined)
     .map(([key, series]) => `
-      <div style="display:flex;align-items:center;gap:6px;font-size:12px;padding:2px 0;">
+      <div style="display:flex;align-items:center;gap:6px;font-size:0.75rem;padding:2px 0;">
         <span style="${shape}background:${series.color};flex-shrink:0;"></span>
         <span style="color:var(--muted-foreground);">${series.label}</span>
         <span style="margin-left:auto;padding-left:12px;font-weight:600;font-variant-numeric:tabular-nums;">${formatValue(row[key])}</span>
@@ -53,7 +53,7 @@ function template(datum: Datum): string {
 
   return `
     <div style="background:var(--popover);color:var(--popover-foreground);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 10px;box-shadow:var(--shadow-overlay);min-width:150px;">
-      ${label ? `<div style="font-size:11px;color:var(--muted-foreground);margin-bottom:4px;">${label}</div>` : ''}
+      ${label ? `<div style="font-size:0.6875rem;color:var(--muted-foreground);margin-bottom:4px;">${label}</div>` : ''}
       ${rows}
     </div>
   `

@@ -92,7 +92,7 @@ async function disable2FA() {
 
 <template>
   <div class="max-w-lg space-y-6">
-    <PageHeader title="Account Security" />
+    <PageHeader />
 
     <Card>
       <template #header>Change password</template>

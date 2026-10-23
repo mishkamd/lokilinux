@@ -15,7 +15,7 @@ let view: EditorView | null = null
 // so flipping the .dark class on <html> re-themes the editor with no rebuild.
 const lokiTheme = EditorView.theme({
   '&': {
-    fontSize: '13px',
+    fontSize: '0.8125rem',
     backgroundColor: 'var(--card)',
     color: 'var(--foreground)',
     height: '100%',

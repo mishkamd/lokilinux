@@ -177,6 +177,15 @@ function resolve(tokens, name, seen = 0) {
 }
 
 const themes = { light: tokensOf(blockOf(':root {')), dark: tokensOf(blockOf('.dark {')) }
+
+// The type scale is rem-only: a px token is the one step that ignores both
+// `html { font-size: 106% }` and the user's browser font size (MIS-249).
+for (const name of ['--text-label', '--text-field', '--text-micro']) {
+  const m = css.match(new RegExp(`${name}:\\s*([^;]+);`))
+  if (m && !m[1].trim().endsWith('rem')) {
+    report(join(ROOT, 'assets/css/global.css'), 0, 'type-scale', `${name}: ${m[1].trim()} — the type scale is rem-only`)
+  }
+}
 // text colors on the card, and the foreground that sits on a status surface
 const PAIRS = [
   ['foreground', 'card', 4.5],
@@ -212,6 +221,35 @@ for (const [theme, tokens] of Object.entries(themes)) {
       )
     }
   }
+}
+
+// ── 8-10: size contract, target size, rem-only type scale ───────────────────
+// Independent pass: unlike rule 6 this applies to the primitives too, since
+// a hand-rolled button in a primitive file still has to respect the contract.
+const TINY_HEIGHT = /\bh-[0-5]\b/
+const BIG_ICON = /\bsize-(?:9|1[0-2])\b/
+const PX_FONT = /font-size:\s*\d+(?:\.\d+)?px|fontSize:\s*['"]\d+(?:\.\d+)?px['"]/
+
+for (const file of files) {
+  const raw = readFileSync(file, 'utf8')
+  const joined = raw.replace(/(^|[^:])\/\/.*$/gm, '$1')
+  const tagRe = /<(button|a|NuxtLink|input|select|textarea)\b((?:"[^"]*"|'[^']*'|[^>"'])*)>/g
+  let m
+  while ((m = tagRe.exec(joined))) {
+    const attrs = m[2] || ''
+    const line = joined.slice(0, m.index).split('\n').length
+    if (TINY_HEIGHT.test(attrs) && !/min-h-6/.test(attrs)) {
+      report(file, line, 'target', `<${m[1]}> is under the 24px target floor — use min-h-6 (or the primitive)`)
+    }
+    if (BIG_ICON.test(attrs)) {
+      report(file, line, 'size', `<${m[1]}> icon box outside the 32px contract — use size-8`)
+    }
+  }
+  raw.split('\n').forEach((l, i) => {
+    if (PX_FONT.test(l)) {
+      report(file, i + 1, 'type-scale', `px font size — the type scale is rem-only (${l.trim().slice(0, 60)})`)
+    }
+  })
 }
 
 // ── report ───────────────────────────────────────────────────────────────────

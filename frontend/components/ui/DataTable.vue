@@ -20,6 +20,8 @@ const props = withDefaults(
     /** Accessible name for the table — a screen reader announces a table with
      *  no name as an unlabelled grid. */
     caption?: string
+    /** Human name of a row — used for the row checkbox's accessible name. */
+    rowLabel?: (row: T) => string
     /** Persistence key for the column visibility + density preferences. */
     preferencesKey?: string
     /** Start with these columns hidden (the user can bring them back). */
@@ -125,8 +127,10 @@ type SortDir = 'asc' | 'desc'
 const sortKey = ref('')
 const sortDir = ref<SortDir>('asc')
 
-function isSortable(col: { key: string; noSort?: boolean }) {
-  return props.sortable === true && !col.noSort
+function isSortable(col: { key: string; label: string; noSort?: boolean }) {
+  // An unlabelled column has nothing to sort by — a bare 13px arrow button
+  // with the aria-label "Sort by " is a target nobody can find.
+  return props.sortable === true && !col.noSort && !!col.label
 }
 
 function compareValues(a: unknown, b: unknown): number {
@@ -230,11 +234,11 @@ function fmt(v: unknown): string {
             <label
               v-for="col in columns"
               :key="col.key"
-              class="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1 text-xs text-foreground hover:bg-accent"
+              class="flex cursor-pointer items-center gap-2 rounded-sm px-2 py-1 min-h-6 text-xs text-foreground hover:bg-accent"
             >
               <input
                 type="checkbox"
-                class="size-3.5 accent-[var(--primary)]"
+                class="size-4 accent-[var(--primary)]"
                 :checked="!hidden.includes(col.key)"
                 @change="toggleColumn(col.key)"
               >
@@ -245,13 +249,13 @@ function fmt(v: unknown): string {
       </div>
     </div>
 
-    <div class="overflow-x-auto" :class="density === 'compact' ? '[&_td]:py-0.5 [&_th]:h-7' : ''">
+    <div class="dt-table overflow-x-auto" :class="density === 'compact' ? '[&_td]:py-0.5 [&_th]:h-7' : ''">
       <Table :aria-label="caption">
         <caption v-if="caption" class="sr-only">{{ caption }}</caption>
         <TableHeader>
           <TableRow>
             <TableHead v-if="selectable" class="w-10">
-              <Checkbox :model-value="allSelected" @update:model-value="toggleAll" />
+              <Checkbox aria-label="Select all rows" :model-value="allSelected" @update:model-value="toggleAll" />
             </TableHead>
             <TableHead
               v-for="col in visibleColumns"
@@ -261,7 +265,7 @@ function fmt(v: unknown): string {
               <button
                 v-if="isSortable(col)"
                 type="button"
-                class="focus-ring group inline-flex items-center gap-1 rounded-sm uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground"
+                class="focus-ring group inline-flex items-center gap-1 rounded-sm uppercase tracking-wide text-muted-foreground transition-colors hover:text-foreground py-1 -my-1"
                 :aria-label="`Sort by ${col.label}`"
                 @click="toggleSort(col)"
               >
@@ -298,11 +302,12 @@ function fmt(v: unknown): string {
             >
               <TableCell v-if="selectable" @click.stop>
                 <Checkbox
+                  :aria-label="`Select ${props.rowLabel ? props.rowLabel(row) : String(val(row, keyField))}`"
                   :model-value="selectedSet.has(val(row, keyField) as string | number)"
                   @update:model-value="(checked) => toggleRow(row, checked)"
                 />
               </TableCell>
-              <TableCell v-for="col in visibleColumns" :key="col.key">
+              <TableCell v-for="col in visibleColumns" :key="col.key" :data-label="col.label">
                 <template v-if="slots[`${col.key}-data`]">
                   <slot :name="`${col.key}-data`" :row="row" />
                 </template>
@@ -348,3 +353,67 @@ function fmt(v: unknown): string {
     </div>
   </div>
 </template>
+
+<style scoped>
+/* Mobile (MIS-247): the table collapses into a stack of cards. Every cell
+ * keeps its value and carries its column label, so a ten-column table stays
+ * readable at 390px instead of scrolling sideways. The header row turns into
+ * a horizontal strip of sort chips, so sorting survives the collapse. */
+@media (max-width: 767.98px) {
+  .dt-table :deep(table) {
+    display: block;
+    width: 100%;
+  }
+  .dt-table :deep(thead) {
+    display: block;
+    overflow-x: auto;
+    border-bottom: 1px solid var(--border);
+  }
+  .dt-table :deep(thead tr) {
+    display: flex;
+    width: max-content;
+    gap: 8px;
+    padding: 6px 12px;
+    border: 0;
+  }
+  .dt-table :deep(thead th) {
+    display: inline-flex;
+    align-items: center;
+    height: auto;
+    padding: 0;
+    white-space: nowrap;
+  }
+  .dt-table :deep(tbody tr) {
+    display: block;
+    height: auto;
+    padding: 6px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .dt-table :deep(tbody td) {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 4px 12px;
+    border: 0;
+    overflow-wrap: anywhere;
+  }
+  .dt-table :deep(tbody td)::before {
+    content: attr(data-label);
+    flex: 0 0 auto;
+    color: var(--muted-foreground);
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+  /* the row checkbox and the empty-state cell carry no label */
+  .dt-table :deep(tbody td:not([data-label]))::before {
+    content: none;
+  }
+  .dt-table :deep(tbody td[colspan]) {
+    display: block;
+    padding: 0 12px;
+  }
+}
+</style>

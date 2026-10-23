@@ -38,7 +38,7 @@ const latest = computed(() => props.points.at(-1)?.compliance_pct ?? null)
       <div class="flex items-center gap-1">
         <button
           v-for="r in RANGES" :key="r.value"
-          class="focus-ring px-2 py-0.5 text-xs rounded-md transition-colors"
+          class="focus-ring px-2 py-0.5 min-h-6 text-xs rounded-md transition-colors"
           :class="range === r.value ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted'"
           @click="emit('update:range', r.value)"
         >

@@ -120,7 +120,7 @@ const filteredUsers = computed(() => {
 
 <template>
   <div class="space-y-4">
-    <PageHeader title="Users">
+    <PageHeader >
       <template #actions>
         <Button @click="showModal = true">
           <Plus class="size-4" />

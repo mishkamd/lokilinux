@@ -27,7 +27,7 @@ const color = (d: Segment) => d.color
 function template(arc: { data: Segment }): string {
   const d = arc.data
   return `
-    <div style="background:var(--popover);color:var(--popover-foreground);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 8px;box-shadow:var(--shadow-overlay);font-size:12px;">
+    <div style="background:var(--popover);color:var(--popover-foreground);border:1px solid var(--border);border-radius:var(--radius-sm);padding:6px 8px;box-shadow:var(--shadow-overlay);font-size:0.75rem;">
       <span style="font-weight:600;">${d.name}</span>: ${d.count} (${d.pct}%)
     </div>
   `

@@ -104,7 +104,7 @@ onMounted(() => {
 
 <template>
   <div>
-    <PageHeader title="Runbooks" description="Automated response playbooks triggered by incidents.">
+    <PageHeader description="Automated response playbooks triggered by incidents.">
       <template #actions>
         <Button @click="openCreate">
           <Plus class="size-4" />

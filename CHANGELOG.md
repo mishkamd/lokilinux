@@ -1,5 +1,10 @@
 ## [Unreleased]
 
+- fix(frontend): data tables collapse into labelled cards on mobile instead of scrolling sideways — a ten-column table was 1061px wide inside a 363px viewport; sorting survives as a strip of sort chips, and a column without a label no longer renders a 13px arrow button
+- fix(frontend): interactive targets meet WCAG 2.2 (24×24) — table sort headers, checkboxes (32px hit area around a 16px box), range pills and "+ Save view"; chart axis labels use the muted-foreground token (4.47:1 → 7.86:1) and row checkboxes carry accessible names
+- fix(frontend): the type scale is rem-only — `--text-label/field/micro` follow the 106% root (and the user's browser font size) instead of drifting 6% away from every other step; DESIGN.md now states the real spacing scale
+- fix(frontend): one page title instead of two — six pages rendered the layout's H1 and a PageHeader H2 with the same words, and the header's icon buttons were 36px against the Button primitive's 32px `icon` variant
+
 - feat(compliance): policy sets are editable — a rule can be removed from a draft (`DELETE /compliance/policy-sets/{id}/rules/{rule_id}`) and a set can be exported as a portable profile (`GET /compliance/policy-sets/{id}/export`, JSON/YAML, rule references by key) and re-imported (`POST /compliance/policy-sets/import-profile`); a published set stays immutable, editing it means a new version
 - feat(compliance): the remediation content is finally visible — `remediation_templates` (script + rollback, 21 curated rules) is exposed on the rule detail and per policy set; the policy set's Remediation tab lists the exact commands that would run, so choosing AUTOMATIC is reviewable before anything is dispatched; the command body is only handed to roles that can act on a host
 - feat(compliance): one canonical domain vocabulary (`GET /compliance/domains`, mirroring the agent's 24 collectors) replaces the free-text "Filter by domain" boxes on findings and drift — a wrong spelling used to match nothing, with no message

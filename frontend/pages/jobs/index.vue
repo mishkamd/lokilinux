@@ -199,6 +199,7 @@ onUnmounted(() => clearInterval(poll))
       :loading="loading"
       sortable
       selectable
+      :row-label="(row) => row.name ?? row.id"
       :selected="selectedJobIds"
       @update:selected="selectedJobIds = $event"
       preferences-key="jobs"

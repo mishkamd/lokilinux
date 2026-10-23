@@ -77,7 +77,7 @@ async function apply(viewName: string) {
     <button
       v-else
       type="button"
-      class="focus-ring rounded-full border border-dashed border-border px-2.5 py-0.5 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+      class="focus-ring rounded-full border border-dashed border-border px-2.5 py-0.5 min-h-6 text-xs text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
       @click="naming = true"
     >
       + Save view

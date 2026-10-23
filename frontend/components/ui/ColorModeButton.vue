@@ -18,7 +18,7 @@ function toggle() {
 <template>
   <button
     type="button"
-    class="focus-ring inline-flex items-center justify-center size-9 rounded-xl text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+    class="focus-ring inline-flex items-center justify-center size-8 rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
     :aria-label="isDark ? 'Light mode' : 'Dark mode'"
     @click="toggle"
   >

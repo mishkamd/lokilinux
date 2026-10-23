@@ -152,7 +152,7 @@
         <header class="h-16 flex items-center gap-2 sm:gap-3 px-3 sm:px-4">
           <button
             type="button"
-            class="focus-ring inline-flex items-center justify-center size-9 rounded-xl hover:bg-accent transition-colors shrink-0 lg:hidden"
+            class="focus-ring inline-flex items-center justify-center size-8 rounded-lg hover:bg-accent transition-colors shrink-0 lg:hidden"
             aria-label="Open menu"
             @click="openSidebar"
           >
@@ -160,7 +160,7 @@
           </button>
           <button
             type="button"
-            class="focus-ring hidden lg:inline-flex items-center justify-center size-9 rounded-xl hover:bg-accent transition-colors shrink-0"
+            class="focus-ring hidden lg:inline-flex items-center justify-center size-8 rounded-lg hover:bg-accent transition-colors shrink-0"
             :aria-label="sidebarCollapsed ? 'Show menu' : 'Hide menu'"
             @click="sidebarCollapsed = !sidebarCollapsed"
           >
@@ -198,7 +198,7 @@
             <slot name="topbar-actions" />
             <button
               type="button"
-              class="focus-ring inline-flex items-center justify-center size-9 rounded-xl hover:bg-accent transition-colors md:hidden"
+              class="focus-ring inline-flex items-center justify-center size-8 rounded-lg hover:bg-accent transition-colors md:hidden"
               aria-label="Open command palette"
               @click="palette.show()"
             >
@@ -206,7 +206,7 @@
             </button>
             <NuxtLink
               to="/alerts"
-              class="focus-ring relative inline-flex items-center justify-center size-9 rounded-xl text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+              class="focus-ring relative inline-flex items-center justify-center size-8 rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
               aria-label="Alerts"
             >
               <Bell class="size-4.5" />
@@ -219,7 +219,7 @@
             </NuxtLink>
             <button
               type="button"
-              class="focus-ring inline-flex items-center justify-center size-9 rounded-xl text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+              class="focus-ring inline-flex items-center justify-center size-8 rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
               aria-label="Help"
               @click="showHelp = true"
             >
@@ -228,7 +228,7 @@
             <ColorModeButton />
             <button
               type="button"
-              class="focus-ring inline-flex items-center justify-center size-9 rounded-xl text-muted-foreground hover:bg-accent hover:text-foreground transition-colors ml-1"
+              class="focus-ring inline-flex items-center justify-center size-8 rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground transition-colors ml-1"
               aria-label="User menu"
               @click="showUserModal = true"
             >
@@ -254,7 +254,7 @@ import {
   PanelLeft, PanelLeftClose, CircleHelp,
 } from 'lucide-vue-next'
 import { Toaster } from 'vue-sonner'
-import { buildNavSections, AREA_TABS, type NavSection } from '~/utils/nav'
+import { buildNavSections, AREA_TABS, EXTRA_PAGE_TITLES, type NavSection } from '~/utils/nav'
 
 const route = useRoute()
 const { user: currentUser, isAdmin } = useCurrentUser()
@@ -392,7 +392,7 @@ const currentPageTitle = computed((): string => {
   const match = allLinks
     .filter((l) => l.to === '/' ? route.path === '/' : route.path === l.to || route.path.startsWith(l.to + '/'))
     .sort((a, b) => b.to.length - a.to.length)[0]
-  if (!match) return companyName.value
+  if (!match) return EXTRA_PAGE_TITLES[route.path] ?? companyName.value
   // One level below the matched entry the segment names the page
   // ("/compliance/findings" -> "Findings"); an id segment doesn't, so the
   // area's own label stays.

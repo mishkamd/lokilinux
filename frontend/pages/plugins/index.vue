@@ -20,7 +20,7 @@ onUnmounted(() => clearInterval(poll))
 
 <template>
   <div>
-    <PageHeader title="Plugins" :description="'Agent-side plugins reported via heartbeat.'">
+    <PageHeader :description="'Agent-side plugins reported via heartbeat.'">
       <template #actions>
         <Badge color="gray">{{ store.total }} plugins</Badge>
       </template>

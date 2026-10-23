@@ -251,7 +251,7 @@ defineExpose({ fitView, zoomIn, zoomOut })
 }
 .vue-flow__edge-text {
   fill: var(--muted-foreground);
-  font-size: 11px;
+  font-size: 0.6875rem;
 }
 .vue-flow__edge-textbg {
   fill: var(--background);

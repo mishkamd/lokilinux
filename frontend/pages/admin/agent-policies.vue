@@ -245,7 +245,7 @@ async function createGroup() {
 
 <template>
   <div class="space-y-4">
-    <PageHeader title="Agent Policies" description="Desired-state configuration for the fleet — signed, versioned, applied autonomously.">
+    <PageHeader description="Desired-state configuration for the fleet — signed, versioned, applied autonomously.">
       <template #actions>
         <Button variant="outline" @click="openGroups">
           <Users class="size-4" />

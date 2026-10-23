@@ -41,7 +41,7 @@ const columns = [
 
 <template>
   <div class="space-y-4">
-    <PageHeader title="Audit Log" />
+    <PageHeader />
 
     <div v-if="error" class="rounded-md border border-destructive p-4 text-sm text-destructive">
       Failed to load audit logs: {{ error.message }}

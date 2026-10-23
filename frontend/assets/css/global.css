@@ -75,11 +75,13 @@
   --color-sidebar-ring: var(--sidebar-ring);
 
   /* Type scale — the three steps Tailwind doesn't have. Tailwind's own
-   * text-xs (12px) and text-sm (14px) cover the rest; 11px is the label
-   * step, 13px the field-value step, 10px the badge-micro step. */
-  --text-label: 11px;
-  --text-field: 13px;
-  --text-micro: 10px;
+   * text-xs (0.75rem) and text-sm (0.875rem) cover the rest; 0.6875rem is
+   * the label step, 0.8125rem the field-value step, 0.625rem the badge-micro
+   * step. rem, not px: the whole scale then follows `html { font-size: 106% }`
+   * (and the user's browser font-size) instead of drifting apart from it. */
+  --text-label: 0.6875rem;
+  --text-field: 0.8125rem;
+  --text-micro: 0.625rem;
 
   /* Typography — three-face system */
   --font-sans: "Rubik", ui-sans-serif, system-ui, -apple-system, sans-serif;
@@ -443,6 +445,15 @@ body {
   --vis-tooltip-padding: 0 !important;
   --vis-tooltip-box-shadow: none !important;
   --vis-tooltip-border-color: transparent !important;
+}
+
+/* Axis labels (dates on the trend charts) default to Unovis's own gray
+ * (rgb(108,119,140)) — 4.47:1 on the dark canvas, under the 4.5:1 WCAG AA
+ * floor for 12px text. var(--muted-foreground) is 7.86:1 on the same
+ * background and already flips per theme. */
+[data-vis-single-container], [data-vis-xy-container] {
+  --vis-axis-label-color: var(--muted-foreground);
+  --vis-axis-tick-label-color: var(--muted-foreground);
 }
 
 /* Donut central label (the big number in the middle of a ring) defaults to

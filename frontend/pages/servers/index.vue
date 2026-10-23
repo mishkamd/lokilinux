@@ -197,6 +197,7 @@ async function saveNewEntity() {
       empty-title="No servers found"
       rows-clickable
       selectable
+      :row-label="(row) => row.hostname"
       v-model:selected="selectedIds"
       @row-click="(row) => navigateTo(`/servers/${row.id}`)"
      caption="Servers" preferences-key="servers">

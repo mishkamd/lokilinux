@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { ArrowLeft } from 'lucide-vue-next'
 
+// `title` is optional on purpose: the layout's header already owns the page
+// title (the H1), so a page that only needs a toolbar — filters, actions —
+// renders the slot row without a second heading. Pass `title` only for an
+// entity title that differs from the page (a hostname, a policy name).
 defineProps<{
   title?: string
   description?: string
@@ -29,10 +33,11 @@ defineProps<{
         <slot name="actions" />
       </div>
     </div>
-    <p v-if="title && description" class="text-xs text-muted-foreground mt-1">{{ description }}</p>
 
-    <div v-else-if="!title" class="flex flex-wrap items-center justify-between gap-3">
+    <div v-else class="flex flex-wrap items-center justify-between gap-3">
       <slot />
     </div>
+
+    <p v-if="description" class="text-xs text-muted-foreground mt-1">{{ description }}</p>
   </div>
 </template>

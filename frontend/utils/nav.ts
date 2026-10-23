@@ -118,6 +118,17 @@ export function buildNavSections(opts: { isAdmin: boolean; ansibleEnabled: boole
 }
 
 /**
+ * Pages that own a title but are not part of the sidebar IA (they are reached
+ * from a row action or a settings link). Without them the layout's page title
+ * falls back to the product name, so the header bar says "LokiLinux" instead
+ * of the page's name (MIS-251).
+ */
+export const EXTRA_PAGE_TITLES: Record<string, string> = {
+  '/admin/agent-policies': 'Agent Policies',
+  '/account/security': 'Account Security',
+}
+
+/**
  * Every destination the sidebar can take you to. Group headers are expand-only
  * in the UI, so they are not destinations — their children are. A group whose
  * children are all present therefore contributes each route exactly once.

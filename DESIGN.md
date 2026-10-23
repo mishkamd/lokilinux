@@ -38,7 +38,7 @@ typography:
     letterSpacing: "-0.01em"
   body:
     fontFamily: "Rubik, ui-sans-serif, system-ui, -apple-system, sans-serif"
-    fontSize: "14px"
+    fontSize: "0.875rem"
     fontWeight: 400
     lineHeight: 1.5
   label:
@@ -49,32 +49,32 @@ typography:
     letterSpacing: "0.08em"
   field-value:
     fontFamily: "Rubik, ui-sans-serif, system-ui, -apple-system, sans-serif"
-    fontSize: "13px"
+    fontSize: "0.8125rem"
     fontWeight: 500
     lineHeight: 1.4
   tooltip:
     fontFamily: "Rubik, ui-sans-serif, system-ui, -apple-system, sans-serif"
-    fontSize: "12px"
+    fontSize: "0.75rem"
     fontWeight: 400
     lineHeight: 1.4
   badge-micro:
     fontFamily: "Rubik, ui-sans-serif, system-ui, -apple-system, sans-serif"
-    fontSize: "10px"
+    fontSize: "0.625rem"
     fontWeight: 500
     lineHeight: 1.4
   widget-body:
     fontFamily: "Rubik, ui-sans-serif, system-ui, -apple-system, sans-serif"
-    fontSize: "12px"
+    fontSize: "0.75rem"
     fontWeight: 400
     lineHeight: 1.4
   metadata:
     fontFamily: "Rubik, ui-sans-serif, system-ui, -apple-system, sans-serif"
-    fontSize: "11px"
+    fontSize: "0.6875rem"
     fontWeight: 400
     lineHeight: 1.4
   widget-link:
     fontFamily: "Rubik, ui-sans-serif, system-ui, -apple-system, sans-serif"
-    fontSize: "12px"
+    fontSize: "0.75rem"
     fontWeight: 500
     lineHeight: 1.4
   widget-stat:
@@ -90,11 +90,18 @@ rounded:
   2xl: "24px"
   full: "9999px"
 spacing:
-  xs: "4px"
-  sm: "8px"
-  md: "12px"
-  lg: "16px"
-  xl: "24px"
+  # Tailwind's 4px base scale — the code uses it as-is, so the ramp IS the
+  # contract: gap-1.5 = 6px, gap-2.5 = 10px. No arbitrary px spacing
+  # (guard rule 3). The px figures below are the @100%-root values.
+  xs: "2px"
+  sm: "4px"
+  md: "6px"
+  lg: "8px"
+  xl: "10px"
+  2xl: "12px"
+  3xl: "16px"
+  4xl: "24px"
+  5xl: "32px"
 components:
   button-primary:
     backgroundColor: "{colors.tactical-forest}"
@@ -207,17 +214,19 @@ A parallel light-mode palette exists (`:root`, unprefixed) built from Tailwind's
 - **Display** (400, 1.25rem/20px, line-height 1.2, `-0.02em` tracking): page titles in the app header (`.page-title`). Nudged 3px down from its natural baseline — Iceberg sits visually high in its line box and needed manual optical centering in the 64px header.
 - **Display — Wordmark** (400, 1.5rem/24px, tracking-tight): the "LokiLinux" sidebar logo specifically — one step larger than the header's Display size since it stands alone as the app's identity mark rather than sharing a row with other controls. Nudged 4px down (`mt-1`) for the same Iceberg optical-centering reason as Display.
 - **Title** (400, 0.9375rem/15px, line-height 1.2, `-0.01em` tracking): section headings inside cards and panels (`.section-title`).
-- **Body** (400, 14px, line-height 1.5): the working font size for buttons, inputs, table cells, and most UI copy — set as `text-[14px]` at most call sites rather than a Tailwind step, on a `106%` root font-size base.
-- **Label** (600, 0.6875rem/11px, `0.08em` tracking, uppercase): section eyebrows and metric labels (`.label-caps`) — bold, tiny, spaced-out caps in a muted gray, always paired with a `.data-value` number beneath it.
-- **Field Value** (500, 13px): a compact step between Label and Body for dense read-only data — server detail fields (OS, kernel, IP, FQDN, agent version, last seen), package version strings, user lists. Reused consistently (9 sites on the server detail page alone); not a one-off.
-- **Tooltip** (400, 12px): floating tooltip text on chart/donut hover — shared verbatim across `ChartTooltip.vue` and both donut components' Unovis crosshair templates.
-- **Badge Micro** (500, 10px): the smallest step, used only inside `MetricCard.vue`'s status-badge row (`text-[10px]`) where multiple badges must fit one line without wrapping — one step below Label, deliberately tighter, never used for standalone text.
-- **Widget Body** (400, 12px, `text-xs`): the dominant body size *inside* dashboard widgets — row labels, list values, stat breakdowns (`OsDistributionDonut`, `AgentStatusDonut`, `TopVulnerableServers`, `SecurityOverview`, `ComplianceOverviewCard`, and others). Distinct from the 14px Body role: Body is for standalone UI controls (buttons, inputs, table cells); Widget Body is specifically the denser size a `.surface-card` dashboard widget uses for its own internal rows — confirmed consistent across 10+ files, not a single-widget one-off.
-- **Metadata** (400, 11px, no tracking, no uppercase): plain secondary text — percentages, timestamps, sub-captions (`text-[11px]` in `OsDistributionDonut`, `AgentStatusDonut`, `RecentActivityFeed`, `SecurityOverview`'s trend delta). Easy to confuse with Label at a glance since both sit at 11px, but Metadata is never uppercase/tracked/bold — it's a quieter, plainer register than Label's eyebrow treatment.
-- **Widget Link** (500, 12px, `text-primary dark:text-primary-active`): the "View All →" / "View full report →" pattern, reused verbatim across 6 dashboard widgets (`MetricCard`, `JobsTrendChart`, `RecentActivityFeed`, `TopVulnerableServers`, `SecurityOverview`, `ComplianceOverviewCard`) plus 5 sites in `pages/index.vue` — one consistent role, not restated per-widget by accident. Theme-conditional color, see The Text-Contrast Rule below.
-- **Widget Stat** (700, 1.125rem/18px): the secondary-tier headline number/label inside the bottom "system status" grid (`SecurityOverview`'s risk-level word, `ComplianceOverviewCard`'s compliance percentage) — deliberately smaller than a top-row `MetricCard`'s 30px headline (that row is the primary KPI tier; this grid is the secondary status tier, per the layout pass's rhythm work), but large enough to read as a real stat, not buried body text.
+- **Body** (400, 0.875rem, line-height 1.5): the working font size for buttons, inputs, table cells, and most UI copy — set as `text-sm` at most call sites, never as a raw px size.
+- **Label** (600, 0.6875rem, `0.08em` tracking, uppercase): section eyebrows and metric labels (`.label-caps`) — bold, tiny, spaced-out caps in a muted gray, always paired with a `.data-value` number beneath it.
+- **Field Value** (500, 0.8125rem): a compact step between Label and Body for dense read-only data — server detail fields (OS, kernel, IP, FQDN, agent version, last seen), package version strings, user lists. Reused consistently (9 sites on the server detail page alone); not a one-off.
+- **Tooltip** (400, 0.75rem): floating tooltip text on chart/donut hover — shared verbatim across `ChartTooltip.vue` and both donut components' Unovis crosshair templates.
+- **Badge Micro** (500, 0.625rem): the smallest step, used only inside `MetricCard.vue`'s status-badge row (`text-micro`) where multiple badges must fit one line without wrapping — one step below Label, deliberately tighter, never used for standalone text.
+- **Widget Body** (400, 0.75rem, `text-xs`): the dominant body size *inside* dashboard widgets — row labels, list values, stat breakdowns (`OsDistributionDonut`, `AgentStatusDonut`, `TopVulnerableServers`, `SecurityOverview`, `ComplianceOverviewCard`, and others). Distinct from the Body role: Body is for standalone UI controls (buttons, inputs, table cells); Widget Body is specifically the denser size a `.surface-card` dashboard widget uses for its own internal rows — confirmed consistent across 10+ files, not a single-widget one-off.
+- **Metadata** (400, 0.6875rem, no tracking, no uppercase): plain secondary text — percentages, timestamps, sub-captions (`text-label` in `OsDistributionDonut`, `AgentStatusDonut`, `RecentActivityFeed`, `SecurityOverview`'s trend delta). Easy to confuse with Label at a glance since both sit at the same step, but Metadata is never uppercase/tracked/bold — it's a quieter, plainer register than Label's eyebrow treatment.
+- **Widget Link** (500, 0.75rem, `text-primary dark:text-primary-active`): the "View All →" / "View full report →" pattern, reused verbatim across 6 dashboard widgets (`MetricCard`, `JobsTrendChart`, `RecentActivityFeed`, `TopVulnerableServers`, `SecurityOverview`, `ComplianceOverviewCard`) plus 5 sites in `pages/index.vue` — one consistent role, not restated per-widget by accident. Theme-conditional color, see The Text-Contrast Rule below.
+- **Widget Stat** (700, 1.125rem): the secondary-tier headline number/label inside the bottom "system status" grid (`SecurityOverview`'s risk-level word, `ComplianceOverviewCard`'s compliance percentage) — deliberately smaller than a top-row `MetricCard`'s 1.875rem headline (that row is the primary KPI tier; this grid is the secondary status tier, per the layout pass's rhythm work), but large enough to read as a real stat, not buried body text.
 
 ### Named Rules
+**The Rem-Only Scale Rule.** Every step of the type scale is expressed in `rem` (`--text-label: 0.6875rem`, `--text-field: 0.8125rem`, `--text-micro: 0.625rem`; Tailwind's own `text-xs`/`text-sm` cover 0.75rem/0.875rem). `html { font-size: 106% }` sets the base, so 1rem = 16.96px in a default browser — a px figure anywhere in the scale would be the only step that ignores the user's browser font-size, and would silently drift from every other step. The px values quoted in the frontmatter are the @100%-root equivalents.
+
 **The Tabular Numerals Rule.** Anywhere a number can be compared to another number in the same view — metric cards, table columns, CVE counts — `font-variant-numeric: tabular-nums` is set (globally on `body`, reinforced on `.data-value`). Digits must line up; this is an ops tool, not prose.
 
 **The One Display Face Rule.** Iceberg never appears below `.section-title` size, and never at a weight heavier than 400 — that is its only cut. If something needs emphasis at body scale, that's Rubik at a heavier weight — not a bigger or bolder display face.
@@ -272,7 +281,8 @@ Buttons, cards, and inputs share one restrained material language: dark panel su
 - **Primary:** Tactical Forest background, Field White text, `h-8` (32px) / `px-3` at default size, hover shifts to Tactical Forest — Hover and the whole button lifts `-translate-y-0.5`.
 - **Destructive:** Threat Red background, white text — same shape and motion as Primary.
 - **Outline / Secondary / Ghost:** transparent or muted background at rest, `bg-accent` on hover — same hairline-bordered restraint as every other surface.
-- **Sizes:** `xs` (24px, tighter `--radius-sm` corner), `sm` (28px), default (32px), `lg` (36px), `icon` (32px square).
+- **Sizes:** `xs` (24px, tighter `--radius-sm` corner), `sm` (28px), default (32px), `lg` (36px), `icon` (32px square). These five are the whole contract — no other button height exists in the app. Icon-only buttons are 32×32 with the `--radius-lg` (16px) corner, everywhere (header utilities, sidebar toggles, row actions); a hand-rolled icon button at another size is a violation even when it looks right.
+- **Target size:** every interactive control resolves to a ≥24×24px hit area (WCAG 2.2), including table sort headers and checkboxes — the visible box may stay 16px, the hit area may not.
 - **Hover / Focus:** every variant lifts 1px on hover and returns to flush on `active`; focus shows a 2px ring in the accent color. Motion always runs on `--ease-out-expo` at `--duration-normal` (200ms).
 
 ### Badges
