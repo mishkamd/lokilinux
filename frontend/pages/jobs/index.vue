@@ -166,12 +166,14 @@ onUnmounted(() => clearInterval(poll))
         <Input
           v-model="filters.search"
           placeholder="Search jobs..."
+          aria-label="Search jobs"
           class="w-56"
           @keyup.enter="store.fetchJobs()"
         />
         <Input
           v-model="filters.agent_id"
           placeholder="Agent ID..."
+          aria-label="Filter by agent ID"
           class="w-64"
           @keyup.enter="store.fetchJobs()"
         />

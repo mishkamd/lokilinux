@@ -37,7 +37,7 @@
             class="size-8 shrink-0 bg-sidebar-foreground transition-all duration-300 ease-out group-hover:scale-110 group-hover:-rotate-6 group-hover:bg-primary-active"
             :style="logoMaskStyle"
           />
-          <span class="text-2xl font-display font-light text-sidebar-foreground tracking-tight mt-1 truncate transition-all duration-300 ease-out group-hover:translate-x-0.5 group-hover:text-primary-active">{{ companyName }}</span>
+          <span class="text-2xl font-display font-light text-sidebar-foreground tracking-tight mt-1 truncate transition-all duration-300 ease-out group-hover:translate-x-0.5 group-hover:text-primary-text">{{ companyName }}</span>
         </NuxtLink>
         <button
           type="button"
@@ -72,12 +72,12 @@
                       :aria-current="isActive(child.to) ? 'page' : undefined"
                       class="focus-ring group relative flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-sm font-medium transition-colors duration-200"
                       :class="isActive(child.to)
-                        ? 'bg-[color-mix(in_oklch,var(--primary-active)_15%,transparent)] text-primary-active'
+                        ? 'bg-[color-mix(in_oklch,var(--primary-active)_15%,transparent)] text-primary-text'
                         : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground'"
                     >
                       <span
                         class="flex items-center justify-center size-5 rounded-md shrink-0 transition-colors"
-                        :class="isActive(child.to) ? 'text-primary-active' : 'text-sidebar-foreground/60 group-hover:text-sidebar-foreground'"
+                        :class="isActive(child.to) ? 'text-primary-text' : 'text-sidebar-foreground/60 group-hover:text-sidebar-foreground'"
                       >
                         <component :is="child.icon" class="size-3.5" />
                       </span>
@@ -92,12 +92,12 @@
                 :aria-current="isActive(link.to) ? 'page' : undefined"
                 class="focus-ring group relative flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-sm font-medium transition-colors duration-200"
                 :class="isActive(link.to)
-                  ? 'bg-[color-mix(in_oklch,var(--primary-active)_15%,transparent)] text-primary-active'
+                  ? 'bg-[color-mix(in_oklch,var(--primary-active)_15%,transparent)] text-primary-text'
                   : 'text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-foreground'"
               >
                 <span
                   class="flex items-center justify-center size-5 rounded-md shrink-0 transition-colors"
-                  :class="isActive(link.to) ? 'text-primary-active' : 'text-sidebar-foreground/60 group-hover:text-sidebar-foreground'"
+                  :class="isActive(link.to) ? 'text-primary-text' : 'text-sidebar-foreground/60 group-hover:text-sidebar-foreground'"
                 >
                   <component :is="link.icon" class="size-3.5" />
                 </span>

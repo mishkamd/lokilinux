@@ -25,7 +25,7 @@ defineExpose({ stepper })
             :class="i < stepper.index.value
               ? 'bg-primary-active text-primary-foreground'
               : i === stepper.index.value
-                ? 'border-2 border-primary-active text-primary-active'
+                ? 'border-2 border-primary text-primary-text'
                 : 'border border-border text-muted-foreground'"
           >{{ i + 1 }}</span>
           <span

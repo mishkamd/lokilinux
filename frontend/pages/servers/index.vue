@@ -159,6 +159,7 @@ async function saveNewEntity() {
           <Input
             v-model="view.search"
             placeholder="Search hostname..."
+            aria-label="Search servers by hostname"
             class="pl-9"
             @keyup.enter="fetchServers()"
           />
