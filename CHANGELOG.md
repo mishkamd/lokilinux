@@ -1,5 +1,10 @@
 ## [Unreleased]
 
+- fix(frontend): dashboard widget tables now fit their card — the two table widgets render through the DataTable (column menu, hidden columns, sortable) instead of a raw table, so nothing scrolls sideways at 1440px, and the widget's own card chrome is kept
+- fix(frontend): every interactive target meets WCAG 2.2 (24×24) — the "button as link" pattern (table cell names, rule names, widget "View all" links, tag and property close buttons) gets a hit area without changing its visual size; a new guard rule catches the pattern going forward
+- fix(frontend): accent text follows the theme — the active sidebar item, its icon, the wordmark hover and the stepper number use `text-primary-text` (Forest on light, Signal Green on dark) instead of a green that was 2.29:1 on the light theme
+- fix(frontend): form controls carry an accessible name — the page filters (search jobs, agent ID, hostname) and the empty/loading/error states use the Skeleton, EmptyState and Alert primitives; section headings use the `.section-title` role; hand-rolled textareas use the Textarea primitive; the severity→colour map lives only in the canonical composable
+
 - fix(frontend): data tables collapse into labelled cards on mobile instead of scrolling sideways — a ten-column table was 1061px wide inside a 363px viewport; sorting survives as a strip of sort chips, and a column without a label no longer renders a 13px arrow button
 - fix(frontend): interactive targets meet WCAG 2.2 (24×24) — table sort headers, checkboxes (32px hit area around a 16px box), range pills and "+ Save view"; chart axis labels use the muted-foreground token (4.47:1 → 7.86:1) and row checkboxes carry accessible names
 - fix(frontend): the type scale is rem-only — `--text-label/field/micro` follow the 106% root (and the user's browser font size) instead of drifting 6% away from every other step; DESIGN.md now states the real spacing scale
