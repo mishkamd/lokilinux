@@ -131,18 +131,10 @@ async function submitCreate() {
             <Select v-model="form.scope_type" :options="SCOPE_TYPES" />
           </FormField>
           <FormField label="Scope selector" help="JSON — e.g. {&quot;role&quot;: &quot;database&quot;}">
-            <textarea
-              v-model="form.scope_selector"
-              rows="3"
-              class="flex w-full rounded-lg border border-input bg-card px-2.5 py-1.5 text-field font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-primary"
-            />
+            <Textarea v-model="form.scope_selector" :rows="3" class="font-mono" />
           </FormField>
           <FormField label="Expected state (version 1)" help="JSON, keyed by domain — e.g. sshd, sysctl">
-            <textarea
-              v-model="form.expected_state"
-              rows="6"
-              class="flex w-full rounded-lg border border-input bg-card px-2.5 py-1.5 text-field font-mono ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-primary"
-            />
+            <Textarea v-model="form.expected_state" :rows="6" class="font-mono" />
           </FormField>
           <Alert v-if="formError" color="red">{{ formError }}</Alert>
         </div>

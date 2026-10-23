@@ -219,11 +219,7 @@ async function openHistory(template: PlaybookTemplate) {
             <MultiSelect v-model="form.agent_ids" :options="agentOptions" placeholder="Select default runner servers..." />
           </FormField>
           <FormField label="Default extra_vars (JSON)">
-            <textarea
-              v-model="form.extra_vars"
-              rows="4"
-              class="focus-ring w-full rounded-lg border border-input bg-card px-2.5 py-1.5 text-sm font-mono"
-            />
+            <Textarea v-model="form.extra_vars" :rows="4" class="font-mono" />
           </FormField>
         </div>
       </template>

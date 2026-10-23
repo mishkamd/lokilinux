@@ -168,11 +168,7 @@ async function confirmRun() {
             </p>
           </FormField>
           <FormField label="Extra vars (JSON)">
-            <textarea
-              v-model="runExtraVars"
-              rows="4"
-              class="focus-ring w-full rounded-lg border border-input bg-card px-2.5 py-1.5 text-sm font-mono"
-            />
+            <Textarea v-model="runExtraVars" :rows="4" class="font-mono" />
           </FormField>
         </div>
       </template>
