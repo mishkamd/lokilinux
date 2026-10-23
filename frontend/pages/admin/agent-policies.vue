@@ -271,7 +271,7 @@ async function createGroup() {
       :empty-description="searchQuery ? `Nothing matches “${searchQuery}”.` : 'Create a policy or start from a seeded template.'"
      caption="Agent policies">
       <template #toolbar>
-        <Input v-model="searchQuery" placeholder="Search policies..." class="w-full sm:w-64" />
+        <Input v-model="searchQuery" placeholder="Search policies..." aria-label="Search agent policies" class="w-full sm:w-64" />
       </template>
       <template #name-data="{ row }">
         <button class="focus-ring font-medium hover:underline py-1 -my-1" @click="openEdit(row as PolicyRow)">{{ row.name }}</button>

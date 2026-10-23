@@ -142,7 +142,7 @@ const filteredUsers = computed(() => {
       :empty-description="searchQuery ? `Nothing matches “${searchQuery}”.` : 'Create the first user to get started.'"
      caption="Users" preferences-key="users">
       <template #toolbar>
-        <Input v-model="searchQuery" placeholder="Search name, email or role..." class="w-full sm:w-64" />
+        <Input v-model="searchQuery" placeholder="Search name, email or role..." aria-label="Search users" class="w-full sm:w-64" />
       </template>
       <template #role-data="{ row }">
         <Badge color="gray">{{ String(row.role).toUpperCase() }}</Badge>
