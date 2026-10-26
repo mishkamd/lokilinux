@@ -234,13 +234,15 @@ async def run_policy_now(
     policy_id: UUID,
     db: AsyncSession = Depends(get_db),
     cache: RedisCache = Depends(get_cache),
-    _: dict = Depends(require_role("ADMIN", "OPERATOR")),
+    current_user: dict = Depends(require_role("ADMIN", "OPERATOR")),
 ) -> PolicyRunResponse:
     row = (await db.execute(select(Policy).where(Policy.id == policy_id))).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Policy not found")
 
-    job_ids, matched = await run_policy(db, row, cache, triggered_by="manual")
+    job_ids, matched = await run_policy(
+        db, row, cache, triggered_by="manual", created_by_actor=current_user.get("id")
+    )
     return PolicyRunResponse(job_ids=job_ids, matched_agents=matched)
 
 

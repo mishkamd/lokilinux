@@ -108,6 +108,7 @@ async def launch_template(
             agent_ids_override=body.agent_ids,
             extra_vars_override=body.extra_vars,
             created_by=safe_user_uuid(current_user),
+            created_by_actor=current_user.get("id"),
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
