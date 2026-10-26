@@ -15,11 +15,11 @@
  *   5. no window.confirm / alert / prompt (use ConfirmDeleteDialog)
  *   6. every interactive element carries a focus ring
  *   7. the token pairs in global.css pass WCAG AA in both themes
- *   8. the size contract (32px controls), the 24px target floor, rem-only type
- *   9. no sub-minimum type — the smallest step is badge-micro (0.625rem / 10px)
- *  10. no 32px section rhythm (space-y-8) — the band is 12–16px
- *  11. no faded borders on chrome (border-border/40, border-border/60)
- *  12. no unsanctioned display sizes (text-4xl and up; auth wordmark excepted)
+ *   8-11. the size contract, the 24px target floor, the rem-only type scale
+ *  12. no sub-minimum type — the smallest step is badge-micro (0.625rem / 10px)
+ *  13. no 32px section rhythm (space-y-8) — the band is 12–16px
+ *  14. no faded borders on chrome (border-border/40, border-border/60)
+ *  15. no unsanctioned display sizes (text-4xl and up; auth wordmark excepted)
  *
  * Usage: node scripts/check-design-system.mjs
  */

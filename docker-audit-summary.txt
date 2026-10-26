@@ -1,0 +1,6 @@
+Docker audit summary — LokiLinux
+- Compose config (docker-compose.yml): OK (exit 0)
+- Security: OK (read_only, cap_drop ALL, no-new-privileges, non-root, NATS auth, healthchecks)
+- Trivy: api 44 HIGH, frontend 3 HIGH (2 acceptate via .trivyignore)
+- Images: api 535MB, frontend 277MB, compliance 35MB
+- Open: backend base bump (44 HIGH), RustFS console, uvicorn access logs, dev compose ports
