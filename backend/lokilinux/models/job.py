@@ -58,6 +58,7 @@ class Job(Base):
     dedup_key: Mapped[str | None] = mapped_column(String(64), index=True)
 
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))  # Better Auth user — no FK
+    created_by_actor: Mapped[str | None] = mapped_column(String(255))  # raw auth id; created_by can't hold a nanoid
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
 

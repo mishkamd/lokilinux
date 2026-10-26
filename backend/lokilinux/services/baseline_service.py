@@ -50,6 +50,7 @@ class BaselineService:
         description: str | None = None,
         parent_baseline_id: UUID | None = None,
         created_by: UUID | None = None,
+        created_by_actor: str | None = None,
     ) -> Baseline:
         baseline = Baseline(
             name=name,
@@ -69,6 +70,7 @@ class BaselineService:
             expected_state=expected_state,
             content_hash=_content_hash(expected_state),
             created_by=created_by,
+            created_by_actor=created_by_actor,
         )
         self.db.add(version)
         await self.db.commit()
@@ -88,6 +90,7 @@ class BaselineService:
         expected_state: dict,
         change_summary: str | None,
         created_by: UUID | None,
+        created_by_actor: str | None = None,
     ) -> BaselineVersion:
         max_version = (
             await self.db.execute(
@@ -105,6 +108,7 @@ class BaselineService:
             content_hash=_content_hash(expected_state),
             change_summary=change_summary,
             created_by=created_by,
+            created_by_actor=created_by_actor,
         )
         self.db.add(version)
         await self.db.commit()
@@ -131,7 +135,10 @@ class BaselineService:
             raise HTTPException(status_code=409, detail=f"Cannot approve from status {version.status}")
 
         approver_raw_id = actor.get("id")
-        if approver_raw_id and version.created_by and str(version.created_by) == str(approver_raw_id):
+        if approver_raw_id and (
+            version.created_by_actor == approver_raw_id
+            or (version.created_by and str(version.created_by) == str(approver_raw_id))
+        ):
             raise HTTPException(status_code=403, detail="Author cannot approve their own baseline version")
 
         approver_uuid = _safe_uuid(approver_raw_id)

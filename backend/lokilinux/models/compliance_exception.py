@@ -30,6 +30,7 @@ class ComplianceException(Base):
     reason: Mapped[str] = mapped_column(Text, nullable=False)
     owner: Mapped[str] = mapped_column(String(255), nullable=False)
     requested_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    requested_by_actor: Mapped[str | None] = mapped_column(String(255))  # raw auth id; requested_by can't hold a nanoid
     approved_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     status: Mapped[str] = mapped_column(String(20), default="PENDING", nullable=False)  # PENDING/ACTIVE/EXPIRED/REVOKED

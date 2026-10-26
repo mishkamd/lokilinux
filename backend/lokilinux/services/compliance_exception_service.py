@@ -46,6 +46,7 @@ class ExceptionService:
             reason=reason,
             owner=owner,
             requested_by=requested_by,
+            requested_by_actor=actor.get("id"),
             status="PENDING",
             expires_at=expires_at,
         )
@@ -68,6 +69,12 @@ class ExceptionService:
             raise HTTPException(status_code=409, detail=f"Cannot approve from status {exc.status}")
         if exc.expires_at <= datetime.now(timezone.utc):
             raise HTTPException(status_code=409, detail="Cannot approve an exception whose expiry is already in the past")
+        approver_raw_id = actor.get("id")
+        if approver_raw_id and (
+            exc.requested_by_actor == approver_raw_id
+            or (exc.requested_by and str(exc.requested_by) == str(approver_raw_id))
+        ):
+            raise HTTPException(status_code=403, detail="Requester cannot approve their own exception")
 
         exc.status = "ACTIVE"
         exc.approved_by = actor_id

@@ -290,6 +290,7 @@ class JobService:
         created_by: UUID | None = None,
         requires_approval: bool = False,
         skip_approval_gate: bool = False,
+        created_by_actor: str | None = None,
     ) -> Job:
         """Create a job; raise ValueError on active duplicate.
 
@@ -337,6 +338,7 @@ class JobService:
             scheduled_time=scheduled_time,
             policy_id=policy_id,
             created_by=created_by,
+            created_by_actor=created_by_actor,
             dedup_key=dedup_key,
             total_servers=len(agent_uuids) or None,
             requires_approval=requires_approval,
@@ -370,7 +372,9 @@ class JobService:
             )
         return job
 
-    async def approve_job(self, job_id: UUID, approved_by: UUID | None) -> Job:
+    async def approve_job(
+        self, job_id: UUID, approved_by: UUID | None, approver_actor: str | None = None
+    ) -> Job:
         """Approve a job that requires_approval — makes it eligible for
         agent pickup on the next heartbeat (see AgentService.get_pending_jobs)."""
         job = await self.db.get(Job, job_id)
@@ -383,6 +387,12 @@ class JobService:
             # Auth's nanoid user id often fails to parse as UUID (see
             # safe_user_uuid) — so approved_at is the reliable "done" flag.
             raise ValueError("Job already approved")
+        # Four-eyes: the requester cannot approve their own job. Both forms are checked:
+        # created_by_actor covers nanoid requesters, created_by the rows written before it.
+        if (approver_actor and job.created_by_actor == approver_actor) or (
+            job.created_by is not None and job.created_by == approved_by
+        ):
+            raise ValueError("Job creator cannot approve their own job")
 
         job.approved_by = approved_by
         job.approved_at = datetime.now(timezone.utc)

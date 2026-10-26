@@ -80,6 +80,7 @@ async def create_baseline(
         parent_baseline_id=body.parent_baseline_id,
         expected_state=body.expected_state,
         created_by=safe_user_uuid(current_user),
+        created_by_actor=current_user.get("id"),
     )
     return BaselineResponse.model_validate(baseline)
 
@@ -126,6 +127,7 @@ async def create_baseline_version(
         expected_state=body.expected_state,
         change_summary=body.change_summary,
         created_by=safe_user_uuid(current_user),
+        created_by_actor=current_user.get("id"),
     )
     return BaselineVersionResponse.model_validate(version)
 

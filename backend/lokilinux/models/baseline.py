@@ -50,6 +50,7 @@ class BaselineVersion(Base):
     signed_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
     change_summary: Mapped[str | None] = mapped_column(Text)
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True))
+    created_by_actor: Mapped[str | None] = mapped_column(String(255))  # raw auth id; created_by can't hold a nanoid
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=text("now()"), nullable=False)
     published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     deprecated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
