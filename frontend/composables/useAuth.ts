@@ -1,7 +1,7 @@
 import { createAuthClient } from "better-auth/vue"
 import { twoFactorClient, usernameClient } from "better-auth/client/plugins"
 
-type Role = 'ADMIN' | 'OPERATOR' | 'VIEWER' | 'AUDITOR'
+type Role = 'ADMIN' | 'MANAGER' | 'OPERATOR' | 'VIEWER' | 'AUDITOR'
 
 const authClient = createAuthClient({
   plugins: [twoFactorClient(), usernameClient()],

@@ -123,10 +123,10 @@ class CreateUserRequest(BaseModel):
 # identity provider creates a user the platform cannot reason about — deny it
 # here, same as assign_role does. Single source of truth for both routes.
 #
-# ponytail: MANAGER is documented (README) and holds capabilities in
-# utils/capability_rbac.py, but is not assignable — promoting it is a
-# behaviour change that needs its own sign-off (see auth/permissions.py).
-_VALID_ROLES = {"ADMIN", "OPERATOR", "VIEWER", "AUDITOR"}
+# MANAGER gets the job-type capabilities in utils/capability_rbac.py; routes
+# guarded by require_role() still list only ADMIN/OPERATOR, so a MANAGER can't
+# reach those until they're added to a role list on purpose.
+_VALID_ROLES = {"ADMIN", "MANAGER", "OPERATOR", "VIEWER", "AUDITOR"}
 
 
 @router.post("/users")

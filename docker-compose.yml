@@ -478,12 +478,17 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
       METRICS_ENABLED: "true"
       METRICS_PORT: "9091"
+      # Same policy signing key as lokilinux-api (FIM scopes are signed per heartbeat
+      # for agents >= 0.41). Without it grpc tries to create a key under the read-only
+      # root filesystem and every heartbeat of such an agent fails.
+      POLICY_SIGNING_KEY_PATH: /var/lib/lokilinux/policy-key/policy-signing.key
     command: ["python", "-m", "lokilinux.grpc_server"]
     ports:
       - "50051:50051"
     volumes:
       - certs_dir:/etc/lokilinux/certs:ro
       - ca_signer_sock:/run/lokilinux/ca-signer
+      - policy_key:/var/lib/lokilinux/policy-key:ro
     networks:
       - app-net
       - gateway-net

@@ -97,7 +97,7 @@ async function confirmDelete() {
   }
 }
 
-const roles = ['ADMIN', 'OPERATOR', 'VIEWER', 'AUDITOR']
+const roles = ['ADMIN', 'MANAGER', 'OPERATOR', 'VIEWER', 'AUDITOR']
 
 const columns = [
   { key: 'name', label: 'Name' },
