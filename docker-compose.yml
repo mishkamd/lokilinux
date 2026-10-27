@@ -408,8 +408,8 @@ services:
       AGENT_DOWNLOAD_BASE: ${AGENT_DOWNLOAD_BASE:-}
       AGENT_VERSION: ${AGENT_VERSION:-0.42.0}
     ports:
-      - "8000:8000"
-      - "9090:9090"
+      - "127.0.0.1:8000:8000"
+      - "${METRICS_BIND:-127.0.0.1}:9090:9090"
     volumes:
       - certs_dir:/etc/lokilinux/certs:ro
       - ca_signer_sock:/run/lokilinux/ca-signer
