@@ -46,7 +46,7 @@ function onActivate(def: NodeDefinition) {
           type="text"
           placeholder="Search steps…"
           class="pl-7"
-        >
+        />
       </div>
     </div>
 

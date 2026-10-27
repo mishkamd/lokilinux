@@ -17,6 +17,7 @@ Findings covered:
 
 import uuid
 
+import httpx
 import pytest
 from httpx import AsyncClient
 
@@ -168,7 +169,7 @@ async def test_job_service_rejects_a_smuggled_command(
             job_type=job_type,
             target_servers={"agent_ids": [str(agent.id)]},
             parameters={"command": "id"},
-        )
+         actor_role="ADMIN",)
 
 
 @pytest.mark.asyncio
@@ -206,7 +207,7 @@ async def test_workflow_step_params_are_not_rejected(client: AsyncClient, db_ses
         job_type="WORKFLOW_STEPS",
         target_servers={"agent_ids": [str(agent.id)]},
         parameters={"steps": [{"type": "command", "config": {"command": "true"}}]},
-    )
+     actor_role="ADMIN",)
     assert job.job_type == "WORKFLOW_STEPS"
 
 
@@ -381,3 +382,38 @@ async def test_create_user_rejects_an_unknown_role(client: AsyncClient):
     )
     assert resp.status_code == 400, resp.text
     assert "Invalid role" in resp.json()["detail"]
+
+
+# ── MIS-180: MANAGER is an assignable role on both routes ─────────────────────
+
+
+class _IdentityProviderDown:
+    """Stands in for httpx.AsyncClient: the test stops at the identity-provider call."""
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    def __getattr__(self, name):
+        async def unreachable(*args, **kwargs):
+            raise httpx.ConnectError("identity provider stubbed")
+
+        return unreachable
+
+
+@pytest.mark.asyncio
+async def test_manager_passes_the_role_allowlist(client: AsyncClient, monkeypatch):
+    monkeypatch.setattr(httpx, "AsyncClient", _IdentityProviderDown)
+    # 503 "Auth provider unreachable" means validation passed and the call went out (not a 400 "Invalid role").
+    resp = await client.post("/api/v1/admin/users", json={
+        "email": "m@example.com", "username": "m", "password": "hunter2hunter2", "role": "MANAGER",
+    })
+    assert resp.status_code == 503, resp.text
+    # assign_role does not wrap the transport error (pre-existing), so the stub's error surfaces here.
+    with pytest.raises(httpx.ConnectError):
+        await client.post("/api/v1/admin/users/some-user/role", params={"role": "MANAGER"})
