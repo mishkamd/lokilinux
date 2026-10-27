@@ -23,7 +23,7 @@ from lokilinux.models.plugin import Plugin, PluginInstallation, PluginStatus
 from lokilinux.models.remediation import RemediationAction, RemediationJob, RemediationPlan
 from lokilinux.nats_topics import JOB_CREATED
 from lokilinux.services.job_envelope import required_capabilities
-from lokilinux.utils.capability_rbac import assert_no_smuggled_command
+from lokilinux.utils.capability_rbac import assert_can_create, assert_no_smuggled_command
 
 # Job types that execute arbitrary code as root on agents. These always
 # require approval before an agent may pick them up — enforced here so the
@@ -291,6 +291,7 @@ class JobService:
         requires_approval: bool = False,
         skip_approval_gate: bool = False,
         created_by_actor: str | None = None,
+        actor_role: str | None = None,
     ) -> Job:
         """Create a job; raise ValueError on active duplicate.
 
@@ -313,6 +314,9 @@ class JobService:
         # every job creation path (router, policies, workflows, services)
         # routes through.
         assert_no_smuggled_command(job_type, params)
+        # Every creation path passes its role here (MIS-177). None is denied, so a new
+        # caller that forgets it fails loudly instead of creating the job.
+        assert_can_create(actor_role, job_type, params)
         dedup_key = self.compute_dedup_key(job_type, target_servers, params)
 
         existing = await self.db.execute(
@@ -392,7 +396,7 @@ class JobService:
         if (approver_actor and job.created_by_actor == approver_actor) or (
             job.created_by is not None and job.created_by == approved_by
         ):
-            raise ValueError("Job creator cannot approve their own job")
+            raise PermissionError("Job creator cannot approve their own job")
 
         job.approved_by = approved_by
         job.approved_at = datetime.now(timezone.utc)

@@ -37,9 +37,9 @@ async def test_job_requester_cannot_approve_own_job(db_session, fake_cache, fake
         parameters={"service_name": "nginx"},
         requires_approval=True,
         created_by_actor="nanoid-requester",
-    )
+     actor_role="ADMIN",)
 
-    with pytest.raises(ValueError, match="cannot approve their own"):
+    with pytest.raises(PermissionError, match="cannot approve their own"):
         await svc.approve_job(job.id, None, approver_actor="nanoid-requester")
 
     await svc.approve_job(job.id, None, approver_actor="nanoid-approver")
@@ -98,9 +98,9 @@ async def test_manual_policy_run_records_requester(db_session, fake_cache):
 
     job_ids, _ = await run_policy(
         db_session, policy, fake_cache, triggered_by="manual", created_by_actor="nanoid-operator"
-    )
+    , actor_role="ADMIN")
 
-    with pytest.raises(ValueError, match="cannot approve their own"):
+    with pytest.raises(PermissionError, match="cannot approve their own"):
         await JobService(db_session, fake_cache).approve_job(
             job_ids[0], None, approver_actor="nanoid-operator"
         )
@@ -120,9 +120,9 @@ async def test_playbook_run_records_requester(db_session, fake_cache, fake_stora
 
     job = await PlaybookService(db_session, fake_cache, fake_storage, fake_nats).execute_playbook(
         playbook.id, agent_ids=[agent.id], created_by_actor="nanoid-operator",
-    )
+     actor_role="ADMIN",)
 
-    with pytest.raises(ValueError, match="cannot approve their own"):
+    with pytest.raises(PermissionError, match="cannot approve their own"):
         await JobService(db_session, fake_cache, fake_nats).approve_job(
             job.id, None, approver_actor="nanoid-operator"
         )

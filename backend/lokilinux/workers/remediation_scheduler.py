@@ -44,10 +44,11 @@ from lokilinux.services.remediation_service import (
     agent_matches_window_scope,
 )
 from lokilinux.settings_schema import get_setting_value
+from lokilinux.utils.capability_rbac import SYSTEM_ROLE
 
 logger = structlog.get_logger()
 
-_AUTOPILOT_ACTOR = {"id": None, "username": "system:autopilot"}
+_AUTOPILOT_ACTOR = {"id": None, "username": "system:autopilot", "role": SYSTEM_ROLE}
 _TICK_SECONDS = 30
 # A DRAFT AUTOMATIC plan with no dry-run job linked yet after this long
 # means the dispatch itself crashed between create_plan and dry_run — not
@@ -185,7 +186,7 @@ class RemediationSchedulerWorker:
         )
         svc = RemediationService(db, JobService(db, self.cache, self.nats))
         try:
-            await svc._dispatch(plan)
+            await svc._dispatch(plan, SYSTEM_ROLE)
         except Exception:
             logger.error("remediation_scheduler.dispatch_failed", plan_id=str(plan.id), exc_info=True)
 

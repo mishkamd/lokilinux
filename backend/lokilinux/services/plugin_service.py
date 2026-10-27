@@ -47,7 +47,7 @@ class PluginService:
         return plugin
 
     async def install_plugin(
-        self, plugin_id: UUID, agent_ids: list[UUID]
+        self, plugin_id: UUID, agent_ids: list[UUID], actor_role: str | None = None
     ) -> list[PluginInstallationResponse]:
         plugin = await self._get_or_404(plugin_id)
 
@@ -123,6 +123,7 @@ class PluginService:
                 "download_url": plugin.source_url,
                 "checksum_sha256": plugin.checksum or "",
             },
+            actor_role=actor_role,
         )
 
         # Publish after commit: a failed commit must not emit an install event

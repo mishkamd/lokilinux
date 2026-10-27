@@ -181,6 +181,7 @@ async def create_job(
             policy_id=body.policy_id,
             created_by=safe_user_uuid(current_user),
             created_by_actor=current_user.get("id"),
+            actor_role=role,
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
@@ -276,6 +277,8 @@ async def approve_job(
         job = await service.approve_job(
             job_id, safe_user_uuid(current_user), approver_actor=current_user.get("id")
         )
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc
     return JobResponse.model_validate(job)

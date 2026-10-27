@@ -9,6 +9,7 @@ from uuid import UUID
 from pydantic import BaseModel, model_validator
 
 from lokilinux.schemas.common import CursorPage
+from lokilinux.schemas.job import JobType
 
 
 class PolicyType(str, Enum):
@@ -29,7 +30,7 @@ class PolicyAction(BaseModel):
     kept as a list on the model so multi-step orchestration (Phase 2+) is an
     additive change, not another migration."""
 
-    type: str  # PACKAGE_UPDATE / CUSTOM_COMMAND today
+    type: JobType  # same set POST /jobs accepts; a free string let a policy request any job type
     params: dict = {}
 
 

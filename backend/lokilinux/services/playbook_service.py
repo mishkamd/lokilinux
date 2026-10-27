@@ -152,6 +152,7 @@ class PlaybookService:
         extra_job_parameters: dict | None = None,
         requires_approval: bool = True,
         created_by_actor: str | None = None,
+        actor_role: str | None = None,
     ) -> Job:
         """Create a job that runs this playbook's *current* content on the
         given agents. Content is snapshotted into Job.parameters at creation
@@ -199,6 +200,7 @@ class PlaybookService:
             },
             created_by=created_by,
             created_by_actor=created_by_actor,
+            actor_role=actor_role,
             requires_approval=requires_approval,
         )
         return job

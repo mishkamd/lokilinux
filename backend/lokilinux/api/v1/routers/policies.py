@@ -32,8 +32,18 @@ from lokilinux.schemas.policy import (
 from lokilinux.schemas.workflow import WorkflowResponse
 from lokilinux.services.policy_migration import PolicyMigrationError, import_policy_as_workflow
 from lokilinux.services.policy_service import compute_next_run_at, run_policy
+from lokilinux.utils.capability_rbac import assert_can_create
 
 router = APIRouter()
+
+
+def _assert_actions_allowed(role: str | None, actions) -> None:
+    # Scheduled runs execute as SYSTEM, so the writer's role is checked here, at save time (MIS-177).
+    try:
+        for action in actions:
+            assert_can_create(role, action.type.value, action.params)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
 
 
 # ── List ──────────────────────────────────────────────────────────────────────
@@ -88,6 +98,7 @@ async def create_policy(
     nats=Depends(get_nats),
     current_user: dict = Depends(require_role("ADMIN", "OPERATOR")),
 ) -> PolicyResponse:
+    _assert_actions_allowed(current_user.get("role"), body.actions)
     next_run_at = None
     cron_expr = body.cron_expr
     if body.trigger_type == TriggerType.SCHEDULE and cron_expr:
@@ -157,6 +168,8 @@ async def update_policy(
     nats=Depends(get_nats),
     current_user: dict = Depends(require_role("ADMIN", "OPERATOR")),
 ) -> PolicyResponse:
+    if body.actions is not None:
+        _assert_actions_allowed(current_user.get("role"), body.actions)
     row = (await db.execute(select(Policy).where(Policy.id == policy_id))).scalar_one_or_none()
     if row is None:
         raise HTTPException(status_code=404, detail="Policy not found")
@@ -241,7 +254,12 @@ async def run_policy_now(
         raise HTTPException(status_code=404, detail="Policy not found")
 
     job_ids, matched = await run_policy(
-        db, row, cache, triggered_by="manual", created_by_actor=current_user.get("id")
+        db,
+        row,
+        cache,
+        triggered_by="manual",
+        created_by_actor=current_user.get("id"),
+        actor_role=current_user.get("role"),
     )
     return PolicyRunResponse(job_ids=job_ids, matched_agents=matched)
 

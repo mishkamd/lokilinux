@@ -222,7 +222,10 @@ async def dry_run_remediation_plan(
     .../execution afterwards for results — the plan's own status is
     untouched (docs/compliance §13)."""
     svc = RemediationService(db, JobService(db, cache, nats))
-    plan = await svc.dry_run(plan_id, current_user)
+    try:
+        plan = await svc.dry_run(plan_id, current_user)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     return RemediationPlanResponse.model_validate(plan)
 
 
@@ -235,7 +238,10 @@ async def approve_remediation_plan(
     current_user: dict = Depends(require_permission("compliance.remediation.approve")),
 ) -> RemediationPlanResponse:
     svc = RemediationService(db, JobService(db, cache, nats))
-    plan = await svc.approve(plan_id, current_user)
+    try:
+        plan = await svc.approve(plan_id, current_user)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     return RemediationPlanResponse.model_validate(plan)
 
 
@@ -312,5 +318,8 @@ async def rollback_remediation_plan(
     current_user: dict = Depends(require_permission("compliance.remediation.rollback")),
 ) -> RemediationPlanResponse:
     svc = RemediationService(db, JobService(db, cache, nats))
-    plan = await svc.rollback(plan_id, current_user)
+    try:
+        plan = await svc.rollback(plan_id, current_user)
+    except PermissionError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
     return RemediationPlanResponse.model_validate(plan)

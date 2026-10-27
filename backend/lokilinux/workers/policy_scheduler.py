@@ -19,6 +19,7 @@ from sqlalchemy import select, update
 from lokilinux.models.policy import Policy
 from lokilinux.models.workflow import Workflow
 from lokilinux.services.policy_service import compute_next_run_at, run_policy
+from lokilinux.utils.capability_rbac import SYSTEM_ROLE
 
 logger = structlog.get_logger()
 
@@ -89,5 +90,7 @@ class PolicySchedulerWorker:
         if result.rowcount != 1:
             return  # another replica already claimed this tick
 
-        job_ids, matched = await run_policy(db, policy, self.cache, triggered_by="schedule")
+        job_ids, matched = await run_policy(
+            db, policy, self.cache, triggered_by="schedule", actor_role=SYSTEM_ROLE
+        )
         logger.info("policy.scheduled_run", policy_id=str(policy.id), matched_agents=matched, job_ids=[str(j) for j in job_ids])

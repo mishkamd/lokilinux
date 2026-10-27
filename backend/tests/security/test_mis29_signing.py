@@ -87,7 +87,7 @@ async def test_approve_job_issues_claim_bound_to_wire_agent_id(db_session, fake_
         target_servers={"agent_ids": [str(agent.id)]},
         parameters={"service_name": "nginx"},
         requires_approval=True,
-    )
+     actor_role="ADMIN",)
 
     approved = await svc.approve_job(job.id, approved_by=None)
 
@@ -130,7 +130,7 @@ async def test_approve_job_claim_names_capabilities_not_job_types(
         target_servers={"agent_ids": [str(agent.id)]},
         parameters={"playbook_content": "- hosts: all\n  tasks: []"},
         requires_approval=True,
-    )
+     actor_role="ADMIN",)
     await svc.approve_job(job.id, approved_by=None)
 
     assert signer.calls, "approve_job must sign an approval claim"
@@ -161,11 +161,11 @@ async def test_heartbeat_holds_unsignable_privileged_job_and_dispatches_the_rest
         name="held", job_type="SERVICE",
         target_servers={"agent_ids": [str(agent.id)]},
         parameters={"service_name": "nginx"},
-    )
+     actor_role="ADMIN",)
     sent = await svc.create_job(
         name="sent", job_type="INVENTORY_SCAN",
         target_servers={"agent_ids": [str(agent.id)]},
-    )
+     actor_role="ADMIN",)
     monkeypatch.setattr(job_envelope, "_get_signer", lambda: _BrokenSigner())
 
     @contextlib.asynccontextmanager

@@ -72,7 +72,13 @@ async def resolve_targets(db: AsyncSession, target_servers: dict | None) -> list
 
 
 async def run_policy(
-    db: AsyncSession, policy: Policy, cache: RedisCache, *, triggered_by: str, created_by_actor: str | None = None
+    db: AsyncSession,
+    policy: Policy,
+    cache: RedisCache,
+    *,
+    triggered_by: str,
+    created_by_actor: str | None = None,
+    actor_role: str | None = None,
 ) -> tuple[list[UUID], int]:
     """Resolve targets, create one Job from actions[0], write a PolicyAudit
     'TRIGGERED' row. Returns (job_ids, matched_agent_count) — job_ids is
@@ -95,6 +101,7 @@ async def run_policy(
                 policy_id=policy.id,
                 requires_approval=bool((policy.execution or {}).get("requires_approval")),
                 created_by_actor=created_by_actor,
+                actor_role=actor_role,
             )
             job_ids = [job.id]
         except ValueError:

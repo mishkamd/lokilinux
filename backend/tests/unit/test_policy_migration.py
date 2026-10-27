@@ -74,7 +74,7 @@ class TestEquivalenceAcrossTargetShapes:
         db_session.add(policy)
         await db_session.commit()
 
-        direct_job_ids, _matched = await run_policy(db_session, policy, fake_cache, triggered_by="test")
+        direct_job_ids, _matched = await run_policy(db_session, policy, fake_cache, triggered_by="test", actor_role="ADMIN")
         direct_job = await db_session.get(Job, direct_job_ids[0])
 
         workflow = await import_policy_as_workflow(db_session, fake_storage, policy, created_by=None)
@@ -94,7 +94,7 @@ class TestEquivalenceAcrossTargetShapes:
         db_session.add(policy)
         await db_session.commit()
 
-        direct_job_ids, _matched = await run_policy(db_session, policy, fake_cache, triggered_by="test")
+        direct_job_ids, _matched = await run_policy(db_session, policy, fake_cache, triggered_by="test", actor_role="ADMIN")
         direct_job = await db_session.get(Job, direct_job_ids[0])
 
         workflow = await import_policy_as_workflow(db_session, fake_storage, policy, created_by=None)
@@ -115,7 +115,7 @@ class TestEquivalenceAcrossTargetShapes:
         db_session.add(policy)
         await db_session.commit()
 
-        direct_job_ids, _matched = await run_policy(db_session, policy, fake_cache, triggered_by="test")
+        direct_job_ids, _matched = await run_policy(db_session, policy, fake_cache, triggered_by="test", actor_role="ADMIN")
         direct_job = await db_session.get(Job, direct_job_ids[0])
 
         workflow = await import_policy_as_workflow(db_session, fake_storage, policy, created_by=None)

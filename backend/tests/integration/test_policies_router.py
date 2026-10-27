@@ -222,3 +222,15 @@ async def test_policies_router_gates_mutations_on_admin_or_operator():
 
     operator = {"id": "u3", "role": "OPERATOR"}
     assert await check(user=operator) == operator
+
+
+@pytest.mark.asyncio
+async def test_operator_cannot_save_a_policy_with_a_command_action(client: AsyncClient, current_user):
+    # Scheduled runs execute as SYSTEM, so the writer's role is checked at save time (MIS-177).
+    current_user["role"] = "OPERATOR"
+    resp = await client.post("/api/v1/policies", json={
+        "name": "shell-by-operator",
+        "rules": {},
+        "actions": [{"type": "CUSTOM_COMMAND", "params": {"command": "id"}}],
+    })
+    assert resp.status_code == 403, resp.text

@@ -178,7 +178,7 @@ class RemediationService:
         )
 
         if should_dispatch:
-            await self._dispatch(plan)
+            await self._dispatch(plan, actor.get("role"))
         else:
             plan.status = "APPROVED"
             await self.db.commit()
@@ -191,7 +191,7 @@ class RemediationService:
         )
         return plan
 
-    async def _dispatch(self, plan: RemediationPlan) -> None:
+    async def _dispatch(self, plan: RemediationPlan, actor_role: str | None) -> None:
         """Create the execution Job for a plan. Caller sets approved_by/at."""
         actions = (
             await self.db.execute(
@@ -204,6 +204,7 @@ class RemediationService:
         try:
             job = await self.job_service.create_job(
                 name=f"Remediation: {plan.name}",
+                actor_role=actor_role,
                 job_type="COMPLIANCE_REMEDIATE",
                 target_servers={"agent_ids": agent_ids},
                 parameters={
@@ -262,6 +263,7 @@ class RemediationService:
         try:
             job = await self.job_service.create_job(
                 name=f"Remediation dry-run: {plan.name}",
+                actor_role=actor.get("role"),
                 job_type="COMPLIANCE_REMEDIATE",
                 target_servers={"agent_ids": agent_ids},
                 parameters={
@@ -366,6 +368,7 @@ class RemediationService:
         try:
             job = await self.job_service.create_job(
                 name=f"Remediation rollback: {plan.name}",
+                actor_role=actor.get("role"),
                 job_type="COMPLIANCE_REMEDIATE",
                 target_servers={"agent_ids": agent_ids},
                 parameters={

@@ -74,7 +74,7 @@ async def test_run_policy_creates_job_and_audit(db_session, fake_cache):
     db_session.add(policy)
     await db_session.commit()
 
-    job_ids, matched = await run_policy(db_session, policy, fake_cache, triggered_by="manual")
+    job_ids, matched = await run_policy(db_session, policy, fake_cache, triggered_by="manual", actor_role="ADMIN")
 
     assert matched == 1
     assert len(job_ids) == 1
@@ -105,10 +105,10 @@ async def test_run_policy_skips_quietly_on_active_duplicate(db_session, fake_cac
     db_session.add(policy)
     await db_session.commit()
 
-    first_job_ids, _ = await run_policy(db_session, policy, fake_cache, triggered_by="manual")
+    first_job_ids, _ = await run_policy(db_session, policy, fake_cache, triggered_by="manual", actor_role="ADMIN")
     assert len(first_job_ids) == 1
 
-    second_job_ids, matched = await run_policy(db_session, policy, fake_cache, triggered_by="manual")
+    second_job_ids, matched = await run_policy(db_session, policy, fake_cache, triggered_by="manual", actor_role="ADMIN")
     assert second_job_ids == []
     assert matched == 1  # targets still resolved fine, just no new job
 
@@ -123,7 +123,7 @@ async def test_run_policy_no_actions_creates_no_job(db_session, fake_cache):
     db_session.add(policy)
     await db_session.commit()
 
-    job_ids, matched = await run_policy(db_session, policy, fake_cache, triggered_by="manual")
+    job_ids, matched = await run_policy(db_session, policy, fake_cache, triggered_by="manual", actor_role="ADMIN")
 
     assert job_ids == []
     assert matched == 1

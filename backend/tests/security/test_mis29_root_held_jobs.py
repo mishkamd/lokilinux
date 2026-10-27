@@ -42,11 +42,11 @@ async def _setup(db_session, fake_cache, fake_nats, tmp_path, monkeypatch):
         name="held", job_type="SERVICE",
         target_servers={"agent_ids": [str(agent.id)]},
         parameters={"service_name": "nginx"},
-    )
+     actor_role="ADMIN",)
     sent = await svc.create_job(
         name="sent", job_type="INVENTORY_SCAN",
         target_servers={"agent_ids": [str(agent.id)]},
-    )
+     actor_role="ADMIN",)
     monkeypatch.setattr(job_envelope, "_get_signer", lambda: _BrokenSigner())
 
     @contextlib.asynccontextmanager

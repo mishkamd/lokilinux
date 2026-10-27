@@ -186,6 +186,7 @@ async def execute_playbook(
             extra_vars=body.extra_vars,
             created_by=safe_user_uuid(current_user),
             created_by_actor=current_user.get("id"),
+            actor_role=current_user.get("role"),
         )
     except ValueError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from exc

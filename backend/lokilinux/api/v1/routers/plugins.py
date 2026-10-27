@@ -41,10 +41,10 @@ async def install_plugin(
     # PLUGIN_INSTALL is ADMIN-only in the capability table
     # (utils/capability_rbac.py) — this route pushes code to the fleet and
     # the agent runs it as root.
-    _: dict = Depends(require_role("ADMIN")),
+    current_user: dict = Depends(require_role("ADMIN")),
 ) -> list[PluginInstallationResponse]:
     try:
-        return await svc.install_plugin(plugin_id, agent_ids)
+        return await svc.install_plugin(plugin_id, agent_ids, actor_role=current_user.get("role"))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 

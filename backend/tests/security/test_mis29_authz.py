@@ -56,7 +56,9 @@ async def test_plan_creator_cannot_approve_own_plan(
     await db_session.refresh(plan)
     assert plan.status == "PENDING_APPROVAL"
 
+    # COMPLIANCE_REMEDIATE needs SECURITY_REMEDIATION (MANAGER/ADMIN); an OPERATOR approver is refused at dispatch.
     current_user["id"] = str(uuid.uuid4())
+    current_user["role"] = "ADMIN"
     resp = await client.post(f"/api/v1/compliance/remediation-plans/{plan.id}/approve")
     assert resp.status_code == 200
     assert resp.json()["status"] == "EXECUTING"

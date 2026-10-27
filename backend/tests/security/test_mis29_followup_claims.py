@@ -63,7 +63,7 @@ async def _new_job(db_session, fake_cache, fake_nats, agents):
         target_servers={"agent_ids": [str(a.id) for a in agents]},
         parameters={"service_name": "nginx"},
         requires_approval=True,
-    )
+     actor_role="ADMIN",)
     return svc, job
 
 

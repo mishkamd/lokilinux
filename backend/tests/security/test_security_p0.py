@@ -167,7 +167,7 @@ async def test_service_forces_approval_regardless_of_caller(
         target_servers={"agent_ids": [str(agent_a.id)]},
         parameters={"command": "id"},
         requires_approval=False,
-    )
+     actor_role="ADMIN",)
     assert job.requires_approval is True
 
     benign = await svc.create_job(
@@ -175,7 +175,7 @@ async def test_service_forces_approval_regardless_of_caller(
         job_type="INVENTORY_SCAN",
         target_servers={"agent_ids": [str(agent_b.id)]},
         requires_approval=False,
-    )
+     actor_role="ADMIN",)
     assert benign.requires_approval is False
 
 

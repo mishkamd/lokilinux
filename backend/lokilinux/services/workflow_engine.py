@@ -70,6 +70,7 @@ from lokilinux.services.job_service import JobService
 from lokilinux.services.playbook_service import PlaybookService
 from lokilinux.services.policy_service import resolve_targets
 from lokilinux.utils.agent_capability import agent_meets_minimum
+from lokilinux.utils.capability_rbac import SYSTEM_ROLE
 from lokilinux.utils.expr import ExpressionError, evaluate_condition
 from lokilinux.utils.url_guard import UnsafeURLError, assert_safe_url
 from lokilinux.utils.shell import q, valid_host, valid_package_name
@@ -455,6 +456,7 @@ async def _dispatch_step(
     config = step.config or {}
     target_servers = {"agent_ids": [str(a) for a in target_agent_ids]}
     extra_params = {"workflow_run_id": str(run_id), "workflow_step_id": step.id}
+    # shortcut: step job types are not checked against the publisher's role (MIS-177), add a publish-time check
 
     if normalized == WorkflowNodeType.ANSIBLE:
         playbook_id = config.get("playbook_id")
@@ -462,6 +464,7 @@ async def _dispatch_step(
             raise WorkflowRunError(f"step '{step.id}' (type ansible) has no config.playbook_id")
         return await PlaybookService(db, cache, storage).execute_playbook(
             playbook_id=UUID(str(playbook_id)),
+            actor_role=SYSTEM_ROLE,
             agent_ids=target_agent_ids,
             extra_vars=config.get("extra_vars") or {},
             extra_job_parameters=extra_params,
@@ -475,7 +478,7 @@ async def _dispatch_step(
             # aware, so install/update don't compile to a shell line here (the
             # agent still uses /bin/sh for apt only, with names as "$@").
             return await JobService(db, cache).create_job(
-                name=f"Workflow step: {step.name}", job_type="PACKAGE_UPDATE",
+                name=f"Workflow step: {step.name}", job_type="PACKAGE_UPDATE", actor_role=SYSTEM_ROLE,
                 target_servers=target_servers,
                 parameters={"package_names": [str(p) for p in (config.get("packages") or [])], **extra_params},
                 requires_approval=False,
@@ -490,7 +493,7 @@ async def _dispatch_step(
     elif normalized == WorkflowNodeType.SERVICE:
         if await _agents_support_native(db, target_agent_ids):
             return await JobService(db, cache).create_job(
-                name=f"Workflow step: {step.name}", job_type="SERVICE",
+                name=f"Workflow step: {step.name}", job_type="SERVICE", actor_role=SYSTEM_ROLE,
                 target_servers=target_servers, parameters={**config, **extra_params},
                 requires_approval=False,
             )
@@ -500,7 +503,7 @@ async def _dispatch_step(
         # timezone/sysctl always compile to shell, at any agent version.
         if config.get("action") in ("reboot", "shutdown") and await _agents_support_native(db, target_agent_ids):
             return await JobService(db, cache).create_job(
-                name=f"Workflow step: {step.name}", job_type="REBOOT",
+                name=f"Workflow step: {step.name}", job_type="REBOOT", actor_role=SYSTEM_ROLE,
                 target_servers=target_servers, parameters={**config, **extra_params},
                 requires_approval=False,
             )
@@ -508,7 +511,7 @@ async def _dispatch_step(
     elif normalized == WorkflowNodeType.FILE:
         if await _agents_support_native(db, target_agent_ids):
             return await JobService(db, cache).create_job(
-                name=f"Workflow step: {step.name}", job_type="FILE",
+                name=f"Workflow step: {step.name}", job_type="FILE", actor_role=SYSTEM_ROLE,
                 target_servers=target_servers, parameters={**config, **extra_params},
                 requires_approval=False,
             )
@@ -521,7 +524,7 @@ async def _dispatch_step(
         raise WorkflowRunError(f"step type '{step.type.value}' is not executable yet")
 
     return await JobService(db, cache).create_job(
-        name=f"Workflow step: {step.name}", job_type="CUSTOM_COMMAND",
+        name=f"Workflow step: {step.name}", job_type="CUSTOM_COMMAND", actor_role=SYSTEM_ROLE,
         target_servers=target_servers, parameters={"command": command, **extra_params},
         requires_approval=False,
         # CR-01 invariant exception: the workflow's approval node is the human

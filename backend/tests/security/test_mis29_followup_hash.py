@@ -61,7 +61,7 @@ async def test_compliance_remediate_claim_covers_each_agents_own_view(
             },
         },
         requires_approval=True,
-    )
+     actor_role="ADMIN",)
     await svc.approve_job(job.id, approved_by=None)
 
     for agent in (first, second):

@@ -93,8 +93,16 @@ def unauthorized_capabilities(role: str, capabilities: Iterable[str]) -> list[st
     return sorted(denied)
 
 
-def assert_can_create(role: str, job_type: str, params: Optional[dict] = None) -> None:
-    """Raises PermissionError listing denied capabilities, if any."""
+# Internal callers (scheduler, autopilot, workflow steps). Their content was
+# validated by the role that wrote it (policy save, plan create, workflow publish),
+# so the job-type check is not repeated at dispatch.
+SYSTEM_ROLE = "SYSTEM"
+
+
+def assert_can_create(role: str | None, job_type: str, params: Optional[dict] = None) -> None:
+    """Raises PermissionError listing denied capabilities, if any. A missing role is denied everything."""
+    if role == SYSTEM_ROLE:
+        return
     denied = unauthorized_capabilities(role or "", required_capabilities(job_type, params))
     if denied:
         raise PermissionError(

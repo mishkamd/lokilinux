@@ -48,7 +48,7 @@ async def _agent_with_jobs(db_session, fake_cache, fake_nats, tmp_path, monkeypa
             name=f"held-{i}", job_type="SERVICE",
             target_servers={"agent_ids": [str(agent.id)]},
             parameters={"service_name": f"svc-{i}"},
-        )
+         actor_role="ADMIN",)
         for i in range(held)
     ]
     sent_jobs = [
@@ -56,7 +56,7 @@ async def _agent_with_jobs(db_session, fake_cache, fake_nats, tmp_path, monkeypa
             name=f"sent-{i}", job_type="INVENTORY_SCAN",
             target_servers={"agent_ids": [str(agent.id)]},
             parameters={"batch": i},
-        )
+         actor_role="ADMIN",)
         for i in range(sent)
     ]
     monkeypatch.setattr(job_envelope, "_get_signer", lambda: _BrokenSigner())

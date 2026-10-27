@@ -89,6 +89,7 @@ class PlaybookTemplateService:
         extra_vars_override: dict | None = None,
         created_by: UUID | None = None,
         created_by_actor: str | None = None,
+        actor_role: str | None = None,
     ) -> Job:
         """Launch a template: runs the referenced playbook's current content
         against the template's saved agents/extra_vars, unless overridden.
@@ -108,6 +109,7 @@ class PlaybookTemplateService:
             extra_vars=merged_extra_vars,
             created_by=created_by,
             created_by_actor=created_by_actor,
+            actor_role=actor_role,
             extra_job_parameters={"template_id": str(template.id)},
         )
         return job
