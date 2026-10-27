@@ -50,6 +50,21 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+      - name: uv.lock and Dockerfile pins match
+        working-directory: backend
+        run: |
+          pip install uv
+          uv lock --check
+          python3 - <<'EOF'
+          import re, tomllib
+          norm = lambda n: re.sub(r"[-_.]+", "-", n).lower()
+          lock = {norm(p["name"]): p["version"] for p in tomllib.load(open("uv.lock", "rb"))["package"]}
+          pins = re.findall(r"([A-Za-z0-9._-]+)(?:\[[^\]]*\])?==([0-9][0-9A-Za-z.+!-]*)", open("Dockerfile").read())
+          bad = [f"{n}=={v} (uv.lock has {lock[norm(n)]})" for n, v in pins if norm(n) in lock and lock[norm(n)] != v]
+          print("\n".join(bad) or "Dockerfile pins match uv.lock")
+          raise SystemExit(bool(bad))
+          EOF
+
       - name: Install backend dev deps and run tests
         working-directory: backend
         # CI has no backend/.env, so Settings needs its required fields here.
@@ -109,17 +124,14 @@ jobs:
         if: always()
         with:
           python-version: "3.11"
-      - name: pip-audit (backend dependencies)
+      - name: pip-audit (locked production set)
         if: always()
         working-directory: backend
         run: |
-          python -m venv .venv
-          # The venv ships pip 24.0 and setuptools 79.x, both with known advisories
-          # (setuptools is the build backend, pulled in by the editable install).
-          .venv/bin/pip install --upgrade pip setuptools
-          .venv/bin/pip install -e ".[dev]"
-          .venv/bin/pip install pip-audit
-          .venv/bin/pip-audit
+          pip install uv pip-audit
+          # What the lock ships, not what `pip install -e` resolves today.
+          uv export --frozen --no-dev --no-hashes --no-emit-project -o /tmp/prod-reqs.txt
+          pip-audit -r /tmp/prod-reqs.txt
 
       - uses: actions/setup-node@v4
         if: always()

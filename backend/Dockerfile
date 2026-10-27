@@ -38,7 +38,8 @@ RUN pip install --no-cache-dir --upgrade pip && \
     # setuptools CVE-2025-47273, wheel CVE-2026-24049, jaraco.context
     # CVE-2026-23949, msgpack GHSA-6v7p-g79w-8964
     pip install --no-cache-dir --upgrade --force-reinstall --no-deps \
-    setuptools==78.1.1 wheel==0.46.2 jaraco.context==6.1.0 msgpack==1.2.1 && \
+    # pillow: reportlab's transitive dep; 37 advisories, all fixed in 13.0.0
+    setuptools==78.1.1 wheel==0.46.2 jaraco.context==6.1.0 msgpack==1.2.1 pillow==13.0.0 && \
     # Build tooling is not needed at runtime; dropping pip+setuptools also
     # removes the vendored (vulnerable) copies they ship in _vendor.
     # msgpack/jaraco.context/wheel themselves remain as real packages.
