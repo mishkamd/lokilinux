@@ -68,9 +68,9 @@ export const useCorrelationStore = defineStore('correlation', () => {
     rules.value = rules.value.filter((r) => r.id !== id)
   }
 
-  async function toggleEnabled(rule: CorrelationRule) {
+  async function toggleEnabled(rule: CorrelationRule, enabled: boolean) {
     await updateRule(rule.id, {
-      name: rule.name, enabled: !rule.enabled, window_seconds: rule.window_seconds,
+      name: rule.name, enabled, window_seconds: rule.window_seconds,
       group_by: rule.group_by, conditions: rule.conditions, threshold_score: rule.threshold_score,
       incident_type: rule.incident_type, incident_severity: rule.incident_severity,
       // Round-trip the suppressions: the API only writes the fields it is

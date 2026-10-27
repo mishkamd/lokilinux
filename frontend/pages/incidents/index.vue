@@ -27,10 +27,10 @@ const columns = [
   { key: 'actions', label: '', noSort: true },
 ]
 
-const acting = ref<string | null>(null)
+const acting = ref<{ id: string; action: string } | null>(null)
 
 async function ack(id: string) {
-  acting.value = id
+  acting.value = { id, action: 'ack' }
   try {
     await store.ackIncident(id)
   } catch {
@@ -41,7 +41,7 @@ async function ack(id: string) {
 }
 
 async function resolve(id: string) {
-  acting.value = id
+  acting.value = { id, action: 'resolve' }
   try {
     await store.resolveIncident(id)
   } catch {
@@ -125,7 +125,7 @@ onMounted(() => store.fetchIncidents())
               size="xs"
               variant="ghost"
               aria-label="Acknowledge incident"
-              :loading="acting === row.id"
+              :loading="acting?.id === row.id && acting?.action === 'ack'"
               @click="ack(String(row.id))"
             >
               <Check class="size-3.5" />
@@ -136,7 +136,7 @@ onMounted(() => store.fetchIncidents())
               size="xs"
               variant="ghost"
               aria-label="Resolve incident"
-              :loading="acting === row.id"
+              :loading="acting?.id === row.id && acting?.action === 'resolve'"
               @click="resolve(String(row.id))"
             >
               <CheckCheck class="size-3.5" />

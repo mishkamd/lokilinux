@@ -126,11 +126,18 @@ async function confirmDelete() {
   }
 }
 
-async function toggle(rule: CorrelationRule) {
+// One PATCH per rule at a time: a double-click must not send a second, opposite write.
+const toggling = ref(new Set<string>())
+
+async function toggle(rule: CorrelationRule, enabled: boolean) {
+  if (toggling.value.has(rule.id)) return
+  toggling.value.add(rule.id)
   try {
-    await store.toggleEnabled(rule)
+    await store.toggleEnabled(rule, enabled)
   } catch {
     toast.add({ title: 'Error', description: 'Failed to toggle rule', color: 'red' })
+  } finally {
+    toggling.value.delete(rule.id)
   }
 }
 
@@ -199,8 +206,9 @@ onMounted(() => store.fetchRules())
         <Switch
           v-if="canEdit"
           :model-value="Boolean(row.enabled)"
+          :disabled="toggling.has(row.id)"
           :aria-label="`Enable rule ${row.name}`"
-          @update:model-value="toggle(row as CorrelationRule)"
+          @update:model-value="(value: boolean) => toggle(row as CorrelationRule, value)"
         />
         <Badge v-else :color="row.enabled ? 'green' : 'gray'" size="xs">
           {{ row.enabled ? 'Enabled' : 'Disabled' }}

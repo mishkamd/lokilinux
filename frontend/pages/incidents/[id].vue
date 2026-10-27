@@ -59,6 +59,13 @@ onMounted(() => {
   loadRunbooks()
 })
 
+// app.vue reuses the page when only the id changes: reload and drop the previous incident's evidence.
+watch(incidentId, () => {
+  evidence.value = null
+  executingRunbook.value = null
+  load()
+})
+
 const matchingRunbooks = computed(() =>
   runbooks.value.filter((r) => r.enabled && r.incident_type === incident.value?.type),
 )

@@ -21,7 +21,7 @@ const alerts = ref<Alert[]>([])
 const total = ref(0)
 const nextCursor = ref<string | null>(null)
 const loading = ref(false)
-const acting = ref<string | null>(null)
+const acting = ref<{ id: string; action: string } | null>(null)
 
 const columns = [
   { key: 'severity', label: 'Severity' },
@@ -70,7 +70,7 @@ watch(
 )
 
 async function acknowledge(id: string) {
-  acting.value = id
+  acting.value = { id, action: 'ack' }
   try {
     const updated = await api.post<{ id: string; status: string }>(`/alerts/${id}/acknowledge`, {})
     const row = alerts.value.find((a) => a.id === id)
@@ -83,7 +83,7 @@ async function acknowledge(id: string) {
 }
 
 async function resolve(id: string) {
-  acting.value = id
+  acting.value = { id, action: 'resolve' }
   try {
     const updated = await api.post<{ id: string; status: string }>(`/alerts/${id}/resolve`, {})
     const row = alerts.value.find((a) => a.id === id)
@@ -155,7 +155,7 @@ onMounted(() => fetchAlerts())
               size="xs"
               variant="ghost"
               aria-label="Acknowledge alert"
-              :loading="acting === row.id"
+              :loading="acting?.id === row.id && acting?.action === 'ack'"
               @click="acknowledge(String(row.id))"
             >
               <Check class="size-3.5" />
@@ -166,7 +166,7 @@ onMounted(() => fetchAlerts())
               size="xs"
               variant="ghost"
               aria-label="Resolve alert"
-              :loading="acting === row.id"
+              :loading="acting?.id === row.id && acting?.action === 'resolve'"
               @click="resolve(String(row.id))"
             >
               <CheckCheck class="size-3.5" />

@@ -26,10 +26,10 @@ const columns = [
   { key: 'actions', label: '', noSort: true },
 ]
 
-const acting = ref<string | null>(null)
+const acting = ref<{ id: string; action: string } | null>(null)
 
 async function resolve(id: string) {
-  acting.value = id
+  acting.value = { id, action: 'resolve' }
   try {
     await store.resolveSignal(id)
   } catch {
@@ -40,7 +40,7 @@ async function resolve(id: string) {
 }
 
 async function suppress(id: string) {
-  acting.value = id
+  acting.value = { id, action: 'suppress' }
   try {
     await store.suppressSignal(id)
   } catch {
@@ -122,7 +122,7 @@ onMounted(() => store.fetchSignals())
               size="xs"
               variant="ghost"
               aria-label="Resolve signal"
-              :loading="acting === row.id"
+              :loading="acting?.id === row.id && acting?.action === 'resolve'"
               @click="resolve(String(row.id))"
             >
               <Check class="size-3.5" />
@@ -133,7 +133,7 @@ onMounted(() => store.fetchSignals())
               size="xs"
               variant="ghost"
               aria-label="Suppress signal"
-              :loading="acting === row.id"
+              :loading="acting?.id === row.id && acting?.action === 'suppress'"
               @click="suppress(String(row.id))"
             >
               <Ban class="size-3.5" />
