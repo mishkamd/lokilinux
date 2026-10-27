@@ -33,6 +33,14 @@ config.set_main_option("sqlalchemy.url", _settings.database_url)
 # ── Offline mode (generate SQL without DB connection) ─────────────────────────
 
 
+# Better Auth (frontend) owns these tables and has no models here: autogenerate skips them.
+BETTER_AUTH_TABLES = {"user", "session", "account", "verification", "twoFactor"}
+
+
+def include_object(obj, name, type_, reflected, compare_to):  # type: ignore[no-untyped-def]
+    return not (type_ == "table" and name in BETTER_AUTH_TABLES)
+
+
 def run_migrations_offline() -> None:
     url = config.get_main_option("sqlalchemy.url")
     context.configure(
@@ -41,6 +49,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
+        include_object=include_object,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -54,6 +63,7 @@ def do_run_migrations(connection):  # type: ignore[no-untyped-def]
         connection=connection,
         target_metadata=target_metadata,
         compare_type=True,
+        include_object=include_object,
     )
     with context.begin_transaction():
         context.run_migrations()

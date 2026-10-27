@@ -45,6 +45,11 @@ from .agent_policy import (
 from .remediation import MaintenanceWindow, RemediationAction, RemediationJob, RemediationPlan
 from .rule_evaluation import ComplianceScore, RuleEvaluation
 from .storage_object import StorageObject
+from .ansible_project import AnsibleProject
+from .ansible_role import AnsibleRole
+from .approval import ApprovalClaim
+from .playbook import Playbook
+from .playbook_template import PlaybookTemplate
 from .workflow import Workflow, WorkflowAudit, WorkflowRun, WorkflowStepRun, WorkflowVersion
 
 # Observability pipeline (Phases B/D) — these live in their own bounded-context
