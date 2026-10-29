@@ -132,9 +132,12 @@ const toggling = ref(new Set<string>())
 async function toggle(rule: CorrelationRule, enabled: boolean) {
   if (toggling.value.has(rule.id)) return
   toggling.value.add(rule.id)
+  const previous = rule.enabled
+  rule.enabled = enabled // optimistic: the switch flips immediately
   try {
     await store.toggleEnabled(rule, enabled)
   } catch {
+    rule.enabled = previous
     toast.add({ title: 'Error', description: 'Failed to toggle rule', color: 'red' })
   } finally {
     toggling.value.delete(rule.id)

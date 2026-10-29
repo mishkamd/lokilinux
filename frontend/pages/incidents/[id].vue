@@ -27,7 +27,8 @@ const incidentId = computed(() => String(route.params.id))
 
 const incident = ref<IncidentDetail | null>(null)
 const loading = ref(true)
-const acting = ref(false)
+// Which action is in flight — ack/resolve/reopen must not spin together.
+const acting = ref<string | null>(null)
 
 const evidence = ref<IncidentEvidenceItem[] | null>(null)
 const evidenceLoading = ref(false)
@@ -82,37 +83,37 @@ const timelineIcon = (kind: string) =>
 
 async function ack() {
   if (!incident.value) return
-  acting.value = true
+  acting.value = 'ack'
   try {
     incident.value = { ...incident.value, ...(await store.ackIncident(incident.value.id)) }
   } catch {
     toast.add({ title: 'Error', description: 'Failed to acknowledge', color: 'red' })
   } finally {
-    acting.value = false
+    acting.value = null
   }
 }
 
 async function resolve() {
   if (!incident.value) return
-  acting.value = true
+  acting.value = 'resolve'
   try {
     incident.value = { ...incident.value, ...(await store.resolveIncident(incident.value.id)) }
   } catch {
     toast.add({ title: 'Error', description: 'Failed to resolve', color: 'red' })
   } finally {
-    acting.value = false
+    acting.value = null
   }
 }
 
 async function reopen() {
   if (!incident.value) return
-  acting.value = true
+  acting.value = 'reopen'
   try {
     incident.value = { ...incident.value, ...(await store.reopenIncident(incident.value.id)) }
   } catch {
     toast.add({ title: 'Error', description: 'Failed to reopen', color: 'red' })
   } finally {
-    acting.value = false
+    acting.value = null
   }
 }
 
@@ -168,7 +169,7 @@ async function executeRunbook(runbookId: string) {
             v-if="canEdit && incident.status === 'OPEN'"
             variant="outline"
             size="sm"
-            :loading="acting"
+            :loading="acting === 'ack'"
             @click="ack"
           >
             <Check class="size-3.5" />
@@ -178,7 +179,7 @@ async function executeRunbook(runbookId: string) {
             v-if="canEdit && !['RESOLVED', 'CLOSED'].includes(incident.status)"
             variant="outline"
             size="sm"
-            :loading="acting"
+            :loading="acting === 'resolve'"
             @click="resolve"
           >
             <CheckCheck class="size-3.5" />
@@ -188,7 +189,7 @@ async function executeRunbook(runbookId: string) {
             v-if="canEdit && incident.status === 'RESOLVED'"
             variant="outline"
             size="sm"
-            :loading="acting"
+            :loading="acting === 'reopen'"
             @click="reopen"
           >
             <RotateCcw class="size-3.5" />
@@ -278,7 +279,8 @@ async function executeRunbook(runbookId: string) {
       </div>
 
       <div class="surface-card rounded-[var(--radius-md)] p-3">
-        <details>
+        <!-- key: a reused <details> stays open and never fires toggle for the new incident -->
+        <details :key="incidentId" @toggle="($event.target as HTMLDetailsElement).open && loadEvidenceOnce()">
           <summary class="section-title cursor-pointer">Evidence</summary>
           <div class="mt-2.5">
             <Skeleton v-if="evidenceLoading" class="h-8 w-full" />
